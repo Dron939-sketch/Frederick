@@ -186,7 +186,7 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         mode: режим (psychologist, coach, trainer)
     
     Returns:
-        байты аудиофайла (MP3/OGG) или None
+        байты аудиофайла (MP3) или None
     """
     logger.info(f"🎤 Синтез речи, режим: {mode}, текст: {text[:100]}...")
     
@@ -194,7 +194,7 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         logger.error("❌ YANDEX_API_KEY не настроен")
         return None
     
-    # Голоса для разных режимов
+    # Голоса для разных режимов (как в боте)
     voices = {
         "psychologist": "ermil",    # спокойный мужской
         "coach": "filipp",          # энергичный мужской
@@ -202,6 +202,8 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         "default": "filipp"
     }
     voice = voices.get(mode, voices["default"])
+    
+    logger.info(f"🗣️ Выбран голос: {voice} для режима: {mode}")
     
     # Ограничиваем длину текста
     original_length = len(text)
@@ -237,7 +239,7 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         
         if response.status_code == 200:
             audio_data = response.content
-            logger.info(f"✅ Речь синтезирована: {len(audio_data)} байт, формат: MP3")
+            logger.info(f"✅ Речь синтезирована: {len(audio_data)} байт, формат: MP3, голос: {voice}")
             return audio_data
         else:
             logger.error(f"❌ Yandex TTS error {response.status_code}: {response.text[:200]}")
@@ -294,6 +296,10 @@ class VoiceService:
     async def text_to_speech(self, text: str, mode: str = "psychologist") -> Optional[str]:
         """
         Синтез речи, возвращает base64 строку с аудио
+        
+        Args:
+            text: текст для озвучивания
+            mode: режим (psychologist, coach, trainer)
         """
         audio_bytes = await text_to_speech(text, mode)
         if audio_bytes:
@@ -302,6 +308,7 @@ class VoiceService:
     
     async def close(self):
         """Закрыть соединения"""
+        await close_http_client()
         logger.info("VoiceService закрыт")
 
 
