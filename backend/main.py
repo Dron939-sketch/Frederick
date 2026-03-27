@@ -1568,9 +1568,9 @@ async def save_mode(request: Request):
 
 
 @app.get("/api/thought")
-async def thought(user_id: int):
+async def thought(request: Request, user_id: int):  # ← добавили request
     """Получить мысль психолога (алиас)"""
-    return await get_psychologist_thought(None, user_id)
+    return await get_psychologist_thought(request, user_id) 
 
 
 @app.post("/api/psychologist-thoughts/generate")
