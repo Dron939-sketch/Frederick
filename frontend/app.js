@@ -70,6 +70,11 @@ let audioContext = null;
 let mediaStream = null;
 let animationFrame = null;
 
+// Определение мобильного устройства
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
 // ========== API ВЫЗОВЫ ==========
 
 async function apiCall(endpoint, options = {}) {
@@ -405,9 +410,23 @@ async function findPsychometricDoubles() {
 
 async function checkMicrophonePermission() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop());
-        return true;
+        const constraints = {
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        };
+        
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const audioTrack = stream.getAudioTracks()[0];
+        
+        if (audioTrack && audioTrack.enabled) {
+            console.log('✅ Microphone access granted:', audioTrack.label);
+            stream.getTracks().forEach(track => track.stop());
+            return true;
+        }
+        return false;
     } catch (error) {
         console.error('Microphone permission error:', error);
         let errorMessage = '❌ Нет доступа к микрофону. ';
@@ -415,6 +434,8 @@ async function checkMicrophonePermission() {
             errorMessage += 'Разрешите доступ в настройках браузера.';
         } else if (error.name === 'NotFoundError') {
             errorMessage += 'Микрофон не найден.';
+        } else if (error.name === 'NotReadableError') {
+            errorMessage += 'Микрофон уже используется другим приложением.';
         } else {
             errorMessage += 'Ошибка: ' + error.message;
         }
@@ -446,11 +467,19 @@ async function startRecordingWithHold() {
             return;
         }
         
+        // Для мобильных устройств показываем подсказку
+        if (isMobileDevice()) {
+            showToast('🎤 Говорите в микрофон телефона', 'info');
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
         const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true
+                autoGainControl: true,
+                sampleRate: 44100,
+                channelCount: 1
             } 
         });
         
@@ -539,7 +568,6 @@ async function startRecordingWithHold() {
                     if (result.answer) {
                         addMessage(result.answer, 'bot');
                         
-                        // Исправленная обработка аудио для MP3
                         if (result.audio_base64) {
                             if (result.audio_base64.startsWith('data:audio/')) {
                                 playAudioResponse(result.audio_base64);
@@ -613,6 +641,8 @@ async function startRecordingWithHold() {
             errorMessage += 'Нет разрешения на использование микрофона.';
         } else if (error.name === 'NotFoundError') {
             errorMessage += 'Микрофон не найден.';
+        } else if (error.name === 'NotReadableError') {
+            errorMessage += 'Микрофон занят другим приложением.';
         } else {
             errorMessage += error.message;
         }
@@ -641,7 +671,7 @@ async function sendVoiceToServer(audioBlob, retries = 2) {
     const formData = new FormData();
     formData.append('user_id', CONFIG.USER_ID);
     formData.append('voice', audioBlob, `voice_${Date.now()}.webm`);
-    formData.append('mode', currentMode);  // ← ЭТА СТРОКА ДОБАВЛЕНА!
+    formData.append('mode', currentMode);
     
     console.log('📤 Отправка голоса:', {
         user_id: CONFIG.USER_ID,
@@ -739,14 +769,12 @@ function playAudioResponse(audioData) {
     try {
         let audioUrl = audioData;
         
-        // Если это data URL (начинается с data:audio)
         if (audioData.startsWith('data:audio/')) {
             const matches = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/);
             if (matches) {
                 const mimeType = matches[1];
                 const base64Data = matches[2];
                 
-                // Декодируем base64 в blob
                 const binaryString = atob(base64Data);
                 const bytes = new Uint8Array(binaryString.length);
                 for (let i = 0; i < binaryString.length; i++) {
@@ -759,7 +787,6 @@ function playAudioResponse(audioData) {
             }
         }
         
-        // Останавливаем текущее воспроизведение
         audio.pause();
         audio.currentTime = 0;
         audio.src = audioUrl;
@@ -1820,6 +1847,50 @@ function initMobileEnhancements() {
     });
 }
 
+function initMobileMenu() {
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const chatsPanel = document.getElementById('chatsPanel');
+    
+    if (!mobileMenuBtn || !chatsPanel) return;
+    
+    // Открытие/закрытие меню
+    mobileMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chatsPanel.classList.toggle('open');
+    });
+    
+    // Закрытие при клике вне меню
+    document.addEventListener('click', (e) => {
+        if (chatsPanel.classList.contains('open')) {
+            if (!chatsPanel.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
+                chatsPanel.classList.remove('open');
+            }
+        }
+    });
+    
+    // Закрытие при свайпе влево
+    let touchStartX = 0;
+    chatsPanel.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+    });
+    
+    chatsPanel.addEventListener('touchend', (e) => {
+        const touchEndX = e.changedTouches[0].clientX;
+        if (touchEndX - touchStartX < -50) {
+            chatsPanel.classList.remove('open');
+        }
+    });
+    
+    // Закрытие при нажатии на пункт меню
+    document.querySelectorAll('.chat-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if (window.innerWidth <= 768) {
+                chatsPanel.classList.remove('open');
+            }
+        });
+    });
+}
+
 function renderDashboard() {
     const container = document.getElementById('screenContainer');
     const modeConfig = MODES[currentMode];
@@ -1903,7 +1974,6 @@ function renderDashboard() {
         </div>
     `;
     
-    // Показываем swipe индикатор только на мобильных
     if (window.innerWidth <= 768) {
         const swipeIndicator = document.getElementById('swipeIndicator');
         if (swipeIndicator) swipeIndicator.style.display = 'block';
@@ -1953,14 +2023,10 @@ function renderDashboard() {
     initMobileEnhancements();
 }
 
-function initMobileMenu() {
-    document.getElementById('mobileMenuBtn')?.addEventListener('click', () => {
-        document.getElementById('chatsPanel').classList.toggle('open');
-    });
-}
-
 async function init() {
     console.log('🚀 FREDI PREMIUM — полная версия');
+    
+    initMobileMenu();
     
     try {
         const status = await getUserStatus();
@@ -1971,12 +2037,10 @@ async function init() {
     } catch (e) {}
     
     renderDashboard();
-    initMobileMenu();
     
     document.getElementById('userName').textContent = CONFIG.USER_NAME;
     document.getElementById('userMiniAvatar').textContent = CONFIG.USER_NAME.charAt(0);
     
-    // Проверяем микрофон при загрузке
     setTimeout(async () => {
         const hasMic = await checkMicrophonePermission();
         if (!hasMic) {
