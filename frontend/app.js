@@ -321,6 +321,73 @@ async function getConfinementStatistics() {
     }
 }
 
+// ========== НОВЫЕ API ДЛЯ ПРОВЕРКИ РЕАЛЬНОСТИ ==========
+
+async function getRealityPath(goalId, mode = 'coach') {
+    try {
+        const data = await apiCall(`/api/reality/path/${goalId}?mode=${mode}`);
+        return data.path;
+    } catch (error) {
+        console.warn('Failed to get reality path', error);
+        return null;
+    }
+}
+
+async function checkReality(goalId, mode = 'coach', lifeContext = {}, goalContext = {}, profile = {}) {
+    try {
+        const data = await apiCall('/api/reality/check', {
+            method: 'POST',
+            body: JSON.stringify({
+                goal_id: goalId,
+                mode: mode,
+                life_context: lifeContext,
+                goal_context: goalContext,
+                profile: profile
+            })
+        });
+        return data.result;
+    } catch (error) {
+        console.warn('Failed to check reality', error);
+        return null;
+    }
+}
+
+async function getLifeContextQuestions() {
+    try {
+        const data = await apiCall('/api/reality/questions/life');
+        return data.questions;
+    } catch (error) {
+        console.warn('Failed to get life questions', error);
+        return null;
+    }
+}
+
+async function parseLifeAnswers(text) {
+    try {
+        const data = await apiCall('/api/reality/parse/life', {
+            method: 'POST',
+            body: JSON.stringify({ text: text })
+        });
+        return data.parsed;
+    } catch (error) {
+        console.warn('Failed to parse life answers', error);
+        return null;
+    }
+}
+
+async function parseGoalAnswers(text) {
+    try {
+        const data = await apiCall('/api/reality/parse/goal', {
+            method: 'POST',
+            body: JSON.stringify({ text: text })
+        });
+        return data.parsed;
+    } catch (error) {
+        console.warn('Failed to parse goal answers', error);
+        return null;
+    }
+}
+
 // ========== ДРУГИЕ API ==========
 
 async function getUserStatus() {
@@ -2010,7 +2077,6 @@ async function init() {
         }
     }, 1000);
     
-    // ========== ОБРАБОТЧИК ДЛЯ ТЕСТА И РАСШИРЕННЫХ ФУНКЦИЙ ==========
     document.querySelectorAll('.chat-item').forEach(item => {
         item.addEventListener('click', () => {
             const chat = item.dataset.chat;
