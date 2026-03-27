@@ -1,8 +1,4 @@
-# render.yaml - Финальная рабочая конфигурация
-# Создает backend сервис, базы данных создаются автоматически
-
 services:
-  # Backend API (FastAPI)
   - type: web
     name: fredi-backend
     runtime: python
@@ -14,33 +10,22 @@ services:
       pip install -r requirements.txt
     startCommand: |
       cd backend
-      uvicorn main:app \
-        --host 0.0.0.0 \
-        --port $PORT \
-        --workers 2 \
-        --timeout-keep-alive 65 \
-        --limit-concurrency 100
+      uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2
     envVars:
-      # PostgreSQL - будет создана автоматически
       - key: DATABASE_URL
         fromDatabase:
           name: fredi-db
           property: connectionString
-      # Redis - будет создан автоматически
       - key: REDIS_URL
         fromDatabase:
           name: fredi-redis
           property: connectionString
-      # Настройки окружения
       - key: ENVIRONMENT
         value: production
       - key: LOG_LEVEL
         value: info
       - key: PYTHONPATH
         value: /opt/render/project/src
-      - key: PYTHONUNBUFFERED
-        value: "true"
-      # API ключи (добавить вручную после деплоя)
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPGRAM_API_KEY
@@ -53,11 +38,6 @@ services:
     healthCheckTimeout: 100
     autoDeploy: true
     numInstances: 1
-    scaling:
-      minInstances: 1
-      maxInstances: 2
-      targetMemoryPercent: 70
-      targetCPUPercent: 70
     disk:
       name: tmp
       mountPath: /tmp
