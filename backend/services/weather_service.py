@@ -1,5 +1,6 @@
 """
 Сервис для работы с погодой (OpenWeatherMap)
+Адаптирован для API из бота
 """
 
 import aiohttp
@@ -122,6 +123,58 @@ class WeatherService:
             "50n": "🌫️"
         }
         return icons.get(icon_code, "🌡️")
+    
+    async def get_forecast(self, city: str, days: int = 5) -> Optional[Dict[str, Any]]:
+        """
+        Получение прогноза погоды на несколько дней
+        
+        Args:
+            city: Название города
+            days: Количество дней (1-5)
+        
+        Returns:
+            Словарь с прогнозом
+        """
+        if not self.api_key:
+            return None
+        
+        try:
+            session = await self._get_session()
+            
+            async with session.get(
+                "https://api.openweathermap.org/data/2.5/forecast",
+                params={
+                    "q": city,
+                    "appid": self.api_key,
+                    "units": "metric",
+                    "lang": "ru",
+                    "cnt": days * 8  # 8 записей в день (каждые 3 часа)
+                },
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    forecast = []
+                    for item in data.get('list', [])[:days * 8]:
+                        forecast.append({
+                            "datetime": item['dt_txt'],
+                            "temperature": round(item['main']['temp']),
+                            "description": item['weather'][0]['description'].capitalize(),
+                            "icon": self._get_icon(item['weather'][0]['icon'])
+                        })
+                    
+                    return {
+                        "city": data.get('city', {}).get('name', city),
+                        "forecast": forecast
+                    }
+                else:
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"Forecast error: {e}")
+            return None
     
     async def close(self):
         """Закрытие сессии"""
