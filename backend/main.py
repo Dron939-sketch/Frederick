@@ -1,4 +1,3 @@
-# backend/main.py
 """
 Фреди - Виртуальный психолог
 Асинхронный API сервер на FastAPI
@@ -19,7 +18,6 @@ from fastapi import FastAPI, Request, HTTPException, Depends, File, UploadFile, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
-from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -42,11 +40,6 @@ from services.weather_service import WeatherService
 from repositories.user_repo import UserRepository
 from repositories.context_repo import ContextRepository
 from repositories.message_repo import MessageRepository
-from models import (
-    UserProfile, UserContext, Message, ChatRequest,
-    VoiceRequest, VoiceResponse, SaveContextRequest,
-    HealthResponse, ErrorResponse
-)
 
 # ============================================
 # ГЛОБАЛЬНЫЕ ОБЪЕКТЫ (инициализируются в lifespan)
@@ -64,6 +57,44 @@ message_repo: Optional[MessageRepository] = None
 # RATE LIMITING
 # ============================================
 limiter = Limiter(key_func=get_remote_address)
+
+# ============================================
+# MODELS (Pydantic)
+# ============================================
+class SaveContextRequest(BaseModel):
+    user_id: int
+    context: Dict[str, Any]
+
+
+class SaveProfileRequest(BaseModel):
+    user_id: int
+    profile: Dict[str, Any]
+
+
+class ChatRequest(BaseModel):
+    user_id: int
+    message: str
+    mode: str = "psychologist"
+
+
+class ChatResponse(BaseModel):
+    success: bool
+    response: str
+
+
+class VoiceProcessResponse(BaseModel):
+    success: bool
+    recognized_text: Optional[str] = None
+    answer: Optional[str] = None
+    audio_base64: Optional[str] = None
+    error: Optional[str] = None
+
+
+class HealthResponse(BaseModel):
+    status: str
+    timestamp: str
+    services: Dict[str, Any]
+
 
 # ============================================
 # LIFESPAN (Управление жизненным циклом)
@@ -149,12 +180,17 @@ async def lifespan(app: FastAPI):
             await cache.close()
         if ai_service:
             await ai_service.close()
+        if voice_service:
+            await voice_service.close()
+        if weather_service:
+            await weather_service.close()
         
         logger.info("✅ Приложение остановлено")
         
     except Exception as e:
         logger.error(f"❌ Критическая ошибка при запуске: {e}")
         raise
+
 
 # ============================================
 # СОЗДАНИЕ ПРИЛОЖЕНИЯ
@@ -190,6 +226,7 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+
 # ============================================
 # MIDDLEWARE: Логирование запросов
 # ============================================
@@ -198,25 +235,19 @@ async def log_requests(request: Request, call_next):
     """Логирование всех HTTP запросов"""
     start_time = time.time()
     
-    # Логируем входящий запрос
     logger.debug(f"→ {request.method} {request.url.path}")
     
     try:
         response = await call_next(request)
-        
-        # Вычисляем длительность
         duration = time.time() - start_time
         
-        # Логируем ответ
         logger.info(
             f"{request.method} {request.url.path} "
             f"status={response.status_code} "
             f"duration={duration:.3f}s"
         )
         
-        # Добавляем заголовок с длительностью
         response.headers["X-Response-Time"] = f"{duration:.3f}s"
-        
         return response
         
     except Exception as e:
@@ -227,6 +258,7 @@ async def log_requests(request: Request, call_next):
             f"duration={duration:.3f}s"
         )
         raise
+
 
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
@@ -345,13 +377,11 @@ async def init_database_tables():
         
         # ========== ИНДЕКСЫ ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ ==========
         
-        # Индексы для messages
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_user_id_created 
             ON messages(user_id, created_at DESC)
         """)
         
-        # Индексы для events
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_events_user_id 
             ON events(user_id, created_at DESC)
@@ -362,7 +392,6 @@ async def init_database_tables():
             ON events(event_type, created_at DESC)
         """)
         
-        # Индексы для test_results
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_test_results_user_id 
             ON test_results(user_id, created_at DESC)
@@ -373,25 +402,23 @@ async def init_database_tables():
             ON test_results(profile_code) WHERE profile_code IS NOT NULL
         """)
         
-        # Индексы для reminders
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_reminders_pending 
             ON reminders(remind_at) WHERE is_sent = FALSE
         """)
         
-        # Индексы для weekend_ideas_cache
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_weekend_cache_expires 
             ON weekend_ideas_cache(expires_at)
         """)
         
-        # Индексы для users
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_users_last_activity 
             ON users(last_activity DESC) WHERE is_active = TRUE
         """)
         
         logger.info("✅ Все таблицы и индексы созданы")
+
 
 # ============================================
 # ФОНОВЫЕ ЗАДАЧИ
@@ -400,56 +427,46 @@ async def cleanup_old_data():
     """Очистка старых данных (запускается каждый час)"""
     while True:
         try:
-            await asyncio.sleep(3600)  # 1 час
+            await asyncio.sleep(3600)
             
             async with db.get_connection() as conn:
-                # Удаляем сообщения старше 30 дней
-                deleted_messages = await conn.execute("""
+                await conn.execute("""
                     DELETE FROM messages 
                     WHERE created_at < NOW() - INTERVAL '30 days'
                 """)
                 
-                # Удаляем события старше 30 дней
-                deleted_events = await conn.execute("""
+                await conn.execute("""
                     DELETE FROM events 
                     WHERE created_at < NOW() - INTERVAL '30 days'
                 """)
                 
-                # Удаляем просроченный кэш
-                deleted_cache = await conn.execute("""
+                await conn.execute("""
                     DELETE FROM weekend_ideas_cache 
                     WHERE expires_at < NOW()
                 """)
                 
-                # Деактивируем неактивных пользователей
-                deactivated = await conn.execute("""
+                await conn.execute("""
                     UPDATE users 
                     SET is_active = FALSE 
                     WHERE last_activity < NOW() - INTERVAL '90 days' 
                     AND is_active = TRUE
                 """)
                 
-                if deleted_messages or deleted_events or deleted_cache or deactivated:
-                    logger.info(
-                        f"🧹 Cleanup: {deleted_messages} messages, "
-                        f"{deleted_events} events, {deleted_cache} cache, "
-                        f"{deactivated} users deactivated"
-                    )
+                logger.info("🧹 Cleanup completed")
                     
         except asyncio.CancelledError:
-            logger.info("Cleanup task cancelled")
             break
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
+
 
 async def send_reminders():
     """Отправка отложенных напоминаний"""
     while True:
         try:
-            await asyncio.sleep(60)  # Каждую минуту
+            await asyncio.sleep(60)
             
             async with db.get_connection() as conn:
-                # Получаем напоминания, которые пора отправлять
                 reminders = await conn.fetch("""
                     SELECT * FROM reminders 
                     WHERE is_sent = FALSE 
@@ -459,10 +476,8 @@ async def send_reminders():
                 
                 for reminder in reminders:
                     try:
-                        # Отправляем уведомление (здесь может быть push, email и т.д.)
                         logger.info(f"📬 Sending reminder {reminder['id']} to user {reminder['user_id']}")
                         
-                        # Отмечаем как отправленное
                         await conn.execute("""
                             UPDATE reminders 
                             SET is_sent = TRUE, sent_at = NOW() 
@@ -473,33 +488,30 @@ async def send_reminders():
                         logger.error(f"Failed to send reminder {reminder['id']}: {e}")
                         
         except asyncio.CancelledError:
-            logger.info("Reminders task cancelled")
             break
         except Exception as e:
             logger.error(f"Reminders error: {e}")
+
 
 async def update_metrics():
     """Обновление метрик (каждые 5 минут)"""
     while True:
         try:
-            await asyncio.sleep(300)  # 5 минут
+            await asyncio.sleep(300)
             
             async with db.get_connection() as conn:
-                # Считаем активных пользователей за последние 24 часа
                 active_24h = await conn.fetchval("""
                     SELECT COUNT(DISTINCT user_id) 
                     FROM events 
                     WHERE created_at > NOW() - INTERVAL '24 hours'
                 """)
                 
-                # Считаем сообщения за последний час
                 messages_1h = await conn.fetchval("""
                     SELECT COUNT(*) 
                     FROM messages 
                     WHERE created_at > NOW() - INTERVAL '1 hour'
                 """)
                 
-                # Считаем новые тесты
                 new_tests = await conn.fetchval("""
                     SELECT COUNT(*) 
                     FROM test_results 
@@ -512,45 +524,10 @@ async def update_metrics():
                 )
                 
         except asyncio.CancelledError:
-            logger.info("Metrics task cancelled")
             break
         except Exception as e:
             logger.error(f"Metrics error: {e}")
 
-# ============================================
-# MODELS (Pydantic)
-# ============================================
-class SaveContextRequest(BaseModel):
-    user_id: int
-    context: Dict[str, Any]
-
-class SaveProfileRequest(BaseModel):
-    user_id: int
-    profile: Dict[str, Any]
-
-class ChatRequest(BaseModel):
-    user_id: int
-    message: str
-    mode: str = "psychologist"
-
-class ChatResponse(BaseModel):
-    success: bool
-    response: str
-
-class VoiceProcessRequest(BaseModel):
-    user_id: int
-
-class VoiceProcessResponse(BaseModel):
-    success: bool
-    recognized_text: Optional[str] = None
-    answer: Optional[str] = None
-    audio_base64: Optional[str] = None
-    error: Optional[str] = None
-
-class HealthResponse(BaseModel):
-    status: str
-    timestamp: str
-    services: Dict[str, Any]
 
 # ============================================
 # HEALTH CHECK
@@ -568,7 +545,6 @@ async def health_check():
         }
     }
     
-    # Проверка БД
     if db:
         try:
             async with db.get_connection() as conn:
@@ -579,7 +555,6 @@ async def health_check():
             status["services"]["database"] = False
             status["status"] = "degraded"
     
-    # Проверка Redis
     if cache and cache.is_connected:
         try:
             await cache.redis.ping()
@@ -587,65 +562,28 @@ async def health_check():
         except Exception:
             status["services"]["redis"] = False
     
-    # Проверка AI сервиса
     if ai_service and ai_service.api_key:
         status["services"]["ai_service"] = True
     
-    # Общий статус
     if not status["services"]["database"]:
         status["status"] = "unhealthy"
         return JSONResponse(status_code=503, content=status)
     
     return status
 
-@app.get("/health/detailed")
-async def health_check_detailed():
-    """Детальный health check для отладки"""
-    if not db:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "error", "message": "Database not initialized"}
-        )
-    
-    try:
-        async with db.get_connection() as conn:
-            # Проверяем количество таблиц
-            tables = await conn.fetch("""
-                SELECT tablename FROM pg_tables 
-                WHERE schemaname = 'public' 
-                AND tablename LIKE 'fredi_%'
-            """)
-            
-            # Проверяем размер БД
-            db_size = await conn.fetchval("""
-                SELECT pg_database_size(current_database())
-            """)
-            
-            # Проверяем активные соединения
-            connections = await conn.fetchval("""
-                SELECT COUNT(*) FROM pg_stat_activity
-            """)
-            
-        return {
-            "status": "ok",
-            "timestamp": datetime.utcnow().isoformat(),
-            "database": {
-                "connected": True,
-                "tables_count": len(tables),
-                "size_mb": round(db_size / 1024 / 1024, 2),
-                "active_connections": connections
-            },
-            "redis": {
-                "connected": cache.is_connected if cache else False
-            },
-            "environment": os.environ.get("ENVIRONMENT", "development")
+
+@app.get("/api/ping")
+async def ping():
+    """Быстрая проверка доступности API"""
+    return {
+        "pong": True,
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": {
+            "database": db is not None,
+            "redis": cache.is_connected if cache else False
         }
-        
-    except Exception as e:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "error", "message": str(e)}
-        )
+    }
+
 
 # ============================================
 # API ЭНДПОИНТЫ
@@ -658,15 +596,12 @@ async def save_context(request: Request, data: SaveContextRequest):
     """Сохранить контекст пользователя"""
     try:
         await context_repo.save(data.user_id, data.context)
-        
-        # Логируем событие
         await log_event(data.user_id, "save_context", {"context_keys": list(data.context.keys())})
-        
         return {"success": True}
-        
     except Exception as e:
         logger.error(f"Error saving context for user {data.user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/get-context/{user_id}")
 @limiter.limit("60/minute")
@@ -675,10 +610,10 @@ async def get_context(request: Request, user_id: int):
     try:
         context = await context_repo.get(user_id)
         return {"success": True, "context": context or {}}
-        
     except Exception as e:
         logger.error(f"Error getting context for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- ПРОФИЛЬ ----------
 @app.post("/api/save-profile")
@@ -687,15 +622,12 @@ async def save_profile(request: Request, data: SaveProfileRequest):
     """Сохранить профиль пользователя"""
     try:
         await user_repo.save_profile(data.user_id, data.profile)
-        
-        # Логируем событие
         await log_event(data.user_id, "save_profile", {"profile_code": data.profile.get("display_name")})
-        
         return {"success": True}
-        
     except Exception as e:
         logger.error(f"Error saving profile for user {data.user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/get-profile/{user_id}")
 @limiter.limit("60/minute")
@@ -704,33 +636,31 @@ async def get_profile(request: Request, user_id: int):
     try:
         profile = await user_repo.get_profile(user_id)
         return {"success": True, "profile": profile}
-        
     except Exception as e:
         logger.error(f"Error getting profile for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/get-profile-interpretation/{user_id}")
 @limiter.limit("30/minute")
 async def get_profile_interpretation(request: Request, user_id: int):
     """Получить интерпретацию профиля (мысли психолога)"""
     try:
-        # Пытаемся получить из кэша
         cache_key = f"profile_interpretation:{user_id}"
         interpretation = await cache.get(cache_key) if cache else None
         
         if not interpretation:
-            # Генерируем новую интерпретацию
             profile = await user_repo.get_profile(user_id)
             if profile:
                 interpretation = await ai_service.generate_profile_interpretation(user_id, profile)
                 if cache:
-                    await cache.set(cache_key, interpretation, ttl=86400)  # 24 часа
+                    await cache.set(cache_key, interpretation, ttl=86400)
         
         return {"success": True, "interpretation": interpretation}
-        
     except Exception as e:
         logger.error(f"Error getting interpretation for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- ЧАТ ----------
 @app.post("/api/chat", response_model=ChatResponse)
@@ -738,11 +668,9 @@ async def get_profile_interpretation(request: Request, user_id: int):
 async def chat(request: Request, data: ChatRequest):
     """Текстовый чат с Фреди"""
     try:
-        # Получаем контекст и профиль
-        context = await context_repo.get(data.user_id)
-        profile = await user_repo.get_profile(data.user_id)
+        context = await context_repo.get(data.user_id) or {}
+        profile = await user_repo.get_profile(data.user_id) or {}
         
-        # Генерируем ответ
         response = await ai_service.generate_response(
             user_id=data.user_id,
             message=data.message,
@@ -751,18 +679,16 @@ async def chat(request: Request, data: ChatRequest):
             mode=data.mode
         )
         
-        # Сохраняем сообщения
         await message_repo.save(data.user_id, "user", data.message)
         await message_repo.save(data.user_id, "assistant", response)
         
-        # Логируем событие
         await log_event(data.user_id, "chat", {"mode": data.mode, "message_length": len(data.message)})
         
         return {"success": True, "response": response}
-        
     except Exception as e:
         logger.error(f"Error in chat for user {data.user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/chat/history/{user_id}")
 @limiter.limit("30/minute")
@@ -771,10 +697,10 @@ async def get_chat_history(request: Request, user_id: int, limit: int = 50):
     try:
         messages = await message_repo.get_history(user_id, limit)
         return {"success": True, "messages": messages}
-        
     except Exception as e:
         logger.error(f"Error getting history for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- ГОЛОС ----------
 @app.post("/api/voice/process")
@@ -782,11 +708,11 @@ async def get_chat_history(request: Request, user_id: int, limit: int = 50):
 async def process_voice(
     request: Request,
     user_id: int = Form(...),
-    voice: UploadFile = File(...)
+    voice: UploadFile = File(...),
+    mode: str = Form("psychologist")
 ):
     """Обработка голосового сообщения (STT + AI + TTS)"""
     try:
-        # Читаем аудио файл
         audio_bytes = await voice.read()
         
         if len(audio_bytes) < 1000:
@@ -795,7 +721,6 @@ async def process_voice(
                 error="Аудио файл слишком короткий"
             )
         
-        # 1. STT: распознаем речь
         recognized_text = await voice_service.speech_to_text(audio_bytes)
         
         if not recognized_text:
@@ -804,27 +729,22 @@ async def process_voice(
                 error="Не удалось распознать речь"
             )
         
-        # 2. Получаем контекст и профиль
-        context = await context_repo.get(user_id)
-        profile = await user_repo.get_profile(user_id)
+        context = await context_repo.get(user_id) or {}
+        profile = await user_repo.get_profile(user_id) or {}
         
-        # 3. AI: генерируем ответ
         response = await ai_service.generate_response(
             user_id=user_id,
             message=recognized_text,
             context=context,
             profile=profile,
-            mode="psychologist"
+            mode=mode
         )
         
-        # 4. TTS: озвучиваем ответ
-        audio_response = await voice_service.text_to_speech(response)
+        audio_response = await voice_service.text_to_speech(response, mode)
         
-        # 5. Сохраняем сообщения
         await message_repo.save(user_id, "user", recognized_text, {"voice": True})
         await message_repo.save(user_id, "assistant", response, {"voice": True})
         
-        # Логируем событие
         await log_event(user_id, "voice", {"text_length": len(recognized_text)})
         
         return VoiceProcessResponse(
@@ -841,17 +761,24 @@ async def process_voice(
             error=str(e)
         )
 
+
 @app.post("/api/voice/tts")
 @limiter.limit("30/minute")
-async def text_to_speech_endpoint(request: Request, text: str = Form(...), mode: str = Form("psychologist")):
+async def text_to_speech_endpoint(
+    request: Request, 
+    text: str = Form(...), 
+    mode: str = Form("psychologist")
+):
     """Преобразование текста в речь (TTS)"""
     try:
         audio = await voice_service.text_to_speech(text, mode)
-        return Response(content=audio, media_type="audio/ogg")
-        
+        if audio:
+            return Response(content=audio, media_type="audio/ogg")
+        raise HTTPException(status_code=500, detail="TTS failed")
     except Exception as e:
         logger.error(f"TTS error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- ПОГОДА ----------
 @app.get("/api/weather/{user_id}")
@@ -859,18 +786,18 @@ async def text_to_speech_endpoint(request: Request, text: str = Form(...), mode:
 async def get_weather(request: Request, user_id: int):
     """Получить погоду для пользователя"""
     try:
-        context = await context_repo.get(user_id)
-        city = context.get("city") if context else None
+        context = await context_repo.get(user_id) or {}
+        city = context.get("city")
         
         if not city:
             return {"success": False, "error": "Город не указан"}
         
         weather = await weather_service.get_weather(city)
         return {"success": True, "weather": weather}
-        
     except Exception as e:
         logger.error(f"Error getting weather: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- ИДЕИ НА ВЫХОДНЫЕ ----------
 @app.get("/api/ideas/{user_id}")
@@ -878,29 +805,25 @@ async def get_weather(request: Request, user_id: int):
 async def get_weekend_ideas(request: Request, user_id: int):
     """Получить идеи на выходные"""
     try:
-        # Проверяем кэш
         cache_key = f"weekend_ideas:{user_id}"
         cached = await cache.get(cache_key) if cache else None
         
         if cached:
             return {"success": True, "ideas": cached}
         
-        # Получаем профиль и контекст
-        profile = await user_repo.get_profile(user_id)
-        context = await context_repo.get(user_id)
+        profile = await user_repo.get_profile(user_id) or {}
+        context = await context_repo.get(user_id) or {}
         
-        # Генерируем идеи
         ideas = await ai_service.generate_weekend_ideas(user_id, profile, context)
         
-        # Сохраняем в кэш
         if cache:
-            await cache.set(cache_key, ideas, ttl=3600)  # 1 час
+            await cache.set(cache_key, ideas, ttl=3600)
         
         return {"success": True, "ideas": ideas}
-        
     except Exception as e:
         logger.error(f"Error getting weekend ideas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- ЦЕЛИ ----------
 @app.get("/api/goals/{user_id}")
@@ -908,13 +831,13 @@ async def get_weekend_ideas(request: Request, user_id: int):
 async def get_goals(request: Request, user_id: int, mode: str = "coach"):
     """Получить персональные цели"""
     try:
-        profile = await user_repo.get_profile(user_id)
+        profile = await user_repo.get_profile(user_id) or {}
         goals = await ai_service.generate_goals(user_id, profile, mode)
         return {"success": True, "goals": goals}
-        
     except Exception as e:
         logger.error(f"Error getting goals: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- ВОПРОСЫ ----------
 @app.get("/api/smart-questions/{user_id}")
@@ -922,13 +845,13 @@ async def get_goals(request: Request, user_id: int, mode: str = "coach"):
 async def get_smart_questions(request: Request, user_id: int):
     """Получить умные вопросы для размышления"""
     try:
-        profile = await user_repo.get_profile(user_id)
+        profile = await user_repo.get_profile(user_id) or {}
         questions = await ai_service.generate_questions(user_id, profile)
         return {"success": True, "questions": questions}
-        
     except Exception as e:
         logger.error(f"Error getting questions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- МЫСЛИ ПСИХОЛОГА ----------
 @app.get("/api/psychologist-thought/{user_id}")
@@ -939,17 +862,16 @@ async def get_psychologist_thought(request: Request, user_id: int):
         thought = await user_repo.get_psychologist_thought(user_id)
         
         if not thought:
-            # Генерируем новую мысль
-            profile = await user_repo.get_profile(user_id)
+            profile = await user_repo.get_profile(user_id) or {}
             if profile:
                 thought = await ai_service.generate_psychologist_thought(user_id, profile)
                 await user_repo.save_psychologist_thought(user_id, thought)
         
         return {"success": True, "thought": thought}
-        
     except Exception as e:
         logger.error(f"Error getting psychologist thought: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------- СТАТИСТИКА ----------
 @app.get("/api/stats/{user_id}")
@@ -958,18 +880,15 @@ async def get_user_stats(request: Request, user_id: int):
     """Получить статистику пользователя"""
     try:
         async with db.get_connection() as conn:
-            # Количество сообщений
             messages_count = await conn.fetchval("""
                 SELECT COUNT(*) FROM messages WHERE user_id = $1
             """, user_id)
             
-            # Количество сессий (группируем по часам)
             sessions = await conn.fetchval("""
                 SELECT COUNT(DISTINCT DATE_TRUNC('hour', created_at))
                 FROM messages WHERE user_id = $1
             """, user_id)
             
-            # Активность за последние 7 дней
             weekly_activity = await conn.fetch("""
                 SELECT DATE(created_at) as date, COUNT(*) as count
                 FROM messages
@@ -978,7 +897,6 @@ async def get_user_stats(request: Request, user_id: int):
                 ORDER BY date
             """, user_id)
             
-            # Результаты тестов
             test_results = await conn.fetch("""
                 SELECT test_type, profile_code, created_at
                 FROM test_results
@@ -996,15 +914,20 @@ async def get_user_stats(request: Request, user_id: int):
                 "test_results": [dict(row) for row in test_results]
             }
         }
-        
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ---------- НАПОМИНАНИЯ ----------
 @app.post("/api/reminder")
 @limiter.limit("10/minute")
-async def create_reminder(request: Request, user_id: int = Form(...), reminder_type: str = Form(...), remind_at: str = Form(...)):
+async def create_reminder(
+    request: Request,
+    user_id: int = Form(...),
+    reminder_type: str = Form(...),
+    remind_at: str = Form(...)
+):
     """Создать напоминание"""
     try:
         remind_dt = datetime.fromisoformat(remind_at)
@@ -1019,19 +942,17 @@ async def create_reminder(request: Request, user_id: int = Form(...), reminder_t
         await log_event(user_id, "create_reminder", {"type": reminder_type})
         
         return {"success": True, "reminder_id": reminder_id}
-        
     except Exception as e:
         logger.error(f"Error creating reminder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ---------- АДМИНКА ----------
 @app.get("/admin/stats")
 async def admin_stats(request: Request):
-    """Статистика для администратора (требует проверки)"""
-    # TODO: Добавить проверку ADMIN_IDS
+    """Статистика для администратора"""
     try:
         async with db.get_connection() as conn:
-            # Общая статистика
             total_users = await conn.fetchval("SELECT COUNT(*) FROM users")
             active_today = await conn.fetchval("""
                 SELECT COUNT(DISTINCT user_id) FROM events 
@@ -1040,14 +961,13 @@ async def admin_stats(request: Request):
             total_messages = await conn.fetchval("SELECT COUNT(*) FROM messages")
             total_tests = await conn.fetchval("SELECT COUNT(*) FROM test_results")
             
-            # Статистика по режимам
             modes_stats = await conn.fetch("""
-                SELECT data->>'mode' as mode, COUNT(*) as count
+                SELECT context->>'communication_mode' as mode, COUNT(*) as count
                 FROM user_contexts
                 WHERE context->>'communication_mode' IS NOT NULL
-                GROUP BY data->>'mode'
+                GROUP BY context->>'communication_mode'
             """)
-            
+        
         return {
             "total_users": total_users,
             "active_today": active_today,
@@ -1055,12 +975,14 @@ async def admin_stats(request: Request):
             "total_tests": total_tests,
             "modes_distribution": [dict(row) for row in modes_stats]
         }
-        
     except Exception as e:
         logger.error(f"Error getting admin stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
+
+# ============================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ============================================
 async def log_event(user_id: int, event_type: str, event_data: Dict = None):
     """Логирование события"""
     try:
@@ -1071,6 +993,7 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
             """, user_id, event_type, json.dumps(event_data) if event_data else None)
     except Exception as e:
         logger.error(f"Error logging event: {e}")
+
 
 # ============================================
 # ЗАПУСК ПРИЛОЖЕНИЯ (для локальной разработки)
