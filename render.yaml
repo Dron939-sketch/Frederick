@@ -1,9 +1,9 @@
-# render.yaml - этот файл определяет всё приложение на Render
+# render.yaml - оптимизированная конфигурация
 services:
   # 1. PostgreSQL база данных
   - type: postgresql
     name: fredi-db
-    plan: starter  # или standard для продакшена
+    plan: starter  # starter или standard
     region: frankfurt
     databaseName: fredi_db
     user: fredi_user
@@ -13,19 +13,32 @@ services:
       schedule: "0 0 * * *"  # Ежедневно в 00:00
     diskSizeGB: 10
     postgresMajorVersion: 15
+    # Добавляем параметры производительности
+    plan: starter
+    highAvailability:
+      enabled: false  # Для starter отключаем (экономия)
 
-  # 2. Backend API (FastAPI)
+  # 2. Backend API (FastAPI) - УЛУЧШЕННЫЙ
   - type: web
     name: fredi-backend
     runtime: python
     region: frankfurt
-    plan: starter  # $7/мес, достаточно для старта
+    plan: starter
     buildCommand: |
       cd backend
+      pip install --upgrade pip
       pip install -r requirements.txt
     startCommand: |
       cd backend
-      uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2
+      # Оптимизированный запуск с health check
+      uvicorn main:app \
+        --host 0.0.0.0 \
+        --port $PORT \
+        --workers 2 \
+        --loop uvloop \
+        --http httptools \
+        --timeout-keep-alive 65 \
+        --limit-concurrency 100
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -35,7 +48,19 @@ services:
         value: production
       - key: LOG_LEVEL
         value: info
-      # Эти ключи нужно будет добавить вручную в панели Render
+      - key: PYTHONPATH
+        value: /opt/render/project/src
+      # Оптимизация памяти
+      - key: PYTHONUNBUFFERED
+        value: "true"
+      - key: PYTHONOPTIMIZE
+        value: "2"
+      # Конфигурация uvicorn
+      - key: UVICORN_WORKERS
+        value: "2"
+      - key: UVICORN_LIMIT_CONCURRENCY
+        value: "100"
+      # API ключи (добавить вручную)
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPGRAM_API_KEY
@@ -44,23 +69,41 @@ services:
         sync: false
       - key: OPENWEATHER_API_KEY
         sync: false
-      - key: MAX_BOT_TOKEN
-        sync: false
-      - key: ADMIN_IDS
-        sync: false
     healthCheckPath: /health
+    healthCheckTimeout: 100
     autoDeploy: true
     numInstances: 1
     scaling:
       minInstances: 1
-      maxInstances: 3
+      maxInstances: 2  # Для starter максимум 2
       targetMemoryPercent: 70
+      targetCPUPercent: 70
+    # Диск для временных файлов (голос, кэш)
+    disk:
+      name: tmp
+      mountPath: /tmp
+      sizeGB: 1
 
-  # 3. Статический сайт (Frontend)
+  # 3. Redis (ОПЦИОНАЛЬНО, но РЕКОМЕНДУЕТСЯ)
+  - type: redis
+    name: fredi-redis
+    plan: starter
+    region: frankfurt
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+    redisVersion: "7"
+
+  # 4. Статический сайт (Frontend) - УЛУЧШЕННЫЙ
   - type: static
     name: fredi-frontend
     region: frankfurt
-    buildCommand: echo "No build needed"
+    buildCommand: |
+      # Оптимизация фронтенда
+      echo "Optimizing frontend..."
+      # Минификация если нужно
+      if [ -f "package.json" ]; then
+        npm install && npm run build
+      fi
     publishPath: ./frontend
     envVars:
       - key: API_URL
@@ -68,11 +111,25 @@ services:
           name: fredi-backend
           type: web
           property: url
+      - key: WS_URL
+        fromService:
+          name: fredi-backend
+          type: web
+          property: url
+        value: "wss://${WS_URL}/ws"
     headers:
       - path: /*
         name: Cache-Control
         value: public, max-age=3600
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
+    # SPA поддержка
+    spa: true
