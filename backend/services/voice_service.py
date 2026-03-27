@@ -92,7 +92,7 @@ class VoiceService:
             logger.error(f"STT error: {e}")
             return None
     
-    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО ==========
+    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО: WAV ==========
     
     async def text_to_speech(self, text: str, voice: str = "psychologist") -> Optional[str]:
         """
@@ -122,7 +122,7 @@ class VoiceService:
             logger.info(f"📦 Voice cache hit")
             return cached
         
-        # 👇 ИСПРАВЛЕННЫЕ ГОЛОСА (КАК В СТАРОМ БОТЕ)
+        # 👇 ГОЛОСА КАК В СТАРОМ БОТЕ
         voices = {
             'coach': {'name': 'filipp', 'emotion': 'neutral', 'speed': 1.0},
             'psychologist': {'name': 'ermil', 'emotion': 'good', 'speed': 0.9},
@@ -136,12 +136,13 @@ class VoiceService:
         try:
             session = await self._get_session()
             
+            # 👇 ФОРМАТ WAV - РАБОТАЕТ ВО ВСЕХ БРАУЗЕРАХ
             data = {
                 "text": clean_text,
                 "voice": config['name'],
                 "emotion": config['emotion'],
                 "speed": config['speed'],
-                "format": "oggopus",      # 👈 ВЕРНУЛИ OGGOPUS (РАБОТАЛ В СТАРОМ БОТЕ)
+                "format": "wav",                      # 👈 ИЗМЕНЕНО: wav вместо oggopus
                 "sampleRateHertz": 48000,
                 "lang": "ru-RU"
             }
