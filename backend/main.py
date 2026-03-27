@@ -10,6 +10,7 @@ import logging
 import time
 import json
 import random
+import base64
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
@@ -111,6 +112,7 @@ class VoiceProcessResponse(BaseModel):
     recognized_text: Optional[str] = None
     answer: Optional[str] = None
     audio_base64: Optional[str] = None
+    audio_mime: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -742,7 +744,7 @@ async def get_chat_history(request: Request, user_id: int, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---------- ГОЛОС ----------
+# ---------- ГОЛОС (ИСПРАВЛЕНО: MP3 ФОРМАТ) ----------
 @app.post("/api/voice/process")
 @limiter.limit("10/minute")
 async def process_voice(
@@ -751,7 +753,7 @@ async def process_voice(
     voice: UploadFile = File(...),
     mode: str = Form("psychologist")
 ):
-    """Обработка голосового сообщения (STT + AI + TTS)"""
+    """Обработка голосового сообщения (STT + AI + TTS) - возвращает MP3"""
     try:
         audio_bytes = await voice.read()
         
@@ -780,26 +782,29 @@ async def process_voice(
             mode=mode
         )
         
-        audio_response = await voice_service.text_to_speech(response, mode)
+        # Получаем аудио в MP3 формате
+        audio_base64 = await voice_service.text_to_speech(response, mode)
         
         await message_repo.save(user_id, "user", recognized_text, {"voice": True})
         await message_repo.save(user_id, "assistant", response, {"voice": True})
         
         await log_event(user_id, "voice", {"text_length": len(recognized_text)})
         
-        return VoiceProcessResponse(
-            success=True,
-            recognized_text=recognized_text,
-            answer=response,
-            audio_base64=audio_response
-        )
+        # Возвращаем с правильным MIME типом для MP3
+        return {
+            "success": True,
+            "recognized_text": recognized_text,
+            "answer": response,
+            "audio_base64": audio_base64,
+            "audio_mime": "audio/mpeg"  # MP3 MIME тип
+        }
         
     except Exception as e:
         logger.error(f"Error processing voice for user {user_id}: {e}")
-        return VoiceProcessResponse(
-            success=False,
-            error=str(e)
-        )
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @app.post("/api/voice/tts")
@@ -809,11 +814,14 @@ async def text_to_speech_endpoint(
     text: str = Form(...), 
     mode: str = Form("psychologist")
 ):
-    """Преобразование текста в речь (TTS)"""
+    """Преобразование текста в речь (TTS) - возвращает MP3"""
     try:
-        audio = await voice_service.text_to_speech(text, mode)
-        if audio:
-            return Response(content=audio, media_type="audio/ogg")
+        audio_base64 = await voice_service.text_to_speech(text, mode)
+        if audio_base64:
+            # Декодируем base64 в байты для ответа
+            audio_bytes = base64.b64decode(audio_base64)
+            # Возвращаем с правильным MIME типом MP3
+            return Response(content=audio_bytes, media_type="audio/mpeg")
         raise HTTPException(status_code=500, detail="TTS failed")
     except Exception as e:
         logger.error(f"TTS error: {e}")
@@ -1730,11 +1738,7 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
 
 
 # ============================================
-# ЗАПУСК ПРИЛОЖЕНИЯ (для локальной разработки)
-# ============================================
-
-# ============================================
-# СОВМЕСТИМЫЙ ЭНДПОИНТ ДЛЯ СТАРОГО ФРОНТЕНДА
+# СОВМЕСТИМЫЙ ЭНДПОИНТ ДЛЯ СТАРОГО ФРОНТЕНДА (ИСПРАВЛЕНО: MP3)
 # ============================================
 
 @app.post("/api/tts")
@@ -1745,16 +1749,14 @@ async def tts_compat(
 ):
     """
     Совместимый эндпоинт для старого фронтенда
-    Возвращает JSON с audio_url
+    Возвращает JSON с audio_url (MP3)
     """
     try:
-        import base64
-        
         audio_base64 = await voice_service.text_to_speech(text, mode)
         
         if audio_base64:
             return {
-                "audio_url": f"data:audio/ogg;base64,{audio_base64}",
+                "audio_url": f"data:audio/mpeg;base64,{audio_base64}",
                 "success": True
             }
         else:
@@ -1769,6 +1771,8 @@ async def tts_compat(
             status_code=500,
             content={"success": False, "error": str(e)}
         )
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
