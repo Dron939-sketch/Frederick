@@ -467,7 +467,6 @@ async function startRecordingWithHold() {
             return;
         }
         
-        // Для мобильных устройств показываем подсказку
         if (isMobileDevice()) {
             showToast('🎤 Говорите в микрофон телефона', 'info');
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -485,7 +484,6 @@ async function startRecordingWithHold() {
         
         mediaStream = stream;
         
-        // Инициализируем визуализатор
         if (window.AudioContext || window.webkitAudioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const source = audioContext.createMediaStreamSource(stream);
@@ -1853,13 +1851,11 @@ function initMobileMenu() {
     
     if (!mobileMenuBtn || !chatsPanel) return;
     
-    // Открытие/закрытие меню
     mobileMenuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         chatsPanel.classList.toggle('open');
     });
     
-    // Закрытие при клике вне меню
     document.addEventListener('click', (e) => {
         if (chatsPanel.classList.contains('open')) {
             if (!chatsPanel.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
@@ -1868,7 +1864,6 @@ function initMobileMenu() {
         }
     });
     
-    // Закрытие при свайпе влево
     let touchStartX = 0;
     chatsPanel.addEventListener('touchstart', (e) => {
         touchStartX = e.touches[0].clientX;
@@ -1881,7 +1876,6 @@ function initMobileMenu() {
         }
     });
     
-    // Закрытие при нажатии на пункт меню
     document.querySelectorAll('.chat-item').forEach(item => {
         item.addEventListener('click', () => {
             if (window.innerWidth <= 768) {
@@ -2047,6 +2041,39 @@ async function init() {
             console.log('Microphone permission not granted yet');
         }
     }, 1000);
+    
+    // ========== ОБРАБОТЧИК ДЛЯ ТЕСТА ==========
+    document.querySelectorAll('.chat-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const chat = item.dataset.chat;
+            if (chat === 'test') {
+                if (window.Test && window.Test.start) {
+                    window.Test.init(CONFIG.USER_ID);
+                    window.Test.start();
+                } else {
+                    console.error('Test module not loaded');
+                    showToast('Тест загружается...', 'info');
+                    const script = document.createElement('script');
+                    script.src = '/test.js';
+                    script.onload = () => {
+                        window.Test.init(CONFIG.USER_ID);
+                        window.Test.start();
+                    };
+                    document.head.appendChild(script);
+                }
+            } else if (chat === 'fredi') {
+                renderDashboard();
+            }
+            
+            document.querySelectorAll('.chat-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            
+            if (window.innerWidth <= 768) {
+                const chatsPanel = document.getElementById('chatsPanel');
+                if (chatsPanel) chatsPanel.classList.remove('open');
+            }
+        });
+    });
 }
 
 document.addEventListener('DOMContentLoaded', init);
