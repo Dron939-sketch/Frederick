@@ -802,6 +802,16 @@ function initVoiceButton() {
     
     console.log('Voice button initialized successfully');
 }
+function playAudioResponse(audioUrl) {
+    if (!audioUrl) return;
+    const audio = document.getElementById('hiddenAudioPlayer');
+    if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.src = audioUrl;
+        audio.play().catch(e => console.warn('Audio error:', e));
+    }
+}
         
         // ========== НАВИГАЦИЯ ==========
         
