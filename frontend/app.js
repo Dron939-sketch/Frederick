@@ -716,52 +716,16 @@ function playAudioResponse(audioUrl) {
     
     console.log('🔊 Playing audio:', audioUrl);
     
-    // Создаем новый Audio элемент для теста
-    const testAudio = new Audio();
-    testAudio.src = audioUrl;
-    
-    testAudio.oncanplay = () => {
-        console.log('✅ Test audio can play');
-        testAudio.play().catch(e => console.error('Test play failed:', e));
-    };
-    
-    testAudio.onerror = (e) => {
-        console.error('❌ Test audio error:', e);
-        console.error('Test audio src:', testAudio.src);
-        
-        // Пробуем скачать и проверить
-        fetch(audioUrl)
-            .then(res => res.blob())
-            .then(blob => {
-                console.log('📦 Audio blob type:', blob.type);
-                console.log('📦 Audio blob size:', blob.size);
-                
-                // Проверяем первые байты
-                const reader = new FileReader();
-                reader.onload = function() {
-                    const arr = new Uint8Array(reader.result);
-                    console.log('📦 First 20 bytes:', Array.from(arr.slice(0, 20)).map(b => b.toString(16)).join(' '));
-                };
-                reader.readAsArrayBuffer(blob.slice(0, 100));
-            });
-    };
-    
-    // Также пробуем с существующим элементом
+    // Останавливаем текущее воспроизведение
     audio.pause();
     audio.currentTime = 0;
     audio.src = audioUrl;
     
-    audio.oncanplay = () => {
-        console.log('✅ Main audio can play');
-        audio.play().catch(e => console.error('Main play failed:', e));
-    };
-    
-    audio.onerror = (e) => {
-        console.error('❌ Main audio error:', e);
+    // Пробуем воспроизвести
+    audio.play().catch(e => {
+        console.error('❌ Play failed:', e);
         showToast('Ошибка воспроизведения', 'error');
-    };
-    
-    audio.load();
+    });
 }
 
 function initVoiceButton() {
