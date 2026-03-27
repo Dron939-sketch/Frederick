@@ -1,22 +1,20 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Классы-менеджеры и модели данных
-Версия 9.7: ИСПРАВЛЕНА ошибка с часовыми поясами в update_weather
-СИНХРОННАЯ ВЕРСИЯ ДЛЯ MAX
+Версия 9.6: Добавлены методы для работы с жизненным контекстом и определения часового пояса
 """
 import os
 import json
 import logging
-import requests  # вместо aiohttp
+import aiohttp
+import asyncio
 import time
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
 from collections import defaultdict
 
-# Импорты из maxibot
-from maxibot.types import InlineKeyboardMarkup, InlineKeyboardButton
+# ВАЖНО: добавляем все необходимые импорты из aiogram
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
 from config import OPENWEATHER_API_KEY, COMMUNICATION_MODES, DESTINATIONS
 
@@ -44,7 +42,7 @@ def level(score: float) -> int:
 
 
 # ============================================
-# КЛАСС UserContext (СИНХРОННЫЙ)
+# КЛАСС UserContext (ИСПРАВЛЕННЫЙ)
 # ============================================
 
 class UserContext:
@@ -135,71 +133,58 @@ class UserContext:
             return "сестрёнка"
         return ""
     
-    def ask_for_context(self) -> Tuple[Optional[str], Optional[InlineKeyboardMarkup]]:
+    async def ask_for_context(self) -> Tuple[Optional[str], Optional[InlineKeyboardMarkup]]:
         """Возвращает первый вопрос для сбора контекста (ОБЯЗАТЕЛЬНЫЙ, БЕЗ ПРОПУСКА)"""
-        logger.info(f"🔍 ask_for_context вызван: city={self.city}, gender={self.gender}, age={self.age}")
-        
         if not self.city:
             self.awaiting_context = "city"
-            logger.info(f"🏙️ Возвращаем вопрос о городе")
+            # ❌ УБРАНА КНОПКА ПРОПУСКА
             return self.bold("🌆 В каком городе вы находитесь? (Это нужно для погоды)"), None
         
         if not self.gender:
             self.awaiting_context = "gender"
-            logger.info(f"👤 Возвращаем вопрос о поле с клавиатурой")
-            
-            # 👇 ИСПРАВЛЕНО: правильный синтаксис для MAX
-            keyboard = InlineKeyboardMarkup()
-            keyboard.add(InlineKeyboardButton(text="👨 Мужской", callback_data="set_gender_male"))
-            keyboard.add(InlineKeyboardButton(text="👩 Женский", callback_data="set_gender_female"))
-            
+            # 👇 ТОЛЬКО КНОПКИ ВЫБОРА ПОЛА, ПРОПУСКА НЕТ
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="👨 Мужской", callback_data="set_gender_male")],
+                [InlineKeyboardButton(text="👩 Женский", callback_data="set_gender_female")]
+                # ❌ КНОПКА ПРОПУСКА УДАЛЕНА
+            ])
             return self.bold("👤 Укажите ваш пол:"), keyboard
         
         if not self.age:
             self.awaiting_context = "age"
-            logger.info(f"📅 Возвращаем вопрос о возрасте")
+            # ❌ УБРАНА КНОПКА ПРОПУСКА
             return self.bold("📅 Сколько вам лет? (напишите число)"), None
         
         self.awaiting_context = None
-        logger.info(f"✅ Все вопросы собраны, возвращаем None")
         return None, None
     
-    def process_context_answer(self, text: str) -> Tuple[bool, Optional[str], Optional[InlineKeyboardMarkup]]:
-        """Обрабатывает ответ на контекстный вопрос (СИНХРОННАЯ)"""
-        logger.info(f"🔄 process_context_answer вызван: awaiting_context={self.awaiting_context}, text='{text}'")
-        
+    async def process_context_answer(self, text: str) -> Tuple[bool, Optional[str], Optional[InlineKeyboardMarkup]]:
+        """Обрабатывает ответ на контекстный вопрос"""
         if not self.awaiting_context:
-            logger.info(f"⚠️ Нет ожидающего контекста")
             return False, None, None
         
         field = self.awaiting_context
-        logger.info(f"📝 Обрабатываем поле: {field}")
         
         if field == "city":
             self.city = text.strip()
-            logger.info(f"🏙️ Город сохранен: {self.city}")
             self.awaiting_context = None
-            self.update_weather()  # синхронно
-            self.detect_timezone_from_city()  # синхронно
-            question, keyboard = self.ask_for_context()
-            logger.info(f"📋 Следующий вопрос после города: {question}")
+            await self.update_weather()
+            # 🔥 ОПРЕДЕЛЯЕМ ЧАСОВОЙ ПОЯС ПО ГОРОДУ
+            await self.detect_timezone_from_city()
+            question, keyboard = await self.ask_for_context()
             return True, question, keyboard
                 
         elif field == "gender":
             gender_lower = text.lower().strip()
             if gender_lower in ['м', 'муж', 'мужчина', 'male']:
                 self.gender = "male"
-                logger.info(f"👨 Распознан мужской пол")
             elif gender_lower in ['ж', 'жен', 'женщина', 'female']:
                 self.gender = "female"
-                logger.info(f"👩 Распознан женский пол")
             else:
                 self.gender = "other"
-                logger.info(f"❓ Пол не распознан, установлен other")
             
             self.awaiting_context = None
-            question, keyboard = self.ask_for_context()
-            logger.info(f"📋 Следующий вопрос после пола: {question}")
+            question, keyboard = await self.ask_for_context()
             return True, question, keyboard
                 
         elif field == "age":
@@ -207,27 +192,21 @@ class UserContext:
                 age = int(text.strip())
                 if 1 <= age <= 120:
                     self.age = age
-                    logger.info(f"📅 Возраст сохранен: {age}")
                     self.awaiting_context = None
-                    question, keyboard = self.ask_for_context()
-                    logger.info(f"📋 Следующий вопрос после возраста: {question}")
+                    question, keyboard = await self.ask_for_context()
                     return True, question, keyboard
                 else:
-                    logger.warning(f"⚠️ Возраст вне диапазона: {age}")
                     return False, self.bold("❌ Возраст должен быть от 1 до 120 лет.\n\n📅 Сколько вам лет? (напишите число)"), None
             except ValueError:
-                logger.warning(f"⚠️ Некорректное число: {text}")
                 return False, self.bold("❌ Пожалуйста, введите число.\n\n📅 Сколько вам лет? (напишите число)"), None
         
         return False, None, None
     
-    def handle_gender_callback(self, gender: str) -> Tuple[Optional[str], Optional[InlineKeyboardMarkup]]:
-        """Обрабатывает выбор пола через callback (СИНХРОННАЯ)"""
-        logger.info(f"🔘 handle_gender_callback: gender={gender}")
+    async def handle_gender_callback(self, gender: str) -> Tuple[Optional[str], Optional[InlineKeyboardMarkup]]:
+        """Обрабатывает выбор пола через callback"""
         self.gender = gender
         self.awaiting_context = None  # Важно сбросить!
-        question, keyboard = self.ask_for_context()
-        logger.info(f"📋 Следующий вопрос после callback: {question}")
+        question, keyboard = await self.ask_for_context()
         return question, keyboard
     
     def get_day_context(self) -> dict:
@@ -301,69 +280,52 @@ class UserContext:
         
         return "\n".join(lines)
     
-    # ========== ИСПРАВЛЕННЫЙ МЕТОД update_weather ==========
-    def update_weather(self):
-        """Обновляет погоду через OpenWeatherMap API (СИНХРОННАЯ)"""
-        logger.info(f"🌤️ update_weather вызван для города {self.city}")
+    async def update_weather(self):
+        """Обновляет погоду через OpenWeatherMap API"""
         if not self.city or not OPENWEATHER_API_KEY:
-            logger.warning(f"⚠️ Нет города или API ключа")
             return False
         
-        # ✅ ИСПРАВЛЕНО: Проверка кэша с учетом часовых поясов
         if self.weather_cache and self.weather_cache_time:
-            now = datetime.now()
-            cache_time = self.weather_cache_time
-            
-            # Если cache_time содержит часовой пояс, убираем его
-            if cache_time.tzinfo is not None:
-                cache_time = cache_time.replace(tzinfo=None)
-            
-            # Проверяем, не устарел ли кэш (меньше 1 часа)
-            if (now - cache_time).seconds < 3600:
-                logger.info(f"✅ Используем кэш погоды для {self.city}")
+            if (datetime.now() - self.weather_cache_time).seconds < 3600:
                 return True
         
         url = f"http://api.openweathermap.org/data/2.5/weather?q={self.city}&appid={OPENWEATHER_API_KEY}&units=metric&lang=ru"
         try:
-            logger.info(f"🌐 Запрос погоды для {self.city}")
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                
-                weather_icons = {
-                    "clear": "☀️",
-                    "clouds": "☁️",
-                    "rain": "🌧",
-                    "snow": "❄️",
-                    "thunderstorm": "⚡️",
-                    "mist": "🌫",
-                    "fog": "🌫"
-                }
-                
-                icon = "☁️"
-                main = data['weather'][0]['main'].lower()
-                for key, emoji in weather_icons.items():
-                    if key in main:
-                        icon = emoji
-                        break
-                
-                self.weather_cache = {
-                    "temp": round(data['main']['temp']),
-                    "feels_like": round(data['main']['feels_like']),
-                    "description": data['weather'][0]['description'],
-                    "humidity": data['main']['humidity'],
-                    "wind": round(data['wind']['speed']),
-                    "icon": icon,
-                    "pressure": data['main']['pressure']
-                }
-                # ✅ ИСПРАВЛЕНО: Сохраняем время без часового пояса
-                self.weather_cache_time = datetime.now().replace(tzinfo=None)
-                logger.info(f"✅ Погода обновлена: {self.weather_cache['temp']}°C, {self.weather_cache['description']}")
-                return True
-            else:
-                logger.error(f"❌ Ошибка API погоды: {response.status_code}")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        weather_icons = {
+                            "clear": "☀️",
+                            "clouds": "☁️",
+                            "rain": "🌧",
+                            "snow": "❄️",
+                            "thunderstorm": "⚡️",
+                            "mist": "🌫",
+                            "fog": "🌫"
+                        }
+                        
+                        icon = "☁️"
+                        main = data['weather'][0]['main'].lower()
+                        for key, emoji in weather_icons.items():
+                            if key in main:
+                                icon = emoji
+                                break
+                        
+                        self.weather_cache = {
+                            "temp": round(data['main']['temp']),
+                            "feels_like": round(data['main']['feels_like']),
+                            "description": data['weather'][0]['description'],
+                            "humidity": data['main']['humidity'],
+                            "wind": round(data['wind']['speed']),
+                            "icon": icon,
+                            "pressure": data['main']['pressure']
+                        }
+                        self.weather_cache_time = datetime.now()
+                        return True
         except Exception as e:
-            logger.error(f"❌ Ошибка получения погоды: {e}")
+            logger.error(f"Ошибка получения погоды: {e}")
         return False
     
     def get_age_stage(self) -> str:
@@ -386,14 +348,12 @@ class UserContext:
         else:
             return "возраст мудрости"
     
-    # ========== МЕТОД: ОПРЕДЕЛЕНИЕ ЧАСОВОГО ПОЯСА ==========
+    # ========== НОВЫЙ МЕТОД: ОПРЕДЕЛЕНИЕ ЧАСОВОГО ПОЯСА ==========
     
-    def detect_timezone_from_city(self):
-        """Определяет часовой пояс по названию города (СИНХРОННАЯ)"""
+    async def detect_timezone_from_city(self):
+        """Определяет часовой пояс по названию города"""
         if not self.city:
             return
-        
-        logger.info(f"🌍 Определяем часовой пояс для города {self.city}")
         
         # Простая карта городов (можно расширить)
         timezone_map = {
@@ -494,7 +454,7 @@ class UserContext:
         self.timezone_offset = 3
         logger.info(f"🌍 Для города {self.city} не найден часовой пояс, установлен Europe/Moscow по умолчанию")
     
-    # ========== МЕТОДЫ ДЛЯ РАБОТЫ С ЖИЗНЕННЫМ КОНТЕКСТОМ ==========
+    # ========== НОВЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С ЖИЗНЕННЫМ КОНТЕКСТОМ ==========
     
     def save_life_context(self, answers: dict) -> None:
         """Сохраняет жизненный контекст из ответов пользователя"""
@@ -780,11 +740,11 @@ class ReminderManager:
             else:
                 text = f"🔔 *Напоминание*"
             
-            # 👇 ИСПРАВЛЕНО: правильный синтаксис для MAX
-            keyboard = InlineKeyboardMarkup()
-            keyboard.add(InlineKeyboardButton(text="✅ ВЫПОЛНИЛ", callback_data="route_step_done"))
-            keyboard.add(InlineKeyboardButton(text="❓ НУЖНА ПОМОЩЬ", callback_data="smart_questions"))
-            keyboard.add(InlineKeyboardButton(text="⏭️ ОТЛОЖИТЬ", callback_data="reminder_snooze"))
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ ВЫПОЛНИЛ", callback_data="route_step_done")],
+                [InlineKeyboardButton(text="❓ НУЖНА ПОМОЩЬ", callback_data="smart_questions")],
+                [InlineKeyboardButton(text="⏭️ ОТЛОЖИТЬ", callback_data="reminder_snooze")]
+            ])
             
             await self.bot.send_message(user_id, text, reply_markup=keyboard)
         
@@ -1025,11 +985,11 @@ class DelayedTaskManager:
                         address = context.get_address() if context and context.communication_mode == "friend" else ""
                         message_text = f"Слушайте{', ' + address if address else ''}...\n\nКак вы? Я рядом."
                     
-                    # 👇 ИСПРАВЛЕНО: правильный синтаксис для MAX
-                    keyboard = InlineKeyboardMarkup()
-                    keyboard.add(InlineKeyboardButton(text="❓ ЗАДАТЬ ВОПРОС", callback_data="smart_questions"))
-                    keyboard.add(InlineKeyboardButton(text="🧠 К ПОРТРЕТУ", callback_data="show_results"))
-                    keyboard.add(InlineKeyboardButton(text="🎯 ЧЕМ ПОМОЧЬ", callback_data="show_help"))
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="❓ ЗАДАТЬ ВОПРОС", callback_data="smart_questions")],
+                        [InlineKeyboardButton(text="🧠 К ПОРТРЕТУ", callback_data="show_results")],
+                        [InlineKeyboardButton(text="🎯 ЧЕМ ПОМОЧЬ", callback_data="show_help")]
+                    ])
                     
                     await self.bot_instance.send_message(
                         user_id,
@@ -1047,8 +1007,13 @@ class DelayedTaskManager:
                     if YANDEX_API_KEY:
                         audio_data = await text_to_speech(message_text, mode)
                         if audio_data:
-                            # В MAX нет send_voice, используем другой подход
-                            logger.info(f"🎙 Голос для пользователя {user_id} сгенерирован ({len(audio_data)} байт)")
+                            audio_file = BufferedInputFile(audio_data, filename="motivation.ogg")
+                            await self.bot_instance.send_voice(
+                                user_id,
+                                audio_file,
+                                caption="🎙 *Мотивационное сообщение*",
+                                parse_mode='Markdown'
+                            )
                 except Exception as e:
                     logger.error(f"Ошибка при отправке мотивационного сообщения пользователю {user_id}: {e}")
         
@@ -1069,11 +1034,11 @@ class DelayedTaskManager:
             await asyncio.sleep(delay_hours * 3600)
             if self.bot_instance:
                 try:
-                    # 👇 ИСПРАВЛЕНО: правильный синтаксис для MAX
-                    keyboard = InlineKeyboardMarkup()
-                    keyboard.add(InlineKeyboardButton(text="❓ ЗАДАТЬ ВОПРОС", callback_data="smart_questions"))
-                    keyboard.add(InlineKeyboardButton(text="🧠 К ПОРТРЕТУ", callback_data="show_results"))
-                    keyboard.add(InlineKeyboardButton(text="🔄 ПРОЙТИ ТЕСТ ЗАНОВО", callback_data="restart_test"))
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="❓ ЗАДАТЬ ВОПРОС", callback_data="smart_questions")],
+                        [InlineKeyboardButton(text="🧠 К ПОРТРЕТУ", callback_data="show_results")],
+                        [InlineKeyboardButton(text="🔄 ПРОЙТИ ТЕСТ ЗАНОВО", callback_data="restart_test")]
+                    ])
                     
                     await self.bot_instance.send_message(
                         user_id,
