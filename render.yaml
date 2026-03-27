@@ -1,7 +1,4 @@
-# render.yaml - ПРАВИЛЬНАЯ ВЕРСИЯ
-# Базы данных создаются автоматически через fromDatabase
-# Не нужно объявлять их как отдельные сервисы!
-
+# render.yaml - ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ
 services:
   # 1. Backend API (FastAPI)
   - type: web
@@ -48,7 +45,7 @@ services:
         value: "2"
       - key: UVICORN_LIMIT_CONCURRENCY
         value: "100"
-      # API ключи (добавить вручную)
+      # API ключи (добавить вручную после деплоя)
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPGRAM_API_KEY
@@ -71,8 +68,8 @@ services:
       mountPath: /tmp
       sizeGB: 1
 
-  # 2. Статический сайт (Frontend)
-  - type: static_site
+  # 2. Статический сайт (Frontend) - ИСПРАВЛЕНО: static
+  - type: static
     name: fredi-frontend
     region: frankfurt
     buildCommand: |
