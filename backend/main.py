@@ -3,7 +3,7 @@
 """
 Фреди - Виртуальный психолог
 Асинхронный API сервер на FastAPI
-Версия 3.0 - Полная интеграция с конфайнтмент-моделью и режимами
+Версия 3.0 - Полная интеграция с конфайнтмент-моделью, режимами, утренними сообщениями и планами на выходные
 """
 
 import os
@@ -37,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================
-# ИМПОРТЫ ПО НОВОЙ СТРУКТУРЕ
+# ИМПОРТЫ ПО СТРУКТУРЕ
 # ============================================
 
 # База данных и кэш
@@ -48,6 +48,7 @@ from cache import RedisCache
 from services.ai_service import AIService
 from services.voice_service import VoiceService
 from services.weather_service import WeatherService
+from services.weekend_planner import WeekendPlanner
 
 # Репозитории
 from repositories.user_repo import UserRepository
@@ -55,23 +56,24 @@ from repositories.context_repo import ContextRepository
 from repositories.message_repo import MessageRepository
 
 # Конфайнтмент-модель
-from confinement import (
-    ConfinementModel9,
-    LoopAnalyzer,
-    KeyConfinementDetector,
-    ConfinementReporter,
-    InterventionLibrary,
-    QuestionContextAnalyzer,
-    create_analyzer_from_user_data
-)
+from confinement.confinement_model import ConfinementModel9
+from confinement.loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
+from confinement.key_confinement import KeyConfinementDetector
+from confinement.intervention_library import InterventionLibrary
+from confinement.question_analyzer import QuestionContextAnalyzer, create_analyzer_from_user_data
 
 # Гипнотические модули
-from hypno import HypnoOrchestrator, TherapeuticTales, Anchoring
+from hypno.hypno_module import HypnoOrchestrator
+from hypno.therapeutic_tales import TherapeuticTales
 
 # Режимы общения
-from modes import get_mode, BaseMode, CoachMode, PsychologistMode, TrainerMode
+from modes.base_mode import BaseMode
+from modes.coach import CoachMode
+from modes.psychologist import PsychologistMode
+from modes.trainer import TrainerMode
+from modes import get_mode
 
-# Утилиты
+# Утилиты (утренние сообщения, проверка реальности)
 from utils import (
     get_theoretical_path,
     generate_life_context_questions,
@@ -83,8 +85,7 @@ from utils import (
     get_goal_time_estimate,
     save_feasibility_result,
     MorningMessageManager,
-    WeekendPlanner,
-    get_weekend_planner
+    get_weekend_planner as get_utils_weekend_planner
 )
 
 # Форматирование и профили
@@ -106,7 +107,6 @@ message_repo: Optional[MessageRepository] = None
 # Гипнотические модули
 hypno: Optional[HypnoOrchestrator] = None
 tales: Optional[TherapeuticTales] = None
-anchoring: Optional[Anchoring] = None
 
 # Библиотека интервенций
 intervention_lib: Optional[InterventionLibrary] = None
@@ -161,6 +161,16 @@ class HealthResponse(BaseModel):
     services: Dict[str, Any]
 
 
+class MorningMessageRequest(BaseModel):
+    user_id: int
+    day: int = 1
+
+
+class WeekendIdeasRequest(BaseModel):
+    user_id: int
+    city: Optional[str] = None
+
+
 # ============================================
 # LIFESPAN
 # ============================================
@@ -169,7 +179,7 @@ async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения"""
     global db, cache, ai_service, voice_service, weather_service
     global user_repo, context_repo, message_repo
-    global hypno, tales, anchoring, intervention_lib
+    global hypno, tales, intervention_lib
     global morning_manager, weekend_planner
     
     # ========== STARTUP ==========
@@ -205,20 +215,19 @@ async def lifespan(app: FastAPI):
         ai_service = AIService(cache)
         voice_service = VoiceService()
         weather_service = WeatherService(cache)
+        weekend_planner = WeekendPlanner(ai_service)
         logger.info("✅ Сервисы готовы")
         
         # 5. Инициализируем гипнотические модули
         logger.info("📦 Инициализация гипнотических модулей...")
         hypno = HypnoOrchestrator()
         tales = TherapeuticTales()
-        anchoring = Anchoring()
         intervention_lib = InterventionLibrary()
         logger.info("✅ Гипнотические модули готовы")
         
         # 6. Инициализируем утилиты
         logger.info("📦 Инициализация утилит...")
         morning_manager = MorningMessageManager()
-        weekend_planner = get_weekend_planner()
         logger.info("✅ Утилиты готовы")
         
         # 7. Создаем таблицы
@@ -456,6 +465,19 @@ async def init_database_tables():
             )
         """)
         
+        # Таблица утренних сообщений
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS morning_messages (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                message_text TEXT NOT NULL,
+                message_type TEXT NOT NULL,
+                day_number INTEGER DEFAULT 1,
+                sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        
         # ========== ИНДЕКСЫ ==========
         
         await conn.execute("""
@@ -491,6 +513,11 @@ async def init_database_tables():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_weekend_cache_expires 
             ON weekend_ideas_cache(expires_at)
+        """)
+        
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_morning_messages_user 
+            ON morning_messages(user_id, sent_at DESC)
         """)
         
         await conn.execute("""
@@ -792,7 +819,6 @@ async def chat(request: Request, data: ChatRequest):
         reflection = None
         if user_data.get("confinement_model"):
             try:
-                from confinement import QuestionContextAnalyzer
                 analyzer = QuestionContextAnalyzer(
                     ConfinementModel9.from_dict(user_data["confinement_model"]),
                     simple_context.name or "друг"
@@ -972,7 +998,20 @@ async def get_weekend_ideas(request: Request, user_id: int):
         profile = await user_repo.get_profile(user_id) or {}
         context = await context_repo.get(user_id) or {}
         
-        ideas = await ai_service.generate_weekend_ideas(user_id, profile, context)
+        # Получаем scores
+        scores = {}
+        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+            levels = profile.get('behavioral_levels', {}).get(k, [])
+            scores[k] = sum(levels) / len(levels) if levels else 3
+        
+        # Получаем идеи через планировщик
+        ideas = await weekend_planner.get_weekend_ideas(
+            user_id=user_id,
+            user_name=context.get('name', 'друг'),
+            scores=scores,
+            profile_data=profile,
+            context=context
+        )
         
         if cache:
             await cache.set(cache_key, ideas, ttl=3600)
@@ -981,6 +1020,90 @@ async def get_weekend_ideas(request: Request, user_id: int):
     except Exception as e:
         logger.error(f"Error getting weekend ideas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------- УТРЕННИЕ СООБЩЕНИЯ ----------
+@app.get("/api/morning-message/{user_id}")
+@limiter.limit("5/minute")
+async def get_morning_message(request: Request, user_id: int, day: int = 1):
+    """Получить утреннее вдохновляющее сообщение"""
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        context = await context_repo.get(user_id) or {}
+        
+        scores = {}
+        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+            levels = profile.get('behavioral_levels', {}).get(k, [])
+            scores[k] = sum(levels) / len(levels) if levels else 3
+        
+        message = await morning_manager.generate_morning_message(
+            user_id=user_id,
+            user_name=context.get('name', 'друг'),
+            scores=scores,
+            profile_data=profile,
+            context=context,
+            day=day
+        )
+        
+        # Сохраняем в БД
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO morning_messages (user_id, message_text, message_type, day_number)
+                VALUES ($1, $2, $3, $4)
+            """, user_id, message, "morning", day)
+        
+        return {"success": True, "message": message}
+        
+    except Exception as e:
+        logger.error(f"Error generating morning message: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/morning-message/schedule")
+@limiter.limit("5/minute")
+async def schedule_morning_messages(request: Request):
+    """Запланировать серию утренних сообщений (3 дня)"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        
+        profile = await user_repo.get_profile(user_id) or {}
+        context = await context_repo.get(user_id) or {}
+        
+        scores = {}
+        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+            levels = profile.get('behavioral_levels', {}).get(k, [])
+            scores[k] = sum(levels) / len(levels) if levels else 3
+        
+        # Генерируем и сохраняем сообщения на 3 дня
+        messages = []
+        for day in range(1, 4):
+            message = await morning_manager.generate_morning_message(
+                user_id=user_id,
+                user_name=context.get('name', 'друг'),
+                scores=scores,
+                profile_data=profile,
+                context=context,
+                day=day
+            )
+            messages.append({"day": day, "message": message})
+            
+            async with db.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO morning_messages (user_id, message_text, message_type, day_number)
+                    VALUES ($1, $2, $3, $4)
+                """, user_id, message, "morning", day)
+        
+        await log_event(user_id, "schedule_morning_messages", {"days": 3})
+        
+        return {"success": True, "messages": messages}
+        
+    except Exception as e:
+        logger.error(f"Error scheduling morning messages: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # ---------- ЦЕЛИ ----------
@@ -1067,6 +1190,10 @@ async def get_user_stats(request: Request, user_id: int):
                 ORDER BY created_at DESC
                 LIMIT 5
             """, user_id)
+            
+            morning_messages_count = await conn.fetchval("""
+                SELECT COUNT(*) FROM morning_messages WHERE user_id = $1
+            """, user_id)
         
         return {
             "success": True,
@@ -1074,7 +1201,8 @@ async def get_user_stats(request: Request, user_id: int):
                 "total_messages": messages_count,
                 "total_sessions": sessions,
                 "weekly_activity": [dict(row) for row in weekly_activity],
-                "test_results": [dict(row) for row in test_results]
+                "test_results": [dict(row) for row in test_results],
+                "morning_messages": morning_messages_count
             }
         }
     except Exception as e:
@@ -1123,6 +1251,7 @@ async def admin_stats(request: Request):
             """)
             total_messages = await conn.fetchval("SELECT COUNT(*) FROM messages")
             total_tests = await conn.fetchval("SELECT COUNT(*) FROM test_results")
+            total_morning = await conn.fetchval("SELECT COUNT(*) FROM morning_messages")
             
             modes_stats = await conn.fetch("""
                 SELECT context->>'communication_mode' as mode, COUNT(*) as count
@@ -1136,6 +1265,7 @@ async def admin_stats(request: Request):
             "active_today": active_today,
             "total_messages": total_messages,
             "total_tests": total_tests,
+            "total_morning_messages": total_morning,
             "modes_distribution": [dict(row) for row in modes_stats]
         }
     except Exception as e:
@@ -1147,7 +1277,7 @@ async def admin_stats(request: Request):
 # КОНФАЙНТМЕНТ-МОДЕЛЬ ЭНДПОИНТЫ
 # ============================================
 
-@app.get("/api/confinement-model")
+@app.get("/api/confinement/model/{user_id}")
 async def get_confinement_model(user_id: int):
     """Получить конфайнтмент-модель пользователя"""
     try:
@@ -1155,7 +1285,6 @@ async def get_confinement_model(user_id: int):
         model_data = profile.get('confinement_model')
         
         if not model_data:
-            # Строим модель
             scores = {}
             behavioral_levels = profile.get('behavioral_levels', {})
             for vector in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
@@ -1290,7 +1419,6 @@ async def get_intervention(element_id: int, user_id: int):
         if not element:
             return {"success": False, "error": f"Элемент {element_id} не найден"}
         
-        # Получаем интервенцию из библиотеки
         intervention = intervention_lib.get_daily_practice(element_id) if intervention_lib else {
             'title': 'Осознанность',
             'practice': 'Побудь в тишине 2 минуты',
@@ -1530,8 +1658,8 @@ async def set_anchor(request: Request):
                 "state": state
             }))
         
-        if anchoring:
-            anchoring.set_anchor(user_id, anchor_name, state, phrase)
+        if hasattr(tales, 'set_anchor'):
+            tales.set_anchor(user_id, anchor_name, state, phrase)
         
         await log_event(user_id, "set_anchor", {"name": anchor_name, "state": state})
         
@@ -1554,8 +1682,8 @@ async def fire_anchor(request: Request):
         
         phrase = None
         
-        if anchoring:
-            phrase = anchoring.fire_anchor(user_id, anchor_name)
+        if hasattr(tales, 'fire_anchor'):
+            phrase = tales.fire_anchor(user_id, anchor_name)
         
         if not phrase:
             phrases = {
@@ -1881,7 +2009,7 @@ async def tts_compat(
 
 
 # ============================================
-# ПРОВЕРКА РЕАЛЬНОСТИ ЭНДПОИНТЫ (НОВЫЕ)
+# ПРОВЕРКА РЕАЛЬНОСТИ ЭНДПОИНТЫ
 # ============================================
 
 @app.get("/api/reality/path/{goal_id}")
