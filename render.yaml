@@ -1,19 +1,19 @@
-# render.yaml - Используем родной Python runtime Render
+# render.yaml - с новыми тарифными планами
 
-# Определяем базы данных
+# Определяем базы данных с новыми планами
 databases:
   - name: fredi-db
-    plan: starter
+    plan: basic                    # <-- новый план (вместо starter)
   - name: fredi-redis
-    plan: starter
+    plan: basic                    # <-- для Redis тоже basic
 
 services:
-  # Backend (FastAPI) - используем Python runtime
+  # Backend (FastAPI)
   - type: web
     name: fredi-backend
     runtime: python
     repo: https://github.com/Dron939-sketch/Frederick
-    plan: starter
+    plan: basic                    # <-- backend тоже basic
     branch: main
     buildCommand: |
       cd backend
