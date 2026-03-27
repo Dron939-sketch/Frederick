@@ -1,6 +1,6 @@
 // ============================================
 // ПОЛНЫЙ ТЕСТ ИЗ 5 ЭТАПОВ
-// Версия 2.1 - ИСПРАВЛЕНА
+// Версия 3.0 - ДИАЛОГОВЫЙ ИНТЕРФЕЙС С КРАСИВЫМИ КНОПКАМИ
 // ============================================
 
 const Test = {
@@ -11,8 +11,6 @@ const Test = {
     currentQuestionIndex: 0,
     userId: null,
     answers: [],
-    pollingInterval: null,
-    statusMessageElement: null,
     
     // Данные для расчетов (этап 1)
     perceptionScores: {
@@ -638,7 +636,7 @@ const Test = {
     },
     
     // ============================================
-    // ИНТЕРПРЕТАЦИИ ПОСЛЕ ЭТАПОВ
+    // ИНТЕРПРЕТАЦИИ
     // ============================================
     
     getStage1Interpretation() {
@@ -715,24 +713,18 @@ const Test = {
     // ============================================
     
     getUserId() {
-        // Проверяем window.maxContext
         if (window.maxContext?.user_id && window.maxContext.user_id !== 'null' && window.maxContext.user_id !== 'undefined') {
             return window.maxContext.user_id;
         }
-        
-        // Проверяем URL параметры
         const urlParams = new URLSearchParams(window.location.search);
         const urlUserId = urlParams.get('user_id');
         if (urlUserId && urlUserId !== 'null' && urlUserId !== 'undefined') {
             return urlUserId;
         }
-        
-        // Проверяем localStorage
         const stored = localStorage.getItem('fredi_user_id');
         if (stored && stored !== 'null' && stored !== 'undefined') {
             return stored;
         }
-        
         console.warn('⚠️ userId не найден!');
         return null;
     },
@@ -742,7 +734,6 @@ const Test = {
     // ============================================
     
     init(userId) {
-        // Получаем userId из разных источников
         const urlParams = new URLSearchParams(window.location.search);
         const urlUserId = urlParams.get('user_id');
         
@@ -756,7 +747,12 @@ const Test = {
             localStorage.setItem('fredi_user_id', this.userId);
         }
         
-        // Сброс состояния
+        this.reset();
+        this.loadProgress();
+        console.log('📝 Тест инициализирован для пользователя:', this.userId);
+    },
+    
+    reset() {
         this.currentStage = 0;
         this.currentQuestionIndex = 0;
         this.answers = [];
@@ -771,14 +767,10 @@ const Test = {
         this.deepAnswers = [];
         this.deepPatterns = null;
         this.profileData = null;
-        
-        if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
-            this.pollingInterval = null;
-        }
-        
-        this.loadProgress();
-        console.log('📝 Тест инициализирован для пользователя:', this.userId);
+        this.discrepancies = [];
+        this.clarifyingAnswers = [];
+        this.clarifyingQuestions = [];
+        this.clarifyingCurrent = 0;
     },
     
     loadProgress() {
@@ -842,20 +834,7 @@ const Test = {
     
     start() {
         this.init();
-        this.currentStage = 0;
-        this.currentQuestionIndex = 0;
-        this.answers = [];
-        this.perceptionScores = { EXTERNAL: 0, INTERNAL: 0, SYMBOLIC: 0, MATERIAL: 0 };
-        this.perceptionType = null;
-        this.thinkingLevel = null;
-        this.thinkingScores = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0 };
-        this.strategyLevels = { "СБ": [], "ТФ": [], "УБ": [], "ЧВ": [] };
-        this.behavioralLevels = { "СБ": [], "ТФ": [], "УБ": [], "ЧВ": [] };
-        this.stage3Scores = [];
-        this.diltsCounts = { "ENVIRONMENT": 0, "BEHAVIOR": 0, "CAPABILITIES": 0, "VALUES": 0, "IDENTITY": 0 };
-        this.deepAnswers = [];
-        this.deepPatterns = null;
-        this.profileData = null;
+        this.reset();
         this.saveProgress();
         this.showTestScreen();
         
@@ -869,10 +848,13 @@ const Test = {
         const container = document.getElementById('screenContainer');
         if (!container) return;
         container.innerHTML = `
-            <div class="test-messages-container" id="testMessagesContainer">
-                <div class="test-messages-list" id="testMessagesList"></div>
+            <div class="test-chat-container" id="testChatContainer">
+                <div class="test-chat-messages" id="testChatMessages">
+                    <div class="test-chat-placeholder"></div>
+                </div>
             </div>
         `;
+        this.scrollToBottom();
     },
     
     sendStageIntro() {
@@ -893,165 +875,205 @@ const Test = {
     },
     
     // ============================================
-    // ОТРИСОВКА СООБЩЕНИЙ
+    // ОТРИСОВКА СООБЩЕНИЙ (ДИАЛОГОВЫЙ РЕЖИМ)
     // ============================================
     
     addBotMessage(text, isHtml = true) {
-        const list = document.getElementById('testMessagesList');
-        if (!list) return;
-        const msg = document.createElement('div');
-        msg.className = 'message bot-message';
+        const messagesContainer = document.getElementById('testChatMessages');
+        if (!messagesContainer) return;
+        
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'test-message test-message-bot';
+        
         const bubble = document.createElement('div');
-        bubble.className = 'message-bubble';
+        bubble.className = 'test-message-bubble test-message-bubble-bot';
+        
         const textDiv = document.createElement('div');
-        textDiv.className = 'message-text';
+        textDiv.className = 'test-message-text';
         if (isHtml) {
             textDiv.innerHTML = text.replace(/\n/g, '<br>');
         } else {
             textDiv.textContent = text;
         }
+        
         const timeDiv = document.createElement('div');
-        timeDiv.className = 'message-time';
-        timeDiv.textContent = 'только что';
+        timeDiv.className = 'test-message-time';
+        timeDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
         bubble.appendChild(textDiv);
         bubble.appendChild(timeDiv);
-        msg.appendChild(bubble);
-        list.appendChild(msg);
+        msgDiv.appendChild(bubble);
+        
+        messagesContainer.appendChild(msgDiv);
         this.scrollToBottom();
-        return msg;
+        return msgDiv;
     },
     
     addUserMessage(text) {
-        const list = document.getElementById('testMessagesList');
-        if (!list) return;
-        const msg = document.createElement('div');
-        msg.className = 'message user-message';
+        const messagesContainer = document.getElementById('testChatMessages');
+        if (!messagesContainer) return;
+        
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'test-message test-message-user';
+        
         const bubble = document.createElement('div');
-        bubble.className = 'message-bubble';
+        bubble.className = 'test-message-bubble test-message-bubble-user';
+        
         const textDiv = document.createElement('div');
-        textDiv.className = 'message-text';
+        textDiv.className = 'test-message-text';
         textDiv.textContent = text;
+        
         const timeDiv = document.createElement('div');
-        timeDiv.className = 'message-time';
-        timeDiv.textContent = 'только что';
+        timeDiv.className = 'test-message-time';
+        timeDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
         bubble.appendChild(textDiv);
         bubble.appendChild(timeDiv);
-        msg.appendChild(bubble);
-        list.appendChild(msg);
+        msgDiv.appendChild(bubble);
+        
+        messagesContainer.appendChild(msgDiv);
         this.scrollToBottom();
+        return msgDiv;
     },
     
     addQuestionMessage(text, options, callback, current, total) {
-        const list = document.getElementById('testMessagesList');
-        if (!list) return;
+        const messagesContainer = document.getElementById('testChatMessages');
+        if (!messagesContainer) return;
         
-        const msg = document.createElement('div');
-        msg.className = 'message bot-message';
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'test-message test-message-bot';
         
         const bubble = document.createElement('div');
-        bubble.className = 'message-bubble';
+        bubble.className = 'test-message-bubble test-message-bubble-bot';
         
         const textDiv = document.createElement('div');
-        textDiv.className = 'message-text';
+        textDiv.className = 'test-message-text';
         textDiv.innerHTML = `<strong>Вопрос ${current}/${total}</strong><br><br>${text}`;
         
         const buttonsDiv = document.createElement('div');
-        buttonsDiv.className = 'message-buttons';
+        buttonsDiv.className = 'test-message-buttons';
+        buttonsDiv.style.display = 'flex';
+        buttonsDiv.style.flexWrap = 'wrap';
+        buttonsDiv.style.gap = '8px';
+        buttonsDiv.style.marginTop = '12px';
         
         options.forEach((opt, idx) => {
             const optText = typeof opt === 'object' ? opt.text : opt;
             const btn = document.createElement('button');
-            btn.className = 'message-button';
-            btn.setAttribute('data-option-index', idx);
-            btn.innerHTML = `<span>${optText}</span>`;
+            btn.className = 'test-message-button';
+            btn.textContent = optText;
+            btn.style.background = 'rgba(255, 107, 59, 0.15)';
+            btn.style.border = '1px solid rgba(255, 107, 59, 0.3)';
+            btn.style.borderRadius = '30px';
+            btn.style.padding = '10px 20px';
+            btn.style.fontSize = '14px';
+            btn.style.color = 'white';
+            btn.style.cursor = 'pointer';
+            btn.style.transition = 'all 0.2s';
+            btn.style.fontFamily = 'inherit';
             
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const index = parseInt(btn.dataset.optionIndex);
-                const option = options[index];
-                const optionText = typeof option === 'object' ? option.text : option;
-                
-                this.addUserMessage(optionText);
-                
-                const buttonsContainer = msg.querySelector('.message-buttons');
-                if (buttonsContainer) {
-                    buttonsContainer.remove();
-                }
-                
-                callback(index, option);
+            btn.addEventListener('mouseenter', () => {
+                btn.style.background = 'rgba(255, 107, 59, 0.3)';
+                btn.style.transform = 'scale(1.02)';
             });
-            
+            btn.addEventListener('mouseleave', () => {
+                btn.style.background = 'rgba(255, 107, 59, 0.15)';
+                btn.style.transform = 'scale(1)';
+            });
+            btn.addEventListener('click', () => {
+                // Удаляем кнопки после выбора
+                buttonsDiv.remove();
+                this.addUserMessage(optText);
+                callback(idx, opt);
+            });
             buttonsDiv.appendChild(btn);
         });
         
         const timeDiv = document.createElement('div');
-        timeDiv.className = 'message-time';
+        timeDiv.className = 'test-message-time';
         timeDiv.textContent = `📊 Прогресс: ${Math.round((current / total) * 100)}%`;
+        timeDiv.style.fontSize = '10px';
+        timeDiv.style.opacity = '0.6';
+        timeDiv.style.marginTop = '8px';
         
         bubble.appendChild(textDiv);
         bubble.appendChild(buttonsDiv);
         bubble.appendChild(timeDiv);
-        msg.appendChild(bubble);
+        msgDiv.appendChild(bubble);
         
-        list.appendChild(msg);
+        messagesContainer.appendChild(msgDiv);
         this.scrollToBottom();
     },
     
     addMessageWithButtons(text, buttons) {
-        const list = document.getElementById('testMessagesList');
-        if (!list) return;
+        const messagesContainer = document.getElementById('testChatMessages');
+        if (!messagesContainer) return;
         
-        const msg = document.createElement('div');
-        msg.className = 'message bot-message';
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'test-message test-message-bot';
         
         const bubble = document.createElement('div');
-        bubble.className = 'message-bubble';
+        bubble.className = 'test-message-bubble test-message-bubble-bot';
         
         const textDiv = document.createElement('div');
-        textDiv.className = 'message-text';
+        textDiv.className = 'test-message-text';
         textDiv.innerHTML = text.replace(/\n/g, '<br>');
         
         const buttonsDiv = document.createElement('div');
-        buttonsDiv.className = 'message-buttons';
+        buttonsDiv.className = 'test-message-buttons';
+        buttonsDiv.style.display = 'flex';
+        buttonsDiv.style.flexWrap = 'wrap';
+        buttonsDiv.style.gap = '8px';
+        buttonsDiv.style.marginTop = '12px';
         
         buttons.forEach((btn, i) => {
             const button = document.createElement('button');
-            button.className = 'message-button';
-            button.setAttribute('data-callback', i);
-            button.innerHTML = `<span>${btn.text}</span>`;
+            button.className = 'test-message-button';
+            button.textContent = btn.text;
+            button.style.background = 'rgba(255, 107, 59, 0.15)';
+            button.style.border = '1px solid rgba(255, 107, 59, 0.3)';
+            button.style.borderRadius = '30px';
+            button.style.padding = '10px 20px';
+            button.style.fontSize = '14px';
+            button.style.color = 'white';
+            button.style.cursor = 'pointer';
+            button.style.transition = 'all 0.2s';
             
-            button.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const idx = parseInt(button.dataset.callback);
-                
-                const buttonsContainer = msg.querySelector('.message-buttons');
-                if (buttonsContainer) {
-                    buttonsContainer.remove();
-                }
-                
-                buttons[idx].callback();
+            button.addEventListener('mouseenter', () => {
+                button.style.background = 'rgba(255, 107, 59, 0.3)';
+                button.style.transform = 'scale(1.02)';
             });
-            
+            button.addEventListener('mouseleave', () => {
+                button.style.background = 'rgba(255, 107, 59, 0.15)';
+                button.style.transform = 'scale(1)';
+            });
+            button.addEventListener('click', () => {
+                buttonsDiv.remove();
+                buttons[i].callback();
+            });
             buttonsDiv.appendChild(button);
         });
         
         const timeDiv = document.createElement('div');
-        timeDiv.className = 'message-time';
+        timeDiv.className = 'test-message-time';
         timeDiv.textContent = 'только что';
+        timeDiv.style.fontSize = '10px';
+        timeDiv.style.opacity = '0.6';
+        timeDiv.style.marginTop = '8px';
         
         bubble.appendChild(textDiv);
         bubble.appendChild(buttonsDiv);
         bubble.appendChild(timeDiv);
-        msg.appendChild(bubble);
+        msgDiv.appendChild(bubble);
         
-        list.appendChild(msg);
+        messagesContainer.appendChild(msgDiv);
         this.scrollToBottom();
-        return msg;
+        return msgDiv;
     },
     
     scrollToBottom() {
         setTimeout(() => {
-            const container = document.getElementById('testMessagesContainer');
+            const container = document.getElementById('testChatMessages');
             if (container) {
                 container.scrollTop = container.scrollHeight;
             }
@@ -1127,7 +1149,6 @@ const Test = {
         // Этап 2: Мышление
         if (stageId === 'thinking' && opt.level) {
             this.thinkingScores[opt.level] = (this.thinkingScores[opt.level] || 0) + 1;
-            
             if (q.measures && q.measures !== 'thinking') {
                 this.strategyLevels[q.measures].push(opt.level);
             }
@@ -1245,42 +1266,25 @@ const Test = {
     // ============================================
     showStage4Result() {
         const profile = this.calculateFinalProfile();
-        const finalLevel = this.calculateFinalLevel();
         
         const sbDesc = {
-            1: "Под давлением замираете",
-            2: "Избегаете конфликтов",
-            3: "Внешне соглашаетесь",
-            4: "Внешне спокойны",
-            5: "Умеете защищать",
-            6: "Защищаете и используете силу"
+            1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
+            4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
         }[profile.sbLevel] || "Информация уточняется";
         
         const tfDesc = {
-            1: "Деньги как повезёт",
-            2: "Ищете возможности с нуля",
-            3: "Зарабатываете трудом",
-            4: "Хорошо зарабатываете",
-            5: "Создаёте системы дохода",
-            6: "Управляете капиталом"
+            1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
+            4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
         }[profile.tfLevel] || "Информация уточняется";
         
         const ubDesc = {
-            1: "Не думаете о сложном",
-            2: "Верите в знаки",
-            3: "Доверяете экспертам",
-            4: "Ищете заговоры",
-            5: "Анализируете факты",
-            6: "Строите теории"
+            1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
+            4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
         }[profile.ubLevel] || "Информация уточняется";
         
         const chvDesc = {
-            1: "Сильно привязываетесь",
-            2: "Подстраиваетесь",
-            3: "Хотите нравиться",
-            4: "Умеете влиять",
-            5: "Строите равные отношения",
-            6: "Создаёте сообщества"
+            1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
+            4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
         }[profile.chvLevel] || "Информация уточняется";
         
         const attentionDesc = profile.perceptionType.includes("СОЦИАЛЬНО") || profile.perceptionType.includes("СТАТУСНО")
@@ -1410,9 +1414,7 @@ const Test = {
     goToChat() {
         this.addBotMessage('👋 До свидания!\n\nБуду рад помочь, если решите вернуться.');
         setTimeout(() => {
-            if (window.App && App.showMainChat) {
-                App.showMainChat();
-            } else if (window.dashboard && window.dashboard.renderDashboard) {
+            if (window.dashboard && window.dashboard.renderDashboard) {
                 window.dashboard.renderDashboard();
             }
         }, 2000);
@@ -1490,39 +1492,23 @@ const Test = {
         const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
         
         const sbDesc = {
-            1: "Под давлением замираете",
-            2: "Избегаете конфликтов",
-            3: "Внешне соглашаетесь",
-            4: "Внешне спокойны",
-            5: "Умеете защищать",
-            6: "Защищаете и используете силу"
+            1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
+            4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
         }[profile.sbLevel] || "Информация уточняется";
         
         const tfDesc = {
-            1: "Деньги как повезёт",
-            2: "Ищете возможности с нуля",
-            3: "Зарабатываете трудом",
-            4: "Хорошо зарабатываете",
-            5: "Создаёте системы дохода",
-            6: "Управляете капиталом"
+            1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
+            4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
         }[profile.tfLevel] || "Информация уточняется";
         
         const ubDesc = {
-            1: "Не думаете о сложном",
-            2: "Верите в знаки",
-            3: "Доверяете экспертам",
-            4: "Ищете заговоры",
-            5: "Анализируете факты",
-            6: "Строите теории"
+            1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
+            4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
         }[profile.ubLevel] || "Информация уточняется";
         
         const chvDesc = {
-            1: "Сильно привязываетесь",
-            2: "Подстраиваетесь",
-            3: "Хотите нравиться",
-            4: "Умеете влиять",
-            5: "Строите равные отношения",
-            6: "Создаёте сообщества"
+            1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
+            4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
         }[profile.chvLevel] || "Информация уточняется";
         
         const text = `🧠 **ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ**\n\n**Профиль:** ${profile.displayName}\n**Тип восприятия:** ${profile.perceptionType}\n**Уровень мышления:** ${profile.thinkingLevel}/9\n\n📊 **ТВОИ ВЕКТОРЫ:**\n\n• **Реакция на давление (СБ ${profile.sbLevel}/6):** ${sbDesc}\n\n• **Отношение к деньгам (ТФ ${profile.tfLevel}/6):** ${tfDesc}\n\n• **Понимание мира (УБ ${profile.ubLevel}/6):** ${ubDesc}\n\n• **Отношения с людьми (ЧВ ${profile.chvLevel}/6):** ${chvDesc}\n\n🧠 **Глубинный паттерн:** ${deep.attachment}\n\n👇 **Что дальше?**`;
@@ -1587,4 +1573,4 @@ const Test = {
 // Глобальный экспорт
 window.Test = Test;
 
-console.log('✅ Модуль теста загружен (версия 2.1)');
+console.log('✅ Модуль теста загружен (диалоговая версия с красивыми кнопками)');
