@@ -92,7 +92,7 @@ class VoiceService:
             logger.error(f"STT error: {e}")
             return None
     
-    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО ==========
+    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО: формат MP3 ==========
     
     async def text_to_speech(self, text: str, voice: str = "psychologist") -> Optional[str]:
         """
@@ -137,12 +137,13 @@ class VoiceService:
             session = await self._get_session()
             
             # 🔧 ВАЖНО: Yandex API ожидает form-data, не JSON
+            # 🔧 Формат MP3 для лучшей совместимости с браузерами
             data = {
                 "text": clean_text,
                 "voice": config['name'],
                 "emotion": config['emotion'],
                 "speed": config['speed'],
-                "format": "oggopus",
+                "format": "mp3",  # 👈 ИЗМЕНЕНО: oggopus -> mp3
                 "sampleRateHertz": 48000,
                 "lang": "ru-RU"
             }
