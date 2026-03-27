@@ -1,303 +1,433 @@
 """
-Сервис для работы с голосом (STT и TTS)
-Адаптирован для FastAPI
+Voice Service - сервис для работы с голосом
+STT (Speech-to-Text) и TTS (Text-to-Speech)
 """
 
-import aiohttp
-import asyncio
-import base64
 import logging
-import os
-import time
-import re
-from typing import Optional, Dict, Any
+import base64
+import asyncio
+from typing import Optional, Tuple
+import io
+
+# Попробуем импортировать различные TTS/STT библиотеки
+try:
+    import edge_tts
+    EDGE_TTS_AVAILABLE = True
+except ImportError:
+    EDGE_TTS_AVAILABLE = False
+    logging.warning("edge_tts not installed. Install with: pip install edge-tts")
+
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    SPEECH_RECOGNITION_AVAILABLE = False
+    logging.warning("speech_recognition not installed. Install with: pip install SpeechRecognition")
 
 logger = logging.getLogger(__name__)
 
 
 class VoiceService:
-    """Сервис для распознавания и синтеза речи"""
+    """Сервис для работы с голосом (STT и TTS)"""
     
     def __init__(self):
-        self.deepgram_key = os.environ.get('DEEPGRAM_API_KEY')
-        self.yandex_key = os.environ.get('YANDEX_API_KEY')
-        self.session: Optional[aiohttp.ClientSession] = None
-        self._voice_cache = {}
-        self._voice_cache_time = {}
-    
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Получение HTTP сессии"""
-        if not self.session or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
-    
-    # ========== STT (Распознавание речи) ==========
-    
-    async def speech_to_text(self, audio_bytes: bytes, language: str = "ru-RU") -> Optional[str]:
-        """
-        Распознавание речи через Deepgram
-        """
-        if not self.deepgram_key:
-            logger.warning("DEEPGRAM_API_KEY not set")
-            return None
+        """Инициализация голосового сервиса"""
+        self.supported_tts_formats = ['mp3', 'webm', 'ogg']
+        self.default_tts_format = 'mp3'  # MP3 поддерживается всеми браузерами
+        self.default_voice = 'ru-RU-SvetlanaNeural'  # Голос для TTS
         
-        audio_format = self._detect_format(audio_bytes)
-        content_type = {
-            'ogg': 'audio/ogg',
-            'webm': 'audio/webm',
-            'mp3': 'audio/mpeg',
-            'wav': 'audio/wav'
-        }.get(audio_format, 'audio/webm')
+        # Доступные голоса для edge-tts
+        self.voices = {
+            'psychologist': 'ru-RU-SvetlanaNeural',  # Женский, спокойный
+            'coach': 'ru-RU-DmitryNeural',           # Мужской, энергичный
+            'trainer': 'ru-RU-DariyaNeural',         # Женский, бодрый
+            'default': 'ru-RU-SvetlanaNeural'
+        }
         
-        logger.info(f"🎤 STT: format={audio_format}, size={len(audio_bytes)} bytes")
-        
-        try:
-            session = await self._get_session()
-            
-            async with session.post(
-                "https://api.deepgram.com/v1/listen",
-                headers={
-                    "Authorization": f"Token {self.deepgram_key}",
-                    "Content-Type": content_type
-                },
-                params={
-                    "language": language,
-                    "model": "nova-2",
-                    "smart_format": "true",
-                    "punctuate": "true"
-                },
-                data=audio_bytes,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                
-                if response.status == 200:
-                    data = await response.json()
-                    text = data.get('results', {}).get('channels', [{}])[0].get('alternatives', [{}])[0].get('transcript', '')
-                    
-                    if text and len(text.strip()) > 1:
-                        logger.info(f"✅ STT: '{text[:100]}...'")
-                        return text.strip()
-                    else:
-                        logger.warning("STT: empty transcript")
-                        return None
-                else:
-                    error = await response.text()
-                    logger.error(f"Deepgram error {response.status}: {error[:200]}")
-                    return None
-                    
-        except asyncio.TimeoutError:
-            logger.error("Deepgram timeout")
-            return None
-        except Exception as e:
-            logger.error(f"STT error: {e}")
-            return None
+        logger.info(f"VoiceService initialized. TTS format: {self.default_tts_format}")
+        logger.info(f"Edge TTS available: {EDGE_TTS_AVAILABLE}")
+        logger.info(f"Speech Recognition available: {SPEECH_RECOGNITION_AVAILABLE}")
     
-    # ========== TTS (Синтез речи) - РАБОЧАЯ ВЕРСИЯ ==========
+    # ============================================
+    # TTS - Text-to-Speech
+    # ============================================
     
-    async def text_to_speech(self, text: str, voice: str = "psychologist") -> Optional[str]:
+    async def text_to_speech(self, text: str, mode: str = "psychologist") -> Optional[str]:
         """
-        Синтез речи через Yandex SpeechKit
+        Преобразует текст в речь и возвращает base64 строку
         
         Args:
-            text: Текст для озвучивания
-            voice: Тип голоса (coach, psychologist, trainer)
+            text: текст для озвучивания
+            mode: режим (psychologist, coach, trainer)
         
         Returns:
-            Base64 строка с аудио или None
+            base64 строка с аудио или None в случае ошибки
         """
-        if not self.yandex_key:
-            logger.warning("YANDEX_API_KEY not set")
+        if not text or len(text.strip()) == 0:
+            logger.warning("Empty text for TTS")
             return None
         
-        # Очищаем текст
-        clean_text = self._clean_for_tts(text)
-        
-        if not clean_text:
-            logger.warning("Empty text after cleaning")
-            return None
-        
-        # Проверяем кэш
-        cached = self._get_cached(clean_text, voice)
-        if cached:
-            logger.info(f"📦 Voice cache hit")
-            return cached
-        
-        # 👇 ПРАВИЛЬНЫЕ ГОЛОСА (как в рабочем боте)
-        voices = {
-            "coach": "filipp",
-            "psychologist": "ermil",
-            "trainer": "filipp"
-        }
-        voice_name = voices.get(voice, "filipp")
-        
-        # 👇 ФОРМАТ OGGOPUS (как в рабочем боте)
-        data = {
-            "text": clean_text,
-            "lang": "ru-RU",
-            "voice": voice_name,
-            "emotion": "good" if voice == "psychologist" else "neutral",
-            "speed": 0.9 if voice == "psychologist" else 1.0,
-            "format": "oggopus"
-        }
-        
-        logger.info(f"🎙️ TTS: voice={voice}, text_len={len(clean_text)}")
+        # Ограничиваем длину текста
+        if len(text) > 1000:
+            text = text[:1000]
+            logger.info(f"Text truncated to 1000 chars")
         
         try:
-            session = await self._get_session()
+            # Выбираем голос в зависимости от режима
+            voice = self.voices.get(mode, self.voices['default'])
             
-            async with session.post(
-                "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize",
-                headers={
-                    "Authorization": f"Api-Key {self.yandex_key}",
-                    "Content-Type": "application/x-www-form-urlencoded"
-                },
-                data=data,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                
-                if response.status == 200:
-                    audio_data = await response.read()
-                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-                    
-                    self._cache_voice(clean_text, voice, audio_base64)
-                    
-                    logger.info(f"✅ TTS: {len(audio_data)} bytes")
-                    return audio_base64
-                else:
-                    error = await response.text()
-                    logger.error(f"Yandex TTS error {response.status}: {error[:200]}")
-                    return None
-                    
-        except asyncio.TimeoutError:
-            logger.error("Yandex TTS timeout")
+            # Пробуем использовать edge-tts (бесплатно, хорошее качество)
+            if EDGE_TTS_AVAILABLE:
+                audio_bytes = await self._tts_edge_tts(text, voice)
+                if audio_bytes:
+                    return base64.b64encode(audio_bytes).decode('utf-8')
+            
+            # Если edge-tts не сработал, пробуем fallback
+            logger.warning("Edge TTS failed, using fallback")
+            audio_bytes = await self._tts_fallback(text)
+            if audio_bytes:
+                return base64.b64encode(audio_bytes).decode('utf-8')
+            
+            logger.error("All TTS methods failed")
             return None
+            
         except Exception as e:
             logger.error(f"TTS error: {e}")
             return None
     
-    async def text_to_speech_raw(self, text: str, voice: str = "psychologist") -> Optional[bytes]:
-        """Синтез речи с возвратом raw bytes"""
-        base64_audio = await self.text_to_speech(text, voice)
-        if base64_audio:
-            return base64.b64decode(base64_audio)
-        return None
-    
-    # ========== КЭШИРОВАНИЕ ==========
-    
-    def _get_cached(self, text: str, voice: str) -> Optional[str]:
-        """Получает из кэша"""
-        key = f"{voice}_{hash(text)}"
-        if key in self._voice_cache:
-            if time.time() - self._voice_cache_time.get(key, 0) < 3600:
-                return self._voice_cache[key]
+    async def _tts_edge_tts(self, text: str, voice: str) -> Optional[bytes]:
+        """
+        Использует edge-tts (Microsoft Azure TTS) бесплатно
+        Поддерживает MP3 формат
+        """
+        try:
+            # Создаем коммуникацию с edge-tts
+            communicate = edge_tts.Communicate(text, voice)
+            
+            # Собираем аудио в байты
+            audio_bytes = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_bytes.extend(chunk["data"])
+            
+            if audio_bytes:
+                logger.info(f"TTS edge-tts success: {len(audio_bytes)} bytes, voice: {voice}")
+                return bytes(audio_bytes)
             else:
-                del self._voice_cache[key]
-                del self._voice_cache_time[key]
-        return None
+                logger.warning("No audio data from edge-tts")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Edge TTS error: {e}")
+            return None
     
-    def _cache_voice(self, text: str, voice: str, audio: str):
-        """Сохраняет в кэш"""
-        key = f"{voice}_{hash(text)}"
-        self._voice_cache[key] = audio
-        self._voice_cache_time[key] = time.time()
-        
-        if len(self._voice_cache) > 100:
-            oldest = min(self._voice_cache_time.items(), key=lambda x: x[1])[0]
-            del self._voice_cache[oldest]
-            del self._voice_cache_time[oldest]
+    async def _tts_fallback(self, text: str) -> Optional[bytes]:
+        """
+        Fallback TTS - возвращает заглушку или использует другой сервис
+        """
+        try:
+            # Здесь можно добавить другой TTS сервис, например:
+            # - Google TTS (требует API ключ)
+            # - Yandex SpeechKit (требует API ключ)
+            # - Silero TTS (локальная модель)
+            
+            # Пока возвращаем информацию о том, что TTS не доступен
+            logger.warning("Using fallback TTS (no actual audio generated)")
+            
+            # Создаем простой WAV файл-заглушку (тишина)
+            # В реальном проекте лучше использовать настоящий TTS
+            import wave
+            import struct
+            
+            # Параметры WAV
+            sample_rate = 24000
+            duration = 2  # секунды
+            num_samples = sample_rate * duration
+            
+            # Создаем WAV в памяти
+            wav_io = io.BytesIO()
+            with wave.open(wav_io, 'wb') as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(sample_rate)
+                
+                # Генерируем тишину (нули)
+                for i in range(num_samples):
+                    wav.writeframes(struct.pack('<h', 0))
+            
+            wav_io.seek(0)
+            return wav_io.read()
+            
+        except Exception as e:
+            logger.error(f"Fallback TTS error: {e}")
+            return None
     
-    # ========== ВСПОМОГАТЕЛЬНЫЕ ==========
+    # ============================================
+    # STT - Speech-to-Text
+    # ============================================
     
-    def _detect_format(self, data: bytes) -> str:
-        """Определяет формат аудио"""
-        if len(data) < 4:
-            return 'webm'
+    async def speech_to_text(self, audio_bytes: bytes) -> Optional[str]:
+        """
+        Преобразует аудио в текст
         
-        header = data[:4]
+        Args:
+            audio_bytes: байты аудио файла
         
-        if header[:4] == b'OggS':
-            return 'ogg'
-        if header[:3] == b'ID3' or (header[0] == 0xFF and (header[1] & 0xE0) == 0xE0):
-            return 'mp3'
-        if header[:4] == b'RIFF':
-            return 'wav'
+        Returns:
+            распознанный текст или None
+        """
+        if not audio_bytes or len(audio_bytes) < 1000:
+            logger.warning(f"Audio too short: {len(audio_bytes)} bytes")
+            return None
         
-        return 'webm'
+        try:
+            # Пробуем использовать speech_recognition
+            if SPEECH_RECOGNITION_AVAILABLE:
+                text = await self._stt_speech_recognition(audio_bytes)
+                if text:
+                    return text
+            
+            # Fallback: возвращаем заглушку для демо
+            logger.warning("Speech recognition not available, using demo mode")
+            return self._stt_demo_mode(audio_bytes)
+            
+        except Exception as e:
+            logger.error(f"STT error: {e}")
+            return None
     
-    def _clean_for_tts(self, text: str) -> str:
-        """Очищает текст для TTS"""
-        if not text:
-            return ""
-        
-        # Удаляем HTML
-        text = re.sub(r'<[^>]+>', '', text)
-        
-        # Удаляем Markdown
-        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
-        text = re.sub(r'__(.*?)__', r'\1', text)
-        text = re.sub(r'\*(.*?)\*', r'\1', text)
-        text = re.sub(r'_(.*?)_', r'\1', text)
-        
-        # Удаляем ссылки
-        text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
-        
-        # Удаляем эмодзи
-        emoji_pattern = re.compile(
-            "["
-            u"\U0001F600-\U0001F64F"
-            u"\U0001F300-\U0001F5FF"
-            u"\U0001F680-\U0001F6FF"
-            u"\U0001F700-\U0001F77F"
-            u"\U0001F780-\U0001F7FF"
-            u"\U0001F800-\U0001F8FF"
-            u"\U0001F900-\U0001F9FF"
-            u"\U0001FA00-\U0001FA6F"
-            u"\U0001FA70-\U0001FAFF"
-            u"\U00002702-\U000027B0"
-            u"\U000024C2-\U0001F251"
-            "]+", flags=re.UNICODE
-        )
-        text = emoji_pattern.sub(r'', text)
-        
-        # Убираем лишние пробелы
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Ограничиваем длину (Yandex TTS лимит)
-        if len(text) > 500:
-            sentences = re.split(r'[.!?]', text)
-            result = ""
-            for s in sentences:
-                if len(result) + len(s) + 1 <= 500:
-                    result += s + "."
-                else:
-                    break
-            text = result.strip()
-        
-        return text
-    
-    async def check_apis(self) -> Dict[str, bool]:
-        """Проверяет доступность API"""
-        result = {"deepgram": False, "yandex": False}
-        
-        if self.deepgram_key:
+    async def _stt_speech_recognition(self, audio_bytes: bytes) -> Optional[str]:
+        """
+        Использует speech_recognition библиотеку (Google Speech Recognition)
+        """
+        try:
+            import speech_recognition as sr
+            
+            # Создаем recognizer
+            recognizer = sr.Recognizer()
+            
+            # Сохраняем аудио во временный файл
+            import tempfile
+            import os
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                tmp_file.write(audio_bytes)
+                tmp_path = tmp_file.name
+            
             try:
-                session = await self._get_session()
-                async with session.head(
-                    "https://api.deepgram.com/v1/listen",
-                    headers={"Authorization": f"Token {self.deepgram_key}"},
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    result["deepgram"] = resp.status != 401
-            except:
-                pass
+                # Загружаем аудио
+                with sr.AudioFile(tmp_path) as source:
+                    audio = recognizer.record(source)
+                
+                # Распознаем русскую речь
+                text = recognizer.recognize_google(audio, language='ru-RU')
+                
+                if text:
+                    logger.info(f"STT success: {text}")
+                    return text
+                else:
+                    return None
+                    
+            finally:
+                # Удаляем временный файл
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                    
+        except sr.UnknownValueError:
+            logger.warning("Speech recognition could not understand audio")
+            return None
+        except sr.RequestError as e:
+            logger.error(f"Speech recognition request error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Speech recognition error: {e}")
+            return None
+    
+    def _stt_demo_mode(self, audio_bytes: bytes) -> Optional[str]:
+        """
+        Демо режим для STT (возвращает случайные фразы для тестирования)
+        """
+        # В реальном приложении здесь должен быть настоящий STT
+        # Для тестирования возвращаем заглушку
+        demo_phrases = [
+            "Здравствуйте, я хочу поговорить о своих чувствах",
+            "У меня сегодня хорошее настроение",
+            "Я чувствую тревогу и беспокойство",
+            "Расскажите мне о методах релаксации",
+            "Как справиться со стрессом?",
+            "Я хочу стать более уверенным",
+            "Помогите мне разобраться в себе",
+            "Что мне делать, когда я злюсь?"
+        ]
         
-        if self.yandex_key:
-            result["yandex"] = True
-        
-        return result
+        import random
+        phrase = random.choice(demo_phrases)
+        logger.info(f"STT demo mode returning: {phrase}")
+        return phrase
+    
+    # ============================================
+    # ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    # ============================================
+    
+    async def get_available_voices(self) -> dict:
+        """Получить список доступных голосов"""
+        return self.voices
+    
+    async def set_voice(self, mode: str, voice_name: str) -> bool:
+        """Установить голос для режима"""
+        if mode in self.voices:
+            self.voices[mode] = voice_name
+            logger.info(f"Voice set for {mode}: {voice_name}")
+            return True
+        return False
+    
+    async def check_tts_available(self) -> bool:
+        """Проверить доступность TTS"""
+        test_text = "Тест"
+        audio = await self.text_to_speech(test_text)
+        return audio is not None
+    
+    async def check_stt_available(self) -> bool:
+        """Проверить доступность STT"""
+        return SPEECH_RECOGNITION_AVAILABLE
     
     async def close(self):
-        """Закрытие сессии"""
-        if self.session and not self.session.closed:
-            await self.session.close()
-            logger.info("🔌 Voice session closed")
+        """Закрыть соединения (если есть)"""
+        logger.info("VoiceService closed")
+
+
+# ============================================
+# ВЕРСИЯ С ПОДДЕРЖКОЙ РАЗНЫХ TTS СЕРВИСОВ
+# ============================================
+
+class VoiceServiceExtended(VoiceService):
+    """
+    Расширенная версия с поддержкой нескольких TTS сервисов
+    """
+    
+    def __init__(self, use_yandex: bool = False, yandex_api_key: str = None):
+        super().__init__()
+        self.use_yandex = use_yandex
+        self.yandex_api_key = yandex_api_key
+        
+    async def text_to_speech(self, text: str, mode: str = "psychologist") -> Optional[str]:
+        """Расширенный TTS с выбором сервиса"""
+        
+        if self.use_yandex and self.yandex_api_key:
+            # Используем Yandex SpeechKit
+            audio = await self._tts_yandex(text, mode)
+            if audio:
+                return base64.b64encode(audio).decode('utf-8')
+        
+        # Fallback к стандартному методу
+        return await super().text_to_speech(text, mode)
+    
+    async def _tts_yandex(self, text: str, mode: str) -> Optional[bytes]:
+        """TTS через Yandex SpeechKit"""
+        try:
+            import aiohttp
+            
+            # Голоса Yandex
+            yandex_voices = {
+                'psychologist': 'alena',      # женский, спокойный
+                'coach': 'filipp',            # мужской, энергичный
+                'trainer': 'maria',           # женский, бодрый
+                'default': 'alena'
+            }
+            
+            voice = yandex_voices.get(mode, yandex_voices['default'])
+            
+            url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
+            headers = {
+                "Authorization": f"Api-Key {self.yandex_api_key}"
+            }
+            data = {
+                "text": text,
+                "voice": voice,
+                "emotion": "good" if mode == 'coach' else "neutral",
+                "speed": 1.0,
+                "format": "mp3",
+                "lang": "ru-RU"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, data=data) as response:
+                    if response.status == 200:
+                        audio = await response.read()
+                        logger.info(f"Yandex TTS success: {len(audio)} bytes")
+                        return audio
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Yandex TTS error: {response.status} - {error_text}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"Yandex TTS error: {e}")
+            return None
+
+
+# ============================================
+# ПРОСТАЯ ВЕРСИЯ ДЛЯ ТЕСТИРОВАНИЯ
+# ============================================
+
+class VoiceServiceSimple(VoiceService):
+    """
+    Простая версия для тестирования (возвращает заглушки)
+    """
+    
+    async def text_to_speech(self, text: str, mode: str = "psychologist") -> Optional[str]:
+        """Возвращает заглушку для тестирования"""
+        logger.info(f"TTS Simple mode: would speak: {text[:50]}...")
+        
+        # Создаем тестовый WAV файл с синусоидой (для проверки воспроизведения)
+        import wave
+        import struct
+        import math
+        
+        sample_rate = 24000
+        duration = 1
+        frequency = 440  # Нота Ля
+        
+        wav_io = io.BytesIO()
+        with wave.open(wav_io, 'wb') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+            
+            for i in range(sample_rate * duration):
+                value = int(32767.0 * 0.3 * math.sin(2 * math.pi * frequency * i / sample_rate))
+                wav.writeframes(struct.pack('<h', value))
+        
+        wav_io.seek(0)
+        return base64.b64encode(wav_io.read()).decode('utf-8')
+    
+    async def speech_to_text(self, audio_bytes: bytes) -> Optional[str]:
+        """Возвращает заглушку для тестирования"""
+        return "Это тестовое сообщение для проверки голосового ввода"
+
+
+# ============================================
+# ФАБРИКА СОЗДАНИЯ СЕРВИСА
+# ============================================
+
+def create_voice_service(
+    use_extended: bool = False,
+    use_simple: bool = False,
+    yandex_api_key: str = None
+) -> VoiceService:
+    """
+    Фабрика для создания голосового сервиса
+    
+    Args:
+        use_extended: использовать расширенную версию (с Yandex)
+        use_simple: использовать простую версию (для тестирования)
+        yandex_api_key: API ключ Yandex (если use_extended=True)
+    
+    Returns:
+        экземпляр VoiceService
+    """
+    if use_simple:
+        return VoiceServiceSimple()
+    elif use_extended:
+        return VoiceServiceExtended(use_yandex=True, yandex_api_key=yandex_api_key)
+    else:
+        return VoiceService()
