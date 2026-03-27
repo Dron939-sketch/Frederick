@@ -1,5 +1,4 @@
-# render.yaml - ТОЛЬКО BACKEND И БАЗЫ ДАННЫХ
-# Статический сайт создается отдельно вручную
+# render.yaml - ТОЛЬКО BACKEND (статический сайт создается отдельно)
 
 # Определяем базы данных
 databases:
@@ -9,14 +8,14 @@ databases:
     plan: starter
 
 services:
-  # Backend (FastAPI)
+  # Backend (FastAPI) - через Docker
   - type: web
     name: fredi-backend
     runtime: image
     repo: https://github.com/Dron939-sketch/Frederick
     plan: starter
-    dockerfilePath: ./backend/Dockerfile
     branch: main
+    dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /health
     autoDeploy: true
 
