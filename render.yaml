@@ -1,22 +1,9 @@
-# render.yaml - ВЕРСИЯ С ПРАВИЛЬНЫМИ ТИПАМИ
-services:
-  # 1. PostgreSQL база данных - ИСПРАВЛЕНО: postgres
-  - type: postgres
-    name: fredi-db
-    plan: starter
-    region: frankfurt
-    databaseName: fredi_db
-    user: fredi_user
-    ipAllowList: []
-    backup:
-      enabled: true
-      schedule: "0 0 * * *"
-    diskSizeGB: 10
-    postgresMajorVersion: 15
-    highAvailability:
-      enabled: false
+# render.yaml - ПРАВИЛЬНАЯ ВЕРСИЯ
+# Базы данных создаются автоматически через fromDatabase
+# Не нужно объявлять их как отдельные сервисы!
 
-  # 2. Backend API (FastAPI)
+services:
+  # 1. Backend API (FastAPI)
   - type: web
     name: fredi-backend
     runtime: python
@@ -37,9 +24,15 @@ services:
         --timeout-keep-alive 65 \
         --limit-concurrency 100
     envVars:
+      # PostgreSQL - будет создана автоматически
       - key: DATABASE_URL
         fromDatabase:
           name: fredi-db
+          property: connectionString
+      # Redis - будет создан автоматически  
+      - key: REDIS_URL
+        fromDatabase:
+          name: fredi-redis
           property: connectionString
       - key: ENVIRONMENT
         value: production
@@ -78,16 +71,7 @@ services:
       mountPath: /tmp
       sizeGB: 1
 
-  # 3. Redis
-  - type: redis
-    name: fredi-redis
-    plan: starter
-    region: frankfurt
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []
-    redisVersion: "7"
-
-  # 4. Статический сайт (Frontend)
+  # 2. Статический сайт (Frontend)
   - type: static_site
     name: fredi-frontend
     region: frankfurt
