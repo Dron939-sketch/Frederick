@@ -1,34 +1,35 @@
-# core
+# Core
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
-# database
+# Database
 asyncpg==0.29.0
 psycopg2-binary==2.9.9
 
-# cache
+# Cache
 redis==5.0.1
 aioredis==2.0.1
 
-# http
+# HTTP
 aiohttp==3.9.1
 httpx==0.25.1
 
-# utils
+# Utils
 python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# monitoring
+# Performance
+uvloop==0.19.0
+httptools==0.6.1
+
+# Rate limiting
+slowapi==0.1.9
+
+# Monitoring
 prometheus-client==0.19.0
-opentelemetry-api==1.21.0
-opentelemetry-sdk==1.21.0
 
-# performance
-uvloop==0.19.0  # Быстрее asyncio
-httptools==0.6.1  # Быстрее парсинг HTTP
-
-# voice (опционально)
+# Voice (optional)
 librosa==0.10.1
 soundfile==0.12.1
