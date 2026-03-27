@@ -29,12 +29,16 @@ class MessageRepository:
             
             # Очищаем кэш истории
             if self.cache:
-                await self.cache.delete(f"history:{user_id}")
+                try:
+                    await self.cache.delete(f"history:{user_id}")
+                except Exception as cache_error:
+                    logger.warning(f"Cache delete error: {cache_error}")
             
             return True
             
         except Exception as e:
-            logger.error(f"Error saving message: {e}")
+            # Логируем ошибку, но не прерываем работу
+            logger.error(f"Error saving message for user {user_id}: {type(e).__name__}: {e}")
             return False
     
     async def get_history(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
@@ -42,9 +46,12 @@ class MessageRepository:
         # Проверяем кэш
         cache_key = f"history:{user_id}"
         if self.cache:
-            cached = await self.cache.get(cache_key)
-            if cached:
-                return cached[:limit]
+            try:
+                cached = await self.cache.get(cache_key)
+                if cached:
+                    return cached[:limit]
+            except Exception as cache_error:
+                logger.warning(f"Cache read error: {cache_error}")
         
         try:
             rows = await self.db.fetch("""
@@ -57,23 +64,35 @@ class MessageRepository:
             
             messages = []
             for row in rows:
+                metadata = row['metadata']
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except json.JSONDecodeError:
+                        metadata = {}
+                elif metadata is None:
+                    metadata = {}
+                
                 messages.append({
                     "role": row['role'],
                     "content": row['content'],
-                    "metadata": row['metadata'] if isinstance(row['metadata'], dict) else json.loads(row['metadata']) if row['metadata'] else {},
+                    "metadata": metadata,
                     "created_at": row['created_at'].isoformat() if row['created_at'] else None
                 })
             
             messages.reverse()  # От старых к новым
             
             # Сохраняем в кэш
-            if self.cache:
-                await self.cache.set(cache_key, messages, ttl=60)
+            if self.cache and messages:
+                try:
+                    await self.cache.set(cache_key, messages, ttl=60)
+                except Exception as cache_error:
+                    logger.warning(f"Cache write error: {cache_error}")
             
             return messages
             
         except Exception as e:
-            logger.error(f"Error getting history for user {user_id}: {e}")
+            logger.error(f"Error getting history for user {user_id}: {type(e).__name__}: {e}")
             return []
     
     async def get_last_message(self, user_id: int) -> Optional[Dict[str, Any]]:
@@ -97,7 +116,7 @@ class MessageRepository:
             return None
             
         except Exception as e:
-            logger.error(f"Error getting last message: {e}")
+            logger.error(f"Error getting last message for user {user_id}: {type(e).__name__}: {e}")
             return None
     
     async def delete_history(self, user_id: int) -> bool:
@@ -108,10 +127,49 @@ class MessageRepository:
             """, user_id)
             
             if self.cache:
-                await self.cache.delete(f"history:{user_id}")
+                try:
+                    await self.cache.delete(f"history:{user_id}")
+                except Exception as cache_error:
+                    logger.warning(f"Cache delete error: {cache_error}")
             
             return True
             
         except Exception as e:
-            logger.error(f"Error deleting history: {e}")
+            logger.error(f"Error deleting history for user {user_id}: {type(e).__name__}: {e}")
             return False
+    
+    async def get_message_count(self, user_id: int) -> int:
+        """Получить количество сообщений пользователя"""
+        try:
+            count = await self.db.fetchval("""
+                SELECT COUNT(*) FROM messages WHERE user_id = $1
+            """, user_id)
+            return count or 0
+        except Exception as e:
+            logger.error(f"Error getting message count: {e}")
+            return 0
+    
+    async def get_recent_context(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        """Получить последние сообщения для контекста"""
+        try:
+            rows = await self.db.fetch("""
+                SELECT role, content
+                FROM messages
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+            """, user_id, limit)
+            
+            messages = []
+            for row in rows:
+                messages.append({
+                    "role": row['role'],
+                    "content": row['content']
+                })
+            
+            messages.reverse()  # От старых к новым
+            return messages
+            
+        except Exception as e:
+            logger.error(f"Error getting recent context: {e}")
+            return []
