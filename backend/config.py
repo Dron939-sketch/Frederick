@@ -7,6 +7,11 @@ DEEPGRAM_API_KEY = os.environ.get('DEEPGRAM_API_KEY', '')
 YANDEX_API_KEY = os.environ.get('YANDEX_API_KEY', '')
 OPENWEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY', '')
 
+# URL API
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPGRAM_API_URL = "https://api.deepgram.com/v1/listen"
+YANDEX_TTS_API_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
+
 # Режимы общения
 COMMUNICATION_MODES = {
     'coach': {
@@ -16,7 +21,8 @@ COMMUNICATION_MODES = {
         'emoji': '🔮',
         'description': 'Помогаю найти ответы внутри себя',
         'voicePrompt': 'Задай вопрос — я помогу найти решение',
-        'color': '#3b82ff'
+        'color': '#3b82ff',
+        'system_prompt': 'Ты — коуч. Помогай человеку находить ответы внутри себя через открытые вопросы. Не давай готовых ответов.'
     },
     'psychologist': {
         'id': 'psychologist',
@@ -25,7 +31,8 @@ COMMUNICATION_MODES = {
         'emoji': '🧠',
         'description': 'Исследую глубинные паттерны',
         'voicePrompt': 'Расскажите, что вас беспокоит',
-        'color': '#ff6b3b'
+        'color': '#ff6b3b',
+        'system_prompt': 'Ты — психолог. Исследуй глубинные паттерны, защитные механизмы, прошлый опыт. Будь эмпатичным.'
     },
     'trainer': {
         'id': 'trainer',
@@ -34,29 +41,7 @@ COMMUNICATION_MODES = {
         'emoji': '⚡',
         'description': 'Даю чёткие инструменты и алгоритмы',
         'voicePrompt': 'Сформулируй задачу — получишь чёткий план',
-        'color': '#ff3b3b'
+        'color': '#ff3b3b',
+        'system_prompt': 'Ты — тренер. Давай четкие, конкретные инструкции, упражнения, ставь дедлайны. Структурируй ответы.'
     }
 }
-
-# Настройки приложения
-APP_NAME = "Фреди"
-APP_VERSION = "2.0.0"
-ENVIRONMENT = os.environ.get('ENVIRONMENT', 'development')
-LOG_LEVEL = os.environ.get('LOG_LEVEL', 'info')
-
-# Настройки БД
-DB_POOL_MIN_SIZE = int(os.environ.get('DB_POOL_MIN_SIZE', 5))
-DB_POOL_MAX_SIZE = int(os.environ.get('DB_POOL_MAX_SIZE', 20))
-
-# Настройки кэша
-REDIS_TTL_DEFAULT = 300  # 5 минут
-REDIS_TTL_PROFILE = 86400  # 24 часа
-REDIS_TTL_WEATHER = 1800  # 30 минут
-
-# Таймауты
-DEEPSEEK_TIMEOUT = 30
-VOICE_TIMEOUT = 60
-WEATHER_TIMEOUT = 10
-
-# Администраторы (из переменных окружения)
-ADMIN_IDS = [int(x.strip()) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip()]
