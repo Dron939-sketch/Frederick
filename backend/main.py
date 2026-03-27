@@ -1,6 +1,9 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Фреди - Виртуальный психолог
 Асинхронный API сервер на FastAPI
+Версия 3.0 - Полная интеграция с конфайнтмент-моделью и режимами
 """
 
 import os
@@ -33,33 +36,63 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Импорты наших модулей
+# ============================================
+# ИМПОРТЫ ПО НОВОЙ СТРУКТУРЕ
+# ============================================
+
+# База данных и кэш
 from db import Database
 from cache import RedisCache
+
+# Сервисы
 from services.ai_service import AIService
 from services.voice_service import VoiceService
 from services.weather_service import WeatherService
+
+# Репозитории
 from repositories.user_repo import UserRepository
 from repositories.context_repo import ContextRepository
 from repositories.message_repo import MessageRepository
 
-# Импорты для конфайнтмент-модели
-from confinement_model import ConfinementModel9
-from loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
-from key_confinement import KeyConfinementDetector
-from intervention_library import InterventionLibrary
+# Конфайнтмент-модель
+from confinement import (
+    ConfinementModel9,
+    LoopAnalyzer,
+    KeyConfinementDetector,
+    ConfinementReporter,
+    InterventionLibrary,
+    QuestionContextAnalyzer,
+    create_analyzer_from_user_data
+)
 
-# Импорты для гипноза
-from hypno_module import HypnoOrchestrator, TherapeuticTales, Anchoring
+# Гипнотические модули
+from hypno import HypnoOrchestrator, TherapeuticTales, Anchoring
 
-# Импорты для форматирования
+# Режимы общения
+from modes import get_mode, BaseMode, CoachMode, PsychologistMode, TrainerMode
+
+# Утилиты
+from utils import (
+    get_theoretical_path,
+    generate_life_context_questions,
+    generate_goal_context_questions,
+    calculate_feasibility,
+    parse_life_context_answers,
+    parse_goal_context_answers,
+    get_goal_difficulty,
+    get_goal_time_estimate,
+    save_feasibility_result,
+    MorningMessageManager,
+    WeekendPlanner,
+    get_weekend_planner
+)
+
+# Форматирование и профили
 from formatters import bold, italic, clean_text_for_safe_display, format_profile_text, format_psychologist_text
-
-# Импорты для профилей
 from profiles import VECTORS, LEVEL_PROFILES, STAGE_1_FEEDBACK, STAGE_2_FEEDBACK, STAGE_3_FEEDBACK, DILTS_LEVELS, FALLBACK_ANALYSIS
 
 # ============================================
-# ГЛОБАЛЬНЫЕ ОБЪЕКТЫ (инициализируются в lifespan)
+# ГЛОБАЛЬНЫЕ ОБЪЕКТЫ
 # ============================================
 db: Optional[Database] = None
 cache: Optional[RedisCache] = None
@@ -77,6 +110,10 @@ anchoring: Optional[Anchoring] = None
 
 # Библиотека интервенций
 intervention_lib: Optional[InterventionLibrary] = None
+
+# Утренние сообщения и планировщик
+morning_manager: Optional[MorningMessageManager] = None
+weekend_planner: Optional[WeekendPlanner] = None
 
 # ============================================
 # RATE LIMITING
@@ -105,6 +142,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     success: bool
     response: str
+    mode_used: Optional[str] = None
+    reflection: Optional[str] = None
 
 
 class VoiceProcessResponse(BaseModel):
@@ -123,7 +162,7 @@ class HealthResponse(BaseModel):
 
 
 # ============================================
-# LIFESPAN (Управление жизненным циклом)
+# LIFESPAN
 # ============================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -131,10 +170,11 @@ async def lifespan(app: FastAPI):
     global db, cache, ai_service, voice_service, weather_service
     global user_repo, context_repo, message_repo
     global hypno, tales, anchoring, intervention_lib
+    global morning_manager, weekend_planner
     
     # ========== STARTUP ==========
     logger.info("=" * 60)
-    logger.info("🚀 ЗАПУСК ПРИЛОЖЕНИЯ ФРЕДИ")
+    logger.info("🚀 ЗАПУСК ПРИЛОЖЕНИЯ ФРЕДИ v3.0")
     logger.info("=" * 60)
     
     try:
@@ -175,12 +215,18 @@ async def lifespan(app: FastAPI):
         intervention_lib = InterventionLibrary()
         logger.info("✅ Гипнотические модули готовы")
         
-        # 6. Создаем таблицы
+        # 6. Инициализируем утилиты
+        logger.info("📦 Инициализация утилит...")
+        morning_manager = MorningMessageManager()
+        weekend_planner = get_weekend_planner()
+        logger.info("✅ Утилиты готовы")
+        
+        # 7. Создаем таблицы
         logger.info("📦 Проверка и создание таблиц...")
         await init_database_tables()
         logger.info("✅ Таблицы готовы")
         
-        # 7. Запускаем фоновые задачи
+        # 8. Запускаем фоновые задачи
         logger.info("📦 Запуск фоновых задач...")
         background_tasks = [
             asyncio.create_task(cleanup_old_data()),
@@ -233,7 +279,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Фреди API",
     description="Виртуальный психолог - API для работы с пользователями, голосом и AI",
-    version="2.0.0",
+    version="3.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -410,7 +456,7 @@ async def init_database_tables():
             )
         """)
         
-        # ========== ИНДЕКСЫ ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ ==========
+        # ========== ИНДЕКСЫ ==========
         
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_user_id_created 
@@ -671,7 +717,6 @@ async def get_profile(request: Request, user_id: int):
     try:
         profile = await user_repo.get_profile(user_id)
         if profile:
-            # Форматируем текст профиля
             if profile.get('ai_generated_profile'):
                 profile['ai_generated_profile'] = format_profile_text(profile['ai_generated_profile'])
         return {"success": True, "profile": profile}
@@ -704,29 +749,78 @@ async def get_profile_interpretation(request: Request, user_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---------- ЧАТ ----------
+# ---------- ЧАТ С РЕЖИМАМИ ----------
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat(request: Request, data: ChatRequest):
-    """Текстовый чат с Фреди"""
+    """Текстовый чат с Фреди с использованием режимов"""
     try:
-        context = await context_repo.get(data.user_id) or {}
+        context_obj = await context_repo.get(data.user_id) or {}
         profile = await user_repo.get_profile(data.user_id) or {}
         
-        response = await ai_service.generate_response(
-            user_id=data.user_id,
-            message=data.message,
-            context=context,
-            profile=profile,
-            mode=data.mode
-        )
+        # Получаем режим
+        mode_name = context_obj.get("communication_mode", data.mode)
         
+        # Создаем объект режима
+        user_data = {
+            "profile_data": profile.get("profile_data", {}),
+            "perception_type": profile.get("perception_type", "не определен"),
+            "thinking_level": profile.get("thinking_level", 5),
+            "deep_patterns": profile.get("deep_patterns", {}),
+            "behavioral_levels": profile.get("behavioral_levels", {}),
+            "dilts_counts": profile.get("dilts_counts", {}),
+            "confinement_model": profile.get("confinement_model"),
+            "history": []
+        }
+        
+        # Создаем объект контекста для режима
+        class SimpleContext:
+            def __init__(self, data):
+                self.name = data.get("name", "друг")
+                self.gender = data.get("gender")
+                self.age = data.get("age")
+                self.city = data.get("city")
+                self.weather_cache = data.get("weather_cache")
+                self.communication_mode = data.get("communication_mode", "psychologist")
+        
+        simple_context = SimpleContext(context_obj)
+        
+        # Получаем режим и обрабатываем вопрос
+        mode_instance = get_mode(mode_name, data.user_id, user_data, simple_context)
+        
+        # Если есть анализатор вопросов, используем его
+        reflection = None
+        if user_data.get("confinement_model"):
+            try:
+                from confinement import QuestionContextAnalyzer
+                analyzer = QuestionContextAnalyzer(
+                    ConfinementModel9.from_dict(user_data["confinement_model"]),
+                    simple_context.name or "друг"
+                )
+                reflection = analyzer.get_reflection_text(data.message)
+            except Exception as e:
+                logger.warning(f"Error in question analysis: {e}")
+        
+        # Обрабатываем вопрос
+        result = mode_instance.process_question(data.message)
+        
+        # Сохраняем в историю
         await message_repo.save(data.user_id, "user", data.message)
-        await message_repo.save(data.user_id, "assistant", response)
+        await message_repo.save(data.user_id, "assistant", result["response"])
         
-        await log_event(data.user_id, "chat", {"mode": data.mode, "message_length": len(data.message)})
+        await log_event(data.user_id, "chat", {
+            "mode": mode_name,
+            "message_length": len(data.message),
+            "tools_used": result.get("tools_used", [])
+        })
         
-        return {"success": True, "response": response}
+        return {
+            "success": True,
+            "response": result["response"],
+            "mode_used": mode_name,
+            "reflection": reflection
+        }
+        
     except Exception as e:
         logger.error(f"Error in chat for user {data.user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -744,7 +838,7 @@ async def get_chat_history(request: Request, user_id: int, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---------- ГОЛОС (ИСПРАВЛЕНО: MP3 ФОРМАТ) ----------
+# ---------- ГОЛОС ----------
 @app.post("/api/voice/process")
 @limiter.limit("10/minute")
 async def process_voice(
@@ -753,7 +847,7 @@ async def process_voice(
     voice: UploadFile = File(...),
     mode: str = Form("psychologist")
 ):
-    """Обработка голосового сообщения (STT + AI + TTS) - возвращает MP3"""
+    """Обработка голосового сообщения (STT + AI + TTS)"""
     try:
         audio_bytes = await voice.read()
         
@@ -771,40 +865,58 @@ async def process_voice(
                 error="Не удалось распознать речь"
             )
         
-        context = await context_repo.get(user_id) or {}
+        context_obj = await context_repo.get(user_id) or {}
         profile = await user_repo.get_profile(user_id) or {}
         
-        response = await ai_service.generate_response(
-            user_id=user_id,
-            message=recognized_text,
-            context=context,
-            profile=profile,
-            mode=mode
-        )
+        # Получаем режим
+        mode_name = context_obj.get("communication_mode", mode)
+        
+        # Создаем объект режима
+        user_data = {
+            "profile_data": profile.get("profile_data", {}),
+            "perception_type": profile.get("perception_type", "не определен"),
+            "thinking_level": profile.get("thinking_level", 5),
+            "deep_patterns": profile.get("deep_patterns", {}),
+            "behavioral_levels": profile.get("behavioral_levels", {}),
+            "dilts_counts": profile.get("dilts_counts", {}),
+            "confinement_model": profile.get("confinement_model"),
+            "history": []
+        }
+        
+        class SimpleContext:
+            def __init__(self, data):
+                self.name = data.get("name", "друг")
+                self.gender = data.get("gender")
+                self.age = data.get("age")
+                self.city = data.get("city")
+                self.weather_cache = data.get("weather_cache")
+                self.communication_mode = data.get("communication_mode", "psychologist")
+        
+        simple_context = SimpleContext(context_obj)
+        mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
+        
+        result = mode_instance.process_question(recognized_text)
+        response = result["response"]
         
         # Получаем аудио в MP3 формате
-        audio_base64 = await voice_service.text_to_speech(response, mode)
+        audio_base64 = await voice_service.text_to_speech(response, mode_name)
         
         await message_repo.save(user_id, "user", recognized_text, {"voice": True})
         await message_repo.save(user_id, "assistant", response, {"voice": True})
         
         await log_event(user_id, "voice", {"text_length": len(recognized_text)})
         
-        # Возвращаем с правильным MIME типом для MP3
         return {
             "success": True,
             "recognized_text": recognized_text,
             "answer": response,
             "audio_base64": audio_base64,
-            "audio_mime": "audio/mpeg"  # MP3 MIME тип
+            "audio_mime": "audio/mpeg"
         }
         
     except Exception as e:
         logger.error(f"Error processing voice for user {user_id}: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 @app.post("/api/voice/tts")
@@ -818,9 +930,7 @@ async def text_to_speech_endpoint(
     try:
         audio_base64 = await voice_service.text_to_speech(text, mode)
         if audio_base64:
-            # Декодируем base64 в байты для ответа
             audio_bytes = base64.b64decode(audio_base64)
-            # Возвращаем с правильным MIME типом MP3
             return Response(content=audio_bytes, media_type="audio/mpeg")
         raise HTTPException(status_code=500, detail="TTS failed")
     except Exception as e:
@@ -916,7 +1026,6 @@ async def get_psychologist_thought(request: Request, user_id: int):
                 await user_repo.save_psychologist_thought(user_id, thought)
         
         if thought:
-            # Форматируем для отображения
             context = await context_repo.get(user_id) or {}
             user_name = context.get('name', 'друг')
             thought = format_psychologist_text(thought, user_name)
@@ -1089,17 +1198,14 @@ async def get_confinement_loops(user_id: int):
             model.build_from_profile(scores, profile.get('history', []))
             model_data = model.to_dict()
         
-        analyzer = create_analyzer_from_model_data(model_data, user_id)
-        
-        if not analyzer:
-            return {"success": False, "error": "Не удалось создать анализатор"}
-        
+        model = ConfinementModel9.from_dict(model_data)
+        analyzer = LoopAnalyzer(model)
         loops = analyzer.analyze()
         
         return {
             "success": True,
             "loops": loops,
-            "statistics": analyzer.get_statistics()
+            "statistics": analyzer.get_statistics() if hasattr(analyzer, 'get_statistics') else {}
         }
     except Exception as e:
         logger.error(f"Error in confinement loops: {e}")
@@ -1124,20 +1230,16 @@ async def get_key_confinement(user_id: int):
             model.build_from_profile(scores, profile.get('history', []))
             model_data = model.to_dict()
         
-        analyzer = create_analyzer_from_model_data(model_data, user_id)
-        
-        if not analyzer:
-            return {"success": False, "error": "Не удалось создать анализатор"}
-        
+        model = ConfinementModel9.from_dict(model_data)
+        analyzer = LoopAnalyzer(model)
         loops = analyzer.analyze()
-        detector = KeyConfinementDetector(analyzer.model, loops)
+        detector = KeyConfinementDetector(model, loops)
         key_confinement = detector.detect()
         
         return {
             "success": True,
             "key_confinement": key_confinement,
-            "all_confinements": detector.detect_all() if hasattr(detector, 'detect_all') else [],
-            "break_points_summary": analyzer.get_break_points_summary()
+            "break_points": detector.get_break_points() if hasattr(detector, 'get_break_points') else []
         }
     except Exception as e:
         logger.error(f"Error in key confinement: {e}")
@@ -1162,12 +1264,9 @@ async def get_confinement_statistics(user_id: int):
                 }
             }
         
-        analyzer = create_analyzer_from_model_data(model_data, user_id)
-        
-        if not analyzer:
-            return {"statistics": {}}
-        
-        stats = analyzer.get_statistics()
+        model = ConfinementModel9.from_dict(model_data)
+        analyzer = LoopAnalyzer(model)
+        stats = analyzer.get_statistics() if hasattr(analyzer, 'get_statistics') else {}
         
         return {"statistics": stats}
     except Exception as e:
@@ -1183,31 +1282,16 @@ async def get_intervention(element_id: int, user_id: int):
         model_data = profile.get('confinement_model')
         
         if not model_data:
-            return {
-                "success": False,
-                "error": "Модель не построена"
-            }
+            return {"success": False, "error": "Модель не построена"}
         
-        analyzer = create_analyzer_from_model_data(model_data, user_id)
-        
-        if not analyzer:
-            return {"success": False, "error": "Не удалось создать анализатор"}
-        
-        element = analyzer.model.elements.get(element_id)
+        model = ConfinementModel9.from_dict(model_data)
+        element = model.elements.get(element_id)
         
         if not element:
             return {"success": False, "error": f"Элемент {element_id} не найден"}
         
         # Получаем интервенцию из библиотеки
-        loop_type = 'universal'
-        loops_with_element = analyzer.get_loops_by_element(element_id)
-        if loops_with_element:
-            loop_type = loops_with_element[0].get('type', 'universal')
-        
-        intervention = intervention_lib.get_for_loop(loop_type, element_id) if intervention_lib else None
-        
-        # Получаем ежедневную практику
-        daily_practice = intervention_lib.get_daily_practice(element_id) if intervention_lib else {
+        intervention = intervention_lib.get_daily_practice(element_id) if intervention_lib else {
             'title': 'Осознанность',
             'practice': 'Побудь в тишине 2 минуты',
             'duration': '2 минуты'
@@ -1225,8 +1309,7 @@ async def get_intervention(element_id: int, user_id: int):
                 "strength": element.strength
             },
             "intervention": intervention,
-            "daily_practice": daily_practice,
-            "random_quote": random.choice(intervention_lib.quotes.get('change', ['Изменения начинаются с осознания'])) if intervention_lib else "Изменения начинаются с осознания"
+            "random_quote": intervention_lib.get_random_quote() if intervention_lib else "Изменения начинаются с осознания"
         }
     except Exception as e:
         logger.error(f"Error in intervention: {e}")
@@ -1349,16 +1432,13 @@ async def get_tale(issue: str = None):
         if issue and tales:
             tale = tales.get_tale_for_issue(issue)
         else:
-            # Случайная сказка
-            tale_names = list(tales.tales.keys()) if tales else ['growth']
-            tale_name = random.choice(tale_names) if tale_names else 'growth'
-            tale = tales.tales.get(tale_name, tales.tales.get('growth', {}))
+            tale = tales.get_random_tale()
         
         return {
             "success": True,
             "tale": tale.get('text', 'Сказка скоро появится...'),
             "title": tale.get('title', 'Сказка'),
-            "available_tales": list(tales.tales.keys()) if tales else ['growth']
+            "available_tales": tales.get_all_tale_ids() if tales else ['growth']
         }
     except Exception as e:
         logger.error(f"Error in get tale: {e}")
@@ -1372,7 +1452,7 @@ async def get_tale_by_id(tale_id: str):
         if not tales:
             return {"success": False, "error": "Сказки недоступны"}
         
-        tale = tales.tales.get(tale_id)
+        tale = tales.get_tale_by_id(tale_id)
         
         if not tale:
             return {"success": False, "error": "Сказка не найдена"}
@@ -1397,7 +1477,6 @@ async def get_user_anchors(user_id: int):
     try:
         anchors = []
         
-        # Получаем якоря из БД
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
                 SELECT metadata->>'name' as name, 
@@ -1416,7 +1495,6 @@ async def get_user_anchors(user_id: int):
                 "state": row['state'] or "calm"
             })
         
-        # Если нет якорей, возвращаем стандартные
         if not anchors:
             anchors = [
                 {"name": "Спокойствие", "phrase": "Я спокоен. Я дышу ровно. Всё хорошо.", "state": "calm"},
@@ -1443,7 +1521,6 @@ async def set_anchor(request: Request):
         if not all([user_id, anchor_name, state, phrase]):
             return {"success": False, "error": "Missing fields"}
         
-        # Сохраняем в БД
         async with db.get_connection() as conn:
             await conn.execute("""
                 INSERT INTO psychologist_thoughts (user_id, thought_type, thought_text, metadata)
@@ -1453,7 +1530,6 @@ async def set_anchor(request: Request):
                 "state": state
             }))
         
-        # Устанавливаем в модуле якорей
         if anchoring:
             anchoring.set_anchor(user_id, anchor_name, state, phrase)
         
@@ -1482,7 +1558,6 @@ async def fire_anchor(request: Request):
             phrase = anchoring.fire_anchor(user_id, anchor_name)
         
         if not phrase:
-            # Если нет персонального якоря, даем стандартный
             phrases = {
                 "calm": "Я спокоен. Я дышу ровно. Всё хорошо.",
                 "confidence": "Я знаю, что делаю. У меня всё получится.",
@@ -1522,7 +1597,7 @@ async def get_anchor_state(state: str):
 
 
 # ============================================
-# ДОПОЛНИТЕЛЬНЫЕ ЭНДПОИНТЫ ДЛЯ СОВМЕСТИМОСТИ С ФРОНТЕНДОМ
+# ДОПОЛНИТЕЛЬНЫЕ ЭНДПОИНТЫ
 # ============================================
 
 @app.get("/api/user-status")
@@ -1568,9 +1643,9 @@ async def save_mode(request: Request):
 
 
 @app.get("/api/thought")
-async def thought(request: Request, user_id: int):  # ← добавили request
+async def thought(request: Request, user_id: int):
     """Получить мысль психолога (алиас)"""
-    return await get_psychologist_thought(request, user_id) 
+    return await get_psychologist_thought(request, user_id)
 
 
 @app.post("/api/psychologist-thoughts/generate")
@@ -1623,58 +1698,22 @@ async def get_challenges(user_id: int):
         profile_data = profile.get('profile_data', {})
         
         challenges = [
-            {
-                "id": 1,
-                "name": "Ежедневное общение",
-                "description": "Напиши сообщение в чат",
-                "progress": 0,
-                "target": 1,
-                "reward": 10,
-                "emoji": "💬",
-                "type": "daily",
-                "completed": False
-            },
-            {
-                "id": 2,
-                "name": "Анализ мыслей",
-                "description": "Запиши 3 мысли в дневник",
-                "progress": 0,
-                "target": 3,
-                "reward": 30,
-                "emoji": "📝",
-                "type": "daily",
-                "completed": False
-            }
+            {"id": 1, "name": "Ежедневное общение", "description": "Напиши сообщение в чат",
+             "progress": 0, "target": 1, "reward": 10, "emoji": "💬", "type": "daily", "completed": False},
+            {"id": 2, "name": "Анализ мыслей", "description": "Запиши 3 мысли в дневник",
+             "progress": 0, "target": 3, "reward": 30, "emoji": "📝", "type": "daily", "completed": False}
         ]
         
         sb_level = profile_data.get('sb_level', 4)
         tf_level = profile_data.get('tf_level', 4)
         
         if sb_level < 3:
-            challenges.append({
-                "id": 4,
-                "name": "Преодоление страхов",
-                "description": "Сделай одно действие, которое пугает",
-                "progress": 0,
-                "target": 1,
-                "reward": 50,
-                "emoji": "🛡️",
-                "type": "personalized",
-                "completed": False
-            })
+            challenges.append({"id": 4, "name": "Преодоление страхов", "description": "Сделай одно действие, которое пугает",
+                              "progress": 0, "target": 1, "reward": 50, "emoji": "🛡️", "type": "personalized", "completed": False})
         
         if tf_level < 3:
-            challenges.append({
-                "id": 5,
-                "name": "Финансовая осознанность",
-                "description": "Запиши все расходы",
-                "progress": 0,
-                "target": 1,
-                "reward": 40,
-                "emoji": "💰",
-                "type": "personalized",
-                "completed": False
-            })
+            challenges.append({"id": 5, "name": "Финансовая осознанность", "description": "Запиши все расходы",
+                              "progress": 0, "target": 1, "reward": 40, "emoji": "💰", "type": "personalized", "completed": False})
         
         return {"success": True, "challenges": challenges}
     except Exception as e:
@@ -1723,69 +1762,13 @@ async def find_doubles(user_id: int, limit: int = 10):
 
 
 # ============================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ============================================
-async def log_event(user_id: int, event_type: str, event_data: Dict = None):
-    """Логирование события"""
-    try:
-        async with db.get_connection() as conn:
-            await conn.execute("""
-                INSERT INTO events (user_id, event_type, event_data)
-                VALUES ($1, $2, $3)
-            """, user_id, event_type, json.dumps(event_data) if event_data else None)
-    except Exception as e:
-        # Логируем ошибку, но не прерываем выполнение
-        logger.error(f"Error logging event for user {user_id}: {type(e).__name__}: {e}")
-
-
-# ============================================
-# СОВМЕСТИМЫЙ ЭНДПОИНТ ДЛЯ СТАРОГО ФРОНТЕНДА (ИСПРАВЛЕНО: MP3)
-# ============================================
-
-@app.post("/api/tts")
-async def tts_compat(
-    request: Request,
-    text: str = Form(...),
-    mode: str = Form("psychologist")
-):
-    """
-    Совместимый эндпоинт для старого фронтенда
-    Возвращает JSON с audio_url (MP3)
-    """
-    try:
-        audio_base64 = await voice_service.text_to_speech(text, mode)
-        
-        if audio_base64:
-            return {
-                "audio_url": f"data:audio/mpeg;base64,{audio_base64}",
-                "success": True
-            }
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "error": "TTS failed"}
-            )
-            
-    except Exception as e:
-        logger.error(f"TTS compat error: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
-
-# ============================================
-# ТЕСТ ЭНДПОИНТЫ (добавить после остальных эндпоинтов)
+# ТЕСТ ЭНДПОИНТЫ
 # ============================================
 
 @app.post("/api/save-test-results")
 @limiter.limit("5/minute")
 async def save_test_results(request: Request):
-    """
-    Сохраняет результаты теста в БД
-    После сохранения автоматически:
-    1. Сохраняет профиль
-    2. Генерирует мысль психолога
-    """
+    """Сохраняет результаты теста в БД"""
     try:
         data = await request.json()
         user_id = data.get('user_id')
@@ -1796,7 +1779,6 @@ async def save_test_results(request: Request):
         
         logger.info(f"📊 Saving test results for user {user_id}")
         
-        # Извлекаем данные
         profile_data = results.get('profile_data', {})
         perception_type = results.get('perception_type')
         thinking_level = results.get('thinking_level')
@@ -1804,45 +1786,24 @@ async def save_test_results(request: Request):
         deep_patterns = results.get('deep_patterns', {})
         profile_code = profile_data.get('displayName')
         
-        # 1. Сохраняем результаты в test_results
         test_result_id = await user_repo.save_test_results(
-            user_id=user_id,
-            test_type='full_test',
-            results=results,
-            profile_code=profile_code,
-            perception_type=perception_type,
-            thinking_level=thinking_level,
-            vectors=behavioral_levels,
-            behavioral_levels=behavioral_levels,
-            confinement_model=deep_patterns
+            user_id=user_id, test_type='full_test', results=results,
+            profile_code=profile_code, perception_type=perception_type,
+            thinking_level=thinking_level, vectors=behavioral_levels,
+            behavioral_levels=behavioral_levels, confinement_model=deep_patterns
         )
         
-        # 2. Сохраняем профиль в users.profile
         full_profile = {
-            'profile_data': profile_data,
-            'perception_type': perception_type,
-            'thinking_level': thinking_level,
-            'behavioral_levels': behavioral_levels,
-            'deep_patterns': deep_patterns,
-            'test_result_id': test_result_id,
-            'test_completed_at': datetime.now().isoformat(),
-            'display_name': profile_code
+            'profile_data': profile_data, 'perception_type': perception_type,
+            'thinking_level': thinking_level, 'behavioral_levels': behavioral_levels,
+            'deep_patterns': deep_patterns, 'test_result_id': test_result_id,
+            'test_completed_at': datetime.now().isoformat(), 'display_name': profile_code
         }
         
         await user_repo.save_profile(user_id, full_profile)
         
-        # 3. Генерируем мысль психолога на основе профиля
         try:
-            thought = await ai_service.generate_psychologist_thought(
-                user_id, 
-                {
-                    'profile_data': profile_data,
-                    'perception_type': perception_type,
-                    'thinking_level': thinking_level,
-                    'behavioral_levels': behavioral_levels,
-                    'deep_patterns': deep_patterns
-                }
-            )
+            thought = await ai_service.generate_psychologist_thought(user_id, full_profile)
             if thought:
                 await user_repo.save_psychologist_thought(user_id, thought, test_result_id)
                 logger.info(f"✅ Generated psychologist thought for user {user_id}")
@@ -1851,11 +1812,7 @@ async def save_test_results(request: Request):
         
         await log_event(user_id, "test_completed", {"profile_code": profile_code})
         
-        return {
-            "success": True,
-            "test_result_id": test_result_id,
-            "profile_code": profile_code
-        }
+        return {"success": True, "test_result_id": test_result_id, "profile_code": profile_code}
         
     except Exception as e:
         logger.error(f"Error saving test results: {e}")
@@ -1880,11 +1837,9 @@ async def get_test_results(request: Request, user_id: int):
             results = []
             for row in rows:
                 results.append({
-                    "id": row['id'],
-                    "test_type": row['test_type'],
+                    "id": row['id'], "test_type": row['test_type'],
                     "results": row['results'] if isinstance(row['results'], dict) else json.loads(row['results']),
-                    "profile_code": row['profile_code'],
-                    "perception_type": row['perception_type'],
+                    "profile_code": row['profile_code'], "perception_type": row['perception_type'],
                     "thinking_level": row['thinking_level'],
                     "created_at": row['created_at'].isoformat() if row['created_at'] else None
                 })
@@ -1894,6 +1849,117 @@ async def get_test_results(request: Request, user_id: int):
     except Exception as e:
         logger.error(f"Error getting test results: {e}")
         return {"success": False, "error": str(e)}
+
+
+@app.post("/api/tts")
+async def tts_compat(
+    request: Request,
+    text: str = Form(...),
+    mode: str = Form("psychologist")
+):
+    """Совместимый эндпоинт для TTS"""
+    try:
+        audio_base64 = await voice_service.text_to_speech(text, mode)
+        
+        if audio_base64:
+            return {
+                "audio_url": f"data:audio/mpeg;base64,{audio_base64}",
+                "success": True
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "TTS failed"}
+            )
+            
+    except Exception as e:
+        logger.error(f"TTS compat error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+# ============================================
+# ПРОВЕРКА РЕАЛЬНОСТИ ЭНДПОИНТЫ (НОВЫЕ)
+# ============================================
+
+@app.get("/api/reality/path/{goal_id}")
+async def get_reality_path(goal_id: str, mode: str = "coach"):
+    """Получить теоретический путь к цели"""
+    try:
+        path = get_theoretical_path(goal_id, mode)
+        return {"success": True, "path": path}
+    except Exception as e:
+        logger.error(f"Error in reality path: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/reality/check")
+async def check_reality(request: Request):
+    """Проверить достижимость цели"""
+    try:
+        data = await request.json()
+        goal_id = data.get("goal_id")
+        mode = data.get("mode", "coach")
+        life_context = data.get("life_context", {})
+        goal_context = data.get("goal_context", {})
+        profile = data.get("profile", {})
+        
+        path = get_theoretical_path(goal_id, mode)
+        result = calculate_feasibility(path, life_context, goal_context, profile)
+        
+        return {"success": True, "result": result}
+    except Exception as e:
+        logger.error(f"Error in reality check: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/reality/questions/life")
+async def get_life_questions():
+    """Получить вопросы о жизненном контексте"""
+    return {"success": True, "questions": generate_life_context_questions()}
+
+
+@app.post("/api/reality/parse/life")
+async def parse_life_answers(request: Request):
+    """Распарсить ответы о жизненном контексте"""
+    try:
+        data = await request.json()
+        text = data.get("text", "")
+        parsed = parse_life_context_answers(text)
+        return {"success": True, "parsed": parsed}
+    except Exception as e:
+        logger.error(f"Error parsing life answers: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/reality/parse/goal")
+async def parse_goal_answers(request: Request):
+    """Распарсить ответы о целевом контексте"""
+    try:
+        data = await request.json()
+        text = data.get("text", "")
+        parsed = parse_goal_context_answers(text)
+        return {"success": True, "parsed": parsed}
+    except Exception as e:
+        logger.error(f"Error parsing goal answers: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ============================================
+async def log_event(user_id: int, event_type: str, event_data: Dict = None):
+    """Логирование события"""
+    try:
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO events (user_id, event_type, event_data)
+                VALUES ($1, $2, $3)
+            """, user_id, event_type, json.dumps(event_data) if event_data else None)
+    except Exception as e:
+        logger.error(f"Error logging event for user {user_id}: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
