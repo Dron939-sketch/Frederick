@@ -681,7 +681,7 @@
         
         async function textToSpeech(text, mode) {
             try {
-                const response = await apiCall('/api/tts', {
+                const response = await apiCall('/api/voice/tts', {
                     method: 'POST',
                     body: JSON.stringify({ text, mode })
                 });
