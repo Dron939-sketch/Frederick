@@ -4,7 +4,7 @@
         // ============================================
         
         const CONFIG = {
-            API_BASE_URL: 'https://fredi-backend.onrender.com',
+            API_BASE_URL: 'https://fredi-backend-flz2.onrender.com',
             USER_ID: 213102077,
             USER_NAME: 'Андрей',
             PROFILE_CODE: 'СБ-4_ТФ-4_УБ-4_ЧВ-4'
