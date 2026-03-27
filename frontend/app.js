@@ -680,121 +680,35 @@
         }
         
         async function textToSpeech(text, mode) {
-            try {
-                const response = await apiCall('/api/voice/tts', {
-                    method: 'POST',
-                    body: JSON.stringify({ text, mode })
-                });
-                return response;
-            } catch (error) {
-                console.error('TTS error:', error);
-                return null;
-            }
+    try {
+        // Создаем form-data для отправки (backend ожидает form-data)
+        const formData = new URLSearchParams();
+        formData.append('text', text);
+        formData.append('mode', mode);
+        
+        const response = await fetch(`${CONFIG.API_BASE_URL}/api/voice/tts`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: formData
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
         
-        function playAudioResponse(audioUrl) {
-            if (!audioUrl) return;
-            const audio = document.getElementById('hiddenAudioPlayer');
-            if (audio) {
-                audio.pause();
-                audio.currentTime = 0;
-                audio.src = audioUrl;
-                audio.play().catch(e => console.warn('Audio error:', e));
-            }
-        }
+        // TTS возвращает аудио (blob), а не JSON
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
         
-        function initVoiceButton() {
-            const voiceBtn = document.getElementById('mainVoiceBtn');
-            if (!voiceBtn) {
-                console.warn('Voice button not found');
-                return;
-            }
-            
-            if (voiceBtn.dataset.initialized === 'true') {
-                return;
-            }
-            
-            voiceBtn.dataset.initialized = 'true';
-            
-            let pressTimer = null;
-            let isPressing = false;
-            let touchIdentifier = null;
-            
-            const startPress = (event) => {
-                if (isPressing || isRecording) return;
-                
-                if (event.cancelable) {
-                    event.preventDefault();
-                }
-                isPressing = true;
-                
-                pressTimer = setTimeout(async () => {
-                    if (isPressing) {
-                        const hasPermission = await checkMicrophonePermission();
-                        if (hasPermission) {
-                            startRecordingWithHold();
-                        } else {
-                            isPressing = false;
-                        }
-                    }
-                }, 100);
-            };
-            
-            const endPress = (event) => {
-                if (pressTimer) {
-                    clearTimeout(pressTimer);
-                    pressTimer = null;
-                }
-                
-                if (isPressing) {
-                    if (isRecording) {
-                        stopRecordingIfActive();
-                    }
-                    isPressing = false;
-                }
-                
-                touchIdentifier = null;
-            };
-            
-            voiceBtn.addEventListener('mousedown', startPress);
-            voiceBtn.addEventListener('mouseup', endPress);
-            voiceBtn.addEventListener('mouseleave', endPress);
-            
-            voiceBtn.addEventListener('touchstart', (e) => {
-                if (e.cancelable) {
-                    e.preventDefault();
-                }
-                if (e.touches && e.touches.length > 0) {
-                    touchIdentifier = e.touches[0].identifier;
-                }
-                startPress(e);
-            }, { passive: false });
-            
-            voiceBtn.addEventListener('touchend', (e) => {
-                if (e.cancelable) {
-                    e.preventDefault();
-                }
-                if (touchIdentifier !== null) {
-                    endPress(e);
-                }
-            }, { passive: false });
-            
-            voiceBtn.addEventListener('touchcancel', (e) => {
-                if (e.cancelable) {
-                    e.preventDefault();
-                }
-                endPress(e);
-            }, { passive: false });
-            
-            document.addEventListener('visibilitychange', () => {
-                if (document.hidden && isRecording) {
-                    console.log('Page hidden, stopping recording');
-                    stopRecordingIfActive();
-                }
-            });
-            
-            console.log('Voice button initialized successfully');
-        }
+        return { audio_url: audioUrl };
+        
+    } catch (error) {
+        console.error('TTS error:', error);
+        return null;
+    }
+}
         
         // ========== НАВИГАЦИЯ ==========
         
