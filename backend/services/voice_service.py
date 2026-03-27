@@ -92,7 +92,7 @@ class VoiceService:
             logger.error(f"STT error: {e}")
             return None
     
-    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО: WAV ==========
+    # ========== TTS (Синтез речи) - РАБОЧАЯ ВЕРСИЯ ==========
     
     async def text_to_speech(self, text: str, voice: str = "psychologist") -> Optional[str]:
         """
@@ -122,30 +122,28 @@ class VoiceService:
             logger.info(f"📦 Voice cache hit")
             return cached
         
-        # 👇 ГОЛОСА КАК В СТАРОМ БОТЕ
+        # 👇 ПРАВИЛЬНЫЕ ГОЛОСА (как в рабочем боте)
         voices = {
-            'coach': {'name': 'filipp', 'emotion': 'neutral', 'speed': 1.0},
-            'psychologist': {'name': 'ermil', 'emotion': 'good', 'speed': 0.9},
-            'trainer': {'name': 'filipp', 'emotion': 'strict', 'speed': 1.0}
+            "coach": "filipp",
+            "psychologist": "ermil",
+            "trainer": "filipp"
         }
+        voice_name = voices.get(voice, "filipp")
         
-        config = voices.get(voice, voices['psychologist'])
+        # 👇 ФОРМАТ OGGOPUS (как в рабочем боте)
+        data = {
+            "text": clean_text,
+            "lang": "ru-RU",
+            "voice": voice_name,
+            "emotion": "good" if voice == "psychologist" else "neutral",
+            "speed": 0.9 if voice == "psychologist" else 1.0,
+            "format": "oggopus"
+        }
         
         logger.info(f"🎙️ TTS: voice={voice}, text_len={len(clean_text)}")
         
         try:
             session = await self._get_session()
-            
-            # 👇 ФОРМАТ WAV - РАБОТАЕТ ВО ВСЕХ БРАУЗЕРАХ
-            data = {
-                "text": clean_text,
-                "voice": config['name'],
-                "emotion": config['emotion'],
-                "speed": config['speed'],
-                "format": "wav",                      # 👈 ИЗМЕНЕНО: wav вместо oggopus
-                "sampleRateHertz": 48000,
-                "lang": "ru-RU"
-            }
             
             async with session.post(
                 "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize",
