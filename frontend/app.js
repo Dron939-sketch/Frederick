@@ -1948,23 +1948,6 @@ function renderDashboard() {
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
                 </div>
             </div>
-            
-            <div class="expandable-section">
-                <div class="expandable-header" id="expandableHeader">
-                    <span>🔧 РАСШИРЕННЫЕ ФУНКЦИИ</span>
-                    <span>▼</span>
-                </div>
-                <div class="expandable-content" id="expandableContent">
-                    <div class="quick-actions-grid" style="margin-top: 12px;">
-                        <div class="quick-action" data-action="confinement"><div class="action-icon">🔐</div><div class="action-name">Модель ограничений</div></div>
-                        <div class="quick-action" data-action="practices"><div class="action-icon">🧘</div><div class="action-name">Практики</div></div>
-                        <div class="quick-action" data-action="hypnosis"><div class="action-icon">🌙</div><div class="action-name">Гипноз</div></div>
-                        <div class="quick-action" data-action="tales"><div class="action-icon">📚</div><div class="action-name">Сказки</div></div>
-                        <div class="quick-action" data-action="anchors"><div class="action-icon">⚓</div><div class="action-name">Якоря</div></div>
-                        <div class="quick-action" data-action="statistics"><div class="action-icon">📊</div><div class="action-name">Статистика</div></div>
-                    </div>
-                </div>
-            </div>
         </div>
     `;
     
@@ -1995,24 +1978,9 @@ function renderDashboard() {
                 case 'questions': await handleShowQuestions(); break;
                 case 'challenges': await handleShowChallenges(); break;
                 case 'doubles': await handleShowDoubles(); break;
-                case 'confinement': navigateTo('confinement-model'); break;
-                case 'practices': navigateTo('practices'); break;
-                case 'hypnosis': navigateTo('hypnosis'); break;
-                case 'tales': navigateTo('tales'); break;
-                case 'anchors': navigateTo('anchors'); break;
-                case 'statistics': navigateTo('statistics'); break;
             }
         });
     });
-    
-    const expandableHeader = document.getElementById('expandableHeader');
-    const expandableContent = document.getElementById('expandableContent');
-    if (expandableHeader && expandableContent) {
-        expandableHeader.addEventListener('click', () => {
-            expandableContent.classList.toggle('open');
-            expandableHeader.querySelector('span:last-child').textContent = expandableContent.classList.contains('open') ? '▲' : '▼';
-        });
-    }
     
     initMobileEnhancements();
 }
@@ -2042,27 +2010,51 @@ async function init() {
         }
     }, 1000);
     
-    // ========== ОБРАБОТЧИК ДЛЯ ТЕСТА ==========
+    // ========== ОБРАБОТЧИК ДЛЯ ТЕСТА И РАСШИРЕННЫХ ФУНКЦИЙ ==========
     document.querySelectorAll('.chat-item').forEach(item => {
         item.addEventListener('click', () => {
             const chat = item.dataset.chat;
-            if (chat === 'test') {
-                if (window.Test && window.Test.start) {
-                    window.Test.init(CONFIG.USER_ID);
-                    window.Test.start();
-                } else {
-                    console.error('Test module not loaded');
-                    showToast('Тест загружается...', 'info');
-                    const script = document.createElement('script');
-                    script.src = '/test.js';
-                    script.onload = () => {
+            
+            switch(chat) {
+                case 'fredi':
+                    renderDashboard();
+                    break;
+                case 'test':
+                    if (window.Test && window.Test.start) {
                         window.Test.init(CONFIG.USER_ID);
                         window.Test.start();
-                    };
-                    document.head.appendChild(script);
-                }
-            } else if (chat === 'fredi') {
-                renderDashboard();
+                    } else {
+                        console.error('Test module not loaded');
+                        showToast('Тест загружается...', 'info');
+                        const script = document.createElement('script');
+                        script.src = '/test.js';
+                        script.onload = () => {
+                            window.Test.init(CONFIG.USER_ID);
+                            window.Test.start();
+                        };
+                        document.head.appendChild(script);
+                    }
+                    break;
+                case 'confinement':
+                    navigateTo('confinement-model');
+                    break;
+                case 'practices':
+                    navigateTo('practices');
+                    break;
+                case 'hypnosis':
+                    navigateTo('hypnosis');
+                    break;
+                case 'tales':
+                    navigateTo('tales');
+                    break;
+                case 'anchors':
+                    navigateTo('anchors');
+                    break;
+                case 'statistics':
+                    navigateTo('statistics');
+                    break;
+                default:
+                    renderDashboard();
             }
             
             document.querySelectorAll('.chat-item').forEach(i => i.classList.remove('active'));
