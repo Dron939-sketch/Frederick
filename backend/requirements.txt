@@ -7,7 +7,7 @@ python-multipart==0.0.6
 asyncpg==0.29.0
 
 # Cache
-redis==5.0.1           # <-- только redis, без aioredis
+redis==5.0.1
 
 # HTTP
 aiohttp==3.9.1
@@ -24,6 +24,12 @@ slowapi==0.1.9
 uvloop==0.19.0
 httptools==0.6.1
 
-# Voice Services (добавьте эти строки)
-edge-tts==6.1.9         # Microsoft Edge TTS (бесплатный, высокое качество)
-SpeechRecognition==3.10.4  # Распознавание речи
+# Voice Services
+edge-tts==6.1.9              # Microsoft Edge TTS
+SpeechRecognition==3.10.4    # Распознавание речи
+pydub==0.25.1                # Аудио конвертация
+wave==0.0.2                  # Работа с WAV файлами
+
+# Audio Processing (опционально, для лучшего STT)
+# pyaudio==0.2.11            # Для записи звука (не нужен на сервере)
+# ffmpeg-python==0.2.0       # Для конвертации аудио (нужен ffmpeg)
