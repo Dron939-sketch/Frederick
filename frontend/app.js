@@ -692,6 +692,8 @@ async function textToSpeech(text, mode) {
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         
+        console.log('🎵 TTS success:', audioBlob.type, audioBlob.size, 'bytes');
+        
         return { audio_url: audioUrl };
         
     } catch (error) {
@@ -701,14 +703,33 @@ async function textToSpeech(text, mode) {
 }
 
 function playAudioResponse(audioUrl) {
-    if (!audioUrl) return;
-    const audio = document.getElementById('hiddenAudioPlayer');
-    if (audio) {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.src = audioUrl;
-        audio.play().catch(e => console.warn('Audio error:', e));
+    if (!audioUrl) {
+        console.warn('No audio URL');
+        return;
     }
+    
+    const audio = document.getElementById('hiddenAudioPlayer');
+    if (!audio) {
+        console.warn('Audio element not found');
+        return;
+    }
+    
+    console.log('🔊 Playing audio...');
+    
+    audio.pause();
+    audio.currentTime = 0;
+    audio.src = audioUrl;
+    
+    audio.oncanplay = () => {
+        audio.play().catch(e => console.error('Play failed:', e));
+    };
+    
+    audio.onerror = (e) => {
+        console.error('Audio error:', e);
+        showToast('Ошибка воспроизведения', 'error');
+    };
+    
+    audio.load();
 }
 
 function initVoiceButton() {
