@@ -1,24 +1,22 @@
-# render.yaml - оптимизированная конфигурация
+# render.yaml - ИСПРАВЛЕННАЯ ВЕРСИЯ
 services:
   # 1. PostgreSQL база данных
   - type: postgresql
     name: fredi-db
-    plan: starter  # starter или standard
+    plan: starter
     region: frankfurt
     databaseName: fredi_db
     user: fredi_user
-    ipAllowList: []  # Только внутренние подключения
+    ipAllowList: []
     backup:
       enabled: true
-      schedule: "0 0 * * *"  # Ежедневно в 00:00
+      schedule: "0 0 * * *"
     diskSizeGB: 10
     postgresMajorVersion: 15
-    # Добавляем параметры производительности
-    plan: starter
     highAvailability:
-      enabled: false  # Для starter отключаем (экономия)
+      enabled: false
 
-  # 2. Backend API (FastAPI) - УЛУЧШЕННЫЙ
+  # 2. Backend API (FastAPI)
   - type: web
     name: fredi-backend
     runtime: python
@@ -30,7 +28,6 @@ services:
       pip install -r requirements.txt
     startCommand: |
       cd backend
-      # Оптимизированный запуск с health check
       uvicorn main:app \
         --host 0.0.0.0 \
         --port $PORT \
@@ -50,12 +47,10 @@ services:
         value: info
       - key: PYTHONPATH
         value: /opt/render/project/src
-      # Оптимизация памяти
       - key: PYTHONUNBUFFERED
         value: "true"
       - key: PYTHONOPTIMIZE
         value: "2"
-      # Конфигурация uvicorn
       - key: UVICORN_WORKERS
         value: "2"
       - key: UVICORN_LIMIT_CONCURRENCY
@@ -75,16 +70,15 @@ services:
     numInstances: 1
     scaling:
       minInstances: 1
-      maxInstances: 2  # Для starter максимум 2
+      maxInstances: 2
       targetMemoryPercent: 70
       targetCPUPercent: 70
-    # Диск для временных файлов (голос, кэш)
     disk:
       name: tmp
       mountPath: /tmp
       sizeGB: 1
 
-  # 3. Redis (ОПЦИОНАЛЬНО, но РЕКОМЕНДУЕТСЯ)
+  # 3. Redis (опционально)
   - type: redis
     name: fredi-redis
     plan: starter
@@ -93,16 +87,14 @@ services:
     ipAllowList: []
     redisVersion: "7"
 
-  # 4. Статический сайт (Frontend) - УЛУЧШЕННЫЙ
-  - type: static
+  # 4. Статический сайт (Frontend) - ИСПРАВЛЕНО: static_site
+  - type: static_site
     name: fredi-frontend
     region: frankfurt
     buildCommand: |
-      # Оптимизация фронтенда
       echo "Optimizing frontend..."
-      # Минификация если нужно
-      if [ -f "package.json" ]; then
-        npm install && npm run build
+      if [ -f "frontend/package.json" ]; then
+        cd frontend && npm install && npm run build
       fi
     publishPath: ./frontend
     envVars:
@@ -111,12 +103,6 @@ services:
           name: fredi-backend
           type: web
           property: url
-      - key: WS_URL
-        fromService:
-          name: fredi-backend
-          type: web
-          property: url
-        value: "wss://${WS_URL}/ws"
     headers:
       - path: /*
         name: Cache-Control
@@ -131,5 +117,3 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-    # SPA поддержка
-    spa: true
