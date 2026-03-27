@@ -709,6 +709,99 @@
         return null;
     }
 }
+
+function initVoiceButton() {
+    const voiceBtn = document.getElementById('mainVoiceBtn');
+    if (!voiceBtn) {
+        console.warn('Voice button not found');
+        return;
+    }
+    
+    if (voiceBtn.dataset.initialized === 'true') {
+        return;
+    }
+    
+    voiceBtn.dataset.initialized = 'true';
+    
+    let pressTimer = null;
+    let isPressing = false;
+    let touchIdentifier = null;
+    
+    const startPress = (event) => {
+        if (isPressing || isRecording) return;
+        
+        if (event.cancelable) {
+            event.preventDefault();
+        }
+        isPressing = true;
+        
+        pressTimer = setTimeout(async () => {
+            if (isPressing) {
+                const hasPermission = await checkMicrophonePermission();
+                if (hasPermission) {
+                    startRecordingWithHold();
+                } else {
+                    isPressing = false;
+                }
+            }
+        }, 100);
+    };
+    
+    const endPress = (event) => {
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+        }
+        
+        if (isPressing) {
+            if (isRecording) {
+                stopRecordingIfActive();
+            }
+            isPressing = false;
+        }
+        
+        touchIdentifier = null;
+    };
+    
+    voiceBtn.addEventListener('mousedown', startPress);
+    voiceBtn.addEventListener('mouseup', endPress);
+    voiceBtn.addEventListener('mouseleave', endPress);
+    
+    voiceBtn.addEventListener('touchstart', (e) => {
+        if (e.cancelable) {
+            e.preventDefault();
+        }
+        if (e.touches && e.touches.length > 0) {
+            touchIdentifier = e.touches[0].identifier;
+        }
+        startPress(e);
+    }, { passive: false });
+    
+    voiceBtn.addEventListener('touchend', (e) => {
+        if (e.cancelable) {
+            e.preventDefault();
+        }
+        if (touchIdentifier !== null) {
+            endPress(e);
+        }
+    }, { passive: false });
+    
+    voiceBtn.addEventListener('touchcancel', (e) => {
+        if (e.cancelable) {
+            e.preventDefault();
+        }
+        endPress(e);
+    }, { passive: false });
+    
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && isRecording) {
+            console.log('Page hidden, stopping recording');
+            stopRecordingIfActive();
+        }
+    });
+    
+    console.log('Voice button initialized successfully');
+}
         
         // ========== НАВИГАЦИЯ ==========
         
