@@ -1773,6 +1773,128 @@ async def tts_compat(
             content={"success": False, "error": str(e)}
         )
 
+# ============================================
+# ТЕСТ ЭНДПОИНТЫ (добавить после остальных эндпоинтов)
+# ============================================
+
+@app.post("/api/save-test-results")
+@limiter.limit("5/minute")
+async def save_test_results(request: Request):
+    """
+    Сохраняет результаты теста в БД
+    После сохранения автоматически:
+    1. Сохраняет профиль
+    2. Генерирует мысль психолога
+    """
+    try:
+        data = await request.json()
+        user_id = data.get('user_id')
+        results = data.get('results', {})
+        
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        
+        logger.info(f"📊 Saving test results for user {user_id}")
+        
+        # Извлекаем данные
+        profile_data = results.get('profile_data', {})
+        perception_type = results.get('perception_type')
+        thinking_level = results.get('thinking_level')
+        behavioral_levels = results.get('behavioral_levels', {})
+        deep_patterns = results.get('deep_patterns', {})
+        profile_code = profile_data.get('displayName')
+        
+        # 1. Сохраняем результаты в test_results
+        test_result_id = await user_repo.save_test_results(
+            user_id=user_id,
+            test_type='full_test',
+            results=results,
+            profile_code=profile_code,
+            perception_type=perception_type,
+            thinking_level=thinking_level,
+            vectors=behavioral_levels,
+            behavioral_levels=behavioral_levels,
+            confinement_model=deep_patterns
+        )
+        
+        # 2. Сохраняем профиль в users.profile
+        full_profile = {
+            'profile_data': profile_data,
+            'perception_type': perception_type,
+            'thinking_level': thinking_level,
+            'behavioral_levels': behavioral_levels,
+            'deep_patterns': deep_patterns,
+            'test_result_id': test_result_id,
+            'test_completed_at': datetime.now().isoformat(),
+            'display_name': profile_code
+        }
+        
+        await user_repo.save_profile(user_id, full_profile)
+        
+        # 3. Генерируем мысль психолога на основе профиля
+        try:
+            thought = await ai_service.generate_psychologist_thought(
+                user_id, 
+                {
+                    'profile_data': profile_data,
+                    'perception_type': perception_type,
+                    'thinking_level': thinking_level,
+                    'behavioral_levels': behavioral_levels,
+                    'deep_patterns': deep_patterns
+                }
+            )
+            if thought:
+                await user_repo.save_psychologist_thought(user_id, thought, test_result_id)
+                logger.info(f"✅ Generated psychologist thought for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error generating thought: {e}")
+        
+        await log_event(user_id, "test_completed", {"profile_code": profile_code})
+        
+        return {
+            "success": True,
+            "test_result_id": test_result_id,
+            "profile_code": profile_code
+        }
+        
+    except Exception as e:
+        logger.error(f"Error saving test results: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/test-results/{user_id}")
+@limiter.limit("30/minute")
+async def get_test_results(request: Request, user_id: int):
+    """Получить результаты теста пользователя"""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT id, test_type, results, profile_code, 
+                       perception_type, thinking_level, created_at
+                FROM test_results
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT 5
+            """, user_id)
+            
+            results = []
+            for row in rows:
+                results.append({
+                    "id": row['id'],
+                    "test_type": row['test_type'],
+                    "results": row['results'] if isinstance(row['results'], dict) else json.loads(row['results']),
+                    "profile_code": row['profile_code'],
+                    "perception_type": row['perception_type'],
+                    "thinking_level": row['thinking_level'],
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else None
+                })
+            
+            return {"success": True, "results": results}
+            
+    except Exception as e:
+        logger.error(f"Error getting test results: {e}")
+        return {"success": False, "error": str(e)}
+
 
 if __name__ == "__main__":
     uvicorn.run(
