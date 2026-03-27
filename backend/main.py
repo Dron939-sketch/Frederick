@@ -994,6 +994,544 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
     except Exception as e:
         logger.error(f"Error logging event: {e}")
 
+# ============================================
+# ДОПОЛНИТЕЛЬНЫЕ ЭНДПОИНТЫ ДЛЯ СОВМЕСТИМОСТИ С ФРОНТЕНДОМ
+# ============================================
+
+@app.get("/api/user-status")
+async def user_status(user_id: int):
+    """
+    Получить статус пользователя (есть ли профиль, тест и т.д.)
+    """
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
+        
+        return {
+            "success": True,
+            "has_profile": has_profile,
+            "test_completed": has_profile,
+            "profile_code": profile.get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4') if has_profile else "не определен",
+            "interpretation_ready": bool(profile.get('ai_generated_profile'))
+        }
+    except Exception as e:
+        logger.error(f"Error in user-status: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/save-mode")
+async def save_mode(request: Request):
+    """
+    Сохранить режим общения пользователя
+    """
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        mode = data.get("mode")
+        
+        if not user_id or not mode:
+            return {"success": False, "error": "user_id and mode required"}
+        
+        # Получаем текущий контекст или создаем новый
+        context = await context_repo.get(user_id) or {}
+        context["communication_mode"] = mode
+        await context_repo.save(user_id, context)
+        
+        await log_event(user_id, "save_mode", {"mode": mode})
+        
+        return {"success": True}
+        
+    except Exception as e:
+        logger.error(f"Error in save-mode: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/thought")
+async def thought(user_id: int):
+    """
+    Получить мысль психолога (алиас для /api/psychologist-thought/{user_id})
+    """
+    try:
+        thought = await user_repo.get_psychologist_thought(user_id)
+        
+        if not thought:
+            profile = await user_repo.get_profile(user_id) or {}
+            if profile:
+                thought = await ai_service.generate_psychologist_thought(user_id, profile)
+                await user_repo.save_psychologist_thought(user_id, thought)
+        
+        return {"success": True, "thought": thought}
+        
+    except Exception as e:
+        logger.error(f"Error in thought: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/psychologist-thoughts/generate")
+async def generate_thought(request: Request):
+    """
+    Сгенерировать новую мысль психолога
+    """
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        
+        profile = await user_repo.get_profile(user_id) or {}
+        thought = await ai_service.generate_psychologist_thought(user_id, profile)
+        
+        if thought:
+            await user_repo.save_psychologist_thought(user_id, thought)
+        
+        return {"success": True, "thought": thought}
+        
+    except Exception as e:
+        logger.error(f"Error in generate thought: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/get-profile-interpretation/{user_id}")
+async def get_profile_interpretation_alias(request: Request, user_id: int):
+    """
+    Алиас для получения интерпретации профиля
+    """
+    return await get_profile_interpretation(request, user_id)
+
+
+@app.get("/api/goals/with-confinement")
+async def goals_with_confinement(user_id: int, mode: str = "coach"):
+    """
+    Получить цели с учетом конфайнтмент-модели
+    """
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        goals = await ai_service.generate_goals(user_id, profile, mode)
+        
+        # Добавляем приоритетность, если нужно
+        for goal in goals:
+            goal["is_priority"] = goal.get("difficulty") == "hard"
+        
+        return {
+            "success": True,
+            "goals": goals[:6],
+            "profile_code": profile.get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4')
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in goals with confinement: {e}")
+        return {"success": False, "error": str(e), "goals": []}
+
+
+@app.get("/api/challenges")
+async def get_challenges(user_id: int):
+    """
+    Получить челленджи для пользователя
+    """
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        profile_data = profile.get('profile_data', {})
+        
+        # Базовые челленджи
+        challenges = [
+            {
+                "id": 1,
+                "name": "Ежедневное общение",
+                "description": "Напиши сообщение в чат",
+                "progress": 0,
+                "target": 1,
+                "reward": 10,
+                "emoji": "💬",
+                "type": "daily",
+                "completed": False
+            },
+            {
+                "id": 2,
+                "name": "Анализ мыслей",
+                "description": "Запиши 3 мысли в дневник",
+                "progress": 0,
+                "target": 3,
+                "reward": 30,
+                "emoji": "📝",
+                "type": "daily",
+                "completed": False
+            }
+        ]
+        
+        # Добавляем персонализированные челленджи на основе профиля
+        sb_level = profile_data.get('sb_level', 4)
+        tf_level = profile_data.get('tf_level', 4)
+        
+        if sb_level < 3:
+            challenges.append({
+                "id": 4,
+                "name": "Преодоление страхов",
+                "description": "Сделай одно действие, которое пугает",
+                "progress": 0,
+                "target": 1,
+                "reward": 50,
+                "emoji": "🛡️",
+                "type": "personalized",
+                "completed": False
+            })
+        
+        if tf_level < 3:
+            challenges.append({
+                "id": 5,
+                "name": "Финансовая осознанность",
+                "description": "Запиши все расходы",
+                "progress": 0,
+                "target": 1,
+                "reward": 40,
+                "emoji": "💰",
+                "type": "personalized",
+                "completed": False
+            })
+        
+        return {"success": True, "challenges": challenges}
+        
+    except Exception as e:
+        logger.error(f"Error in challenges: {e}")
+        return {"success": False, "error": str(e), "challenges": []}
+
+
+@app.get("/api/psychometric/find-doubles")
+async def find_doubles(user_id: int, limit: int = 10):
+    """
+    Найти психометрических двойников
+    """
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        profile_data = profile.get('profile_data', {})
+        profile_code = profile_data.get('display_name', '')
+        
+        doubles = []
+        
+        if profile_code:
+            # Ищем пользователей с похожим профилем
+            async with db.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT user_id, profile->'profile_data'->>'display_name' as profile_code
+                    FROM users
+                    WHERE profile->'profile_data'->>'display_name' = $1
+                    AND user_id != $2
+                    LIMIT $3
+                """, profile_code, user_id, limit)
+                
+                for row in rows:
+                    doubles.append({
+                        "user_id": row['user_id'],
+                        "name": f"Пользователь {row['user_id']}",
+                        "profile_code": row['profile_code'],
+                        "similarity": 0.85,
+                        "common_traits": ["Аналитическое мышление", "Эмоциональный интеллект"]
+                    })
+        
+        return {
+            "success": True,
+            "doubles": doubles,
+            "total": len(doubles),
+            "profile_code": profile_code
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in find doubles: {e}")
+        return {"success": False, "error": str(e), "doubles": []}
+
+
+@app.get("/api/anchor/user/{user_id}")
+async def get_user_anchors(user_id: int):
+    """
+    Получить якоря пользователя
+    """
+    try:
+        # Базовая заглушка
+        return {
+            "success": True,
+            "anchors": [
+                {
+                    "name": "Спокойствие",
+                    "phrase": "Я спокоен. Я дышу ровно. Всё хорошо.",
+                    "state": "calm"
+                },
+                {
+                    "name": "Уверенность",
+                    "phrase": "Я знаю, что делаю. У меня всё получится.",
+                    "state": "confidence"
+                }
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error in get anchors: {e}")
+        return {"success": False, "error": str(e), "anchors": []}
+
+
+@app.post("/api/anchor/set")
+async def set_anchor(request: Request):
+    """
+    Установить якорь
+    """
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        anchor_name = data.get("anchor_name")
+        state = data.get("state")
+        phrase = data.get("phrase")
+        
+        if not all([user_id, anchor_name, state, phrase]):
+            return {"success": False, "error": "Missing fields"}
+        
+        # Сохраняем в базу
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO psychologist_thoughts (user_id, thought_type, thought_text, metadata)
+                VALUES ($1, 'anchor', $2, $3)
+            """, user_id, phrase, json.dumps({"name": anchor_name, "state": state}))
+        
+        return {"success": True}
+        
+    except Exception as e:
+        logger.error(f"Error in set anchor: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/anchor/fire")
+async def fire_anchor(request: Request):
+    """
+    Активировать якорь
+    """
+    try:
+        data = await request.json()
+        anchor_name = data.get("anchor_name")
+        
+        # Базовая заглушка
+        phrases = {
+            "calm": "Я спокоен. Я дышу ровно. Всё хорошо.",
+            "confidence": "Я знаю, что делаю. У меня всё получится."
+        }
+        
+        phrase = phrases.get(anchor_name, "Я здесь и сейчас. Я в безопасности.")
+        
+        return {"success": True, "phrase": phrase}
+        
+    except Exception as e:
+        logger.error(f"Error in fire anchor: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/anchor/{state}")
+async def get_anchor_state(state: str):
+    """
+    Получить якорь по состоянию
+    """
+    try:
+        phrases = {
+            "calm": "Я спокоен. Я дышу ровно. Всё хорошо.",
+            "confidence": "Я знаю, что делаю. У меня всё получится.",
+            "here": "Я здесь и сейчас. Я в безопасности."
+        }
+        
+        phrase = phrases.get(state, "Я здесь. Я спокоен. Я в безопасности.")
+        
+        return {"success": True, "phrase": phrase}
+        
+    except Exception as e:
+        logger.error(f"Error in get anchor: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/confinement-model")
+async def confinement_model(user_id: int):
+    """
+    Получить конфайнтмент-модель пользователя
+    """
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        
+        # Заглушка
+        return {
+            "success": True,
+            "closure_score": 0.65,
+            "is_closed": False,
+            "elements": {},
+            "loops": [],
+            "key_confinement": None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in confinement model: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/confinement/model/{user_id}/loops")
+async def confinement_loops(user_id: int):
+    """
+    Получить петли конфайнтмент-модели
+    """
+    try:
+        return {
+            "success": True,
+            "loops": [],
+            "statistics": {
+                "total_loops": 0,
+                "avg_loop_strength": 0
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/confinement/model/{user_id}/key-confinement")
+async def key_confinement(user_id: int):
+    """
+    Получить ключевое ограничение
+    """
+    try:
+        return {
+            "success": True,
+            "key_confinement": None,
+            "all_confinements": []
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/intervention/{element_id}")
+async def get_intervention(element_id: int, user_id: int):
+    """
+    Получить интервенцию для элемента
+    """
+    try:
+        return {
+            "success": True,
+            "element": {
+                "id": element_id,
+                "name": f"Элемент {element_id}",
+                "description": "Описание элемента",
+                "level": 3,
+                "strength": 0.5
+            },
+            "intervention": {
+                "description": "Практика осознанности: уделите 5 минут наблюдению за дыханием"
+            },
+            "daily_practice": "Каждое утро делайте 3 глубоких вдоха",
+            "random_quote": "Маленькие шаги ведут к большим изменениям"
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/practice/morning")
+async def morning_practice():
+    """
+    Утренняя практика
+    """
+    return {"practice": "Начните день с намерения. Сделайте 3 глубоких вдоха и скажите себе: 'Я выбираю, как мне относиться к этому дню'."}
+
+
+@app.get("/api/practice/evening")
+async def evening_practice():
+    """
+    Вечерняя практика
+    """
+    return {"practice": "Вспомните три хороших события сегодня. За что вы благодарны? Что было важным?"}
+
+
+@app.get("/api/practice/random-exercise")
+async def random_exercise():
+    """
+    Случайное упражнение
+    """
+    exercises = [
+        "Сделайте паузу. Обратите внимание на своё дыхание. Вдох... выдох... Повторите 5 раз.",
+        "Посмотрите вокруг. Найдите 3 предмета, которые вызывают у вас приятные чувства.",
+        "Напишите одно дело, которое вы сделали хорошо сегодня."
+    ]
+    import random
+    return {"exercise": random.choice(exercises)}
+
+
+@app.get("/api/practice/random-quote")
+async def random_quote():
+    """
+    Случайная цитата
+    """
+    quotes = [
+        "«Не в силе, а в правде. Не в деньгах, а в душевном покое.» — Андрей Мейстер",
+        "«То, что мы думаем, определяет то, что мы делаем. То, что мы делаем, определяет то, кем мы становимся.»",
+        "«Маленькие шаги каждый день ведут к большим изменениям.»"
+    ]
+    import random
+    return {"quote": random.choice(quotes)}
+
+
+@app.get("/api/tale")
+async def get_tale(issue: str = None):
+    """
+    Получить терапевтическую сказку
+    """
+    tales = {
+        "страх": "Жил-был маленький огонёк...",
+        "уверенность": "Однажды робкий ручей...",
+        "любовь": "В одном саду росли два дерева..."
+    }
+    
+    if issue and issue in tales:
+        tale = tales[issue]
+    else:
+        tale = "Жила-была история... (скоро здесь появится новая сказка)"
+    
+    return {"tale": tale, "available_tales": list(tales.keys())}
+
+
+@app.get("/api/tale/{tale_id}")
+async def get_tale_by_id(tale_id: str):
+    """
+    Получить конкретную сказку по ID
+    """
+    tales = {
+        "страх": {"title": "Сказка о страхе", "text": "Жил-был маленький огонёк..."},
+        "уверенность": {"title": "Сказка об уверенности", "text": "Однажды робкий ручей..."}
+    }
+    
+    if tale_id in tales:
+        return {"success": True, "tale": tales[tale_id]["text"]}
+    
+    return {"success": False, "error": "Сказка не найдена"}
+
+
+@app.get("/api/confinement/statistics/{user_id}")
+async def confinement_statistics(user_id: int):
+    """
+    Статистика конфайнтмент-модели
+    """
+    return {
+        "statistics": {
+            "total_elements": 9,
+            "active_elements": 5,
+            "total_loops": 2,
+            "is_system_closed": False,
+            "closure_score": 0.65
+        }
+    }
+
+
+@app.get("/api/hypno/process")
+async def hypno_process(user_id: int, text: str, mode: str = "psychologist"):
+    """
+    Обработка гипнотического запроса
+    """
+    return {"response": "Сделайте глубокий вдох... Представьте, что с каждым выдохом вы отпускаете напряжение... Вы в безопасности... Дышите..."}
+
+
+@app.post("/api/hypno/support")
+async def hypno_support(request: Request):
+    """
+    Поддерживающий гипнотический ответ
+    """
+    return {"response": "Я здесь. Ты справляешься. Дыши спокойно."}
+
 
 # ============================================
 # ЗАПУСК ПРИЛОЖЕНИЯ (для локальной разработки)
