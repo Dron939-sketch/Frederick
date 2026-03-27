@@ -36,19 +36,11 @@ class VoiceService:
     async def speech_to_text(self, audio_bytes: bytes, language: str = "ru-RU") -> Optional[str]:
         """
         Распознавание речи через Deepgram
-        
-        Args:
-            audio_bytes: Аудио в формате webm/ogg/mp3/wav
-            language: Язык (ru-RU, en-US)
-        
-        Returns:
-            Распознанный текст или None
         """
         if not self.deepgram_key:
             logger.warning("DEEPGRAM_API_KEY not set")
             return None
         
-        # Определяем формат
         audio_format = self._detect_format(audio_bytes)
         content_type = {
             'ogg': 'audio/ogg',
@@ -100,7 +92,7 @@ class VoiceService:
             logger.error(f"STT error: {e}")
             return None
     
-    # ========== TTS (Синтез речи) ==========
+    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО ==========
     
     async def text_to_speech(self, text: str, voice: str = "psychologist") -> Optional[str]:
         """
@@ -144,20 +136,24 @@ class VoiceService:
         try:
             session = await self._get_session()
             
+            # 🔧 ВАЖНО: Yandex API ожидает form-data, не JSON
+            data = {
+                "text": clean_text,
+                "voice": config['name'],
+                "emotion": config['emotion'],
+                "speed": config['speed'],
+                "format": "oggopus",
+                "sampleRateHertz": 48000,
+                "lang": "ru-RU"
+            }
+            
             async with session.post(
                 "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize",
                 headers={
                     "Authorization": f"Api-Key {self.yandex_key}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/x-www-form-urlencoded"
                 },
-                json={
-                    "text": clean_text,
-                    "voice": config['name'],
-                    "emotion": config['emotion'],
-                    "speed": config['speed'],
-                    "format": "oggopus",
-                    "sampleRateHertz": 48000
-                },
+                data=data,  # 👈 data, НЕ json!
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 
@@ -207,7 +203,6 @@ class VoiceService:
         self._voice_cache[key] = audio
         self._voice_cache_time[key] = time.time()
         
-        # Ограничиваем размер
         if len(self._voice_cache) > 100:
             oldest = min(self._voice_cache_time.items(), key=lambda x: x[1])[0]
             del self._voice_cache[oldest]
@@ -269,9 +264,8 @@ class VoiceService:
         # Убираем лишние пробелы
         text = re.sub(r'\s+', ' ', text).strip()
         
-        # Ограничиваем длину
+        # Ограничиваем длину (Yandex TTS лимит)
         if len(text) > 500:
-            # Обрезаем по предложению
             sentences = re.split(r'[.!?]', text)
             result = ""
             for s in sentences:
