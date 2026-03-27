@@ -1,9 +1,9 @@
 """
 Модуль для работы с Redis кэшем
-Асинхронный клиент с автоматическим переподключением
+Используем redis вместо aioredis
 """
 
-import aioredis
+import redis.asyncio as redis
 import json
 import logging
 import os
@@ -30,7 +30,7 @@ class RedisCache:
             return
         
         try:
-            self.redis = await aioredis.from_url(
+            self.redis = await redis.from_url(
                 self.url,
                 decode_responses=True,
                 max_connections=20,
@@ -61,7 +61,6 @@ class RedisCache:
             await self.redis.ping()
             return True
         except Exception:
-            # Пытаемся переподключиться
             await self.connect()
             return self._connected
     
@@ -83,19 +82,11 @@ class RedisCache:
             return None
     
     async def set(self, key: str, value: Any, ttl: int = 300) -> bool:
-        """
-        Сохранение значения в кэш
-        
-        Args:
-            key: Ключ
-            value: Значение
-            ttl: Время жизни в секундах (по умолчанию 5 минут)
-        """
+        """Сохранение значения в кэш"""
         if not self.is_connected:
             return False
         
         try:
-            # Сериализуем в JSON
             if isinstance(value, (dict, list)):
                 value = json.dumps(value, default=str, ensure_ascii=False)
             elif not isinstance(value, str):
@@ -108,14 +99,7 @@ class RedisCache:
             return False
     
     async def get_or_set(self, key: str, fetcher: Callable, ttl: int = 300) -> Any:
-        """
-        Получить значение из кэша или вычислить и сохранить
-        
-        Args:
-            key: Ключ
-            fetcher: Асинхронная функция для получения значения
-            ttl: Время жизни в секундах
-        """
+        """Получить или вычислить"""
         cached = await self.get(key)
         if cached is not None:
             return cached
