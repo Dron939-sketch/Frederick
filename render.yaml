@@ -1,11 +1,11 @@
-# render.yaml - с новыми тарифными планами
+# render.yaml - с актуальными планами Render 2026
 
-# Определяем базы данных с новыми планами
+# Определяем базы данных
 databases:
   - name: fredi-db
-    plan: basic                    # <-- новый план (вместо starter)
+    plan: pro                    # PostgreSQL: $19/мес (минимальный платный)
   - name: fredi-redis
-    plan: basic                    # <-- для Redis тоже basic
+    plan: pro                    # Redis: $19/мес
 
 services:
   # Backend (FastAPI)
@@ -13,7 +13,7 @@ services:
     name: fredi-backend
     runtime: python
     repo: https://github.com/Dron939-sketch/Frederick
-    plan: basic                    # <-- backend тоже basic
+    plan: pro                    # Web Service: $19/мес
     branch: main
     buildCommand: |
       cd backend
