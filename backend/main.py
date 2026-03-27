@@ -1732,6 +1732,43 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
 # ============================================
 # ЗАПУСК ПРИЛОЖЕНИЯ (для локальной разработки)
 # ============================================
+
+# ============================================
+# СОВМЕСТИМЫЙ ЭНДПОИНТ ДЛЯ СТАРОГО ФРОНТЕНДА
+# ============================================
+
+@app.post("/api/tts")
+async def tts_compat(
+    request: Request,
+    text: str = Form(...),
+    mode: str = Form("psychologist")
+):
+    """
+    Совместимый эндпоинт для старого фронтенда
+    Возвращает JSON с audio_url
+    """
+    try:
+        import base64
+        
+        audio_base64 = await voice_service.text_to_speech(text, mode)
+        
+        if audio_base64:
+            return {
+                "audio_url": f"data:audio/ogg;base64,{audio_base64}",
+                "success": True
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "TTS failed"}
+            )
+            
+    except Exception as e:
+        logger.error(f"TTS compat error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
