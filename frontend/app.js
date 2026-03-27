@@ -641,6 +641,13 @@ async function sendVoiceToServer(audioBlob, retries = 2) {
     const formData = new FormData();
     formData.append('user_id', CONFIG.USER_ID);
     formData.append('voice', audioBlob, `voice_${Date.now()}.webm`);
+    formData.append('mode', currentMode);  // ← ЭТА СТРОКА ДОБАВЛЕНА!
+    
+    console.log('📤 Отправка голоса:', {
+        user_id: CONFIG.USER_ID,
+        mode: currentMode,
+        audio_size: audioBlob.size
+    });
     
     for (let i = 0; i <= retries; i++) {
         try {
@@ -660,6 +667,11 @@ async function sendVoiceToServer(audioBlob, retries = 2) {
             }
             
             const result = await response.json();
+            console.log('📥 Ответ сервера:', {
+                success: result.success,
+                recognized_text: result.recognized_text,
+                has_audio: !!result.audio_base64
+            });
             return result;
             
         } catch (error) {
