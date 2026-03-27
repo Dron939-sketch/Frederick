@@ -1734,7 +1734,8 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
                 VALUES ($1, $2, $3)
             """, user_id, event_type, json.dumps(event_data) if event_data else None)
     except Exception as e:
-        logger.error(f"Error logging event: {e}")
+        # Логируем ошибку, но не прерываем выполнение
+        logger.error(f"Error logging event for user {user_id}: {type(e).__name__}: {e}")
 
 
 # ============================================
