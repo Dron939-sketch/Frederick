@@ -376,6 +376,53 @@ class AIService:
         
         return self._get_goals_fallback(profile, mode)
     
+    async def generate_questions(self, user_id: int, profile: Dict) -> List[str]:
+        """
+        Генерация умных вопросов для размышления
+        
+        Args:
+            user_id: ID пользователя
+            profile: Данные профиля
+        
+        Returns:
+            Список вопросов
+        """
+        if not self.api_key:
+            return self._get_questions_fallback()
+        
+        system_prompt = """Ты психолог. Сформулируй 5 глубоких вопросов для саморефлексии.
+
+Вопросы должны:
+- Быть открытыми (начинаться с "как", "почему", "что")
+- Помогать человеку заглянуть внутрь себя
+- Учитывать профиль пользователя
+
+Формат ответа: просто список из 5 вопросов, каждый с новой строки."""
+        
+        profile_data = profile.get('profile_data', {})
+        scores = profile.get('behavioral_levels', {})
+        
+        # Находим слабые зоны для персонализации
+        weakest = self._find_weakest_vector(scores)
+        
+        user_prompt = f"""
+Профиль: {profile_data.get('display_name', 'не определен')}
+Тип восприятия: {profile.get('perception_type', 'не определен')}
+Уровень мышления: {profile.get('thinking_level', 5)}/9
+
+Зона роста: {weakest.get('name', 'не определена')}
+
+Сформулируй 5 вопросов для размышления.
+"""
+        
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
+        
+        if response:
+            questions = [q.strip() for q in response.split('\n') if q.strip() and '?' in q]
+            return questions[:5] if questions else self._get_questions_fallback()
+        
+        return self._get_questions_fallback()
+    
     async def _call_deepseek(
         self, 
         system_prompt: str, 
@@ -566,6 +613,16 @@ class AIService:
             {"id": "purpose", "name": "Найти предназначение", "time": "5-7 недель", "difficulty": "hard"},
             {"id": "balance", "name": "Обрести баланс", "time": "4-6 недель", "difficulty": "medium"},
             {"id": "growth", "name": "Личностный рост", "time": "6-8 недель", "difficulty": "medium"}
+        ]
+    
+    def _get_questions_fallback(self) -> List[str]:
+        """Запасные вопросы"""
+        return [
+            "Что для вас сейчас самое важное?",
+            "Куда вы хотите прийти через год?",
+            "Что мешает вам двигаться к цели?",
+            "Какие ресурсы у вас уже есть?",
+            "Что вы можете сделать уже сегодня?"
         ]
     
     def _get_avg_score(self, levels: List) -> float:
