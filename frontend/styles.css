@@ -137,6 +137,23 @@ body::after {
     padding: 8px;
 }
 
+/* Разделитель в меню */
+.menu-divider {
+    height: 1px;
+    background: rgba(224, 224, 224, 0.1);
+    margin: 12px 16px;
+}
+
+/* Заголовок секции меню */
+.menu-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    padding: 8px 20px;
+    text-transform: uppercase;
+}
+
 .chat-item {
     display: flex;
     align-items: center;
@@ -942,6 +959,169 @@ body::after {
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   ТЕСТ В СТИЛЕ ДИАЛОГА (КАК В TELEGRAM)
+   ============================================ */
+
+/* Контейнер для чата теста */
+.test-chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: transparent;
+}
+
+/* Область сообщений */
+.test-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scroll-behavior: smooth;
+}
+
+.test-chat-placeholder {
+    flex: 1;
+}
+
+/* Сообщения */
+.test-message {
+    display: flex;
+    width: 100%;
+    animation: messageAppear 0.2s ease-out;
+}
+
+@keyframes messageAppear {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.test-message-bot {
+    justify-content: flex-start;
+}
+
+.test-message-user {
+    justify-content: flex-end;
+}
+
+/* Пузырьки сообщений */
+.test-message-bubble {
+    max-width: 85%;
+    padding: 12px 16px;
+    border-radius: 20px;
+    position: relative;
+    word-wrap: break-word;
+}
+
+.test-message-bubble-bot {
+    background: rgba(224, 224, 224, 0.1);
+    border-bottom-left-radius: 4px;
+    border: 1px solid rgba(224, 224, 224, 0.15);
+}
+
+.test-message-bubble-user {
+    background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+    color: var(--black-obsidian);
+    border-bottom-right-radius: 4px;
+}
+
+/* Текст сообщения */
+.test-message-text {
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.test-message-text strong {
+    color: var(--chrome);
+    font-weight: 600;
+}
+
+.test-message-bubble-user .test-message-text {
+    color: var(--black-obsidian);
+}
+
+.test-message-bubble-user .test-message-text strong {
+    color: var(--black-obsidian);
+}
+
+/* Время сообщения */
+.test-message-time {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-top: 6px;
+    text-align: right;
+}
+
+/* Кнопки в сообщениях */
+.test-message-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.test-message-button {
+    background: rgba(255, 107, 59, 0.15);
+    border: 1px solid rgba(255, 107, 59, 0.3);
+    border-radius: 30px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    backdrop-filter: blur(5px);
+}
+
+.test-message-button:hover {
+    background: rgba(255, 107, 59, 0.3);
+    transform: scale(1.02);
+}
+
+.test-message-button:active {
+    transform: scale(0.98);
+}
+
+/* Стили для скролла в тесте */
+.test-chat-messages::-webkit-scrollbar {
+    width: 4px;
+}
+
+.test-chat-messages::-webkit-scrollbar-track {
+    background: rgba(224, 224, 224, 0.05);
+    border-radius: 4px;
+}
+
+.test-chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(224, 224, 224, 0.3);
+    border-radius: 4px;
+}
+
+/* Мобильные улучшения для теста */
+@media (max-width: 768px) {
+    .test-message-bubble {
+        max-width: 90%;
+    }
+    
+    .test-message-button {
+        padding: 8px 16px;
+        font-size: 12px;
+    }
+    
+    .test-chat-messages {
+        padding: 12px;
+    }
 }
 
 /* ========== МОБИЛЬНЫЕ УЛУЧШЕНИЯ ========== */
