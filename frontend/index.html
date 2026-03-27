@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Фреди | Виртуальный психолог</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app">
+        <div class="container">
+            <h1>🧠 Фреди</h1>
+            <p>Ваш виртуальный психолог</p>
+            
+            <div class="mode-selector">
+                <button class="mode-btn" data-mode="coach">🔮 КОУЧ</button>
+                <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                <button class="mode-btn" data-mode="trainer">⚡ ТРЕНЕР</button>
+            </div>
+            
+            <div class="voice-section">
+                <button class="voice-btn" id="voiceBtn">
+                    🎤 Нажмите и говорите
+                </button>
+            </div>
+            
+            <div class="messages" id="messages">
+                <div class="message bot">
+                    Здравствуйте! Я Фреди, ваш виртуальный психолог. Чем могу помочь?
+                </div>
+            </div>
+            
+            <div class="input-section">
+                <input type="text" id="messageInput" placeholder="Напишите сообщение...">
+                <button id="sendBtn">📤</button>
+            </div>
+        </div>
+    </div>
+    
+    <audio id="audioPlayer" preload="auto"></audio>
+    <script src="/app.js"></script>
+</body>
+</html>
