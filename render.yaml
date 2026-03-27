@@ -1,0 +1,78 @@
+# render.yaml - этот файл определяет всё приложение на Render
+services:
+  # 1. PostgreSQL база данных
+  - type: postgresql
+    name: fredi-db
+    plan: starter  # или standard для продакшена
+    region: frankfurt
+    databaseName: fredi_db
+    user: fredi_user
+    ipAllowList: []  # Только внутренние подключения
+    backup:
+      enabled: true
+      schedule: "0 0 * * *"  # Ежедневно в 00:00
+    diskSizeGB: 10
+    postgresMajorVersion: 15
+
+  # 2. Backend API (FastAPI)
+  - type: web
+    name: fredi-backend
+    runtime: python
+    region: frankfurt
+    plan: starter  # $7/мес, достаточно для старта
+    buildCommand: |
+      cd backend
+      pip install -r requirements.txt
+    startCommand: |
+      cd backend
+      uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fredi-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Эти ключи нужно будет добавить вручную в панели Render
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: YANDEX_API_KEY
+        sync: false
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: MAX_BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+    healthCheckPath: /health
+    autoDeploy: true
+    numInstances: 1
+    scaling:
+      minInstances: 1
+      maxInstances: 3
+      targetMemoryPercent: 70
+
+  # 3. Статический сайт (Frontend)
+  - type: static
+    name: fredi-frontend
+    region: frankfurt
+    buildCommand: echo "No build needed"
+    publishPath: ./frontend
+    envVars:
+      - key: API_URL
+        fromService:
+          name: fredi-backend
+          type: web
+          property: url
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=3600
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
