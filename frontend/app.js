@@ -511,62 +511,113 @@ async function startRecordingWithHold() {
         };
         
         mediaRecorder.onstop = async () => {
-    console.log('Recording stopped, processing audio...');
-    stopVisualizer();
-    
-    const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
-    
-    if (audioBlob.size > 5000) {
-        showToast('🎙️ Распознаю речь...', 'info');
-        
-        const voiceBtn = document.getElementById('mainVoiceBtn');
-        if (voiceBtn) {
-            voiceBtn.querySelector('.voice-text').textContent = '🔄 Обработка...';
-        }
-        
-        const result = await sendVoiceToServer(audioBlob);
-        
-        if (voiceBtn) {
-            voiceBtn.classList.remove('recording');
-            voiceBtn.querySelector('.voice-icon').textContent = '🎤';
-            voiceBtn.querySelector('.voice-text').textContent = MODES[currentMode].voicePrompt;
-        }
-        
-        if (result && result.success) {
-            if (result.recognized_text && result.recognized_text.trim()) {
-                addMessage(`🎤 "${result.recognized_text}"`, 'system');
-            }
-            if (result.answer) {
-                addMessage(result.answer, 'bot');
+            console.log('Recording stopped, processing audio...');
+            stopVisualizer();
+            
+            const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
+            
+            if (audioBlob.size > 5000) {
+                showToast('🎙️ Распознаю речь...', 'info');
                 
-                // 🔧 ИСПРАВЛЕНИЕ: проверяем audio_base64 вместо audio_url
-                if (result.audio_base64) {
-                    // Если уже с префиксом data:audio, используем напрямую
-                    if (result.audio_base64.startsWith('data:audio/')) {
-                        playAudioResponse(result.audio_base64);
-                    } else {
-                        // Добавляем префикс для правильного воспроизведения
-                        playAudioResponse(`data:audio/ogg;base64,${result.audio_base64}`);
+                const voiceBtn = document.getElementById('mainVoiceBtn');
+                if (voiceBtn) {
+                    voiceBtn.querySelector('.voice-text').textContent = '🔄 Обработка...';
+                }
+                
+                const result = await sendVoiceToServer(audioBlob);
+                
+                if (voiceBtn) {
+                    voiceBtn.classList.remove('recording');
+                    voiceBtn.querySelector('.voice-icon').textContent = '🎤';
+                    voiceBtn.querySelector('.voice-text').textContent = MODES[currentMode].voicePrompt;
+                }
+                
+                if (result && result.success) {
+                    if (result.recognized_text && result.recognized_text.trim()) {
+                        addMessage(`🎤 "${result.recognized_text}"`, 'system');
                     }
-                } else if (result.audio_url) {
-                    // Фолбэк для совместимости
-                    playAudioResponse(result.audio_url);
+                    if (result.answer) {
+                        addMessage(result.answer, 'bot');
+                        
+                        // Исправленная обработка аудио для MP3
+                        if (result.audio_base64) {
+                            if (result.audio_base64.startsWith('data:audio/')) {
+                                playAudioResponse(result.audio_base64);
+                            } else {
+                                playAudioResponse(`data:audio/mpeg;base64,${result.audio_base64}`);
+                            }
+                        } else if (result.audio_url) {
+                            playAudioResponse(result.audio_url);
+                        } else {
+                            const ttsResponse = await textToSpeech(result.answer, currentMode);
+                            if (ttsResponse?.audio_url) {
+                                playAudioResponse(ttsResponse.audio_url);
+                            }
+                        }
+                    }
                 } else {
-                    // Отдельный TTS запрос, если нет аудио в ответе
-                    const ttsResponse = await textToSpeech(result.answer, currentMode);
-                    if (ttsResponse?.audio_url) {
-                        playAudioResponse(ttsResponse.audio_url);
-                    }
+                    const errorMsg = result?.error || 'Не удалось распознать речь';
+                    showToast(`❌ ${errorMsg}`, 'error');
+                    addMessage(`❌ ${errorMsg}`, 'system');
+                }
+            } else if (audioBlob.size > 0) {
+                showToast('Запись слишком короткая. Поговорите хотя бы 2 секунды.', 'warning');
+                addMessage('🎙️ Запись слишком короткая, попробуйте еще раз', 'system');
+                
+                const voiceBtn = document.getElementById('mainVoiceBtn');
+                if (voiceBtn) {
+                    voiceBtn.classList.remove('recording');
+                    voiceBtn.querySelector('.voice-icon').textContent = '🎤';
+                    voiceBtn.querySelector('.voice-text').textContent = MODES[currentMode].voicePrompt;
                 }
             }
-        } else {
-            const errorMsg = result?.error || 'Не удалось распознать речь';
-            showToast(`❌ ${errorMsg}`, 'error');
-            addMessage(`❌ ${errorMsg}`, 'system');
+            
+            if (stream) {
+                stream.getTracks().forEach(track => {
+                    track.stop();
+                    track.enabled = false;
+                });
+            }
+            
+            isRecording = false;
+            if (recordingTimer) {
+                clearTimeout(recordingTimer);
+                recordingTimer = null;
+            }
+        };
+        
+        mediaRecorder.start(1000);
+        isRecording = true;
+        
+        const voiceBtn = document.getElementById('mainVoiceBtn');
+        if (voiceBtn) {
+            voiceBtn.classList.add('recording');
+            voiceBtn.querySelector('.voice-icon').textContent = '⏹️';
+            voiceBtn.querySelector('.voice-text').textContent = 'Отпустите для отправки';
         }
-    } else if (audioBlob.size > 0) {
-        showToast('Запись слишком короткая. Поговорите хотя бы 2 секунды.', 'warning');
-        addMessage('🎙️ Запись слишком короткая, попробуйте еще раз', 'system');
+        
+        recordingTimer = setTimeout(() => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                console.log('Auto-stop after 60 seconds');
+                mediaRecorder.stop();
+            }
+        }, 60000);
+        
+    } catch (error) {
+        console.error('Recording error:', error);
+        isRecording = false;
+        stopVisualizer();
+        
+        let errorMessage = '❌ Ошибка записи: ';
+        if (error.name === 'NotAllowedError') {
+            errorMessage += 'Нет разрешения на использование микрофона.';
+        } else if (error.name === 'NotFoundError') {
+            errorMessage += 'Микрофон не найден.';
+        } else {
+            errorMessage += error.message;
+        }
+        
+        showToast(errorMessage, 'error');
         
         const voiceBtn = document.getElementById('mainVoiceBtn');
         if (voiceBtn) {
@@ -575,20 +626,16 @@ async function startRecordingWithHold() {
             voiceBtn.querySelector('.voice-text').textContent = MODES[currentMode].voicePrompt;
         }
     }
-    
-    if (stream) {
-        stream.getTracks().forEach(track => {
-            track.stop();
-            track.enabled = false;
-        });
+}
+
+function stopRecordingIfActive() {
+    if (isRecording && mediaRecorder && mediaRecorder.state === 'recording') {
+        console.log('Stopping recording...');
+        mediaRecorder.stop();
+        return true;
     }
-    
-    isRecording = false;
-    if (recordingTimer) {
-        clearTimeout(recordingTimer);
-        recordingTimer = null;
-    }
-};
+    return false;
+}
 
 async function sendVoiceToServer(audioBlob, retries = 2) {
     const formData = new FormData();
@@ -663,9 +710,9 @@ async function textToSpeech(text, mode) {
     }
 }
 
-function playAudioResponse(audioUrl) {
-    if (!audioUrl) {
-        console.warn('No audio URL');
+function playAudioResponse(audioData) {
+    if (!audioData) {
+        console.warn('No audio data');
         return;
     }
     
@@ -675,18 +722,56 @@ function playAudioResponse(audioUrl) {
         return;
     }
     
-    console.log('🔊 Playing audio:', audioUrl);
+    console.log('🔊 Playing audio:', audioData.substring(0, 50));
     
-    // Останавливаем текущее воспроизведение
-    audio.pause();
-    audio.currentTime = 0;
-    audio.src = audioUrl;
-    
-    // Пробуем воспроизвести
-    audio.play().catch(e => {
-        console.error('❌ Play failed:', e);
+    try {
+        let audioUrl = audioData;
+        
+        // Если это data URL (начинается с data:audio)
+        if (audioData.startsWith('data:audio/')) {
+            const matches = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/);
+            if (matches) {
+                const mimeType = matches[1];
+                const base64Data = matches[2];
+                
+                // Декодируем base64 в blob
+                const binaryString = atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                
+                const blob = new Blob([bytes], { type: mimeType });
+                audioUrl = URL.createObjectURL(blob);
+                console.log('🎵 Created blob URL:', audioUrl, 'type:', mimeType);
+            }
+        }
+        
+        // Останавливаем текущее воспроизведение
+        audio.pause();
+        audio.currentTime = 0;
+        audio.src = audioUrl;
+        audio.load();
+        
+        const playPromise = audio.play();
+        
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.error('❌ Play failed:', error);
+                showToast('Ошибка воспроизведения', 'error');
+            });
+        }
+        
+        audio.onended = () => {
+            if (audioUrl && audioUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(audioUrl);
+            }
+        };
+        
+    } catch (error) {
+        console.error('Playback error:', error);
         showToast('Ошибка воспроизведения', 'error');
-    });
+    }
 }
 
 function initVoiceButton() {
@@ -781,6 +866,7 @@ function initVoiceButton() {
     
     console.log('Voice button initialized successfully');
 }
+
 // ========== НАВИГАЦИЯ ==========
 
 function navigateBack() {
