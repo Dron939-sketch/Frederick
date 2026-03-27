@@ -92,7 +92,7 @@ class VoiceService:
             logger.error(f"STT error: {e}")
             return None
     
-    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО: формат MP3 ==========
+    # ========== TTS (Синтез речи) - ИСПРАВЛЕНО ==========
     
     async def text_to_speech(self, text: str, voice: str = "psychologist") -> Optional[str]:
         """
@@ -122,11 +122,11 @@ class VoiceService:
             logger.info(f"📦 Voice cache hit")
             return cached
         
-        # Настройки голосов
+        # 👇 ИСПРАВЛЕННЫЕ ГОЛОСА (КАК В СТАРОМ БОТЕ)
         voices = {
-            'coach': {'name': 'alena', 'emotion': 'good', 'speed': 1.0},
-            'psychologist': {'name': 'oksana', 'emotion': 'neutral', 'speed': 0.9},
-            'trainer': {'name': 'filipp', 'emotion': 'neutral', 'speed': 1.0}
+            'coach': {'name': 'filipp', 'emotion': 'neutral', 'speed': 1.0},
+            'psychologist': {'name': 'ermil', 'emotion': 'good', 'speed': 0.9},
+            'trainer': {'name': 'filipp', 'emotion': 'strict', 'speed': 1.0}
         }
         
         config = voices.get(voice, voices['psychologist'])
@@ -136,14 +136,12 @@ class VoiceService:
         try:
             session = await self._get_session()
             
-            # 🔧 ВАЖНО: Yandex API ожидает form-data, не JSON
-            # 🔧 Формат MP3 для лучшей совместимости с браузерами
             data = {
                 "text": clean_text,
                 "voice": config['name'],
                 "emotion": config['emotion'],
                 "speed": config['speed'],
-                "format": "mp3",  # 👈 ИЗМЕНЕНО: oggopus -> mp3
+                "format": "oggopus",      # 👈 ВЕРНУЛИ OGGOPUS (РАБОТАЛ В СТАРОМ БОТЕ)
                 "sampleRateHertz": 48000,
                 "lang": "ru-RU"
             }
@@ -154,7 +152,7 @@ class VoiceService:
                     "Authorization": f"Api-Key {self.yandex_key}",
                     "Content-Type": "application/x-www-form-urlencoded"
                 },
-                data=data,  # 👈 data, НЕ json!
+                data=data,
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 
