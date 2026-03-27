@@ -2,45 +2,84 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Фреди | Виртуальный психолог</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Фреди | Премиум виртуальный психолог</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <div class="app">
-        <div class="container">
-            <header>
-                <h1>🧠 Фреди</h1>
-                <p>Ваш виртуальный психолог</p>
-            </header>
-            
-            <div class="mode-selector">
-                <button class="mode-btn" data-mode="coach">🔮 КОУЧ</button>
-                <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
-                <button class="mode-btn" data-mode="trainer">⚡ ТРЕНЕР</button>
-            </div>
-            
-            <div class="voice-section">
-                <button class="voice-btn" id="voiceBtn">
-                    <span class="voice-icon">🎤</span>
-                    <span class="voice-text">Нажмите и говорите</span>
-                </button>
-            </div>
-            
-            <div class="messages" id="messages">
-                <div class="message bot">
-                    Здравствуйте! Я Фреди, ваш виртуальный психолог. Чем могу помочь?
+        <!-- Левая панель -->
+        <div class="chats-panel" id="chatsPanel">
+            <div class="chats-header">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="chats-title">FREDI</div>
+                    <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; background: rgba(224,224,224,0.1); border-radius: 50%;">✎</button>
                 </div>
             </div>
-            
-            <div class="input-section">
-                <input type="text" id="messageInput" placeholder="Напишите сообщение...">
-                <button id="sendBtn">📤</button>
+            <div class="chats-search">
+                <input type="text" placeholder="Поиск" id="chatSearchInput">
+            </div>
+            <div class="chats-list" id="chatsList">
+                <div class="chat-item active" data-chat="fredi">
+                    <div class="chat-avatar">⭐</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Фреди</div>
+                        <div class="chat-preview" id="chatPreview">Чем могу помочь?</div>
+                    </div>
+                    <div class="chat-time">сейчас</div>
+                </div>
+            </div>
+            <div class="chats-footer">
+                <div class="user-mini-profile" id="userMiniProfile">
+                    <div class="user-mini-avatar" id="userMiniAvatar">А</div>
+                    <div class="user-mini-info">
+                        <div class="user-mini-name" id="userName">Андрей</div>
+                        <div class="user-mini-status" id="userStatus">⚡ активен</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Правая панель -->
+        <div class="chat-panel" id="chatPanel">
+            <div class="chat-header">
+                <div class="chat-header-left">
+                    <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+                    <div class="chat-header-avatar">⭐</div>
+                    <div>
+                        <div class="chat-header-name">Фреди</div>
+                        <div class="chat-header-status" id="botStatus">
+                            <span class="mode-indicator" id="modeIndicator" style="background: #ff6b3b;"></span>
+                            <span id="modeLabel">Психолог</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-header-right">
+                    <button class="mode-btn" style="width: 36px; height: 36px; padding: 0; background: rgba(224,224,224,0.1); border-radius: 50%;" id="menuBtn">⋮</button>
+                </div>
+            </div>
+            <div id="screenContainer" class="screen-container">
+                <div class="loading-screen">
+                    <div class="loading-spinner">⭐</div>
+                    <div class="loading-text">Инициализация системы...</div>
+                </div>
             </div>
         </div>
     </div>
-    
-    <audio id="audioPlayer" preload="auto"></audio>
+
+    <audio id="hiddenAudioPlayer" preload="auto"></audio>
+    <div id="toastMessage" class="floating-message" style="display: none;">
+        <div class="floating-message-content">
+            <div class="floating-message-text" id="toastText"></div>
+            <div class="floating-message-close" id="toastClose">✕</div>
+        </div>
+    </div>
+
     <script src="/app.js"></script>
 </body>
 </html>
