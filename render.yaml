@@ -1,7 +1,7 @@
-# render.yaml - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# render.yaml - ВЕРСИЯ С ПРАВИЛЬНЫМИ ТИПАМИ
 services:
-  # 1. PostgreSQL база данных
-  - type: postgresql
+  # 1. PostgreSQL база данных - ИСПРАВЛЕНО: postgres
+  - type: postgres
     name: fredi-db
     plan: starter
     region: frankfurt
@@ -78,7 +78,7 @@ services:
       mountPath: /tmp
       sizeGB: 1
 
-  # 3. Redis (опционально)
+  # 3. Redis
   - type: redis
     name: fredi-redis
     plan: starter
@@ -87,7 +87,7 @@ services:
     ipAllowList: []
     redisVersion: "7"
 
-  # 4. Статический сайт (Frontend) - ИСПРАВЛЕНО: static_site
+  # 4. Статический сайт (Frontend)
   - type: static_site
     name: fredi-frontend
     region: frankfurt
