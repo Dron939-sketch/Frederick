@@ -2472,10 +2472,40 @@ if __name__ == "__main__":
     )
 
 # ============================================
+# ПРИНУДИТЕЛЬНЫЙ ЗАПУСК LIFESPAN ДЛЯ RENDER
+# ============================================
+import asyncio
+
+_lifespan_started = False
+
+async def _force_lifespan():
+    global _lifespan_started
+    if _lifespan_started:
+        return
+    
+    logger.info("🔄 Принудительный запуск lifespan...")
+    try:
+        async with lifespan(app):
+            _lifespan_started = True
+            logger.info("✅ Lifespan успешно запущен принудительно")
+            await asyncio.Event().wait()
+    except Exception as e:
+        logger.error(f"❌ Ошибка при принудительном запуске lifespan: {e}")
+
+# Если модуль импортируется (не запускается напрямую), запускаем lifespan
+if __name__ != "__main__":
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_force_lifespan())
+            logger.info("✅ Задача принудительного запуска lifespan создана")
+        else:
+            loop.run_until_complete(_force_lifespan())
+    except RuntimeError:
+        asyncio.run(_force_lifespan())
+
+# ============================================
 # ДЛЯ ASGI СЕРВЕРОВ (Daphne, Uvicorn)
 # ============================================
-# ВАЖНО: НИЧЕГО НЕ ЗАПУСКАЕМ, ПРОСТО ЭКСПОРТИРУЕМ app
-# Daphne сам вызывает lifespan и управляет event loop
-
 # Экспортируем приложение для ASGI серверов
 application = app
