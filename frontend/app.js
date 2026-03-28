@@ -472,14 +472,28 @@ class VoiceButtonHandler {
         this.stopVisualizer();
         
         if (this.wavData && this.wavData.length > 0) {
-            const wavBlob = this.createWavBlob(this.wavData);
-            
-            if (liveVoiceWS && liveVoiceWS.isConnected && useWebSocket) {
-                this.sendAudioInChunks(wavBlob);
-            } else {
-                this.sendViaHTTPWithBlob(wavBlob);
-            }
-        }
+    // Объединяем все PCM чанки в один Int16Array
+    let totalLength = 0;
+    for (const chunk of this.wavData) {
+        totalLength += chunk.length;
+    }
+    
+    const combinedPCM = new Int16Array(totalLength);
+    let offset = 0;
+    for (const chunk of this.wavData) {
+        combinedPCM.set(chunk, offset);
+        offset += chunk.length;
+    }
+    
+    console.log(`🔊 PCM data: ${combinedPCM.length} samples`);
+    
+    if (liveVoiceWS && liveVoiceWS.isConnected && useWebSocket) {
+        this.sendAudioInChunks(combinedPCM);  // ← передаем PCM, а не WAV
+    } else {
+        const wavBlob = this.createWavBlob(this.wavData);
+        this.sendViaHTTPWithBlob(wavBlob);
+    }
+}
         
         if (this.mediaStream) {
             this.mediaStream.getTracks().forEach(track => track.stop());
@@ -500,20 +514,19 @@ class VoiceButtonHandler {
         }
     }
     
-    async sendAudioInChunks(audioBlob) {
+   async sendAudioInChunks(pcmData) {
     const CHUNK_SIZE = 16000;
     
-    const base64Data = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.readAsDataURL(audioBlob);
-    });
+    // Конвертируем Int16Array (PCM) в base64 строку
+    const bytes = new Uint8Array(pcmData.buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    const base64Data = btoa(binary);
     
     const totalLength = base64Data.length;
-    console.log(`📤 Sending audio in chunks: ${totalLength} bytes total`);
-    
-    // Создаем Promise для ожидания подтверждения
-    const pendingAcks = new Map();
+    console.log(`📤 Sending PCM audio: ${totalLength} chars total, ${pcmData.length} samples`);
     
     for (let i = 0; i < totalLength; i += CHUNK_SIZE) {
         const chunkIndex = Math.floor(i / CHUNK_SIZE) + 1;
@@ -523,183 +536,29 @@ class VoiceButtonHandler {
         // Проверяем, открыт ли WebSocket
         if (!liveVoiceWS || !liveVoiceWS.ws || liveVoiceWS.ws.readyState !== WebSocket.OPEN) {
             console.warn('WebSocket closed, switching to HTTP');
-            this.sendViaHTTPWithBlob(audioBlob);
+            const wavBlob = this.createWavBlob([pcmData]);
+            this.sendViaHTTPWithBlob(wavBlob);
             return;
         }
         
-        // Отправляем чанк
+        // Отправляем чанк в формате PCM16
         liveVoiceWS.ws.send(JSON.stringify({
             type: 'audio_chunk',
             data: chunk,
             is_final: isFinal,
+            format: 'pcm16',      // Явно указываем формат PCM!
+            sample_rate: 16000,   // Частота дискретизации
             chunk_index: chunkIndex
         }));
         
-        console.log(`📦 Sent chunk ${chunkIndex}: ${chunk.length} chars, is_final=${isFinal}`);
+        console.log(`📦 Sent PCM chunk ${chunkIndex}: ${chunk.length} chars, is_final=${isFinal}`);
         
-        // Ждем подтверждение (только для нефинальных чанков)
         if (!isFinal) {
-            // Ждем 200ms между чанками (увеличено с 50ms)
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
     }
     
-    console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} chunks sent`);
-}
-    
-    createWavBlob(audioData) {
-        let totalLength = 0;
-        for (const chunk of audioData) totalLength += chunk.length;
-        
-        const MAX_SAMPLES = 480000;
-        if (totalLength > MAX_SAMPLES) {
-            console.warn(`Audio too long (${totalLength} samples), truncating to ${MAX_SAMPLES}`);
-            totalLength = MAX_SAMPLES;
-        }
-        
-        const combined = new Int16Array(totalLength);
-        let offset = 0;
-        for (const chunk of audioData) {
-            if (offset + chunk.length > totalLength) {
-                const remaining = totalLength - offset;
-                combined.set(chunk.slice(0, remaining), offset);
-                break;
-            }
-            combined.set(chunk, offset);
-            offset += chunk.length;
-        }
-        
-        const sampleRate = 16000;
-        const numChannels = 1;
-        const bitsPerSample = 16;
-        const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-        const blockAlign = numChannels * bitsPerSample / 8;
-        
-        const buffer = new ArrayBuffer(44 + combined.length * 2);
-        const view = new DataView(buffer);
-        
-        this.writeString(view, 0, 'RIFF');
-        view.setUint32(4, 36 + combined.length * 2, true);
-        this.writeString(view, 8, 'WAVE');
-        
-        this.writeString(view, 12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, numChannels, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, byteRate, true);
-        view.setUint16(32, blockAlign, true);
-        view.setUint16(34, bitsPerSample, true);
-        
-        this.writeString(view, 36, 'data');
-        view.setUint32(40, combined.length * 2, true);
-        
-        for (let i = 0; i < combined.length; i++) {
-            view.setInt16(44 + i * 2, combined[i], true);
-        }
-        
-        return new Blob([buffer], { type: 'audio/wav' });
-    }
-    
-    writeString(view, offset, string) {
-        for (let i = 0; i < string.length; i++) {
-            view.setUint8(offset + i, string.charCodeAt(i));
-        }
-    }
-    
-    sendViaHTTPWithBlob(audioBlob) {
-        const formData = new FormData();
-        formData.append('user_id', CONFIG.USER_ID);
-        formData.append('voice', audioBlob, 'audio.wav');
-        formData.append('mode', currentMode);
-        
-        fetch(`${CONFIG.API_BASE_URL}/api/voice/process`, {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(result => {
-            if (result.success) {
-                if (result.recognized_text) {
-                    addMessage(`🎤 "${result.recognized_text}"`, 'system');
-                }
-                if (result.answer) {
-                    addMessage(result.answer, 'bot');
-                }
-                if (result.audio_base64) {
-                    playAudioResponse(result.audio_base64);
-                }
-            } else {
-                showToast(`❌ ${result.error || 'Ошибка распознавания'}`, 'error');
-            }
-        })
-        .catch(error => {
-            console.error('HTTP voice error:', error);
-            showToast('❌ Ошибка соединения', 'error');
-        });
-    }
-    
-    updateButtonUI(isRecording) {
-        const voiceBtn = document.getElementById('mainVoiceBtn');
-        if (!voiceBtn) return;
-        
-        if (isRecording) {
-            voiceBtn.classList.add('recording');
-            const iconSpan = voiceBtn.querySelector('.voice-icon');
-            const textSpan = voiceBtn.querySelector('.voice-text');
-            if (iconSpan) iconSpan.textContent = '⏹️';
-            if (textSpan) textSpan.textContent = 'Отпустите для отправки';
-        } else {
-            voiceBtn.classList.remove('recording');
-            const iconSpan = voiceBtn.querySelector('.voice-icon');
-            const textSpan = voiceBtn.querySelector('.voice-text');
-            if (iconSpan) iconSpan.textContent = '🎤';
-            if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
-            voiceBtn.style.boxShadow = '';
-        }
-    }
-    
-    initVisualizer(stream) {
-        if (!window.AudioContext && !window.webkitAudioContext) return;
-        
-        this.visualizerContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = this.visualizerContext.createMediaStreamSource(stream);
-        this.analyser = this.visualizerContext.createAnalyser();
-        this.analyser.fftSize = 256;
-        source.connect(this.analyser);
-        
-        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-        
-        const updateVolume = () => {
-            if (!this.isRecording) return;
-            
-            this.analyser.getByteFrequencyData(dataArray);
-            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            let volume = Math.min(100, (average / 255) * 100);
-            
-            const voiceBtn = document.getElementById('mainVoiceBtn');
-            if (voiceBtn) {
-                const intensity = volume / 100;
-                voiceBtn.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
-            }
-            
-            this.visualizerAnimation = requestAnimationFrame(updateVolume);
-        };
-        
-        updateVolume();
-    }
-    
-    stopVisualizer() {
-        if (this.visualizerAnimation) {
-            cancelAnimationFrame(this.visualizerAnimation);
-            this.visualizerAnimation = null;
-        }
-        if (this.visualizerContext) {
-            this.visualizerContext.close().catch(console.warn);
-            this.visualizerContext = null;
-        }
-        this.analyser = null;
-    }
+    console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} PCM chunks sent`);
 }
 
 // ============================================
