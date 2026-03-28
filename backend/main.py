@@ -1349,7 +1349,7 @@ async def process_voice(
                 error="Аудио файл слишком короткий"
             )
         
-        recognized_text = await voice_service.speech_to_text(audio_bytes)
+        recognized_text = await voice_service.speech_to_text_pcm(audio_bytes, sample_rate=16000)
         
         if not recognized_text:
             return VoiceProcessResponse(
