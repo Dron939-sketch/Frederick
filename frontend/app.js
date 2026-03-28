@@ -495,37 +495,37 @@ class VoiceButtonHandler {
     }
     
     async sendAudioInChunks(audioBlob) {
-        const CHUNK_SIZE = 32000;
+    const CHUNK_SIZE = 16000; // Уменьшаем с 32000 до 16000
+    
+    const reader = new FileReader();
+    reader.onload = () => {
+        const base64Data = reader.result.split(',')[1];
+        const totalLength = base64Data.length;
         
-        const reader = new FileReader();
-        reader.onload = () => {
-            const base64Data = reader.result.split(',')[1];
-            const totalLength = base64Data.length;
+        console.log(`📤 Sending audio in chunks: ${totalLength} bytes total`);
+        
+        for (let i = 0; i < totalLength; i += CHUNK_SIZE) {
+            const chunk = base64Data.slice(i, i + CHUNK_SIZE);
+            const isFinal = i + CHUNK_SIZE >= totalLength;
             
-            console.log(`📤 Sending audio in chunks: ${totalLength} bytes total`);
+            liveVoiceWS.ws.send(JSON.stringify({
+                type: 'audio_chunk',
+                data: chunk,
+                is_final: isFinal
+            }));
             
-            for (let i = 0; i < totalLength; i += CHUNK_SIZE) {
-                const chunk = base64Data.slice(i, i + CHUNK_SIZE);
-                const isFinal = i + CHUNK_SIZE >= totalLength;
-                
-                liveVoiceWS.ws.send(JSON.stringify({
-                    type: 'audio_chunk',
-                    data: chunk,
-                    is_final: isFinal
-                }));
-                
-                console.log(`📦 Sent chunk ${Math.floor(i/CHUNK_SIZE)+1}: ${chunk.length} chars, is_final=${isFinal}`);
-                
-                if (!isFinal) {
-                    const start = Date.now();
-                    while (Date.now() - start < 10) {}
-                }
+            console.log(`📦 Sent chunk ${Math.floor(i/CHUNK_SIZE)+1}: ${chunk.length} chars, is_final=${isFinal}`);
+            
+            // Увеличиваем задержку между чанками
+            if (!isFinal) {
+                await new Promise(resolve => setTimeout(resolve, 50)); // 50ms задержка
             }
-            
-            console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} chunks sent`);
-        };
-        reader.readAsDataURL(audioBlob);
-    }
+        }
+        
+        console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} chunks sent`);
+    };
+    reader.readAsDataURL(audioBlob);
+}
     
     createWavBlob(audioData) {
         let totalLength = 0;
