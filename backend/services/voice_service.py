@@ -564,7 +564,7 @@ class VoiceService:
             return base64.b64encode(audio_bytes).decode('utf-8')
         return None
 
-     async def speech_to_text_pcm(self, pcm_bytes: bytes, sample_rate: int = 16000) -> Optional[str]:
+    async def speech_to_text_pcm(self, pcm_bytes: bytes, sample_rate: int = 16000) -> Optional[str]:
         """
         Распознавание речи из сырых PCM данных (linear16)
         """
@@ -597,7 +597,7 @@ class VoiceService:
         params = {
             "model": "nova-2",
             "language": "ru",
-            "encoding": "linear16",        # ← КЛЮЧЕВОЙ ПАРАМЕТР!
+            "encoding": "linear16",
             "sample_rate": sample_rate,
             "channels": 1,
             "punctuate": "true",
@@ -656,7 +656,7 @@ class VoiceService:
             logger.error(f"❌ Ошибка распознавания: {e}")
             logger.error(traceback.format_exc())
             return None
-    
+
     async def text_to_speech_bytes(self, text: str, mode: str = "psychologist") -> Optional[bytes]:
         """Синтез речи, возвращает байты аудио"""
         return await text_to_speech(text, mode)
