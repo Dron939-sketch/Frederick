@@ -249,7 +249,7 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
     
     # ========== ИСПРАВЛЕННЫЕ ПАРАМЕТРЫ ==========
     params = {
-        "model": "nova-2-multilingual",  # ← Мультиязычная модель!
+        "model": "nova-2",  
         "language": "ru",                 # ← Явно указываем русский
         "punctuate": "true",
         "smart_format": "true",
@@ -605,7 +605,7 @@ class VoiceService:
         
         # ========== ИСПРАВЛЕННЫЕ ПАРАМЕТРЫ ==========
         params = {
-            "model": "nova-2-multilingual",  # ← Мультиязычная модель!
+            "model": "nova-2",  # ← Мультиязычная модель!
             "language": "ru",                 # ← Явно указываем русский
             "encoding": "linear16",
             "sample_rate": sample_rate,
