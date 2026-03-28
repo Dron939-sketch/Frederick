@@ -150,7 +150,12 @@
         </div>
     </div>
 
-    <script src="/app.js"></script>
+    <!-- ========== ПОДКЛЮЧЕНИЕ СКРИПТОВ ========== -->
+    <!-- Сначала загружаем голосовой модуль -->
+    <script src="/voice.js"></script>
+    <!-- Затем тестовый модуль -->
     <script src="/test.js"></script>
+    <!-- Основной модуль (зависит от voice.js) -->
+    <script src="/app.js"></script>
 </body>
 </html>
