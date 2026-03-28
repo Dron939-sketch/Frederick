@@ -441,7 +441,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     """
     WebSocket эндпоинт для живого голосового диалога
     """
-    logger.info(f"🔌 WebSocket connection attempt for user {user_id}")
+    logger.info(f"🔌🔌🔌 WEBSOCKET START for user {user_id} 🔌🔌🔌")
     
     if not voice_manager:
         logger.error(f"❌ Voice manager not ready for user {user_id}")
@@ -504,7 +504,6 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     
     # Буфер для накопления аудио
     audio_buffer = bytearray()
-    # Счетчик полученных чанков для отладки
     chunk_count = 0
     
     try:
@@ -516,37 +515,38 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     
     try:
         while True:
-            # Получаем сообщение от клиента
             data = await websocket.receive_json()
             
             if data.get("type") == "audio_chunk":
                 chunk_base64 = data.get("data", "")
                 is_final = data.get("is_final", False)
                 
+                logger.debug(f"📦 AUDIO CHUNK: is_final={is_final}, data_len={len(chunk_base64)}")
+                
                 if chunk_base64:
                     try:
                         chunk_data = base64.b64decode(chunk_base64)
                         audio_buffer.extend(chunk_data)
                         chunk_count += 1
-                        logger.debug(f"📦 Received chunk #{chunk_count}: {len(chunk_data)} bytes, total: {len(audio_buffer)}")
+                        logger.debug(f"📦 Chunk #{chunk_count}: {len(chunk_data)} bytes, total: {len(audio_buffer)}")
                     except Exception as e:
                         logger.error(f"Failed to decode audio chunk: {e}")
                 
                 # Если это финальный чанк и есть данные
                 if is_final and len(audio_buffer) > 0:
-                    logger.info(f"🎤 Processing complete audio: {len(audio_buffer)} bytes from {chunk_count} chunks")
+                    logger.info(f"🎤🎤🎤 FINAL AUDIO RECEIVED! Total: {len(audio_buffer)} bytes from {chunk_count} chunks")
+                    logger.info(f"🎤 First 50 bytes hex: {bytes(audio_buffer[:50]).hex()}")
+                    
                     await voice_manager.send_status(user_id, "processing")
                     
                     try:
-                        # Клиент отправляет WAV напрямую (16kHz, моно, PCM)
-                        # Отправляем в DeepGram как WAV
+                        logger.info(f"📡 Sending to DeepGram as WAV...")
                         recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "wav")
-                        logger.info(f"📝 Recognized from WAV: {recognized_text}")
+                        logger.info(f"📝 DeepGram result: '{recognized_text}'")
                         
                         if recognized_text:
                             await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
                             
-                            # Получаем ответ от ИИ через потоковый метод
                             response_text = ""
                             async for chunk in mode_instance.process_question_streaming(recognized_text):
                                 response_text += chunk
@@ -555,9 +555,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                             logger.info(f"💬 AI response: {response_text[:100]}...")
                             await voice_manager.send_status(user_id, "speaking")
                             
-                            # Потоковый TTS
                             async def stream_tts():
                                 try:
+                                    logger.info(f"🔊 Starting TTS stream...")
                                     async for audio_chunk in voice_service.text_to_speech_streaming(
                                         response_text, mode_name, chunk_size=4096
                                     ):
@@ -568,50 +568,46 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                                     await voice_manager.send_audio(user_id, "", is_final=True)
                                     logger.info(f"✅ TTS stream completed")
                                 except asyncio.CancelledError:
-                                    logger.info(f"🛑 TTS cancelled for user {user_id}")
+                                    logger.info(f"🛑 TTS cancelled")
                                     raise
                                 except Exception as e:
                                     logger.error(f"❌ TTS error: {e}")
                                     await voice_manager.send_error(user_id, f"TTS error: {str(e)}")
                             
-                            # Отменяем предыдущую задачу если есть
                             if user_id in voice_manager.speaking_tasks:
                                 voice_manager.speaking_tasks[user_id].cancel()
                             
                             voice_manager.speaking_tasks[user_id] = asyncio.create_task(stream_tts())
                             
-                            # Сохраняем в историю
                             await message_repo.save(user_id, "user", recognized_text, {"voice": True})
                             await message_repo.save(user_id, "assistant", response_text, {"voice": True})
                             await log_event(user_id, "voice_stream", {"text_length": len(recognized_text)})
                         else:
-                            logger.warning("⚠️ No text recognized")
+                            logger.warning("⚠️ No text recognized by DeepGram")
                             await voice_manager.send_error(user_id, "Не удалось распознать речь")
                     
                     except Exception as e:
                         logger.error(f"❌ Error processing audio: {e}", exc_info=True)
                         await voice_manager.send_error(user_id, f"Ошибка обработки: {str(e)}")
                     
-                    # Очищаем буфер и сбрасываем счетчик
                     audio_buffer = bytearray()
                     chunk_count = 0
                     await voice_manager.send_status(user_id, "idle")
+                    logger.info(f"✅ Audio processing completed, buffer cleared")
             
             elif data.get("type") == "interrupt":
-                logger.info(f"🛑 Interrupt received from user {user_id}")
+                logger.info(f"🛑 INTERRUPT received from user {user_id}")
                 if user_id in voice_manager.speaking_tasks:
                     voice_manager.speaking_tasks[user_id].cancel()
                     del voice_manager.speaking_tasks[user_id]
                 await voice_manager.send_status(user_id, "listening")
-                # Очищаем буфер при прерывании
                 audio_buffer = bytearray()
                 chunk_count = 0
             
             elif data.get("type") == "ping":
-                # Отвечаем на ping с timestamp для измерения задержки
                 timestamp = data.get("timestamp", 0)
                 await websocket.send_json({"type": "pong", "timestamp": timestamp})
-                logger.debug(f"💓 Pong sent, latency: {time.time() - timestamp:.0f}ms" if timestamp else "💓 Pong sent")
+                logger.debug(f"💓 PING/PONG with user {user_id}")
     
     except WebSocketDisconnect:
         logger.info(f"🔌 WebSocket disconnected for user {user_id}")
