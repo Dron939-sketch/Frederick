@@ -1084,7 +1084,7 @@ class VoiceManager {
 }
 
 // ============================================
-// ЭКСПОРТ ДЛЯ ИСПОЛЬЗОВАНИЯ
+// ЭКСПОРТ ДЛЯ ИСПОЛЬЗОВАНИЯ (глобальная переменная)
 // ============================================
 
 // Для браузера (глобальная переменная)
@@ -1094,6 +1094,3 @@ if (typeof window !== 'undefined') {
     window.VoiceRecorder = VoiceRecorder;
     window.AudioPlayer = AudioPlayer;
 }
-
-// Для модулей (ES6)
-export { VoiceManager, VoiceWebSocket, VoiceRecorder, AudioPlayer };
