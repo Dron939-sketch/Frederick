@@ -538,10 +538,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     await voice_manager.send_status(user_id, "processing")
                     
                     try:
-                        # Сохраняем для отладки (опционально)
-                        # await save_audio_debug(bytes(audio_buffer), f"voice_{user_id}")
-                        
                         # Распознаем речь
+                        recognized_text = None
+                        
                         # Пробуем конвертировать WebM в WAV для лучшей совместимости
                         try:
                             from pydub import AudioSegment
@@ -571,6 +570,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                             logger.warning(f"⚠️ WebM to WAV conversion failed: {e}, falling back to WebM")
                             recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
                             logger.info(f"📝 Recognized from WebM: {recognized_text}")
+                        
+                        if recognized_text:
+                            await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
                             
                             # Получаем ответ от ИИ через потоковый метод
                             response_text = ""
@@ -651,7 +653,6 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     except Exception as e:
         logger.error(f"❌ WebSocket error for user {user_id}: {e}", exc_info=True)
         voice_manager.disconnect(user_id)
-
 
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
