@@ -4,6 +4,8 @@
 Voice Service - сервис для работы с голосом
 Поддержка живого голосового диалога (WebSocket + VAD + Barge-in)
 Адаптирован из рабочего кода Telegram-бота MAX
+
+ВЕРСИЯ 2.0 - С ПОДДЕРЖКОЙ ГОЛОСА БЕНДЕРА 🦾
 """
 
 import logging
@@ -14,6 +16,7 @@ import tempfile
 import json
 import time
 import traceback
+import random
 from typing import Optional, Dict, Any, AsyncGenerator, Callable
 from datetime import datetime
 
@@ -39,13 +42,75 @@ YANDEX_TTS_API_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
 VAD_MODE = int(os.getenv("VAD_MODE", "3"))  # 0-3, 3 - самая агрессивная
 VAD_SAMPLE_RATE = 16000
 
-# Голоса Yandex TTS для разных режимов
+# ============================================
+# ГОЛОСА YANDEX TTS ДЛЯ РАЗНЫХ РЕЖИМОВ
+# ============================================
+
 VOICES = {
     "psychologist": "ermil",    # спокойный мужской
-    "coach": "filipp",          # энергичный мужской
+    "coach": "filipp",          # энергичный мужской  
     "trainer": "alena",         # бодрый женский
+    "basic": "filipp",          # 👈 БЕНДЕР: энергичный мужской голос
     "default": "filipp"
 }
+
+# ============================================
+# НАСТРОЙКИ СКОРОСТИ, ТОНА И ЭМОЦИЙ ДЛЯ РАЗНЫХ РЕЖИМОВ
+# ============================================
+
+VOICE_SETTINGS = {
+    "psychologist": {
+        "speed": 0.95,
+        "emotion": "neutral",
+        "description": "Спокойный, размеренный голос психолога"
+    },
+    "coach": {
+        "speed": 1.0,
+        "emotion": "energetic",
+        "description": "Энергичный, мотивирующий голос коуча"
+    },
+    "trainer": {
+        "speed": 1.1,
+        "emotion": "energetic",
+        "description": "Быстрый, бодрый голос тренера"
+    },
+    "basic": {
+        "speed": 1.18,           # 👈 БЫСТРЕЕ ОБЫЧНОГО
+        "emotion": "good",       # 👈 ВЕСЕЛЫЙ, БОДРЫЙ ТОН
+        "description": "Бендер — дерзкий, быстрый, с юмором",
+        "add_flavor": True       # 👈 ДОБАВЛЯТЬ ФИРМЕННЫЕ ФРАЗЫ
+    },
+    "default": {
+        "speed": 1.0,
+        "emotion": "neutral",
+        "description": "Стандартный голос"
+    }
+}
+
+# ============================================
+# ФИРМЕННЫЕ ФРАЗЫ БЕНДЕРА
+# ============================================
+
+BENDER_PREFIXES = [
+    "О да, детка! ",
+    "Слушай, братец, ",
+    "Ну, сударь, ",
+    "Великий комбинатор говорит: ",
+    "Клянусь бананом, ",
+    "А вот это, я тебе скажу, ",
+    "Так-так-так, ",
+    "О, я вижу, ",
+    "Бендер в деле: "
+]
+
+BENDER_SUFFIXES = [
+    " 🦾",
+    " 🤖",
+    " 😎",
+    " 🎭",
+    " 🔥",
+    " 💪"
+]
 
 # ============================================
 # ГЛОБАЛЬНЫЙ HTTP КЛИЕНТ
@@ -89,6 +154,47 @@ async def close_http_client():
         await _http_client.aclose()
         _http_client = None
         logger.info("🔒 HTTPX клиент закрыт")
+
+
+# ============================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ БЕНДЕРА
+# ============================================
+
+def add_bender_flavor(text: str) -> str:
+    """
+    Добавляет фирменные бендеровские вставки в текст
+    """
+    original_text = text
+    
+    # Добавляем случайную фразу в начало, если её нет
+    if not any(p.strip() in text for p in BENDER_PREFIXES):
+        prefix = random.choice(BENDER_PREFIXES)
+        text = prefix + text[0].lower() + text[1:] if text else prefix
+    
+    # Добавляем эмодзи в конец, если нет
+    if not any(emoji in text for emoji in ["🦾", "🤖", "😎", "🎭", "🔥", "💪"]):
+        if len(text) < 500:
+            suffix = random.choice(BENDER_SUFFIXES)
+            text = text.rstrip() + suffix
+    
+    # Заменяем многоточия на паузы для драматического эффекта
+    text = text.replace("...", " <break time='400ms'/> ")
+    text = text.replace("!", "! <break time='200ms'/> ")
+    text = text.replace("?", "? <break time='250ms'/> ")
+    
+    # Добавляем фирменные бендеровские слова, если их нет
+    bender_words = ["братец", "сударь", "детка", "комбинатор", "банан"]
+    if not any(word in text.lower() for word in bender_words):
+        # Вставляем обращение в середину, если текст длинный
+        if len(text) > 50:
+            address = random.choice(["братец", "сударь", "друг мой"])
+            words = text.split()
+            insert_pos = min(len(words) // 2, 5)
+            words.insert(insert_pos, address + ",")
+            text = " ".join(words)
+    
+    logger.debug(f"✨ Бендеровская обработка текста: {len(original_text)} -> {len(text)} символов")
+    return text
 
 
 # ============================================
@@ -247,15 +353,13 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         "Content-Type": content_type
     }
     
-    # ========== ИСПРАВЛЕННЫЕ ПАРАМЕТРЫ ==========
     params = {
         "model": "nova-2",  
-        "language": "ru",                 # ← Явно указываем русский
+        "language": "ru",
         "punctuate": "true",
         "smart_format": "true",
-        "detect_language": "false"        # ← Отключаем автоопределение
+        "detect_language": "false"
     }
-    # ========== КОНЕЦ ИСПРАВЛЕНИЙ ==========
     
     try:
         client = await get_http_client()
@@ -309,19 +413,13 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
 
 
 # ============================================
-# TTS - Text-to-Speech (Yandex)
+# TTS - Text-to-Speech (Yandex) с поддержкой Бендера
 # ============================================
 
 async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
     """
     Преобразует текст в речь через Yandex TTS
-    
-    Args:
-        text: текст для озвучивания
-        mode: режим (psychologist, coach, trainer)
-    
-    Returns:
-        байты аудиофайла (MP3) или None
+    С поддержкой специального голоса для Бендера (режим basic)
     """
     logger.info(f"🎤 Синтез речи (Yandex TTS), режим: {mode}, текст: {text[:100]}...")
     
@@ -330,32 +428,43 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         logger.info("💡 Добавьте YANDEX_API_KEY в переменные окружения Render")
         return None
     
+    # Получаем настройки для режима
+    settings = VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"])
     voice = VOICES.get(mode, VOICES["default"])
-    logger.info(f"🗣️ Выбран голос: {voice} для режима: {mode}")
     
-    # Ограничиваем длину текста
-    if len(text) > 5000:
-        text = text[:5000] + "..."
-        logger.warning(f"⚠️ Текст обрезан до 5000 символов")
+    logger.info(f"🗣️ Голос: {voice}, скорость: {settings['speed']}, эмоция: {settings['emotion']}")
+    logger.info(f"📝 Описание: {settings.get('description', 'стандартный')}")
+    
+    # ========== ДЛЯ БЕНДЕРА: добавляем фирменные фразы ==========
+    if mode == "basic" and settings.get("add_flavor", False):
+        original_text = text
+        text = add_bender_flavor(text)
+        logger.debug(f"✨ Бендеровская обработка: '{original_text[:50]}...' -> '{text[:80]}...'")
+    
+    # Ограничиваем длину текста (Yandex TTS лимит ~5000 символов)
+    if len(text) > 4500:
+        text = text[:4500] + "..."
+        logger.warning(f"⚠️ Текст обрезан до 4500 символов")
     
     headers = {
         "Authorization": f"Api-Key {YANDEX_API_KEY}",
         "Content-Type": "application/x-www-form-urlencoded"
     }
     
+    # Формируем данные для запроса
     data = {
         "text": text,
         "lang": "ru-RU",
         "voice": voice,
-        "emotion": "neutral",
-        "speed": 1.0,
+        "emotion": settings["emotion"],
+        "speed": settings["speed"],
         "format": "mp3"
     }
     
     try:
         client = await get_http_client()
         
-        logger.info(f"📡 Отправка запроса в Yandex TTS, голос: {voice}")
+        logger.info(f"📡 Отправка запроса в Yandex TTS, voice={voice}, speed={settings['speed']}")
         
         response = await client.post(
             YANDEX_TTS_API_URL,
@@ -502,7 +611,7 @@ async def text_to_speech_streaming(
     Yields:
         bytes: чанки аудио
     """
-    logger.info(f"🎤 Потоковый синтез речи: {text[:100]}...")
+    logger.info(f"🎤 Потоковый синтез речи, режим: {mode}, текст: {text[:100]}...")
     
     audio_bytes = await text_to_speech(text, mode)
     
@@ -530,7 +639,7 @@ class VoiceService:
     Сервис для работы с голосом
     Поддерживает:
     - Распознавание речи (DeepGram)
-    - Синтез речи (Yandex TTS)
+    - Синтез речи (Yandex TTS) с поддержкой Бендера
     - Потоковую обработку для живого диалога
     - VAD для определения начала/конца речи
     - Barge-in (возможность перебивать ИИ)
@@ -541,12 +650,21 @@ class VoiceService:
         self.yandex_key = YANDEX_API_KEY
         self._vad_cache = {}  # Кэш VAD детекторов по user_id
         
-        logger.info("=" * 50)
+        # Настройки для разных режимов
+        self.voice_settings = VOICE_SETTINGS
+        self.voices = VOICES
+        
+        logger.info("=" * 60)
         logger.info("🎤 VoiceService инициализирован")
         logger.info(f"  DeepGram (STT): {'✅' if self.deepgram_key else '❌'}")
         logger.info(f"  Yandex TTS: {'✅' if self.yandex_key else '❌'}")
         logger.info(f"  VAD Mode: {VAD_MODE}")
-        logger.info("=" * 50)
+        logger.info("")
+        logger.info("  🗣️ Доступные голоса:")
+        for mode, settings in VOICE_SETTINGS.items():
+            voice = VOICES.get(mode, "default")
+            logger.info(f"     • {mode}: {voice} (speed={settings['speed']}, emotion={settings['emotion']})")
+        logger.info("=" * 60)
         
         if not self.deepgram_key:
             logger.warning("⚠️ DEEPGRAM_API_KEY не настроен! Распознавание речи не будет работать.")
@@ -576,12 +694,10 @@ class VoiceService:
             logger.error("❌ DEEPGRAM_API_KEY не настроен")
             return None
         
-        # ========== ПРОВЕРКА МИНИМАЛЬНОЙ ДЛИНЫ ==========
         MIN_AUDIO_BYTES = 16000  # 0.5 секунды при 16kHz
         if len(pcm_bytes) < MIN_AUDIO_BYTES:
             logger.warning(f"⚠️ Аудио слишком короткое: {len(pcm_bytes)} байт, нужно минимум {MIN_AUDIO_BYTES}")
             return None
-        # ========== КОНЕЦ ПРОВЕРКИ ==========
         
         # Проверяем громкость
         try:
@@ -603,10 +719,9 @@ class VoiceService:
             "Content-Type": "application/octet-stream",
         }
         
-        # ========== ИСПРАВЛЕННЫЕ ПАРАМЕТРЫ ==========
         params = {
-            "model": "nova-2",  # ← Мультиязычная модель!
-            "language": "ru",                 # ← Явно указываем русский
+            "model": "nova-2",
+            "language": "ru",
             "encoding": "linear16",
             "sample_rate": sample_rate,
             "channels": 1,
@@ -614,14 +729,13 @@ class VoiceService:
             "smart_format": "true",
             "interim_results": "false",
             "vad_events": "false",
-            "detect_language": "false"        # ← Отключаем автоопределение!
+            "detect_language": "false"
         }
-        # ========== КОНЕЦ ИСПРАВЛЕНИЙ ==========
         
         try:
             client = await get_http_client()
             
-            logger.info(f"📡 Отправка PCM в DeepGram (model=nova-2-multilingual, language=ru)...")
+            logger.info(f"📡 Отправка PCM в DeepGram (model=nova-2, language=ru)...")
             
             response = await client.post(
                 DEEPGRAM_API_URL,
@@ -648,7 +762,6 @@ class VoiceService:
                         
                 except (KeyError, IndexError) as e:
                     logger.error(f"❌ Не удалось извлечь транскрипт: {e}")
-                    logger.error(f"Ответ DeepGram: {data}")
                     return None
                     
             elif response.status_code == 401:
@@ -738,6 +851,17 @@ class VoiceService:
         else:
             self._vad_cache.clear()
             logger.info("🗑️ Очищен весь кэш VAD")
+    
+    def get_voice_info(self, mode: str = "psychologist") -> Dict[str, Any]:
+        """
+        Возвращает информацию о голосе для режима
+        """
+        return {
+            "mode": mode,
+            "voice": VOICES.get(mode, VOICES["default"]),
+            "settings": VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"]),
+            "available_modes": list(VOICE_SETTINGS.keys())
+        }
     
     async def close(self):
         """Закрывает соединения"""
