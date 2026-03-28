@@ -2407,9 +2407,8 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
 
 
 if __name__ == "__main__":
-    logger.info("📦 Module loaded by ASGI server")
+    logger.info("📦 Running with Uvicorn")
     port = int(os.environ.get("PORT", 8000))
-    # Убираем reload=True на продакшене
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
@@ -2417,5 +2416,27 @@ if __name__ == "__main__":
         log_level="info"
     )
 
-# Для Daphne (ASGI)
+# Для Daphne: запускаем lifespan явно
+else:
+    logger.info("📦 Running with Daphne (ASGI)")
+    # Создаем event loop и запускаем lifespan
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Запускаем startup
+    async def startup():
+        async with lifespan(app):
+            logger.info("✅ Lifespan completed, app is running")
+            # Держим приложение живым
+            await asyncio.Event().wait()
+    
+    try:
+        loop.run_until_complete(startup())
+    except KeyboardInterrupt:
+        logger.info("🛑 Shutting down...")
+    finally:
+        loop.close()
+
+# Для Daphne (ASGI) - экспортируем app
 application = app
