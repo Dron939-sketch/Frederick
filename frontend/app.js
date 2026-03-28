@@ -497,10 +497,8 @@ class VoiceButtonHandler {
     async sendAudioInChunks(audioBlob) {
     const CHUNK_SIZE = 16000;
     
-    const reader = new FileReader();
-    
-    // Создаём Promise, чтобы дождаться завершения
     const base64Data = await new Promise((resolve) => {
+        const reader = new FileReader();
         reader.onload = () => resolve(reader.result.split(',')[1]);
         reader.readAsDataURL(audioBlob);
     });
@@ -508,20 +506,35 @@ class VoiceButtonHandler {
     const totalLength = base64Data.length;
     console.log(`📤 Sending audio in chunks: ${totalLength} bytes total`);
     
+    // Создаем Promise для ожидания подтверждения
+    const pendingAcks = new Map();
+    
     for (let i = 0; i < totalLength; i += CHUNK_SIZE) {
+        const chunkIndex = Math.floor(i / CHUNK_SIZE) + 1;
         const chunk = base64Data.slice(i, i + CHUNK_SIZE);
         const isFinal = i + CHUNK_SIZE >= totalLength;
         
+        // Проверяем, открыт ли WebSocket
+        if (!liveVoiceWS || !liveVoiceWS.ws || liveVoiceWS.ws.readyState !== WebSocket.OPEN) {
+            console.warn('WebSocket closed, switching to HTTP');
+            this.sendViaHTTPWithBlob(audioBlob);
+            return;
+        }
+        
+        // Отправляем чанк
         liveVoiceWS.ws.send(JSON.stringify({
             type: 'audio_chunk',
             data: chunk,
-            is_final: isFinal
+            is_final: isFinal,
+            chunk_index: chunkIndex
         }));
         
-        console.log(`📦 Sent chunk ${Math.floor(i/CHUNK_SIZE)+1}: ${chunk.length} chars, is_final=${isFinal}`);
+        console.log(`📦 Sent chunk ${chunkIndex}: ${chunk.length} chars, is_final=${isFinal}`);
         
+        // Ждем подтверждение (только для нефинальных чанков)
         if (!isFinal) {
-            await new Promise(resolve => setTimeout(resolve, 50));
+            // Ждем 200ms между чанками (увеличено с 50ms)
+            await new Promise(resolve => setTimeout(resolve, 200));
         }
     }
     
