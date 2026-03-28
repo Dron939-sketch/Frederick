@@ -504,6 +504,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     
     # Буфер для накопления аудио
     audio_buffer = bytearray()
+    # Счетчик полученных чанков для отладки
+    chunk_count = 0
+    
     try:
         vad = voice_service.create_vad(user_id)
         logger.info(f"✅ VAD created for user {user_id}")
@@ -515,23 +518,29 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
         while True:
             # Получаем сообщение от клиента
             data = await websocket.receive_json()
-            logger.debug(f"📨 Received message: {data.get('type')}")
             
             if data.get("type") == "audio_chunk":
                 chunk_base64 = data.get("data", "")
+                is_final = data.get("is_final", False)
+                
                 if chunk_base64:
                     try:
-                        audio_buffer.extend(base64.b64decode(chunk_base64))
+                        chunk_data = base64.b64decode(chunk_base64)
+                        audio_buffer.extend(chunk_data)
+                        chunk_count += 1
+                        logger.debug(f"📦 Received chunk #{chunk_count}: {len(chunk_data)} bytes, total: {len(audio_buffer)}")
                     except Exception as e:
                         logger.error(f"Failed to decode audio chunk: {e}")
                 
-                is_final = data.get("is_final", False)
-                
+                # Если это финальный чанк и есть данные
                 if is_final and len(audio_buffer) > 0:
-                    logger.info(f"🎤 Processing audio: {len(audio_buffer)} bytes")
+                    logger.info(f"🎤 Processing complete audio: {len(audio_buffer)} bytes from {chunk_count} chunks")
                     await voice_manager.send_status(user_id, "processing")
                     
                     try:
+                        # Сохраняем для отладки (опционально)
+                        # await save_audio_debug(bytes(audio_buffer), f"voice_{user_id}")
+                        
                         # Распознаем речь
                         recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
                         logger.info(f"📝 Recognized: {recognized_text}")
@@ -585,8 +594,16 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                         logger.error(f"❌ Error processing audio: {e}", exc_info=True)
                         await voice_manager.send_error(user_id, f"Ошибка обработки: {str(e)}")
                     
+                    # Очищаем буфер и сбрасываем счетчик
                     audio_buffer = bytearray()
+                    chunk_count = 0
                     await voice_manager.send_status(user_id, "idle")
+                
+                # Если финальный чанк без данных (пустая отправка)
+                elif is_final:
+                    logger.warning("⚠️ Final chunk received with no data, ignoring")
+                    audio_buffer = bytearray()
+                    chunk_count = 0
             
             elif data.get("type") == "interrupt":
                 logger.info(f"🛑 Interrupt received from user {user_id}")
@@ -594,9 +611,15 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     voice_manager.speaking_tasks[user_id].cancel()
                     del voice_manager.speaking_tasks[user_id]
                 await voice_manager.send_status(user_id, "listening")
+                # Очищаем буфер при прерывании
+                audio_buffer = bytearray()
+                chunk_count = 0
             
             elif data.get("type") == "ping":
-                await websocket.send_json({"type": "pong"})
+                # Отвечаем на ping с timestamp для измерения задержки
+                timestamp = data.get("timestamp", 0)
+                await websocket.send_json({"type": "pong", "timestamp": timestamp})
+                logger.debug(f"💓 Pong sent, latency: {time.time() - timestamp:.0f}ms" if timestamp else "💓 Pong sent")
     
     except WebSocketDisconnect:
         logger.info(f"🔌 WebSocket disconnected for user {user_id}")
