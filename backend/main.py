@@ -383,8 +383,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://fredi-frontend.onrender.com",
+        "https://fredi-frontend.onrender.com",      # фронтенд
         "https://fredi-app.onrender.com",
+        "https://fredi-backend-flz2.onrender.com",  # бэкенд (сам себя)
         "http://localhost:3000",
         "http://localhost:8000",
         "http://localhost:10000"
@@ -392,6 +393,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    allow_websocket=True
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
