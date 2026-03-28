@@ -371,34 +371,45 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
     lifespan=lifespan,
-    websocket_ping_interval=20,   # отправлять ping каждые 20 секунд
-    websocket_ping_timeout=10     # ждать pong 10 секунд
+    websocket_ping_interval=20,
+    websocket_ping_timeout=10
 )
 
-# Rate limiting
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# ========== CORS НАСТРОЙКА (ДОЛЖНА БЫТЬ ПЕРВОЙ!) ==========
-# Важно: middleware добавляются в начало списка, поэтому CORS должен быть первым
+# ========== CORS НАСТРОЙКА - ДОЛЖНА БЫТЬ ПЕРВОЙ И ПРАВИЛЬНОЙ ==========
+# Добавляем CORS middleware ПЕРВЫМ (до всех остальных middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://fredi-frontend.onrender.com",  # ← ОБЯЗАТЕЛЬНО с https://
+        "https://fredi-frontend.onrender.com",
         "https://fredi-app.onrender.com",
-        "https://fredi-backend-flz2.onrender.com",
         "http://localhost:3000",
         "http://localhost:8000",
-        "http://localhost:10000"
+        "http://localhost:10000",
+        "https://fredi-backend-flz2.onrender.com",  # для self-запросов
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # ← OPTIONS обязательно
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "Origin",
+        "X-Requested-With",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers",
+        "Upgrade",  # для WebSocket
+        "Connection",  # для WebSocket
+    ],
+    expose_headers=[
+        "Content-Length",
+        "Content-Range",
+        "X-Response-Time",
+        "X-Total-Count",
+    ],
+    max_age=86400,  # кэшировать preflight на 24 часа
 )
-
-# Другие middleware (добавляются после CORS)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # ============================================
@@ -2441,37 +2452,22 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
         logger.error(f"Error logging event for user {user_id}: {type(e).__name__}: {e}")
 
 
+# ============================================
+# ТОЧКА ВХОДА
+# ============================================
+
 if __name__ == "__main__":
-    logger.info("📦 Running with Uvicorn")
+    # Запуск в режиме разработки (python main.py)
+    logger.info("🚀 Запуск в режиме разработки (Uvicorn)")
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=port,
-        log_level="info"
+        log_level="info",
+        reload=False
     )
 
-# Для Daphne: запускаем lifespan явно
-else:
-    logger.info("📦 Running with Daphne (ASGI)")
-    # Создаем event loop и запускаем lifespan
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Запускаем startup
-    async def startup():
-        async with lifespan(app):
-            logger.info("✅ Lifespan completed, app is running")
-            # Держим приложение живым
-            await asyncio.Event().wait()
-    
-    try:
-        loop.run_until_complete(startup())
-    except KeyboardInterrupt:
-        logger.info("🛑 Shutting down...")
-    finally:
-        loop.close()
-
-# Для Daphne (ASGI) - экспортируем app
+# Для ASGI серверов (Daphne, Uvicorn) - просто экспортируем app
+# Daphne самостоятельно управляет event loop и вызывает lifespan
 application = app
