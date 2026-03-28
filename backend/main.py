@@ -37,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================
-# ИМПОРТЫ ПО СТРУКТУРЕ
+# ИМПОРТЫ ПО СТРУКТУРЕ (С УКАЗАНИЕМ ПАПОК)
 # ============================================
 
 # База данных и кэш
@@ -55,25 +55,25 @@ from repositories.user_repo import UserRepository
 from repositories.context_repo import ContextRepository
 from repositories.message_repo import MessageRepository
 
-# Конфайнтмент-модель
+# Конфайнтмент-модель (из папки confinement)
 from confinement.confinement_model import ConfinementModel9
 from confinement.loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
 from confinement.key_confinement import KeyConfinementDetector
 from confinement.intervention_library import InterventionLibrary
 from confinement.question_analyzer import QuestionContextAnalyzer, create_analyzer_from_user_data
 
-# Гипнотические модули
+# Гипнотические модули (из папки hypno)
 from hypno.hypno_module import HypnoOrchestrator
 from hypno.therapeutic_tales import TherapeuticTales
 
-# Режимы общения
+# Режимы общения (из папки modes)
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
 from modes.trainer import TrainerMode
 from modes import get_mode
 
-# Утилиты (утренние сообщения, проверка реальности)
+# Утилиты
 from utils import (
     get_theoretical_path,
     generate_life_context_questions,
