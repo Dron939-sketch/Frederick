@@ -90,6 +90,12 @@ class LiveVoiceWebSocket {
         this.isPlaying = false;
         this.currentSource = null;
         this.audioContext = null;
+        
+        // ========== HEARTBEAT ДЛЯ ПОДДЕРЖАНИЯ СОЕДИНЕНИЯ ==========
+        this.pingInterval = null;
+        this.PING_INTERVAL_MS = 25000; // 25 секунд (меньше чем 30 сек таймаут Render)
+        this.lastPongTime = null;
+        this.pongTimeout = null;
     }
     
     async connect() {
@@ -101,13 +107,21 @@ class LiveVoiceWebSocket {
             this.ws.onopen = () => {
                 console.log('✅ WebSocket connected for live voice');
                 this.isConnected = true;
+                
+                // ЗАПУСКАЕМ HEARTBEAT
+                this.startHeartbeat();
+                
                 if (this.onStatusChange) this.onStatusChange('connected');
                 resolve(true);
             };
             
-            this.ws.onclose = () => {
-                console.log('❌ WebSocket disconnected');
+            this.ws.onclose = (event) => {
+                console.log(`❌ WebSocket disconnected: code=${event.code}, reason=${event.reason || 'no reason'}`);
                 this.isConnected = false;
+                
+                // ОСТАНАВЛИВАЕМ HEARTBEAT
+                this.stopHeartbeat();
+                
                 if (this.onStatusChange) this.onStatusChange('disconnected');
             };
             
@@ -124,7 +138,109 @@ class LiveVoiceWebSocket {
         });
     }
     
+    // ========== HEARTBEAT МЕТОДЫ ==========
+    
+    startHeartbeat() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+        }
+        
+        // Отправляем первый ping через 5 секунд
+        setTimeout(() => {
+            if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.sendPing();
+            }
+        }, 5000);
+        
+        // Запускаем периодический ping
+        this.pingInterval = setInterval(() => {
+            if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.sendPing();
+            } else if (this.pingInterval) {
+                // Если соединение закрыто, останавливаем интервал
+                this.stopHeartbeat();
+            }
+        }, this.PING_INTERVAL_MS);
+        
+        console.log(`💓 Heartbeat started: ping every ${this.PING_INTERVAL_MS / 1000} seconds`);
+    }
+    
+    stopHeartbeat() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+            console.log('💓 Heartbeat stopped');
+        }
+        
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+    }
+    
+    sendPing() {
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        
+        const pingTime = Date.now();
+        console.log(`💓 Sending heartbeat ping at ${pingTime}`);
+        
+        this.ws.send(JSON.stringify({ 
+            type: 'ping',
+            timestamp: pingTime 
+        }));
+        
+        // Таймаут на получение pong (5 секунд)
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+        }
+        
+        this.pongTimeout = setTimeout(() => {
+            console.warn('⚠️ No pong received from server, connection may be dead');
+            if (this.isConnected) {
+                // Пытаемся переподключиться
+                this.reconnect();
+            }
+        }, 5000);
+    }
+    
+    handlePong(data) {
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+        
+        const latency = data.timestamp ? Date.now() - data.timestamp : null;
+        if (latency) {
+            console.log(`💓 Pong received, latency: ${latency}ms`);
+        } else {
+            console.log('💓 Pong received');
+        }
+    }
+    
+    async reconnect() {
+        console.log('🔄 Attempting to reconnect WebSocket...');
+        this.disconnect();
+        
+        // Ждём 2 секунды перед переподключением
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        try {
+            await this.connect();
+            console.log('✅ WebSocket reconnected successfully');
+        } catch (error) {
+            console.error('❌ WebSocket reconnection failed:', error);
+        }
+    }
+    
     handleMessage(data) {
+        // Обработка pong
+        if (data.type === 'pong') {
+            this.handlePong(data);
+            return;
+        }
+        
         switch (data.type) {
             case 'audio':
                 if (data.data) {
@@ -152,6 +268,8 @@ class LiveVoiceWebSocket {
                     if (this.onStatusChange) this.onStatusChange('idle');
                 } else if (data.status === 'listening') {
                     if (this.onStatusChange) this.onStatusChange('listening');
+                } else if (data.status === 'connected') {
+                    if (this.onStatusChange) this.onStatusChange('connected');
                 }
                 break;
                 
@@ -172,6 +290,10 @@ class LiveVoiceWebSocket {
         try {
             if (!this.audioContext) {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                // Включаем AudioContext после взаимодействия пользователя
+                if (this.audioContext.state === 'suspended') {
+                    await this.audioContext.resume();
+                }
             }
             
             // Декодируем base64 в ArrayBuffer
@@ -189,7 +311,12 @@ class LiveVoiceWebSocket {
             
             // Останавливаем предыдущее воспроизведение если есть
             if (this.currentSource) {
-                this.currentSource.stop();
+                try {
+                    this.currentSource.stop();
+                } catch (e) {
+                    // Игнорируем ошибки остановки
+                }
+                this.currentSource = null;
             }
             
             this.currentSource = source;
@@ -207,7 +334,10 @@ class LiveVoiceWebSocket {
     }
     
     sendAudioChunk(chunk, isFinal) {
-        if (!this.isConnected) return;
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('Cannot send audio: WebSocket not connected');
+            return;
+        }
         
         let base64Data = '';
         if (chunk) {
@@ -231,12 +361,18 @@ class LiveVoiceWebSocket {
     }
     
     interrupt() {
-        if (!this.isConnected) return;
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
         
         // Останавливаем текущее воспроизведение
         if (this.currentSource) {
-            this.currentSource.stop();
-            this.currentSource = null;
+            try {
+                this.currentSource.stop();
+                this.currentSource = null;
+            } catch (e) {
+                // Игнорируем
+            }
         }
         
         // Отправляем сигнал прерывания на сервер
@@ -248,24 +384,38 @@ class LiveVoiceWebSocket {
     }
     
     ping() {
-        if (this.isConnected) {
-            this.ws.send(JSON.stringify({ type: 'ping' }));
+        if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.sendPing();
         }
     }
     
     disconnect() {
+        this.stopHeartbeat();
+        
+        if (this.currentSource) {
+            try {
+                this.currentSource.stop();
+            } catch (e) {}
+            this.currentSource = null;
+        }
+        
         if (this.ws) {
             this.ws.close();
+            this.ws = null;
         }
+        
         if (this.audioContext) {
-            this.audioContext.close();
+            this.audioContext.close().catch(console.warn);
+            this.audioContext = null;
         }
+        
         this.isConnected = false;
+        console.log('🔌 WebSocket disconnected manually');
     }
 }
 
 // ============================================
-// ГОЛОСОВАЯ КНОЖКА С УДЕРЖАНИЕМ (PUSH-TO-TALK)
+// ГОЛОСОВАЯ КНОПКА С УДЕРЖАНИЕМ (PUSH-TO-TALK)
 // ============================================
 
 class VoiceButtonHandler {
