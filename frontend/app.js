@@ -383,7 +383,7 @@ class VoiceButtonHandler {
                     echoCancellation: true,
                     noiseSuppression: true,
                     autoGainControl: true,
-                    sampleRate: 8000,
+                    sampleRate: 16000,
                     channelCount: 1
                 }
             });
