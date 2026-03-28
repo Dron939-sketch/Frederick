@@ -2365,6 +2365,7 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
 
 
 if __name__ == "__main__":
+    logger.info("📦 Module loaded by ASGI server")
     port = int(os.environ.get("PORT", 8000))
     # Убираем reload=True на продакшене
     uvicorn.run(
@@ -2374,4 +2375,5 @@ if __name__ == "__main__":
         log_level="info"
     )
 
+# Для Daphne (ASGI)
 application = app
