@@ -620,8 +620,8 @@ stopRecording() {
         const wavBlob = this.createWavBlob(this.wavData);
         
         if (liveVoiceWS && liveVoiceWS.isConnected && useWebSocket) {
-            // Отправляем через WebSocket как финальный чанк
-            liveVoiceWS.sendFullAudio(wavBlob);
+            // ✅ ИСПРАВЛЕНО: Отправляем через WebSocket чанками
+            this.sendAudioInChunks(wavBlob);
         } else {
             // Fallback на HTTP
             this.sendViaHTTPWithBlob(wavBlob);
@@ -649,6 +649,45 @@ stopRecording() {
     }
 }
 
+// ✅ НОВЫЙ МЕТОД: Отправка аудио чанками (ДОБАВИТЬ!)
+async sendAudioInChunks(audioBlob) {
+    const CHUNK_SIZE = 32000; // 32KB чанки
+    
+    // Конвертируем Blob в base64
+    const reader = new FileReader();
+    reader.onload = () => {
+        const base64Data = reader.result.split(',')[1];
+        const totalLength = base64Data.length;
+        
+        console.log(`📤 Sending audio in chunks: ${totalLength} bytes total`);
+        
+        // Отправляем чанками
+        for (let i = 0; i < totalLength; i += CHUNK_SIZE) {
+            const chunk = base64Data.slice(i, i + CHUNK_SIZE);
+            const isFinal = i + CHUNK_SIZE >= totalLength;
+            
+            liveVoiceWS.ws.send(JSON.stringify({
+                type: 'audio_chunk',
+                data: chunk,
+                is_final: isFinal
+            }));
+            
+            console.log(`📦 Sent chunk ${Math.floor(i/CHUNK_SIZE)+1}: ${chunk.length} chars, is_final=${isFinal}`);
+            
+            // Небольшая задержка между чанками (10ms)
+            if (!isFinal) {
+                const start = Date.now();
+                while (Date.now() - start < 10) {
+                    // Синхронная задержка
+                }
+            }
+        }
+        
+        console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} chunks sent`);
+    };
+    reader.readAsDataURL(audioBlob);
+}
+
 createWavBlob(audioData) {
     // Объединяем все чанки
     let totalLength = 0;
@@ -656,14 +695,26 @@ createWavBlob(audioData) {
         totalLength += chunk.length;
     }
     
+    // ✅ Ограничиваем максимальную длину (30 секунд при 16kHz = 480,000 сэмплов)
+    const MAX_SAMPLES = 480000; // 30 секунд при 16kHz
+    if (totalLength > MAX_SAMPLES) {
+        console.warn(`Audio too long (${totalLength} samples), truncating to ${MAX_SAMPLES}`);
+        totalLength = MAX_SAMPLES;
+    }
+    
     const combined = new Int16Array(totalLength);
     let offset = 0;
     for (const chunk of audioData) {
+        if (offset + chunk.length > totalLength) {
+            const remaining = totalLength - offset;
+            combined.set(chunk.slice(0, remaining), offset);
+            break;
+        }
         combined.set(chunk, offset);
         offset += chunk.length;
     }
     
-    const sampleRate = 16000;
+    const sampleRate = 16000; // ✅ Уменьшено с 44100 до 16000 для меньшего размера
     const numChannels = 1;
     const bitsPerSample = 16;
     const byteRate = sampleRate * numChannels * bitsPerSample / 8;
@@ -736,109 +787,6 @@ sendViaHTTPWithBlob(audioBlob) {
         showToast('❌ Ошибка соединения', 'error');
     });
 }
-    
-    async sendViaHTTP() {
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-        
-        const formData = new FormData();
-        formData.append('user_id', CONFIG.USER_ID);
-        formData.append('voice', audioBlob);
-        formData.append('mode', currentMode);
-        
-        try {
-            const response = await fetch(`${CONFIG.API_BASE_URL}/api/voice/process`, {
-                method: 'POST',
-                body: formData
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                if (result.recognized_text) {
-                    addMessage(`🎤 "${result.recognized_text}"`, 'system');
-                }
-                if (result.answer) {
-                    addMessage(result.answer, 'bot');
-                }
-                if (result.audio_base64) {
-                    playAudioResponse(result.audio_base64);
-                }
-            } else {
-                showToast(`❌ ${result.error || 'Ошибка распознавания'}`, 'error');
-            }
-        } catch (error) {
-            console.error('HTTP voice error:', error);
-            showToast('❌ Ошибка соединения', 'error');
-        }
-    }
-    
-    initVisualizer(stream) {
-        if (!window.AudioContext && !window.webkitAudioContext) return;
-        
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = this.audioContext.createMediaStreamSource(stream);
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 256;
-        source.connect(this.analyser);
-        
-        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-        
-        const updateVolume = () => {
-            if (!this.isRecording) return;
-            
-            this.analyser.getByteFrequencyData(dataArray);
-            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            let volume = Math.min(100, (average / 255) * 100);
-            
-            const voiceBtn = document.getElementById('mainVoiceBtn');
-            if (voiceBtn) {
-                const intensity = volume / 100;
-                voiceBtn.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
-            }
-            
-            this.visualizerAnimation = requestAnimationFrame(updateVolume);
-        };
-        
-        updateVolume();
-    }
-    
-    stopVisualizer() {
-        if (this.visualizerAnimation) {
-            cancelAnimationFrame(this.visualizerAnimation);
-            this.visualizerAnimation = null;
-        }
-        if (this.audioContext) {
-            this.audioContext.close().catch(console.warn);
-            this.audioContext = null;
-        }
-    }
-    
-    updateButtonUI(isRecording) {
-        const voiceBtn = document.getElementById('mainVoiceBtn');
-        if (!voiceBtn) return;
-        
-        if (isRecording) {
-            voiceBtn.classList.add('recording');
-            const iconSpan = voiceBtn.querySelector('.voice-icon');
-            const textSpan = voiceBtn.querySelector('.voice-text');
-            if (iconSpan) iconSpan.textContent = '⏹️';
-            if (textSpan) textSpan.textContent = 'Отпустите для отправки';
-        } else {
-            voiceBtn.classList.remove('recording');
-            const iconSpan = voiceBtn.querySelector('.voice-icon');
-            const textSpan = voiceBtn.querySelector('.voice-text');
-            if (iconSpan) iconSpan.textContent = '🎤';
-            if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
-            voiceBtn.style.boxShadow = '';
-        }
-    }
-}
-
-// Определение мобильного устройства
-function isMobileDevice() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-}
-
 // ========== API ВЫЗОВЫ ==========
 
 async function apiCall(endpoint, options = {}) {
