@@ -1,13 +1,48 @@
 // ============================================
-// КОНФИГУРАЦИЯ
+// ДИНАМИЧЕСКАЯ КОНФИГУРАЦИЯ ПОЛЬЗОВАТЕЛЯ
 // ============================================
 
+// Генерация уникального ID для нового пользователя
+function generateUserId() {
+    return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Получение или создание пользовательского ID
+function getOrCreateUserId() {
+    let userId = localStorage.getItem('fredi_user_id');
+    if (!userId) {
+        userId = generateUserId();
+        localStorage.setItem('fredi_user_id', userId);
+        console.log('🆕 New user created with ID:', userId);
+    } else {
+        console.log('👤 Existing user ID:', userId);
+    }
+    return userId;
+}
+
+// Получение имени пользователя (если есть)
+function getUserName() {
+    return localStorage.getItem('fredi_user_name') || null;
+}
+
+// Сохранение имени пользователя
+function setUserName(name) {
+    if (name && name.trim()) {
+        localStorage.setItem('fredi_user_name', name.trim());
+        console.log('📝 User name saved:', name);
+    }
+}
+
+// ========== КОНФИГУРАЦИЯ ==========
 const CONFIG = {
     API_BASE_URL: 'https://fredi-backend-flz2.onrender.com',
-    USER_ID: 213102077,
-    USER_NAME: 'Андрей',
-    PROFILE_CODE: 'СБ-4_ТФ-4_УБ-4_ЧВ-4'
+    get USER_ID() { return getOrCreateUserId(); },  // Динамический ID
+    get USER_NAME() { return getUserName() || 'друг'; },  // Имя или "друг"
+    PROFILE_CODE: null  // Профиль определится из БД
 };
+
+// Для обратной совместимости
+window.CONFIG = CONFIG;
 
 // Режимы (без приветствий)
 const MODES = {
@@ -61,797 +96,8 @@ const MODULES = {
 
 // Состояние
 let currentMode = 'psychologist';
-let isRecording = false;
-let recordingTimer = null;
-let mediaRecorder = null;
-let audioChunks = [];
 let navigationHistory = [];
-let audioContext = null;
-let mediaStream = null;
-let animationFrame = null;
-let liveVoiceWS = null;
-let useWebSocket = true; // Переключатель между WebSocket и HTTP
-
-// ============================================
-// WEBSOCKET ДЛЯ ЖИВОГО ГОЛОСОВОГО ДИАЛОГА
-// ============================================
-
-class LiveVoiceWebSocket {
-    constructor(userId) {
-        this.userId = userId;
-        this.ws = null;
-        this.isConnected = false;
-        this.isAISpeaking = false;
-        this.onTranscript = null;
-        this.onAIResponse = null;
-        this.onStatusChange = null;
-        this.onError = null;
-        this.audioQueue = [];
-        this.isPlaying = false;
-        this.currentSource = null;
-        this.audioContext = null;
-        
-        // ========== HEARTBEAT ДЛЯ ПОДДЕРЖАНИЯ СОЕДИНЕНИЯ ==========
-        this.pingInterval = null;
-        this.PING_INTERVAL_MS = 25000; // 25 секунд (меньше чем 30 сек таймаут Render)
-        this.lastPongTime = null;
-        this.pongTimeout = null;
-    }
-    
-    async connect() {
-        const wsUrl = `wss://fredi-backend-flz2.onrender.com/ws/voice/${this.userId}`;
-        
-        return new Promise((resolve, reject) => {
-            this.ws = new WebSocket(wsUrl);
-            
-            this.ws.onopen = () => {
-                console.log('✅ WebSocket connected for live voice');
-                this.isConnected = true;
-                
-                // ЗАПУСКАЕМ HEARTBEAT
-                this.startHeartbeat();
-                
-                if (this.onStatusChange) this.onStatusChange('connected');
-                resolve(true);
-            };
-            
-            this.ws.onclose = (event) => {
-                console.log(`❌ WebSocket disconnected: code=${event.code}, reason=${event.reason || 'no reason'}`);
-                this.isConnected = false;
-                
-                // ОСТАНАВЛИВАЕМ HEARTBEAT
-                this.stopHeartbeat();
-                
-                if (this.onStatusChange) this.onStatusChange('disconnected');
-            };
-            
-            this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
-                if (this.onError) this.onError('Connection error');
-                reject(error);
-            };
-            
-            this.ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                this.handleMessage(data);
-            };
-        });
-    }
-    
-    // ========== HEARTBEAT МЕТОДЫ ==========
-    
-    startHeartbeat() {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-        }
-        
-        // Отправляем первый ping через 5 секунд
-        setTimeout(() => {
-            if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.sendPing();
-            }
-        }, 5000);
-        
-        // Запускаем периодический ping
-        this.pingInterval = setInterval(() => {
-            if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.sendPing();
-            } else if (this.pingInterval) {
-                // Если соединение закрыто, останавливаем интервал
-                this.stopHeartbeat();
-            }
-        }, this.PING_INTERVAL_MS);
-        
-        console.log(`💓 Heartbeat started: ping every ${this.PING_INTERVAL_MS / 1000} seconds`);
-    }
-    
-    stopHeartbeat() {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
-            console.log('💓 Heartbeat stopped');
-        }
-        
-        if (this.pongTimeout) {
-            clearTimeout(this.pongTimeout);
-            this.pongTimeout = null;
-        }
-    }
-    
-    sendPing() {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return;
-        }
-        
-        const pingTime = Date.now();
-        console.log(`💓 Sending heartbeat ping at ${pingTime}`);
-        
-        this.ws.send(JSON.stringify({ 
-            type: 'ping',
-            timestamp: pingTime 
-        }));
-        
-        // Таймаут на получение pong (5 секунд)
-        if (this.pongTimeout) {
-            clearTimeout(this.pongTimeout);
-        }
-        
-        this.pongTimeout = setTimeout(() => {
-            console.warn('⚠️ No pong received from server, connection may be dead');
-            if (this.isConnected) {
-                // Пытаемся переподключиться
-                this.reconnect();
-            }
-        }, 5000);
-    }
-    
-    handlePong(data) {
-        if (this.pongTimeout) {
-            clearTimeout(this.pongTimeout);
-            this.pongTimeout = null;
-        }
-        
-        const latency = data.timestamp ? Date.now() - data.timestamp : null;
-        if (latency) {
-            console.log(`💓 Pong received, latency: ${latency}ms`);
-        } else {
-            console.log('💓 Pong received');
-        }
-    }
-    
-    async reconnect() {
-        console.log('🔄 Attempting to reconnect WebSocket...');
-        this.disconnect();
-        
-        // Ждём 2 секунды перед переподключением
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        try {
-            await this.connect();
-            console.log('✅ WebSocket reconnected successfully');
-        } catch (error) {
-            console.error('❌ WebSocket reconnection failed:', error);
-        }
-    }
-    
-    handleMessage(data) {
-        // Обработка pong
-        if (data.type === 'pong') {
-            this.handlePong(data);
-            return;
-        }
-        
-        switch (data.type) {
-            case 'audio':
-                if (data.data) {
-                    this.playAudioChunk(data.data);
-                }
-                if (data.is_final) {
-                    console.log('Audio stream ended');
-                }
-                break;
-                
-            case 'text':
-                console.log('📝 Transcript:', data.data);
-                if (this.onTranscript) this.onTranscript(data.data);
-                break;
-                
-            case 'status':
-                console.log('📊 Status:', data.status);
-                if (data.status === 'speaking') {
-                    this.isAISpeaking = true;
-                    if (this.onStatusChange) this.onStatusChange('ai_speaking');
-                } else if (data.status === 'processing') {
-                    if (this.onStatusChange) this.onStatusChange('processing');
-                } else if (data.status === 'idle') {
-                    this.isAISpeaking = false;
-                    if (this.onStatusChange) this.onStatusChange('idle');
-                } else if (data.status === 'listening') {
-                    if (this.onStatusChange) this.onStatusChange('listening');
-                } else if (data.status === 'connected') {
-                    if (this.onStatusChange) this.onStatusChange('connected');
-                }
-                break;
-                
-            case 'error':
-                console.error('Server error:', data.error);
-                if (this.onError) this.onError(data.error);
-                break;
-                
-            case 'audio_end':
-                console.log('Audio playback ended');
-                this.isAISpeaking = false;
-                if (this.onStatusChange) this.onStatusChange('idle');
-                break;
-        }
-    }
-    
-    async playAudioChunk(base64Data) {
-        try {
-            if (!this.audioContext) {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                // Включаем AudioContext после взаимодействия пользователя
-                if (this.audioContext.state === 'suspended') {
-                    await this.audioContext.resume();
-                }
-            }
-            
-            // Декодируем base64 в ArrayBuffer
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            
-            const audioBuffer = await this.audioContext.decodeAudioData(bytes.buffer);
-            
-            const source = this.audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(this.audioContext.destination);
-            
-            // Останавливаем предыдущее воспроизведение если есть
-            if (this.currentSource) {
-                try {
-                    this.currentSource.stop();
-                } catch (e) {
-                    // Игнорируем ошибки остановки
-                }
-                this.currentSource = null;
-            }
-            
-            this.currentSource = source;
-            source.start();
-            
-            source.onended = () => {
-                if (this.currentSource === source) {
-                    this.currentSource = null;
-                }
-            };
-            
-        } catch (error) {
-            console.error('Error playing audio chunk:', error);
-        }
-    }
-    
-    sendAudioChunk(chunk, isFinal) {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn('Cannot send audio: WebSocket not connected');
-            return;
-        }
-        
-        let base64Data = '';
-        if (chunk) {
-            const reader = new FileReader();
-            reader.onload = () => {
-                base64Data = reader.result.split(',')[1];
-                this.ws.send(JSON.stringify({
-                    type: 'audio_chunk',
-                    data: base64Data,
-                    is_final: isFinal
-                }));
-            };
-            reader.readAsDataURL(chunk);
-        } else {
-            this.ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: '',
-                is_final: isFinal
-            }));
-        }
-    }
-
-    // ========== НОВЫЙ МЕТОД sendFullAudio (ДОБАВИТЬ СЮДА) ==========
-    sendFullAudio(audioBlob) {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn('Cannot send audio: WebSocket not connected');
-            return;
-        }
-        
-        const reader = new FileReader();
-        reader.onload = () => {
-            const base64Data = reader.result.split(',')[1];
-            this.ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: base64Data,
-                is_final: true
-            }));
-            console.log(`📤 Sent full audio: ${audioBlob.size} bytes as WAV`);
-        };
-        reader.readAsDataURL(audioBlob);
-    }
-    
-    interrupt() {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return;
-        }
-        
-        // Останавливаем текущее воспроизведение
-        if (this.currentSource) {
-            try {
-                this.currentSource.stop();
-                this.currentSource = null;
-            } catch (e) {
-                // Игнорируем
-            }
-        }
-        
-        // Отправляем сигнал прерывания на сервер
-        this.ws.send(JSON.stringify({
-            type: 'interrupt'
-        }));
-        
-        console.log('🛑 Interrupt sent to server');
-    }
-    
-    ping() {
-        if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.sendPing();
-        }
-    }
-    
-    disconnect() {
-        this.stopHeartbeat();
-        
-        if (this.currentSource) {
-            try {
-                this.currentSource.stop();
-            } catch (e) {}
-            this.currentSource = null;
-        }
-        
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
-        
-        if (this.audioContext) {
-            this.audioContext.close().catch(console.warn);
-            this.audioContext = null;
-        }
-        
-        this.isConnected = false;
-        console.log('🔌 WebSocket disconnected manually');
-    }
-}
-
-// ============================================
-// ГОЛОСОВАЯ КНОПКА С УДЕРЖАНИЕМ (PUSH-TO-TALK)
-// ============================================
-
-class VoiceButtonHandler {
-    constructor() {
-        this.isPressing = false;
-        this.isRecording = false;
-        this.longPressTimer = null;
-        this.LONG_PRESS_DURATION = 150;
-        this.mediaRecorder = null;
-        this.mediaStream = null;
-        this.audioChunks = [];
-        this.useWebSocket = true;
-        this.visualizerAnimation = null;
-        this.audioContext = null;
-        this.analyser = null;
-        this.wavData = [];
-        this.processor = null;
-        this.recordingTimeout = null;
-    }
-    
-    setupButton(buttonElement) {
-        if (!buttonElement) return;
-        
-        // События для мыши
-        buttonElement.addEventListener('mousedown', (e) => this.onPressStart(e));
-        buttonElement.addEventListener('mouseup', (e) => this.onPressEnd(e));
-        buttonElement.addEventListener('mouseleave', (e) => this.onPressEnd(e));
-        
-        // События для касания (мобильные)
-        buttonElement.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            this.onPressStart(e);
-        }, { passive: false });
-        
-        buttonElement.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            this.onPressEnd(e);
-        }, { passive: false });
-        
-        buttonElement.addEventListener('touchcancel', (e) => {
-            e.preventDefault();
-            this.onPressEnd(e);
-        }, { passive: false });
-        
-        buttonElement.addEventListener('contextmenu', (e) => e.preventDefault());
-        
-        console.log('Voice button handler initialized');
-    }
-    
-    async onPressStart(event) {
-        if (this.isPressing || this.isRecording) return;
-        
-        this.isPressing = true;
-        
-        this.longPressTimer = setTimeout(async () => {
-            if (this.isPressing) {
-                await this.startRecording();
-                this.isRecording = true;
-                this.updateButtonUI(true);
-            }
-        }, this.LONG_PRESS_DURATION);
-    }
-    
-    onPressEnd(event) {
-        clearTimeout(this.longPressTimer);
-        
-        if (this.isRecording) {
-            this.stopRecording();
-            this.isRecording = false;
-            this.updateButtonUI(false);
-        }
-        
-        this.isPressing = false;
-    }
-    
-    async startRecording() {
-        try {
-            // Проверяем, не говорит ли ИИ
-            if (liveVoiceWS && liveVoiceWS.isAISpeaking) {
-                liveVoiceWS.interrupt();
-                await new Promise(r => setTimeout(r, 300));
-            }
-            
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: 16000,   // ИСПРАВЛЕНО: 16kHz вместо 8kHz
-                    channelCount: 1       // моно
-                }
-            });
-            
-            this.mediaStream = stream;
-            this.audioChunks = [];
-            this.wavData = [];
-            
-            // Инициализируем визуализатор
-            this.initVisualizer(stream);
-            
-            // Создаём AudioContext для записи в WAV
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = this.audioContext.createMediaStreamSource(stream);
-            
-            // Создаём ScriptProcessorNode для захвата аудиоданных
-            this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-            
-            this.processor.onaudioprocess = (event) => {
-                if (!this.isRecording) return;
-                
-                const inputData = event.inputBuffer.getChannelData(0);
-                // Конвертируем float32 (-1..1) в int16 (-32768..32767)
-                const int16Data = new Int16Array(inputData.length);
-                for (let i = 0; i < inputData.length; i++) {
-                    const sample = Math.max(-1, Math.min(1, inputData[i]));
-                    int16Data[i] = Math.floor(sample * 32767);
-                }
-                this.wavData.push(int16Data);
-                
-                // Обновляем визуализатор
-                if (this.analyser) {
-                    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-                    this.analyser.getByteFrequencyData(dataArray);
-                    let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-                    let volume = Math.min(100, (average / 255) * 100);
-                    const voiceBtn = document.getElementById('mainVoiceBtn');
-                    if (voiceBtn) {
-                        const intensity = volume / 100;
-                        voiceBtn.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
-                    }
-                }
-            };
-            
-            source.connect(this.processor);
-            this.processor.connect(this.audioContext.destination);
-            
-            // Запускаем AudioContext
-            if (this.audioContext.state === 'suspended') {
-                await this.audioContext.resume();
-            }
-            
-            this.isRecording = true;
-            
-            // Таймаут на 60 секунд
-            this.recordingTimeout = setTimeout(() => {
-                if (this.isRecording) {
-                    this.stopRecording();
-                }
-            }, 30000);
-            
-            showToast('🎙️ Говорите... Отпустите для отправки', 'info');
-            
-        } catch (error) {
-            console.error('Start recording error:', error);
-            showToast('❌ Не удалось получить доступ к микрофону', 'error');
-            this.isRecording = false;
-        }
-    }
-    
-    stopRecording() {
-        if (!this.isRecording) return;
-        
-        this.isRecording = false;
-        
-        if (this.recordingTimeout) {
-            clearTimeout(this.recordingTimeout);
-            this.recordingTimeout = null;
-        }
-        
-        if (this.processor) {
-            this.processor.disconnect();
-            this.processor = null;
-        }
-        
-        if (this.audioContext) {
-            this.audioContext.close().catch(console.warn);
-            this.audioContext = null;
-        }
-        
-        // Останавливаем визуализатор
-        this.stopVisualizer();
-        
-        // Создаём WAV файл из собранных данных
-        if (this.wavData && this.wavData.length > 0) {
-            const wavBlob = this.createWavBlob(this.wavData);
-            
-            if (liveVoiceWS && liveVoiceWS.isConnected && useWebSocket) {
-                // Отправляем через WebSocket чанками
-                this.sendAudioInChunks(wavBlob);
-            } else {
-                // Fallback на HTTP
-                this.sendViaHTTPWithBlob(wavBlob);
-            }
-        }
-        
-        // Закрываем медиа-поток
-        if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach(track => track.stop());
-            this.mediaStream = null;
-        }
-        
-        this.wavData = [];
-        this.audioChunks = [];
-        
-        // Обновляем UI кнопки
-        const voiceBtn = document.getElementById('mainVoiceBtn');
-        if (voiceBtn) {
-            voiceBtn.classList.remove('recording');
-            const iconSpan = voiceBtn.querySelector('.voice-icon');
-            const textSpan = voiceBtn.querySelector('.voice-text');
-            if (iconSpan) iconSpan.textContent = '🎤';
-            if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
-            voiceBtn.style.boxShadow = '';
-        }
-    }
-    
-    async sendAudioInChunks(audioBlob) {
-        const CHUNK_SIZE = 32000; // 32KB чанки
-        
-        // Конвертируем Blob в base64
-        const reader = new FileReader();
-        reader.onload = () => {
-            const base64Data = reader.result.split(',')[1];
-            const totalLength = base64Data.length;
-            
-            console.log(`📤 Sending audio in chunks: ${totalLength} bytes total`);
-            
-            // Отправляем чанками
-            for (let i = 0; i < totalLength; i += CHUNK_SIZE) {
-                const chunk = base64Data.slice(i, i + CHUNK_SIZE);
-                const isFinal = i + CHUNK_SIZE >= totalLength;
-                
-                liveVoiceWS.ws.send(JSON.stringify({
-                    type: 'audio_chunk',
-                    data: chunk,
-                    is_final: isFinal
-                }));
-                
-                console.log(`📦 Sent chunk ${Math.floor(i/CHUNK_SIZE)+1}: ${chunk.length} chars, is_final=${isFinal}`);
-                
-                // Небольшая задержка между чанками (10ms)
-                if (!isFinal) {
-                    const start = Date.now();
-                    while (Date.now() - start < 10) {
-                        // Синхронная задержка
-                    }
-                }
-            }
-            
-            console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} chunks sent`);
-        };
-        reader.readAsDataURL(audioBlob);
-    }
-    
-    createWavBlob(audioData) {
-        // Объединяем все чанки
-        let totalLength = 0;
-        for (const chunk of audioData) {
-            totalLength += chunk.length;
-        }
-        
-        // Ограничиваем максимальную длину (30 секунд при 16kHz = 480,000 сэмплов)
-        const MAX_SAMPLES = 480000; // 30 секунд при 16kHz
-        if (totalLength > MAX_SAMPLES) {
-            console.warn(`Audio too long (${totalLength} samples), truncating to ${MAX_SAMPLES}`);
-            totalLength = MAX_SAMPLES;
-        }
-        
-        const combined = new Int16Array(totalLength);
-        let offset = 0;
-        for (const chunk of audioData) {
-            if (offset + chunk.length > totalLength) {
-                const remaining = totalLength - offset;
-                combined.set(chunk.slice(0, remaining), offset);
-                break;
-            }
-            combined.set(chunk, offset);
-            offset += chunk.length;
-        }
-        
-        const sampleRate = 16000; // 16kHz
-        const numChannels = 1;
-        const bitsPerSample = 16;
-        const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-        const blockAlign = numChannels * bitsPerSample / 8;
-        
-        const buffer = new ArrayBuffer(44 + combined.length * 2);
-        const view = new DataView(buffer);
-        
-        // RIFF chunk
-        this.writeString(view, 0, 'RIFF');
-        view.setUint32(4, 36 + combined.length * 2, true);
-        this.writeString(view, 8, 'WAVE');
-        
-        // fmt subchunk
-        this.writeString(view, 12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, numChannels, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, byteRate, true);
-        view.setUint16(32, blockAlign, true);
-        view.setUint16(34, bitsPerSample, true);
-        
-        // data subchunk
-        this.writeString(view, 36, 'data');
-        view.setUint32(40, combined.length * 2, true);
-        
-        // записываем данные
-        for (let i = 0; i < combined.length; i++) {
-            view.setInt16(44 + i * 2, combined[i], true);
-        }
-        
-        return new Blob([buffer], { type: 'audio/wav' });
-    }
-    
-    writeString(view, offset, string) {
-        for (let i = 0; i < string.length; i++) {
-            view.setUint8(offset + i, string.charCodeAt(i));
-        }
-    }
-    
-    sendViaHTTPWithBlob(audioBlob) {
-        const formData = new FormData();
-        formData.append('user_id', CONFIG.USER_ID);
-        formData.append('voice', audioBlob, 'audio.wav');
-        formData.append('mode', currentMode);
-        
-        fetch(`${CONFIG.API_BASE_URL}/api/voice/process`, {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(result => {
-            if (result.success) {
-                if (result.recognized_text) {
-                    addMessage(`🎤 "${result.recognized_text}"`, 'system');
-                }
-                if (result.answer) {
-                    addMessage(result.answer, 'bot');
-                }
-                if (result.audio_base64) {
-                    playAudioResponse(result.audio_base64);
-                }
-            } else {
-                showToast(`❌ ${result.error || 'Ошибка распознавания'}`, 'error');
-            }
-        })
-        .catch(error => {
-            console.error('HTTP voice error:', error);
-            showToast('❌ Ошибка соединения', 'error');
-        });
-    }
-    
-    updateButtonUI(isRecording) {
-        const voiceBtn = document.getElementById('mainVoiceBtn');
-        if (!voiceBtn) return;
-        
-        if (isRecording) {
-            voiceBtn.classList.add('recording');
-            const iconSpan = voiceBtn.querySelector('.voice-icon');
-            const textSpan = voiceBtn.querySelector('.voice-text');
-            if (iconSpan) iconSpan.textContent = '⏹️';
-            if (textSpan) textSpan.textContent = 'Отпустите для отправки';
-        } else {
-            voiceBtn.classList.remove('recording');
-            const iconSpan = voiceBtn.querySelector('.voice-icon');
-            const textSpan = voiceBtn.querySelector('.voice-text');
-            if (iconSpan) iconSpan.textContent = '🎤';
-            if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
-            voiceBtn.style.boxShadow = '';
-        }
-    }
-    
-    initVisualizer(stream) {
-        if (!window.AudioContext && !window.webkitAudioContext) return;
-        
-        this.visualizerContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = this.visualizerContext.createMediaStreamSource(stream);
-        this.analyser = this.visualizerContext.createAnalyser();
-        this.analyser.fftSize = 256;
-        source.connect(this.analyser);
-        
-        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-        
-        const updateVolume = () => {
-            if (!this.isRecording) return;
-            
-            this.analyser.getByteFrequencyData(dataArray);
-            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            let volume = Math.min(100, (average / 255) * 100);
-            
-            const voiceBtn = document.getElementById('mainVoiceBtn');
-            if (voiceBtn) {
-                const intensity = volume / 100;
-                voiceBtn.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
-            }
-            
-            this.visualizerAnimation = requestAnimationFrame(updateVolume);
-        };
-        
-        updateVolume();
-    }
-    
-    stopVisualizer() {
-        if (this.visualizerAnimation) {
-            cancelAnimationFrame(this.visualizerAnimation);
-            this.visualizerAnimation = null;
-        }
-        if (this.visualizerContext) {
-            this.visualizerContext.close().catch(console.warn);
-            this.visualizerContext = null;
-        }
-        this.analyser = null;
-    }
-}
+let voiceManager = null; // Будет инициализирован позже
 
 // ============================================
 // API ВЫЗОВЫ
@@ -1174,7 +420,13 @@ async function getUserStatus() {
     try {
         return await apiCall(`/api/user-status?user_id=${CONFIG.USER_ID}`);
     } catch (error) {
-        return { has_profile: true, test_completed: true, profile_code: CONFIG.PROFILE_CODE };
+        console.warn('Failed to get user status, assuming new user:', error);
+        return { 
+            has_profile: false, 
+            test_completed: false, 
+            profile_code: null,
+            interpretation_ready: false
+        };
     }
 }
 
@@ -1250,89 +502,6 @@ async function findPsychometricDoubles() {
         return data.doubles || [];
     } catch (error) {
         return [];
-    }
-}
-
-// ========== ГОЛОСОВЫЕ ФУНКЦИИ ==========
-
-async function checkMicrophonePermission() {
-    try {
-        const constraints = {
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        };
-        
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        const audioTrack = stream.getAudioTracks()[0];
-        
-        if (audioTrack && audioTrack.enabled) {
-            console.log('✅ Microphone access granted:', audioTrack.label);
-            stream.getTracks().forEach(track => track.stop());
-            return true;
-        }
-        return false;
-    } catch (error) {
-        console.error('Microphone permission error:', error);
-        return false;
-    }
-}
-
-function playAudioResponse(audioData) {
-    if (!audioData) {
-        console.warn('No audio data');
-        return;
-    }
-    
-    const audio = document.getElementById('hiddenAudioPlayer');
-    if (!audio) {
-        console.warn('Audio element not found');
-        return;
-    }
-    
-    try {
-        let audioUrl = audioData;
-        
-        if (audioData.startsWith('data:audio/')) {
-            const matches = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/);
-            if (matches) {
-                const mimeType = matches[1];
-                const base64Data = matches[2];
-                
-                const binaryString = atob(base64Data);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-                
-                const blob = new Blob([bytes], { type: mimeType });
-                audioUrl = URL.createObjectURL(blob);
-            }
-        }
-        
-        audio.pause();
-        audio.currentTime = 0;
-        audio.src = audioUrl;
-        audio.load();
-        
-        const playPromise = audio.play();
-        
-        if (playPromise !== undefined) {
-            playPromise.catch(error => {
-                console.error('Play failed:', error);
-            });
-        }
-        
-        audio.onended = () => {
-            if (audioUrl && audioUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(audioUrl);
-            }
-        };
-        
-    } catch (error) {
-        console.error('Playback error:', error);
     }
 }
 
@@ -1444,8 +613,9 @@ function showFullContentScreen(title, content, contentType, rawText = null) {
     document.getElementById('speakBtn').onclick = async () => {
         const textToSpeak = rawText || (typeof content === 'string' ? content.replace(/\*\*(.*?)\*\*/g, '$1') : '');
         showToast('Озвучиваю...', 'info');
-        const ttsResponse = await textToSpeech(textToSpeak, currentMode);
-        if (ttsResponse?.audio_url) playAudioResponse(ttsResponse.audio_url);
+        if (voiceManager) {
+            await voiceManager.textToSpeech(textToSpeak, currentMode);
+        }
     };
 }
 
@@ -1722,8 +892,9 @@ async function showIntervention(params) {
     document.getElementById('backBtn').onclick = () => navigateBack();
     document.getElementById('speakInterventionBtn')?.addEventListener('click', async () => {
         const text = (intervention?.intervention?.description || '') + ' ' + (intervention?.daily_practice || '');
-        const tts = await textToSpeech(text, currentMode);
-        if (tts?.audio_url) playAudioResponse(tts.audio_url);
+        if (voiceManager) {
+            await voiceManager.textToSpeech(text, currentMode);
+        }
     });
 }
 
@@ -1777,12 +948,10 @@ async function showPractices() {
     
     document.getElementById('backBtn').onclick = () => navigateBack();
     document.getElementById('speakMorningBtn')?.addEventListener('click', async () => {
-        const tts = await textToSpeech(morning, currentMode);
-        if (tts?.audio_url) playAudioResponse(tts.audio_url);
+        if (voiceManager) await voiceManager.textToSpeech(morning, currentMode);
     });
     document.getElementById('speakEveningBtn')?.addEventListener('click', async () => {
-        const tts = await textToSpeech(evening, currentMode);
-        if (tts?.audio_url) playAudioResponse(tts.audio_url);
+        if (voiceManager) await voiceManager.textToSpeech(evening, currentMode);
     });
     document.getElementById('newExerciseBtn')?.addEventListener('click', async () => {
         const newExercise = await getRandomExercise();
@@ -1843,8 +1012,7 @@ async function showHypnosis() {
                 </div>
             `;
             document.getElementById('speakHypnoBtn')?.addEventListener('click', async () => {
-                const tts = await textToSpeech(response, currentMode);
-                if (tts?.audio_url) playAudioResponse(tts.audio_url);
+                if (voiceManager) await voiceManager.textToSpeech(response, currentMode);
             });
         });
     });
@@ -1864,8 +1032,7 @@ async function showHypnosis() {
             </div>
         `;
         document.getElementById('speakHypnoBtn')?.addEventListener('click', async () => {
-            const tts = await textToSpeech(response, currentMode);
-            if (tts?.audio_url) playAudioResponse(tts.audio_url);
+            if (voiceManager) await voiceManager.textToSpeech(response, currentMode);
         });
     });
     
@@ -1878,8 +1045,7 @@ async function showHypnosis() {
             </div>
         `;
         document.getElementById('speakSupportBtn')?.addEventListener('click', async () => {
-            const tts = await textToSpeech(support, currentMode);
-            if (tts?.audio_url) playAudioResponse(tts.audio_url);
+            if (voiceManager) await voiceManager.textToSpeech(support, currentMode);
         });
     });
 }
@@ -1945,8 +1111,7 @@ async function showTales() {
                     </div>
                 `;
                 document.getElementById('speakTaleBtn')?.addEventListener('click', async () => {
-                    const tts = await textToSpeech(data.tale, currentMode);
-                    if (tts?.audio_url) playAudioResponse(tts.audio_url);
+                    if (voiceManager) await voiceManager.textToSpeech(data.tale, currentMode);
                 });
             }
         });
@@ -1965,8 +1130,7 @@ async function showTales() {
                     </div>
                 `;
                 document.getElementById('speakTaleBtn')?.addEventListener('click', async () => {
-                    const tts = await textToSpeech(tale, currentMode);
-                    if (tts?.audio_url) playAudioResponse(tts.audio_url);
+                    if (voiceManager) await voiceManager.textToSpeech(tale, currentMode);
                 });
             }
         });
@@ -2036,8 +1200,7 @@ async function showAnchors() {
             const phrase = await fireAnchor(name);
             if (phrase) {
                 showToast(`Активирован якорь: ${phrase}`, 'success');
-                const tts = await textToSpeech(phrase, currentMode);
-                if (tts?.audio_url) playAudioResponse(tts.audio_url);
+                if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
             }
         });
     });
@@ -2062,22 +1225,19 @@ async function showAnchors() {
     document.getElementById('anchorCalmBtn')?.addEventListener('click', async () => {
         const phrase = await getAnchor('calm');
         showToast(`Якорь: ${phrase}`, 'success');
-        const tts = await textToSpeech(phrase, currentMode);
-        if (tts?.audio_url) playAudioResponse(tts.audio_url);
+        if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
     });
     
     document.getElementById('anchorConfidenceBtn')?.addEventListener('click', async () => {
         const phrase = await getAnchor('confidence');
         showToast(`Якорь: ${phrase}`, 'success');
-        const tts = await textToSpeech(phrase, currentMode);
-        if (tts?.audio_url) playAudioResponse(tts.audio_url);
+        if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
     });
     
     document.getElementById('anchorHereBtn')?.addEventListener('click', async () => {
         const phrase = await getAnchor('here');
         showToast(`Якорь: ${phrase}`, 'success');
-        const tts = await textToSpeech(phrase, currentMode);
-        if (tts?.audio_url) playAudioResponse(tts.audio_url);
+        if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
     });
 }
 
@@ -2110,7 +1270,7 @@ async function showStatistics() {
                 
                 <div class="practice-card">
                     <h3>🧠 ПРОФИЛЬ</h3>
-                    <div class="intervention-text">Код: ${status.profile_code || CONFIG.PROFILE_CODE}</div>
+                    <div class="intervention-text">Код: ${status.profile_code || 'Не определен'}</div>
                     <div class="intervention-text">Тест: ${status.test_completed ? '✅ Пройден' : '⏳ Не пройден'}</div>
                 </div>
             </div>
@@ -2224,6 +1384,11 @@ async function switchMode(mode) {
     await apiCall('/api/save-mode', { method: 'POST', body: JSON.stringify({ user_id: CONFIG.USER_ID, mode }) });
     updateModeUI();
     renderDashboard();
+    
+    // Обновляем режим в голосовом менеджере
+    if (voiceManager) {
+        voiceManager.setMode(mode);
+    }
 }
 
 function initMobileEnhancements() {
@@ -2303,46 +1468,6 @@ function initMobileMenu() {
     });
 }
 
-async function initWebSocket() {
-    liveVoiceWS = new LiveVoiceWebSocket(CONFIG.USER_ID);
-    
-    liveVoiceWS.onStatusChange = (status) => {
-        console.log('WebSocket status:', status);
-        const voiceBtn = document.getElementById('mainVoiceBtn');
-        if (voiceBtn) {
-            if (status === 'connected') {
-                voiceBtn.style.border = '2px solid #4caf50';
-            } else if (status === 'ai_speaking') {
-                voiceBtn.style.border = '2px solid #ff6b3b';
-                voiceBtn.querySelector('.voice-icon').textContent = '🔊';
-            } else if (status === 'processing') {
-                voiceBtn.querySelector('.voice-icon').textContent = '🔄';
-            } else if (status === 'idle') {
-                voiceBtn.style.border = '';
-                voiceBtn.querySelector('.voice-icon').textContent = '🎤';
-            }
-        }
-    };
-    
-    liveVoiceWS.onTranscript = (text) => {
-        addMessage(`🎤 ${text}`, 'system');
-    };
-    
-    liveVoiceWS.onError = (error) => {
-        showToast(`❌ ${error}`, 'error');
-    };
-    
-    try {
-        await liveVoiceWS.connect();
-        console.log('✅ Live voice WebSocket connected');
-        return true;
-    } catch (error) {
-        console.warn('WebSocket failed, falling back to HTTP', error);
-        useWebSocket = false;
-        return false;
-    }
-}
-
 function renderDashboard() {
     const container = document.getElementById('screenContainer');
     const modeConfig = MODES[currentMode];
@@ -2357,7 +1482,7 @@ function renderDashboard() {
                         <p>${CONFIG.USER_NAME}, я здесь, чтобы помочь</p>
                     </div>
                     <div class="profile-badge">
-                        <div class="profile-code" id="profileCode">${CONFIG.PROFILE_CODE}</div>
+                        <div class="profile-code" id="profileCode">${CONFIG.PROFILE_CODE || '🎭'}</div>
                         <div style="font-size: 10px;">ваш психотип</div>
                     </div>
                 </div>
@@ -2409,16 +1534,10 @@ function renderDashboard() {
         </div>
     `;
     
-    if (window.innerWidth <= 768) {
-        const swipeIndicator = document.getElementById('swipeIndicator');
-        if (swipeIndicator) swipeIndicator.style.display = 'block';
-    }
-    
-    // Инициализируем голосовую кнопку
+    // Инициализируем голосовую кнопку с VoiceManager
     const voiceBtnElement = document.getElementById('mainVoiceBtn');
-    if (voiceBtnElement) {
-        const voiceHandler = new VoiceButtonHandler();
-        voiceHandler.setupButton(voiceBtnElement);
+    if (voiceBtnElement && voiceManager) {
+        setupVoiceButton(voiceBtnElement);
     }
     
     document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -2445,38 +1564,156 @@ function renderDashboard() {
         });
     });
     
+    // ========== ДОБАВЛЕННЫЙ БЛОК ЗАПРОСА ИМЕНИ ==========
+    setTimeout(async () => {
+        try {
+            const status = await getUserStatus();
+            
+            // Если у пользователя нет имени в localStorage и он не проходил тест
+            if (!localStorage.getItem('fredi_user_name') && !status.has_profile) {
+                const name = prompt('Как мне к вам обращаться?', '');
+                if (name && name.trim()) {
+                    setUserName(name);
+                    // Обновляем отображение имени
+                    const userNameEl = document.getElementById('userName');
+                    if (userNameEl) userNameEl.textContent = name;
+                    // Перерисовываем дашборд с новым именем
+                    renderDashboard();
+                }
+            }
+            
+            // Обновляем отображение кода профиля
+            const profileCodeEl = document.getElementById('profileCode');
+            if (profileCodeEl) {
+                if (status.has_profile && status.profile_code) {
+                    profileCodeEl.textContent = status.profile_code;
+                } else {
+                    profileCodeEl.textContent = '🎭';
+                    profileCodeEl.title = 'Пройдите тест, чтобы узнать свой психотип';
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load user status:', e);
+        }
+    }, 1500);
+    // ========== КОНЕЦ ДОБАВЛЕННОГО БЛОКА ==========
+    
     initMobileEnhancements();
 }
 
-// ========== TTS ФУНКЦИЯ ==========
+// ========== НАСТРОЙКА ГОЛОСОВОЙ КНОПКИ ==========
 
-async function textToSpeech(text, mode) {
-    try {
-        const formData = new URLSearchParams();
-        formData.append('text', text);
-        formData.append('mode', mode);
+function setupVoiceButton(buttonElement) {
+    if (!buttonElement || !voiceManager) return;
+    
+    let pressTimer = null;
+    const LONG_PRESS_DURATION = 150;
+    
+    const onPressStart = (e) => {
+        e.preventDefault();
         
-        const response = await fetch(`${CONFIG.API_BASE_URL}/api/voice/tts`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: formData
-        });
+        pressTimer = setTimeout(() => {
+            voiceManager.startRecording();
+        }, LONG_PRESS_DURATION);
+    };
+    
+    const onPressEnd = (e) => {
+        e.preventDefault();
         
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
         }
         
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
+        if (voiceManager.isRecordingActive()) {
+            voiceManager.stopRecording();
+        }
+    };
+    
+    // События для мыши
+    buttonElement.addEventListener('mousedown', onPressStart);
+    buttonElement.addEventListener('mouseup', onPressEnd);
+    buttonElement.addEventListener('mouseleave', onPressEnd);
+    
+    // События для касания (мобильные)
+    buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
+    buttonElement.addEventListener('touchend', onPressEnd, { passive: false });
+    buttonElement.addEventListener('touchcancel', onPressEnd, { passive: false });
+    
+    buttonElement.addEventListener('contextmenu', (e) => e.preventDefault());
+    
+    // Обновляем UI кнопки при изменении статуса
+    voiceManager.onStatusChange = (status) => {
+        const iconSpan = buttonElement.querySelector('.voice-icon');
+        const textSpan = buttonElement.querySelector('.voice-text');
         
-        return { audio_url: audioUrl };
-        
-    } catch (error) {
-        console.error('TTS error:', error);
-        return null;
+        switch(status) {
+            case 'recording':
+                buttonElement.classList.add('recording');
+                if (iconSpan) iconSpan.textContent = '⏹️';
+                if (textSpan) textSpan.textContent = 'Отпустите для отправки';
+                break;
+            case 'ai_speaking':
+                buttonElement.style.border = '2px solid #ff6b3b';
+                if (iconSpan) iconSpan.textContent = '🔊';
+                break;
+            case 'processing':
+                if (iconSpan) iconSpan.textContent = '🔄';
+                break;
+            default:
+                buttonElement.classList.remove('recording');
+                buttonElement.style.border = '';
+                if (iconSpan) iconSpan.textContent = '🎤';
+                if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
+                buttonElement.style.boxShadow = '';
+        }
+    };
+    
+    voiceManager.onVolumeChange = (volume) => {
+        const intensity = volume / 100;
+        buttonElement.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
+    };
+}
+
+// ========== ИНИЦИАЛИЗАЦИЯ ГОЛОСОВОГО МЕНЕДЖЕРА ==========
+
+async function initVoice() {
+    // Проверяем, загружен ли VoiceManager
+    if (typeof VoiceManager === 'undefined') {
+        console.error('VoiceManager not loaded! Make sure voice.js is included before app.js');
+        return false;
     }
+    
+    voiceManager = new VoiceManager(CONFIG.USER_ID, {
+        useWebSocket: true,
+        apiBaseUrl: CONFIG.API_BASE_URL
+    });
+    
+    // Настройка колбэков
+    voiceManager.onTranscript = (text) => {
+        addMessage(`🎤 "${text}"`, 'system');
+    };
+    
+    voiceManager.onAIResponse = (answer) => {
+        addMessage(answer, 'bot');
+    };
+    
+    voiceManager.onError = (error) => {
+        showToast(`❌ ${error}`, 'error');
+    };
+    
+    voiceManager.onRecordingStart = () => {
+        console.log('Recording started');
+    };
+    
+    voiceManager.onRecordingStop = (audioBlob) => {
+        console.log('Recording stopped', audioBlob?.size);
+    };
+    
+    // Устанавливаем текущий режим
+    voiceManager.setMode(currentMode);
+    
+    return true;
 }
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
@@ -2494,17 +1731,21 @@ async function init() {
         }
     } catch (e) {}
     
+    // Инициализируем голосовой менеджер
+    await initVoice();
+    
     renderDashboard();
     
     document.getElementById('userName').textContent = CONFIG.USER_NAME;
     document.getElementById('userMiniAvatar').textContent = CONFIG.USER_NAME.charAt(0);
     
-    // Инициализируем WebSocket для живого голоса
-    await initWebSocket();
-    
+    // Проверка микрофона
     setTimeout(async () => {
-        const hasMic = await checkMicrophonePermission();
-        if (!hasMic) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(track => track.stop());
+            console.log('✅ Microphone available');
+        } catch (error) {
             console.log('Microphone permission not granted yet');
         }
     }, 1000);
