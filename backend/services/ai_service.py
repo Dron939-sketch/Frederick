@@ -1,6 +1,9 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Сервис для работы с DeepSeek API
 Адаптирован для API из бота
+Поддержка базового режима для пользователей без теста
 """
 
 import aiohttp
@@ -45,7 +48,7 @@ class AIService:
             message: Текст сообщения
             context: Контекст пользователя (город, возраст и т.д.)
             profile: Профиль пользователя (результаты теста)
-            mode: Режим общения (coach, psychologist, trainer)
+            mode: Режим общения (basic, coach, psychologist, trainer)
         
         Returns:
             Сгенерированный ответ
@@ -66,7 +69,7 @@ class AIService:
         
         # Формируем промпты
         system_prompt = self._get_system_prompt(mode, profile)
-        user_prompt = self._get_user_prompt(message, context, profile)
+        user_prompt = self._get_user_prompt(message, context, profile, mode)
         
         try:
             session = await self._get_session()
@@ -470,8 +473,26 @@ class AIService:
             return None
     
     def _get_system_prompt(self, mode: str, profile: Dict) -> str:
-        """Формирование системного промпта"""
+        """
+        Формирование системного промпта
+        Поддержка базового режима для пользователей без теста
+        """
         prompts = {
+            'basic': """Ты Фреди — дружелюбный виртуальный помощник. Ты еще не знаешь пользователя, потому что он не прошел психологический тест.
+
+Твоя задача:
+1. Быть вежливым, дружелюбным и немного с юмором
+2. Мягко подталкивать пользователя к прохождению теста
+3. Говорить, что без теста ты не можешь давать персонализированные советы
+4. Использовать легкие шутки и метафоры
+5. Отвечать на вопросы о погоде, работе, отношениях в общем ключе, но всегда возвращаться к идее теста
+
+Важно:
+- Не используй профессиональные психологические термины
+- Будь позитивным и энергичным
+- Создавай ощущение, что после теста откроются суперспособности
+- Говори короткими предложениями, готовыми для озвучивания""",
+            
             'coach': """Ты Фреди, коуч. Помогаешь клиенту найти ответы внутри себя.
 
 Правила:
@@ -499,17 +520,20 @@ class AIService:
         
         prompt = prompts.get(mode, prompts['psychologist'])
         
-        if profile:
+        # Добавляем информацию о профиле только если тест пройден и режим не basic
+        if profile and mode != 'basic':
             profile_code = profile.get('profile_data', {}).get('display_name', 'не определен')
             prompt += f"\n\nПрофиль клиента: {profile_code}"
         
         return prompt
     
-    def _get_user_prompt(self, message: str, context: Dict, profile: Dict) -> str:
-        """Формирование пользовательского промпта"""
+    def _get_user_prompt(self, message: str, context: Dict, profile: Dict, mode: str) -> str:
+        """
+        Формирование пользовательского промпта
+        """
         prompt = message
         
-        if context:
+        if context and mode != 'basic':
             context_parts = []
             if context.get('city'):
                 context_parts.append(f"город {context['city']}")
@@ -518,7 +542,7 @@ class AIService:
             if context_parts:
                 prompt += f"\n\nКонтекст: {', '.join(context_parts)}"
         
-        if profile:
+        if profile and mode != 'basic':
             profile_code = profile.get('profile_data', {}).get('display_name')
             if profile_code:
                 prompt += f"\n\nПрофиль: {profile_code}"
@@ -559,6 +583,7 @@ class AIService:
     def _get_fallback_response(self, mode: str) -> str:
         """Ответ при ошибке"""
         fallbacks = {
+            'basic': "Ой, что-то пошло не так! Но не переживай, я все равно рад поболтать. Кстати, ты не думал пройти тест? Это интересно! 😊",
             'coach': "Я здесь. Давайте вместе подумаем над этим. Что вы чувствуете?",
             'psychologist': "Я с вами. Расскажите подробнее, что вас беспокоит?",
             'trainer': "Готов к работе. Сформулируйте задачу, и мы сделаем план."
