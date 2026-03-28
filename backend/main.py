@@ -532,7 +532,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     except Exception as e:
                         logger.error(f"Failed to decode audio chunk: {e}")
                 
-                                # Если это финальный чанк и есть данные
+                # Если это финальный чанк и есть данные
                 if is_final and len(audio_buffer) > 0:
                     logger.info(f"🎤 Processing complete audio: {len(audio_buffer)} bytes from {chunk_count} chunks")
                     await voice_manager.send_status(user_id, "processing")
