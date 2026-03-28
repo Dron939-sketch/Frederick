@@ -359,6 +359,26 @@ class LiveVoiceWebSocket {
             }));
         }
     }
+
+    // ========== НОВЫЙ МЕТОД sendFullAudio (ДОБАВИТЬ СЮДА) ==========
+    sendFullAudio(audioBlob) {
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('Cannot send audio: WebSocket not connected');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64Data = reader.result.split(',')[1];
+            this.ws.send(JSON.stringify({
+                type: 'audio_chunk',
+                data: base64Data,
+                is_final: true
+            }));
+            console.log(`📤 Sent full audio: ${audioBlob.size} bytes as WAV`);
+        };
+        reader.readAsDataURL(audioBlob);
+    }
     
     interrupt() {
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -489,86 +509,233 @@ class VoiceButtonHandler {
     }
     
     async startRecording() {
-        try {
-            // Проверяем, не говорит ли ИИ
-            if (liveVoiceWS && liveVoiceWS.isAISpeaking) {
-                liveVoiceWS.interrupt();
-                await new Promise(r => setTimeout(r, 300));
+    try {
+        // Проверяем, не говорит ли ИИ
+        if (liveVoiceWS && liveVoiceWS.isAISpeaking) {
+            liveVoiceWS.interrupt();
+            await new Promise(r => setTimeout(r, 300));
+        }
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 16000,      // 16kHz для WAV
+                channelCount: 1          // моно
             }
+        });
+        
+        this.mediaStream = stream;
+        this.audioChunks = [];
+        this.wavData = [];               // для WAV данных
+        
+        // Инициализируем визуализатор
+        this.initVisualizer(stream);
+        
+        // Создаём AudioContext для записи в WAV
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = this.audioContext.createMediaStreamSource(stream);
+        
+        // Создаём ScriptProcessorNode для захвата аудиоданных
+        this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+        
+        this.processor.onaudioprocess = (event) => {
+            if (!this.isRecording) return;
             
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: 44100,
-                    channelCount: 1
-                }
-            });
+            const inputData = event.inputBuffer.getChannelData(0);
+            // Конвертируем float32 (-1..1) в int16 (-32768..32767)
+            const int16Data = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+                const sample = Math.max(-1, Math.min(1, inputData[i]));
+                int16Data[i] = Math.floor(sample * 32767);
+            }
+            this.wavData.push(int16Data);
             
-            this.mediaStream = stream;
-            this.audioChunks = [];
-            
-            // Инициализируем визуализатор
-            this.initVisualizer(stream);
-            
-            // Определяем поддерживаемый MIME тип
-            let mimeType = '';
-            const supportedTypes = ['audio/webm', 'audio/webm;codecs=opus', 'audio/mp4', 'audio/mpeg'];
-            for (const type of supportedTypes) {
-                if (MediaRecorder.isTypeSupported(type)) {
-                    mimeType = type;
-                    break;
+            // Обновляем визуализатор
+            if (this.analyser) {
+                const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                this.analyser.getByteFrequencyData(dataArray);
+                let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                let volume = Math.min(100, (average / 255) * 100);
+                const voiceBtn = document.getElementById('mainVoiceBtn');
+                if (voiceBtn) {
+                    const intensity = volume / 100;
+                    voiceBtn.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
                 }
             }
-            
-            this.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-            
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    this.audioChunks.push(event.data);
-                    
-                    // Отправляем чанк в реальном времени
-                    if (liveVoiceWS && liveVoiceWS.isConnected) {
-                        liveVoiceWS.sendAudioChunk(event.data, false);
-                    }
-                }
-            };
-            
-            this.mediaRecorder.start(250); // Чанки каждые 250ms
-            
-            showToast('🎙️ Говорите... Отпустите для отправки', 'info');
-            
-        } catch (error) {
-            console.error('Start recording error:', error);
-            showToast('❌ Не удалось получить доступ к микрофону', 'error');
+        };
+        
+        source.connect(this.processor);
+        this.processor.connect(this.audioContext.destination);
+        
+        // Запускаем AudioContext
+        if (this.audioContext.state === 'suspended') {
+            await this.audioContext.resume();
+        }
+        
+        this.isRecording = true;
+        
+        // Таймаут на 60 секунд
+        this.recordingTimeout = setTimeout(() => {
+            if (this.isRecording) {
+                this.stopRecording();
+            }
+        }, 60000);
+        
+        showToast('🎙️ Говорите... Отпустите для отправки', 'info');
+        
+    } catch (error) {
+        console.error('Start recording error:', error);
+        showToast('❌ Не удалось получить доступ к микрофону', 'error');
+        this.isRecording = false;
+    }
+}
+
+stopRecording() {
+    if (!this.isRecording) return;
+    
+    this.isRecording = false;
+    
+    if (this.recordingTimeout) {
+        clearTimeout(this.recordingTimeout);
+        this.recordingTimeout = null;
+    }
+    
+    if (this.processor) {
+        this.processor.disconnect();
+        this.processor = null;
+    }
+    
+    if (this.audioContext) {
+        this.audioContext.close().catch(console.warn);
+        this.audioContext = null;
+    }
+    
+    // Останавливаем визуализатор
+    this.stopVisualizer();
+    
+    // Создаём WAV файл из собранных данных
+    if (this.wavData && this.wavData.length > 0) {
+        const wavBlob = this.createWavBlob(this.wavData);
+        
+        if (liveVoiceWS && liveVoiceWS.isConnected && useWebSocket) {
+            // Отправляем через WebSocket как финальный чанк
+            liveVoiceWS.sendFullAudio(wavBlob);
+        } else {
+            // Fallback на HTTP
+            this.sendViaHTTPWithBlob(wavBlob);
         }
     }
     
-    stopRecording() {
-        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-            this.mediaRecorder.stop();
-            
-            // Отправляем финальный сигнал
-            if (liveVoiceWS && liveVoiceWS.isConnected) {
-                liveVoiceWS.sendAudioChunk(null, true);
-            } else if (this.audioChunks.length > 0 && !useWebSocket) {
-                // Fallback на HTTP
-                this.sendViaHTTP();
-            }
-            
-            // Останавливаем визуализатор
-            this.stopVisualizer();
-            
-            // Закрываем медиа-поток
-            if (this.mediaStream) {
-                this.mediaStream.getTracks().forEach(track => track.stop());
-                this.mediaStream = null;
-            }
-            
-            this.audioChunks = [];
-        }
+    // Закрываем медиа-поток
+    if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach(track => track.stop());
+        this.mediaStream = null;
     }
+    
+    this.wavData = [];
+    this.audioChunks = [];
+    
+    // Обновляем UI кнопки
+    const voiceBtn = document.getElementById('mainVoiceBtn');
+    if (voiceBtn) {
+        voiceBtn.classList.remove('recording');
+        const iconSpan = voiceBtn.querySelector('.voice-icon');
+        const textSpan = voiceBtn.querySelector('.voice-text');
+        if (iconSpan) iconSpan.textContent = '🎤';
+        if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
+        voiceBtn.style.boxShadow = '';
+    }
+}
+
+createWavBlob(audioData) {
+    // Объединяем все чанки
+    let totalLength = 0;
+    for (const chunk of audioData) {
+        totalLength += chunk.length;
+    }
+    
+    const combined = new Int16Array(totalLength);
+    let offset = 0;
+    for (const chunk of audioData) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+    }
+    
+    const sampleRate = 16000;
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+    const blockAlign = numChannels * bitsPerSample / 8;
+    
+    const buffer = new ArrayBuffer(44 + combined.length * 2);
+    const view = new DataView(buffer);
+    
+    // RIFF chunk
+    this.writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + combined.length * 2, true);
+    this.writeString(view, 8, 'WAVE');
+    
+    // fmt subchunk
+    this.writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    
+    // data subchunk
+    this.writeString(view, 36, 'data');
+    view.setUint32(40, combined.length * 2, true);
+    
+    // записываем данные
+    for (let i = 0; i < combined.length; i++) {
+        view.setInt16(44 + i * 2, combined[i], true);
+    }
+    
+    return new Blob([buffer], { type: 'audio/wav' });
+}
+
+writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+    }
+}
+
+sendViaHTTPWithBlob(audioBlob) {
+    const formData = new FormData();
+    formData.append('user_id', CONFIG.USER_ID);
+    formData.append('voice', audioBlob, 'audio.wav');
+    formData.append('mode', currentMode);
+    
+    fetch(`${CONFIG.API_BASE_URL}/api/voice/process`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            if (result.recognized_text) {
+                addMessage(`🎤 "${result.recognized_text}"`, 'system');
+            }
+            if (result.answer) {
+                addMessage(result.answer, 'bot');
+            }
+            if (result.audio_base64) {
+                playAudioResponse(result.audio_base64);
+            }
+        } else {
+            showToast(`❌ ${result.error || 'Ошибка распознавания'}`, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('HTTP voice error:', error);
+        showToast('❌ Ошибка соединения', 'error');
+    });
+}
     
     async sendViaHTTP() {
         const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
