@@ -458,77 +458,54 @@ async def log_requests(request: Request, call_next):
 async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     """
     WebSocket эндпоинт для живого голосового диалога
-    С детальным логированием для отладки 1006 ошибки
+    Поддерживает:
+    - Бинарные аудио чанки (PCM)
+    - JSON сообщения с метаданными
+    - Heartbeat для поддержания соединения
     """
-    logger.info(f"🔌🔌🔌 WEBSOCKET CONNECTION ATTEMPT for user {user_id} 🔌🔌🔌")
-    logger.info(f"📡 Headers: {dict(websocket.headers)}")
+    logger.info(f"🔌 WebSocket connection attempt for user {user_id}")
     
-    # 1. ПРИНИМАЕМ СОЕДИНЕНИЕ
+    # ========== 1. ПРИНИМАЕМ СОЕДИНЕНИЕ ==========
     try:
         await websocket.accept()
-        logger.info(f"✅ WebSocket ACCEPTED for user {user_id}")
+        logger.info(f"✅ WebSocket accepted for user {user_id}")
     except Exception as e:
         logger.error(f"❌ Failed to accept WebSocket: {e}")
-        logger.error(traceback.format_exc())
         return
     
-    # 2. ПРОВЕРЯЕМ ГОТОВНОСТЬ МЕНЕДЖЕРА
+    # ========== 2. ПРОВЕРЯЕМ МЕНЕДЖЕР ==========
     if not voice_manager:
-        logger.error(f"❌ Voice manager not ready for user {user_id}")
+        logger.error(f"❌ Voice manager not ready")
         try:
             await websocket.close(code=1011, reason="Voice service not ready")
         except:
             pass
         return
     
-    # 3. РЕГИСТРИРУЕМ СОЕДИНЕНИЕ
     await voice_manager.connect(user_id, websocket)
-    logger.info(f"📝 User {user_id} registered in connection manager")
     
-    # 4. ЗАГРУЖАЕМ КОНТЕКСТ И ПРОФИЛЬ
+    # ========== 3. ЗАГРУЖАЕМ КОНТЕКСТ ==========
     try:
-        context = await asyncio.wait_for(
-            context_repo.get(user_id) or {},
-            timeout=5.0
-        )
+        context = await context_repo.get(user_id) or {}
+        profile = await user_repo.get_profile(user_id) or {}
         logger.info(f"📦 Context loaded for user {user_id}: {context.get('name', 'unknown')}")
-    except asyncio.TimeoutError:
-        logger.error(f"❌ Context load TIMEOUT for user {user_id}")
-        await websocket.close(code=1011, reason="Context load timeout")
-        return
     except Exception as e:
         logger.error(f"❌ Failed to load context: {e}")
-        await websocket.close(code=1011, reason=f"Context load failed: {str(e)[:100]}")
+        await websocket.close(code=1011, reason="Context load failed")
         return
     
-    try:
-        profile = await asyncio.wait_for(
-            user_repo.get_profile(user_id) or {},
-            timeout=5.0
-        )
-        logger.info(f"📊 Profile loaded for user {user_id}")
-    except asyncio.TimeoutError:
-        logger.error(f"❌ Profile load TIMEOUT for user {user_id}")
-        await websocket.close(code=1011, reason="Profile load timeout")
-        return
-    except Exception as e:
-        logger.error(f"❌ Failed to load profile: {e}")
-        await websocket.close(code=1011, reason=f"Profile load failed: {str(e)[:100]}")
-        return
-    
-    # ========== АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ РЕЖИМА ДЛЯ WEBSOCKET ==========
+    # ========== 4. ОПРЕДЕЛЯЕМ РЕЖИМ ==========
     has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
     
     if not has_profile:
         mode_name = "basic"
-        logger.info(f"🎭 User {user_id} has no profile in WebSocket, switching to BENADER mode")
+        logger.info(f"🎭 User {user_id} has no profile, switching to BASIC mode")
     else:
         mode_name = context.get("communication_mode", "psychologist")
-    # ========== КОНЕЦ ОПРЕДЕЛЕНИЯ ==========
     
     logger.info(f"🎭 Mode: {mode_name} for user {user_id}")
     
-    # 5. СОЗДАЕМ ОБЪЕКТ РЕЖИМА
+    # ========== 5. СОЗДАЕМ ОБЪЕКТ РЕЖИМА ==========
     user_data = {
         "profile_data": profile.get("profile_data", {}),
         "perception_type": profile.get("perception_type", "не определен"),
@@ -555,205 +532,223 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
         mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
         logger.info(f"✅ Mode instance created: {mode_instance.__class__.__name__}")
     except Exception as e:
-        logger.error(f"❌ Failed to create mode instance: {e}", exc_info=True)
-        await websocket.close(code=1011, reason=f"Mode creation failed: {str(e)[:100]}")
+        logger.error(f"❌ Failed to create mode instance: {e}")
+        await websocket.close(code=1011, reason="Mode creation failed")
         return
     
-    # 6. БУФЕР ДЛЯ АУДИО
+    # ========== 6. БУФЕР ДЛЯ АУДИО ==========
     audio_buffer = bytearray()
     chunk_count = 0
-    chunk_index_map = {}
+    vad = voice_service.create_vad(user_id) if voice_service else None
     
-    try:
-        vad = voice_service.create_vad(user_id)
-        logger.info(f"✅ VAD created for user {user_id}")
-    except Exception as e:
-        logger.warning(f"VAD creation failed: {e}")
-        vad = None
-    
-    # 7. ФОНОВАЯ ЗАДАЧА ДЛЯ SERVER PING (КРИТИЧЕСКИ ВАЖНО!)
-    async def send_server_ping():
-        """Фоновая задача для отправки ping от сервера"""
+    # ========== 7. HEARTBEAT ЗАДАЧА ==========
+    async def heartbeat_task():
+        """Отправка ping для поддержания соединения"""
         try:
             while True:
-                await asyncio.sleep(20)  # каждые 20 секунд
-                if websocket.client_state.name == "CONNECTED":
-                    await websocket.send_json({"type": "ping"})
+                await asyncio.sleep(25)
+                try:
+                    await websocket.send_json({"type": "ping", "timestamp": time.time()})
                     logger.debug(f"💓 Server ping sent to user {user_id}")
-        except Exception as e:
-            logger.debug(f"Server ping task ended for {user_id}: {e}")
+                except Exception:
+                    break
+        except asyncio.CancelledError:
+            pass
     
-    ping_task = asyncio.create_task(send_server_ping())
-    logger.info(f"✅ Server ping task started for user {user_id}")
+    heartbeat = asyncio.create_task(heartbeat_task())
     
-    # 8. ОСНОВНОЙ ЦИКЛ
+    # ========== 8. ОСНОВНОЙ ЦИКЛ ==========
     try:
         while True:
             try:
-                data = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
-                logger.debug(f"📨 Received message from {user_id}: type={data.get('type')}")
+                # Ждём сообщение с таймаутом
+                message = await asyncio.wait_for(websocket.receive(), timeout=30.0)
             except asyncio.TimeoutError:
-                logger.debug(f"⏱️ Receive timeout for user {user_id}, connection alive")
-                continue
+                # Отправляем heartbeat чтобы проверить соединение
+                try:
+                    await websocket.send_json({"type": "ping", "timestamp": time.time()})
+                    continue
+                except:
+                    break
             
-            msg_type = data.get("type")
-            
-            if msg_type == "audio_chunk":
-                chunk_base64 = data.get("data", "")
-                is_final = data.get("is_final", False)
-                chunk_index = data.get("chunk_index", chunk_count)
-                audio_format = data.get("format", "wav")
-                sample_rate = data.get("sample_rate", 16000)
+            # ========== ОБРАБОТКА БИНАРНЫХ СООБЩЕНИЙ (ПРЯМОЙ PCM) ==========
+            if message.get("type") == "websocket.receive":
+                if "bytes" in message:
+                    # Бинарное аудио - самый простой и надежный способ
+                    audio_chunk = message["bytes"]
+                    audio_buffer.extend(audio_chunk)
+                    chunk_count += 1
+                    
+                    logger.debug(f"📦 Binary chunk: {len(audio_chunk)} bytes, total: {len(audio_buffer)}")
+                    
+                    # Отправляем подтверждение
+                    await websocket.send_json({
+                        "type": "chunk_ack",
+                        "chunk_index": chunk_count,
+                        "timestamp": time.time()
+                    })
+                    
+                    # Если накопилось достаточно данных (≥ 1 секунда), отправляем на распознавание
+                    # 1 секунда при 16kHz, 16bit = 32000 байт
+                    if len(audio_buffer) >= 32000:
+                        await process_audio_buffer()
                 
-                logger.info(f"📦 CHUNK {chunk_index}: is_final={is_final}, format={audio_format}, size={len(chunk_base64)}")
-                
-                # ========== ОТПРАВЛЯЕМ ПОДТВЕРЖДЕНИЕ ==========
-                await websocket.send_json({
-                    "type": "chunk_ack",
-                    "chunk_index": chunk_index,
-                    "is_final": is_final,
-                    "timestamp": time.time()
-                })
-                logger.debug(f"✅ ACK sent for chunk {chunk_index}")
-                
-                if chunk_base64:
+                elif "text" in message:
+                    # JSON сообщение
                     try:
-                        chunk_data = base64.b64decode(chunk_base64)
-                        audio_buffer.extend(chunk_data)
-                        chunk_count += 1
-                        logger.debug(f"📦 Chunk {chunk_index}: {len(chunk_data)} bytes, total: {len(audio_buffer)}")
-                    except Exception as e:
-                        logger.error(f"Failed to decode chunk {chunk_index}: {e}")
-                        await websocket.send_json({"type": "error", "error": f"Decode failed: {str(e)}"})
-                
-                if is_final:
-                    logger.info(f"🎤 FINAL AUDIO RECEIVED! Total: {len(audio_buffer)} bytes from {chunk_count} chunks")
-                    
-                    if len(audio_buffer) < 1000:
-                        logger.warning(f"⚠️ Audio too short: {len(audio_buffer)} bytes, skipping")
-                        await websocket.send_json({"type": "error", "error": "Аудио слишком короткое"})
-                        audio_buffer = bytearray()
-                        chunk_count = 0
-                        continue
-                    
-                    await websocket.send_json({"type": "status", "status": "processing"})
-                    
-                    try:
-                        logger.info(f"📡 Sending to STT...")
+                        data = json.loads(message["text"])
+                        msg_type = data.get("type")
                         
-                        if audio_format == "pcm16":
-                            logger.info(f"🎤 Using PCM recognition with sample_rate={sample_rate}")
-                            recognized_text = await voice_service.speech_to_text_pcm(
-                                bytes(audio_buffer), sample_rate=sample_rate
-                            )
-                        else:
-                            logger.info(f"🎤 Using WAV recognition")
-                            recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "wav")
-                        
-                        logger.info(f"📝 STT result: '{recognized_text}'")
-                        
-                        if recognized_text and len(recognized_text.strip()) > 0:
+                        if msg_type == "audio_chunk":
+                            chunk_base64 = data.get("data", "")
+                            is_final = data.get("is_final", False)
+                            chunk_index = data.get("chunk_index", chunk_count)
+                            audio_format = data.get("format", "pcm16")
+                            sample_rate = data.get("sample_rate", 16000)
+                            
+                            logger.debug(f"📦 JSON chunk {chunk_index}: final={is_final}, format={audio_format}")
+                            
+                            # Отправляем подтверждение
                             await websocket.send_json({
-                                "type": "text",
-                                "data": f"🎤 Вы: {recognized_text}"
+                                "type": "chunk_ack",
+                                "chunk_index": chunk_index,
+                                "timestamp": time.time()
                             })
                             
-                            response_text = ""
-                            async for chunk in mode_instance.process_question_streaming(recognized_text):
-                                response_text += chunk
-                                await websocket.send_json({
-                                    "type": "text",
-                                    "data": f"🧠 Фреди: {chunk}"
-                                })
+                            if chunk_base64:
+                                try:
+                                    chunk_data = base64.b64decode(chunk_base64)
+                                    audio_buffer.extend(chunk_data)
+                                    chunk_count += 1
+                                except Exception as e:
+                                    logger.error(f"Decode error: {e}")
                             
-                            logger.info(f"💬 AI response length: {len(response_text)}")
-                            await websocket.send_json({"type": "status", "status": "speaking"})
-                            
-                            # TTS стриминг
-                            try:
-                                logger.info(f"🔊 Starting TTS stream...")
-                                async for audio_chunk in voice_service.text_to_speech_streaming(
-                                    response_text, mode_name, chunk_size=4096
-                                ):
-                                    if audio_chunk:
-                                        audio_base64_chunk = base64.b64encode(audio_chunk).decode()
-                                        await websocket.send_json({
-                                            "type": "audio",
-                                            "data": audio_base64_chunk,
-                                            "is_final": False
-                                        })
-                                        await asyncio.sleep(0.05)
-                                
-                                await websocket.send_json({
-                                    "type": "audio",
-                                    "data": "",
-                                    "is_final": True
-                                })
-                                logger.info(f"✅ TTS stream completed")
-                                
-                                await message_repo.save(user_id, "user", recognized_text, {"voice": True})
-                                await message_repo.save(user_id, "assistant", response_text, {"voice": True})
-                                
-                            except asyncio.CancelledError:
-                                logger.info(f"🛑 TTS cancelled")
-                                await websocket.send_json({"type": "status", "status": "cancelled"})
-                            except Exception as e:
-                                logger.error(f"❌ TTS error: {e}")
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "error": f"TTS error: {str(e)}"
-                                })
-                        else:
-                            logger.warning(f"⚠️ No text recognized")
+                            if is_final and len(audio_buffer) > 0:
+                                await process_audio_buffer()
+                        
+                        elif msg_type == "interrupt":
+                            logger.info(f"🛑 INTERRUPT from user {user_id}")
+                            audio_buffer = bytearray()
+                            chunk_count = 0
+                            await websocket.send_json({"type": "status", "status": "listening"})
+                        
+                        elif msg_type == "ping":
                             await websocket.send_json({
-                                "type": "error",
-                                "error": "Не удалось распознать речь"
+                                "type": "pong",
+                                "timestamp": data.get("timestamp", time.time())
                             })
-                    
-                    except Exception as e:
-                        logger.error(f"❌ Error processing audio: {e}", exc_info=True)
-                        await websocket.send_json({
-                            "type": "error",
-                            "error": f"Ошибка: {str(e)}"
-                        })
-                    
-                    audio_buffer = bytearray()
-                    chunk_count = 0
-                    await websocket.send_json({"type": "status", "status": "idle"})
-                    logger.info(f"✅ Processing completed, buffer cleared")
+                        
+                        elif msg_type == "heartbeat":
+                            await websocket.send_json({"type": "heartbeat_ack"})
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error: {e}")
+                        await websocket.send_json({"type": "error", "error": "Invalid JSON"})
             
-            elif msg_type == "interrupt":
-                logger.info(f"🛑 INTERRUPT from user {user_id}")
-                if user_id in voice_manager.speaking_tasks:
-                    voice_manager.speaking_tasks[user_id].cancel()
-                    del voice_manager.speaking_tasks[user_id]
-                await websocket.send_json({"type": "status", "status": "listening"})
-                audio_buffer = bytearray()
-                chunk_count = 0
-            
-            elif msg_type == "ping":
-                logger.debug(f"💓 Client ping received, sending pong")
-                await websocket.send_json({
-                    "type": "pong",
-                    "timestamp": data.get("timestamp", time.time())
-                })
-            
-            elif msg_type == "heartbeat":
-                await websocket.send_json({"type": "heartbeat_ack"})
-                logger.debug(f"💓 Heartbeat ack sent")
-            
-            else:
-                logger.debug(f"Unknown message type: {msg_type}")
+            elif message.get("type") == "websocket.disconnect":
+                logger.info(f"🔌 WebSocket disconnected for user {user_id}")
+                break
     
     except WebSocketDisconnect as e:
-        logger.info(f"🔌 WebSocket DISCONNECTED for user {user_id}: code={e.code}, reason={e.reason}")
+        logger.info(f"🔌 WebSocket disconnect for user {user_id}: code={e.code}")
     except Exception as e:
-        logger.error(f"❌ WebSocket error for user {user_id}: {type(e).__name__}: {e}")
+        logger.error(f"❌ WebSocket error: {type(e).__name__}: {e}")
         logger.error(traceback.format_exc())
     finally:
-        ping_task.cancel()
-        logger.info(f"🧹 Cleaning up for user {user_id}")
+        heartbeat.cancel()
         voice_manager.disconnect(user_id)
+        logger.info(f"🧹 Cleanup complete for user {user_id}")
+    
+    # ========== ВНУТРЕННЯЯ ФУНКЦИЯ ДЛЯ ОБРАБОТКИ АУДИО ==========
+    async def process_audio_buffer():
+        nonlocal audio_buffer, chunk_count
+        
+        if len(audio_buffer) < 1000:
+            logger.warning(f"⚠️ Audio too short: {len(audio_buffer)} bytes")
+            audio_buffer = bytearray()
+            chunk_count = 0
+            return
+        
+        logger.info(f"🎤 Processing audio: {len(audio_buffer)} bytes from {chunk_count} chunks")
+        
+        await websocket.send_json({"type": "status", "status": "processing"})
+        
+        try:
+            # Распознавание речи
+            recognized_text = await voice_service.speech_to_text_pcm(
+                bytes(audio_buffer), sample_rate=16000
+            )
+            
+            logger.info(f"📝 STT result: '{recognized_text}'")
+            
+            if recognized_text and len(recognized_text.strip()) > 0:
+                # Отправляем распознанный текст
+                await websocket.send_json({
+                    "type": "text",
+                    "data": f"🎤 Вы: {recognized_text}"
+                })
+                
+                # Генерируем ответ через ИИ
+                response_text = ""
+                async for chunk in mode_instance.process_question_streaming(recognized_text):
+                    response_text += chunk
+                    await websocket.send_json({
+                        "type": "text",
+                        "data": f"🧠 Фреди: {chunk}"
+                    })
+                
+                logger.info(f"💬 AI response: {len(response_text)} chars")
+                await websocket.send_json({"type": "status", "status": "speaking"})
+                
+                # Синтез речи
+                try:
+                    async for audio_chunk in voice_service.text_to_speech_streaming(
+                        response_text, mode_name, chunk_size=4096
+                    ):
+                        if audio_chunk:
+                            audio_base64 = base64.b64encode(audio_chunk).decode()
+                            await websocket.send_json({
+                                "type": "audio",
+                                "data": audio_base64,
+                                "is_final": False
+                            })
+                            await asyncio.sleep(0.05)
+                    
+                    await websocket.send_json({
+                        "type": "audio",
+                        "data": "",
+                        "is_final": True
+                    })
+                    logger.info(f"✅ TTS complete")
+                    
+                    # Сохраняем в БД
+                    await message_repo.save(user_id, "user", recognized_text, {"voice": True})
+                    await message_repo.save(user_id, "assistant", response_text, {"voice": True})
+                    
+                except Exception as e:
+                    logger.error(f"TTS error: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": f"TTS error: {str(e)}"
+                    })
+            
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "Не удалось распознать речь"
+                })
+        
+        except Exception as e:
+            logger.error(f"Processing error: {e}", exc_info=True)
+            await websocket.send_json({
+                "type": "error",
+                "error": f"Ошибка: {str(e)}"
+            })
+        
+        # Очищаем буфер
+        audio_buffer = bytearray()
+        chunk_count = 0
+        await websocket.send_json({"type": "status", "status": "idle"})
                     
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
