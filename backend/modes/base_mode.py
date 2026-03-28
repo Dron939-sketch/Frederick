@@ -16,7 +16,7 @@ import asyncio
 
 # Импорты для новой структуры
 from confinement import ConfinementModel9
-from hypno import HypnoOrchestrator, TherapeuticTales
+from hypno import HypnoOrchestrator, TherapeuticTales, Anchoring
 from profiles import VECTORS, LEVEL_PROFILES, DILTS_LEVELS
 
 logger = logging.getLogger(__name__)
