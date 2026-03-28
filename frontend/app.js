@@ -546,8 +546,8 @@ class VoiceButtonHandler {
             type: 'audio_chunk',
             data: chunk,
             is_final: isFinal,
-            format: 'pcm16',      // Явно указываем формат PCM!
-            sample_rate: 16000,   // Частота дискретизации
+            format: 'pcm16',
+            sample_rate: 16000,
             chunk_index: chunkIndex
         }));
         
@@ -559,7 +559,9 @@ class VoiceButtonHandler {
     }
     
     console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} PCM chunks sent`);
-}
+} 
+
+}  
 
 // ============================================
 // API ВЫЗОВЫ
