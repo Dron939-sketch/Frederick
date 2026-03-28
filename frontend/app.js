@@ -787,6 +787,7 @@ sendViaHTTPWithBlob(audioBlob) {
         showToast('❌ Ошибка соединения', 'error');
     });
 }
+}
 // ========== API ВЫЗОВЫ ==========
 
 async function apiCall(endpoint, options = {}) {
