@@ -56,7 +56,7 @@ from repositories.context_repo import ContextRepository
 from repositories.message_repo import MessageRepository
 
 # Конфайнтмент-модель (из папки confinement)
-from confinement.confinement_model import ConfinementModel9
+from confinement.confinement_model import ConfinementModel
 from confinement.loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
 from confinement.key_confinement import KeyConfinementDetector
 from confinement.intervention_library import InterventionLibrary
@@ -1037,7 +1037,7 @@ async def chat(request: Request, data: ChatRequest):
         if user_data.get("confinement_model"):
             try:
                 analyzer = QuestionContextAnalyzer(
-                    ConfinementModel9.from_dict(user_data["confinement_model"]),
+                    ConfinementModel.from_dict(user_data["confinement_model"]),
                     simple_context.name or "друг"
                 )
                 reflection = analyzer.get_reflection_text(data.message)
@@ -1508,7 +1508,7 @@ async def get_confinement_model(user_id: int):
                 levels = behavioral_levels.get(vector, [])
                 scores[vector] = sum(levels) / len(levels) if levels else 3.0
             
-            model = ConfinementModel9(user_id)
+            model = ConfinementModel(user_id)
             model.build_from_profile(scores, profile.get('history', []))
             model_data = model.to_dict()
         
@@ -1540,11 +1540,11 @@ async def get_confinement_loops(user_id: int):
                 levels = behavioral_levels.get(vector, [])
                 scores[vector] = sum(levels) / len(levels) if levels else 3.0
             
-            model = ConfinementModel9(user_id)
+            model = ConfinementModel(user_id)
             model.build_from_profile(scores, profile.get('history', []))
             model_data = model.to_dict()
         
-        model = ConfinementModel9.from_dict(model_data)
+        model = ConfinementModel.from_dict(model_data)
         analyzer = LoopAnalyzer(model)
         loops = analyzer.analyze()
         
@@ -1572,11 +1572,11 @@ async def get_key_confinement(user_id: int):
                 levels = behavioral_levels.get(vector, [])
                 scores[vector] = sum(levels) / len(levels) if levels else 3.0
             
-            model = ConfinementModel9(user_id)
+            model = ConfinementModel(user_id)
             model.build_from_profile(scores, profile.get('history', []))
             model_data = model.to_dict()
         
-        model = ConfinementModel9.from_dict(model_data)
+        model = ConfinementModel.from_dict(model_data)
         analyzer = LoopAnalyzer(model)
         loops = analyzer.analyze()
         detector = KeyConfinementDetector(model, loops)
@@ -1610,7 +1610,7 @@ async def get_confinement_statistics(user_id: int):
                 }
             }
         
-        model = ConfinementModel9.from_dict(model_data)
+        model = ConfinementModel.from_dict(model_data)
         analyzer = LoopAnalyzer(model)
         stats = analyzer.get_statistics() if hasattr(analyzer, 'get_statistics') else {}
         
@@ -1630,7 +1630,7 @@ async def get_intervention(element_id: int, user_id: int):
         if not model_data:
             return {"success": False, "error": "Модель не построена"}
         
-        model = ConfinementModel9.from_dict(model_data)
+        model = ConfinementModel.from_dict(model_data)
         element = model.elements.get(element_id)
         
         if not element:
