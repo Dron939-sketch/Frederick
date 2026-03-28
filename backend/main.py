@@ -56,7 +56,7 @@ from repositories.context_repo import ContextRepository
 from repositories.message_repo import MessageRepository
 
 # Конфайнтмент-модель (из папки confinement)
-from confinement.confinement_model import ConfinementModel
+from confinement.confinement_model import ConfinementModel9 as ConfinementModel
 from confinement.loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
 from confinement.key_confinement import KeyConfinementDetector
 from confinement.intervention_library import InterventionLibrary
