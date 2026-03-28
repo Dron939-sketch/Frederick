@@ -32,17 +32,16 @@ class PsychologistMode(BaseMode):
         super().__init__(user_id, user_data, context)
         
         # Инструменты психолога
-        self.tools = {
-            "pattern_recognition": self._recognize_patterns,
-            "defense_analysis": self._analyze_defense,
-            "attachment_work": self._explore_attachment,
-            "attachment_work": self._work_with_attachment,
-            "interpretation": self._provide_interpretation,
-            "reflection": self._reflect_feelings,
-            "confrontation": self._gentle_confrontation,
-            "metaphor": self._create_therapeutic_metaphor,
-            "hypnotic_suggestion": self._hypnotic_suggestion
-        }
+    self.tools = {
+        "pattern_recognition": self._recognize_patterns,
+        "defense_analysis": self._analyze_defense,
+        "attachment_work": self._explore_attachment,  # <-- ИСПРАВЛЕНО
+        "interpretation": self._provide_interpretation,
+        "reflection": self._reflect_feelings,
+        "confrontation": self._gentle_confrontation,
+        "metaphor": self._create_therapeutic_metaphor,
+        "hypnotic_suggestion": self._hypnotic_suggestion
+    }
         
         # Извлекаем глубинные паттерны из этапа 5
         self.attachment_type = self.deep_patterns.get('attachment', 'неопределенный')
