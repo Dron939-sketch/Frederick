@@ -247,18 +247,20 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         "Content-Type": content_type
     }
     
+    # ========== ИСПРАВЛЕННЫЕ ПАРАМЕТРЫ ==========
     params = {
-        "model": "nova-2",
-        "language": "ru",
+        "model": "nova-2-multilingual",  # ← Мультиязычная модель!
+        "language": "ru",                 # ← Явно указываем русский
         "punctuate": "true",
-        "diarize": "false",
-        "smart_format": "true"
+        "smart_format": "true",
+        "detect_language": "false"        # ← Отключаем автоопределение
     }
+    # ========== КОНЕЦ ИСПРАВЛЕНИЙ ==========
     
     try:
         client = await get_http_client()
         
-        logger.info(f"📡 Отправка запроса в DeepGram...")
+        logger.info(f"📡 Отправка запроса в DeepGram (model=nova-2-multilingual, language=ru)...")
         
         response = await client.post(
             DEEPGRAM_API_URL,
@@ -574,16 +576,23 @@ class VoiceService:
             logger.error("❌ DEEPGRAM_API_KEY не настроен")
             return None
         
+        # ========== ПРОВЕРКА МИНИМАЛЬНОЙ ДЛИНЫ ==========
+        MIN_AUDIO_BYTES = 16000  # 0.5 секунды при 16kHz
+        if len(pcm_bytes) < MIN_AUDIO_BYTES:
+            logger.warning(f"⚠️ Аудио слишком короткое: {len(pcm_bytes)} байт, нужно минимум {MIN_AUDIO_BYTES}")
+            return None
+        # ========== КОНЕЦ ПРОВЕРКИ ==========
+        
         # Проверяем громкость
         try:
-            import numpy as np
             audio_array = np.frombuffer(pcm_bytes, dtype=np.int16)
             max_amp = np.max(np.abs(audio_array))
             avg_amp = np.mean(np.abs(audio_array))
             logger.info(f"🔊 Анализ PCM: max={max_amp}, avg={avg_amp:.2f}")
             
-            if max_amp < 500:
-                logger.warning(f"⚠️ Аудио слишком тихое (max={max_amp}), речь может не распознаться")
+            if max_amp < 800:
+                logger.warning(f"⚠️ Аудио слишком тихое (max={max_amp}), речь не распознается")
+                return None
             else:
                 logger.info(f"✅ Аудио нормальной громкости (max={max_amp})")
         except Exception as e:
@@ -594,9 +603,10 @@ class VoiceService:
             "Content-Type": "application/octet-stream",
         }
         
+        # ========== ИСПРАВЛЕННЫЕ ПАРАМЕТРЫ ==========
         params = {
-            "model": "nova-2",
-            "language": "ru",
+            "model": "nova-2-multilingual",  # ← Мультиязычная модель!
+            "language": "ru",                 # ← Явно указываем русский
             "encoding": "linear16",
             "sample_rate": sample_rate,
             "channels": 1,
@@ -604,12 +614,14 @@ class VoiceService:
             "smart_format": "true",
             "interim_results": "false",
             "vad_events": "false",
+            "detect_language": "false"        # ← Отключаем автоопределение!
         }
+        # ========== КОНЕЦ ИСПРАВЛЕНИЙ ==========
         
         try:
             client = await get_http_client()
             
-            logger.info(f"📡 Отправка PCM в DeepGram (encoding=linear16, sample_rate={sample_rate})...")
+            logger.info(f"📡 Отправка PCM в DeepGram (model=nova-2-multilingual, language=ru)...")
             
             response = await client.post(
                 DEEPGRAM_API_URL,
