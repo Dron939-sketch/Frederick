@@ -1229,8 +1229,18 @@ async def chat(request: Request, data: ChatRequest):
         context_obj = await context_repo.get(data.user_id) or {}
         profile = await user_repo.get_profile(data.user_id) or {}
         
-        # Получаем режим
-        mode_name = context_obj.get("communication_mode", data.mode)
+        # ========== АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ РЕЖИМА ==========
+        # Проверяем, прошел ли пользователь тест
+        has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
+        
+        if not has_profile:
+            # Если нет профиля — включаем режим БЕНДЕРА (BasicMode)
+            mode_name = "basic"
+            logger.info(f"🎭 User {data.user_id} has no profile, switching to BENADER mode")
+        else:
+            # Если есть профиль — используем выбранный режим
+            mode_name = context_obj.get("communication_mode", data.mode)
+        # ========== КОНЕЦ ОПРЕДЕЛЕНИЯ ==========
         
         # Создаем объект режима
         user_data = {
@@ -1259,10 +1269,12 @@ async def chat(request: Request, data: ChatRequest):
         # Получаем режим и обрабатываем вопрос
         mode_instance = get_mode(mode_name, data.user_id, user_data, simple_context)
         
-        # Если есть анализатор вопросов, используем его
+        # Если есть анализатор вопросов, используем его (только для пользователей с профилем)
         reflection = None
-        if user_data.get("confinement_model"):
+        if has_profile and user_data.get("confinement_model"):
             try:
+                from confinement.confinement_model import ConfinementModel9 as ConfinementModel
+                from confinement.question_analyzer import QuestionContextAnalyzer
                 analyzer = QuestionContextAnalyzer(
                     ConfinementModel.from_dict(user_data["confinement_model"]),
                     simple_context.name or "друг"
@@ -1281,7 +1293,8 @@ async def chat(request: Request, data: ChatRequest):
         await log_event(data.user_id, "chat", {
             "mode": mode_name,
             "message_length": len(data.message),
-            "tools_used": result.get("tools_used", [])
+            "tools_used": result.get("tools_used", []),
+            "has_profile": has_profile
         })
         
         return {
@@ -1338,8 +1351,18 @@ async def process_voice(
         context_obj = await context_repo.get(user_id) or {}
         profile = await user_repo.get_profile(user_id) or {}
         
-        # Получаем режим
-        mode_name = context_obj.get("communication_mode", mode)
+        # ========== АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ РЕЖИМА ==========
+        # Проверяем, прошел ли пользователь тест
+        has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
+        
+        if not has_profile:
+            # Если нет профиля — включаем режим БЕНДЕРА (BasicMode)
+            mode_name = "basic"
+            logger.info(f"🎭 User {user_id} has no profile in voice, switching to BENADER mode")
+        else:
+            # Если есть профиль — используем выбранный режим
+            mode_name = context_obj.get("communication_mode", mode)
+        # ========== КОНЕЦ ОПРЕДЕЛЕНИЯ ==========
         
         # Создаем объект режима
         user_data = {
@@ -1374,7 +1397,11 @@ async def process_voice(
         await message_repo.save(user_id, "user", recognized_text, {"voice": True})
         await message_repo.save(user_id, "assistant", response, {"voice": True})
         
-        await log_event(user_id, "voice", {"text_length": len(recognized_text)})
+        await log_event(user_id, "voice", {
+            "text_length": len(recognized_text),
+            "mode": mode_name,
+            "has_profile": has_profile
+        })
         
         return {
             "success": True,
