@@ -127,7 +127,6 @@ class VoiceConnectionManager:
         self.speaking_tasks: Dict[int, asyncio.Task] = {}
     
     async def connect(self, user_id: int, websocket: WebSocket):
-        await websocket.accept()
         self.active_connections[user_id] = websocket
         logger.info(f"🔊 Voice WS connected for user {user_id}")
     
