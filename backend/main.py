@@ -373,7 +373,7 @@ app = FastAPI(
     websocket_ping_interval=15,   
     websocket_ping_timeout=30,
     # ДОБАВЬТЕ ЭТИ ПАРАМЕТРЫ:
-    websocket_max_size=10 * 1024 * 1024  # 10 MB максимум
+    websocket_max_size=50 * 1024 * 1024,  # 50 MB
 )
 
 # ========== CORS НАСТРОЙКА - ДОЛЖНА БЫТЬ ПЕРВОЙ И ПРАВИЛЬНОЙ ==========
