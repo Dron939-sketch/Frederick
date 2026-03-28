@@ -1,23 +1,22 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Voice Service - сервис для работы с голосом
-Использует Edge TTS (бесплатно) и SpeechRecognition
-Поддержка потокового распознавания и синтеза для живого диалога
+Поддержка Yandex TTS и потоковой обработки
 """
 
 import logging
 import base64
 import asyncio
 import os
-import io
 import tempfile
 import time
 import traceback
 from typing import Optional, Dict, Any, AsyncGenerator, Callable
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-import edge_tts
-import speech_recognition as sr
+import aiohttp
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +24,65 @@ logger = logging.getLogger(__name__)
 # КОНФИГУРАЦИЯ
 # ============================================
 
+# Yandex TTS
+YANDEX_TTS_API_KEY = os.getenv("YANDEX_TTS_API_KEY", "")
+YANDEX_TTS_API_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
+
 # VAD настройки
-VAD_MODE = int(os.getenv("VAD_MODE", "3"))  # 0-3, 3 - самая агрессивная
+VAD_MODE = int(os.getenv("VAD_MODE", "3"))
 VAD_SAMPLE_RATE = 16000
 
-# Edge TTS настройки
-EDGE_TTS_VOICES = {
-    "psychologist": "ru-RU-DariyaNeural",     # спокойный женский
-    "coach": "ru-RU-DmitryNeural",            # энергичный мужской
-    "trainer": "ru-RU-SvetlanaNeural",        # бодрый женский
-    "default": "ru-RU-DariyaNeural"
+# Голоса Yandex TTS
+YANDEX_VOICES = {
+    "psychologist": "alena",      # женский, спокойный, мягкий
+    "coach": "filipp",            # мужской, энергичный, вдохновляющий
+    "trainer": "oksana",          # женский, бодрый, мотивирующий
+    "default": "alena"
 }
+
+# ============================================
+# ГЛОБАЛЬНЫЙ HTTP КЛИЕНТ
+# ============================================
+
+_http_client = None
+_client_lock = asyncio.Lock()
+
+async def get_http_client():
+    """Возвращает глобальный HTTPX клиент"""
+    global _http_client
+    
+    if _http_client is None:
+        async with _client_lock:
+            if _http_client is None:
+                limits = httpx.Limits(
+                    max_keepalive_connections=10,
+                    max_connections=50,
+                    keepalive_expiry=30
+                )
+                timeouts = httpx.Timeout(
+                    connect=30.0,
+                    read=60.0,
+                    write=30.0,
+                    pool=None
+                )
+                _http_client = httpx.AsyncClient(
+                    limits=limits,
+                    timeout=timeouts,
+                    follow_redirects=True
+                )
+                logger.info("✅ Глобальный HTTPX клиент создан")
+    
+    return _http_client
+
+
+async def close_http_client():
+    """Закрывает глобальный HTTPX клиент"""
+    global _http_client
+    if _http_client:
+        await _http_client.aclose()
+        _http_client = None
+        logger.info("🔒 HTTPX клиент закрыт")
+
 
 # ============================================
 # VAD - Voice Activity Detection
@@ -57,10 +104,8 @@ class VADDetector:
         self.speech_trigger_frames = 3
         self.silence_trigger_frames = 10
         
-        # Энергетический порог
         self.energy_threshold = 0.01
         
-        # WebRTC VAD если доступен
         self.vad = None
         self.has_vad = False
         try:
@@ -92,7 +137,6 @@ class VADDetector:
         if not self.has_vad:
             return self._is_speech_energy(audio_chunk)
         
-        # Проверяем длину
         if len(audio_chunk) != self.frame_size * 2:
             return self._is_speech_energy(audio_chunk)
         
@@ -141,21 +185,19 @@ class VADDetector:
 # ============================================
 
 async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Optional[str]:
-    """
-    Распознает речь из аудио через SpeechRecognition (Google или Sphinx)
-    """
+    """Распознает речь из аудио через SpeechRecognition (Google)"""
     logger.info(f"🎤 Распознавание речи, формат: {audio_format}, размер: {len(audio_bytes)} байт")
     
     if len(audio_bytes) < 1000:
         logger.warning(f"⚠️ Аудио слишком короткое: {len(audio_bytes)} байт")
         return None
     
+    import speech_recognition as sr
+    from pydub import AudioSegment
+    
     recognizer = sr.Recognizer()
     
-    # Конвертируем в WAV для SpeechRecognition
     try:
-        from pydub import AudioSegment
-        
         # Сохраняем во временный файл
         with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as tmp:
             tmp.write(audio_bytes)
@@ -188,17 +230,16 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         return None
     except Exception as e:
         logger.error(f"❌ Ошибка распознавания: {e}")
-        logger.error(traceback.format_exc())
         return None
 
 
 # ============================================
-# TTS - Text-to-Speech (Edge TTS - бесплатно)
+# TTS - Text-to-Speech (Yandex)
 # ============================================
 
 async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
     """
-    Преобразует текст в речь через Edge TTS (бесплатно, без API ключей)
+    Преобразует текст в речь через Yandex TTS
     
     Args:
         text: текст для озвучивания
@@ -207,126 +248,62 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
     Returns:
         байты аудиофайла (MP3) или None
     """
-    logger.info(f"🎤 Синтез речи (Edge TTS), режим: {mode}, текст: {text[:100]}...")
+    logger.info(f"🎤 Синтез речи (Yandex TTS), режим: {mode}, текст: {text[:100]}...")
     
-    voice = EDGE_TTS_VOICES.get(mode, EDGE_TTS_VOICES["default"])
+    if not YANDEX_TTS_API_KEY:
+        logger.error("❌ YANDEX_TTS_API_KEY не настроен")
+        logger.info("💡 Добавьте YANDEX_TTS_API_KEY в переменные окружения Render")
+        return None
+    
+    voice = YANDEX_VOICES.get(mode, YANDEX_VOICES["default"])
     logger.info(f"🗣️ Выбран голос: {voice}")
     
     # Ограничиваем длину текста
     if len(text) > 5000:
-        text = text[:5000] + "..."
+        text = text[:5000]
+        logger.warning(f"⚠️ Текст обрезан до 5000 символов")
+    
+    headers = {
+        "Authorization": f"Api-Key {YANDEX_TTS_API_KEY}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    
+    data = {
+        "text": text,
+        "lang": "ru-RU",
+        "voice": voice,
+        "emotion": "neutral",
+        "speed": 1.0,
+        "format": "mp3"
+    }
     
     try:
-        # Создаем временный файл
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            output_file = tmp.name
+        client = await get_http_client()
         
-        # Синтезируем речь
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(output_file)
+        logger.info(f"📡 Отправка запроса в Yandex TTS...")
         
-        # Читаем файл
-        with open(output_file, "rb") as f:
-            audio_data = f.read()
+        response = await client.post(
+            YANDEX_TTS_API_URL,
+            headers=headers,
+            data=data,
+            timeout=30.0
+        )
         
-        # Удаляем временный файл
-        os.unlink(output_file)
-        
-        logger.info(f"✅ Речь синтезирована: {len(audio_data)} байт, формат: MP3")
-        return audio_data
-        
+        if response.status_code == 200:
+            audio_data = response.content
+            logger.info(f"✅ Речь синтезирована: {len(audio_data)} байт, формат: MP3, голос: {voice}")
+            return audio_data
+        else:
+            logger.error(f"❌ Yandex TTS error {response.status_code}: {response.text[:200]}")
+            return None
+            
+    except httpx.TimeoutException:
+        logger.error("❌ Таймаут Yandex TTS")
+        return None
     except Exception as e:
         logger.error(f"❌ Ошибка синтеза речи: {e}")
         logger.error(traceback.format_exc())
         return None
-
-
-# ============================================
-# ПОТОКОВОЕ РАСПОЗНАВАНИЕ
-# ============================================
-
-async def speech_to_text_streaming(
-    audio_stream: AsyncGenerator[bytes, None],
-    sample_rate: int = 16000,
-    on_transcript: Optional[Callable] = None,
-    on_speech_start: Optional[Callable] = None,
-    on_speech_end: Optional[Callable] = None,
-    interim_results: bool = False
-) -> AsyncGenerator[Dict[str, Any], None]:
-    """
-    ПОТОКОВОЕ распознавание речи с VAD
-    """
-    vad = VADDetector(sample_rate, VAD_MODE)
-    audio_buffer = bytearray()
-    current_utterance = []
-    is_collecting = False
-    
-    logger.info("🎤 Запуск потокового распознавания речи")
-    
-    async for chunk in audio_stream:
-        if not chunk:
-            continue
-        
-        vad_result = vad.process_chunk(chunk)
-        
-        if vad_result["speech_started"]:
-            logger.info("🗣️ Речь началась")
-            if on_speech_start:
-                await on_speech_start()
-            is_collecting = True
-            audio_buffer.clear()
-            current_utterance.clear()
-        
-        if is_collecting:
-            audio_buffer.extend(chunk)
-        
-        if vad_result["speech_ended"] and len(audio_buffer) > 0:
-            logger.info(f"🔇 Речь закончилась, собрано {len(audio_buffer)} байт")
-            
-            try:
-                recognized = await speech_to_text(bytes(audio_buffer), "wav")
-                
-                if recognized and recognized.strip():
-                    logger.info(f"📝 Распознано: {recognized}")
-                    current_utterance.append(recognized)
-                    full_text = " ".join(current_utterance)
-                    
-                    if on_transcript:
-                        await on_transcript(recognized, True)
-                    
-                    if on_speech_end:
-                        await on_speech_end(full_text)
-                    
-                    yield {
-                        "type": "utterance",
-                        "text": full_text,
-                        "is_final": True,
-                        "segments": current_utterance.copy()
-                    }
-                else:
-                    logger.warning("⚠️ Речь не распознана")
-                    yield {
-                        "type": "error",
-                        "error": "Речь не распознана"
-                    }
-            
-            except Exception as e:
-                logger.error(f"Ошибка распознавания: {e}")
-                yield {
-                    "type": "error",
-                    "error": str(e)
-                }
-            
-            audio_buffer.clear()
-            is_collecting = False
-            vad.reset()
-        
-        yield {
-            "type": "vad_state",
-            **vad_result
-        }
-    
-    logger.info("🎤 Потоковое распознавание завершено")
 
 
 # ============================================
@@ -364,18 +341,22 @@ async def text_to_speech_streaming(
 # ============================================
 
 class VoiceService:
-    """Сервис для работы с голосом с поддержкой потоковой обработки"""
+    """Сервис для работы с голосом с поддержкой Yandex TTS"""
     
     def __init__(self):
         self._vad_cache = {}
+        self.yandex_key = YANDEX_TTS_API_KEY
         
         logger.info("VoiceService инициализирован")
-        logger.info(f"  TTS: Edge TTS (бесплатно)")
+        logger.info(f"  TTS: Yandex TTS {'✅' if self.yandex_key else '❌'}")
         logger.info(f"  STT: Google Speech Recognition")
         logger.info(f"  VAD Mode: {VAD_MODE}")
+        
+        if not self.yandex_key:
+            logger.warning("⚠️ YANDEX_TTS_API_KEY не настроен! Голос не будет работать.")
     
     async def speech_to_text(self, audio_bytes: bytes, audio_format: str = "webm") -> Optional[str]:
-        """Распознавание речи (не потоковое)"""
+        """Распознавание речи"""
         return await speech_to_text(audio_bytes, audio_format)
     
     async def text_to_speech(self, text: str, mode: str = "psychologist") -> Optional[str]:
@@ -390,23 +371,6 @@ class VoiceService:
     async def text_to_speech_bytes(self, text: str, mode: str = "psychologist") -> Optional[bytes]:
         """Синтез речи, возвращает байты аудио"""
         return await text_to_speech(text, mode)
-    
-    async def speech_to_text_streaming(
-        self,
-        audio_stream: AsyncGenerator[bytes, None],
-        sample_rate: int = 16000,
-        on_transcript: Optional[Callable] = None,
-        on_speech_start: Optional[Callable] = None,
-        on_speech_end: Optional[Callable] = None,
-        interim_results: bool = False
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Потоковое распознавание речи с VAD"""
-        async for result in speech_to_text_streaming(
-            audio_stream, sample_rate,
-            on_transcript, on_speech_start, on_speech_end,
-            interim_results
-        ):
-            yield result
     
     async def text_to_speech_streaming(
         self,
@@ -446,6 +410,7 @@ class VoiceService:
     
     async def close(self):
         """Закрыть соединения"""
+        await close_http_client()
         self.clear_vad_cache()
         logger.info("VoiceService закрыт")
 
