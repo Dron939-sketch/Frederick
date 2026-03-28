@@ -35,6 +35,7 @@ class PsychologistMode(BaseMode):
         self.tools = {
             "pattern_recognition": self._recognize_patterns,
             "defense_analysis": self._analyze_defense,
+            "attachment_work": self._explore_attachment,
             "attachment_work": self._work_with_attachment,
             "interpretation": self._provide_interpretation,
             "reflection": self._reflect_feelings,
