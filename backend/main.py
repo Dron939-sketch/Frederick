@@ -370,7 +370,9 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
-    lifespan=lifespan
+    lifespan=lifespan,
+    websocket_ping_interval=20,   # отправлять ping каждые 20 секунд
+    websocket_ping_timeout=10     # ждать pong 10 секунд
 )
 
 # Rate limiting
