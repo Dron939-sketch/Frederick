@@ -516,7 +516,16 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
         await websocket.close(code=1011, reason=f"Profile load failed: {str(e)[:100]}")
         return
     
-    mode_name = context.get("communication_mode", "psychologist")
+    # ========== АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ РЕЖИМА ДЛЯ WEBSOCKET ==========
+    has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
+    
+    if not has_profile:
+        mode_name = "basic"
+        logger.info(f"🎭 User {user_id} has no profile in WebSocket, switching to BENADER mode")
+    else:
+        mode_name = context.get("communication_mode", "psychologist")
+    # ========== КОНЕЦ ОПРЕДЕЛЕНИЯ ==========
+    
     logger.info(f"🎭 Mode: {mode_name} for user {user_id}")
     
     # 5. СОЗДАЕМ ОБЪЕКТ РЕЖИМА
