@@ -542,11 +542,35 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                         # await save_audio_debug(bytes(audio_buffer), f"voice_{user_id}")
                         
                         # Распознаем речь
-                        recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
-                        logger.info(f"📝 Recognized: {recognized_text}")
-                        
-                        if recognized_text:
-                            await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
+                        # Пробуем конвертировать WebM в WAV для лучшей совместимости
+                        try:
+                            from pydub import AudioSegment
+                            import io
+                            
+                            # Конвертируем WebM в WAV
+                            webm_bytes = bytes(audio_buffer)
+                            webm_io = io.BytesIO(webm_bytes)
+                            audio = AudioSegment.from_file(webm_io, format="webm")
+                            
+                            # Приводим к формату, который лучше всего понимает DeepGram
+                            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+                            
+                            wav_io = io.BytesIO()
+                            audio.export(wav_io, format="wav")
+                            wav_io.seek(0)
+                            wav_bytes = wav_io.read()
+                            
+                            logger.info(f"🎵 Converted WebM ({len(webm_bytes)} bytes) to WAV ({len(wav_bytes)} bytes)")
+                            
+                            # Отправляем в DeepGram как WAV
+                            recognized_text = await voice_service.speech_to_text(wav_bytes, "wav")
+                            logger.info(f"📝 Recognized from WAV: {recognized_text}")
+                            
+                        except Exception as e:
+                            # Если конвертация не удалась, пробуем отправить оригинальный WebM
+                            logger.warning(f"⚠️ WebM to WAV conversion failed: {e}, falling back to WebM")
+                            recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
+                            logger.info(f"📝 Recognized from WebM: {recognized_text}")
                             
                             # Получаем ответ от ИИ через потоковый метод
                             response_text = ""
