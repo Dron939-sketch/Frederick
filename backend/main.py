@@ -394,7 +394,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
-    allow_websocket=True
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
