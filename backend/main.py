@@ -379,23 +379,25 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Middleware
+# ========== CORS НАСТРОЙКА (ДОЛЖНА БЫТЬ ПЕРВОЙ!) ==========
+# Важно: middleware добавляются в начало списка, поэтому CORS должен быть первым
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://fredi-frontend.onrender.com",      # фронтенд
+        "https://fredi-frontend.onrender.com",  # ← ОБЯЗАТЕЛЬНО с https://
         "https://fredi-app.onrender.com",
-        "https://fredi-backend-flz2.onrender.com",  # бэкенд (сам себя)
+        "https://fredi-backend-flz2.onrender.com",
         "http://localhost:3000",
         "http://localhost:8000",
         "http://localhost:10000"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # ← OPTIONS обязательно
     allow_headers=["*"],
     expose_headers=["*"],
 )
 
+# Другие middleware (добавляются после CORS)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
