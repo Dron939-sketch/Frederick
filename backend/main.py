@@ -371,8 +371,8 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
     lifespan=lifespan,
-    websocket_ping_interval=20,
-    websocket_ping_timeout=10,
+    websocket_ping_interval=15,   
+    websocket_ping_timeout=30,
     # ДОБАВЬТЕ ЭТИ ПАРАМЕТРЫ:
     websocket_max_size=10 * 1024 * 1024  # 10 MB максимум
 )
