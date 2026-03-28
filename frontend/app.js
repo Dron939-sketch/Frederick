@@ -521,7 +521,7 @@ class VoiceButtonHandler {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
-                sampleRate: 16000,      // 16kHz для WAV
+                sampleRate: 8000,   // 8kHz вместо 16kHz
                 channelCount: 1          // моно
             }
         });
@@ -581,7 +581,7 @@ class VoiceButtonHandler {
             if (this.isRecording) {
                 this.stopRecording();
             }
-        }, 60000);
+        }, 30000);
         
         showToast('🎙️ Говорите... Отпустите для отправки', 'info');
         
