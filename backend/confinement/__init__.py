@@ -1,4 +1,4 @@
-from .confinement_model import ConfinementModel9
+from .confinement_model import ConfinementModel
 from .loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
 from .key_confinement import KeyConfinementDetector
 from .intervention_library import InterventionLibrary
