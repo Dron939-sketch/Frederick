@@ -570,6 +570,8 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
             if data.get("type") == "audio_chunk":
                 chunk_base64 = data.get("data", "")
                 is_final = data.get("is_final", False)
+                audio_format = data.get("format", "wav")  # ← ДОБАВИТЬ
+                sample_rate = data.get("sample_rate", 16000)
                 
                 logger.debug(f"📦 AUDIO CHUNK: is_final={is_final}, data_len={len(chunk_base64)}")
                 
