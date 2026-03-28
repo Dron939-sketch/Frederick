@@ -372,7 +372,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
     lifespan=lifespan,
     websocket_ping_interval=20,
-    websocket_ping_timeout=10
+    websocket_ping_timeout=10,
+    # ДОБАВЬТЕ ЭТИ ПАРАМЕТРЫ:
+    websocket_max_size=10 * 1024 * 1024  # 10 MB максимум
 )
 
 # ========== CORS НАСТРОЙКА - ДОЛЖНА БЫТЬ ПЕРВОЙ И ПРАВИЛЬНОЙ ==========
