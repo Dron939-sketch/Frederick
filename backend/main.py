@@ -459,11 +459,10 @@ async def log_requests(request: Request, call_next):
 async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     """
     WebSocket эндпоинт для живого голосового диалога
-    Оптимизирован на основе практик Telegram Web и FastAPI
     """
     logger.info(f"🔌🔌🔌 WEBSOCKET START for user {user_id} 🔌🔌🔌")
     
-    # ✅ Критически важно: сразу accept, не задерживать (Telegram подход)
+    # ✅ Критически важно: сразу accept, не задерживать
     try:
         await websocket.accept()
         logger.info(f"✅ WebSocket accepted for user {user_id}")
@@ -554,6 +553,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
         logger.error(f"❌ Failed to create VAD: {e}")
         vad = None
     
+    # ========== КЛЮЧЕВОЙ МОМЕНТ: БЕСКОНЕЧНЫЙ ЦИКЛ ==========
     try:
         while True:
             # Получаем сообщение с таймаутом для предотвращения зависаний
@@ -640,6 +640,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                         logger.error(f"❌ Error processing audio: {e}", exc_info=True)
                         await voice_manager.send_error(user_id, f"Ошибка обработки: {str(e)}")
                     
+                    # Очищаем буфер и сбрасываем счетчик
                     audio_buffer = bytearray()
                     chunk_count = 0
                     await voice_manager.send_status(user_id, "idle")
