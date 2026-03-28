@@ -596,6 +596,30 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     audio_buffer = bytearray()
                     chunk_count = 0
                     await voice_manager.send_status(user_id, "idle")
+            
+            elif data.get("type") == "interrupt":
+                logger.info(f"🛑 Interrupt received from user {user_id}")
+                if user_id in voice_manager.speaking_tasks:
+                    voice_manager.speaking_tasks[user_id].cancel()
+                    del voice_manager.speaking_tasks[user_id]
+                await voice_manager.send_status(user_id, "listening")
+                # Очищаем буфер при прерывании
+                audio_buffer = bytearray()
+                chunk_count = 0
+            
+            elif data.get("type") == "ping":
+                # Отвечаем на ping с timestamp для измерения задержки
+                timestamp = data.get("timestamp", 0)
+                await websocket.send_json({"type": "pong", "timestamp": timestamp})
+                logger.debug(f"💓 Pong sent, latency: {time.time() - timestamp:.0f}ms" if timestamp else "💓 Pong sent")
+    
+    except WebSocketDisconnect:
+        logger.info(f"🔌 WebSocket disconnected for user {user_id}")
+        voice_manager.disconnect(user_id)
+    except Exception as e:
+        logger.error(f"❌ WebSocket error for user {user_id}: {e}", exc_info=True)
+        voice_manager.disconnect(user_id)
+                    
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
 # ============================================
