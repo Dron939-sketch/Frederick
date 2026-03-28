@@ -1,6 +1,7 @@
 // ============================================
 // ГОЛОСОВОЙ МОДУЛЬ FREDI PREMIUM
 // HTTP версия - стабильная и проверенная
+// Отправляет аудио в формате WAV
 // ============================================
 
 class VoiceWebSocket {
@@ -28,6 +29,7 @@ class VoiceWebSocket {
         
         // Флаги
         this.isReconnecting = false;
+        this.currentMode = 'psychologist';
     }
     
     async connect() {
@@ -61,7 +63,7 @@ class VoiceWebSocket {
     
     // ========== ОТПРАВКА АУДИО ЧЕРЕЗ HTTP ==========
     sendFullAudio(audioBlob) {
-        console.log(`📤 Отправка через HTTP: ${audioBlob.size} bytes`);
+        console.log(`📤 Отправка через HTTP: ${audioBlob.size} bytes (WAV)`);
         
         // Проверка минимального размера
         const MIN_AUDIO_BYTES = 8000;
@@ -76,7 +78,7 @@ class VoiceWebSocket {
         // Создаем FormData
         const formData = new FormData();
         formData.append('user_id', this.userId);
-        formData.append('voice', audioBlob, 'audio.wav');
+        formData.append('voice', audioBlob, 'audio.wav');  // ← Отправляем как WAV
         formData.append('mode', this.currentMode || 'psychologist');
         
         // Обновляем статус
@@ -380,8 +382,8 @@ class VoiceRecorder {
             totalLength += chunk.length;
         }
         
-        // Ограничиваем максимальную длину (60 секунд при 16kHz = 960,000 сэмплов)
-        const MAX_SAMPLES = this.sampleRate * 60; // 60 секунд
+        // Ограничиваем максимальную длину (30 секунд при 16kHz = 480,000 сэмплов)
+        const MAX_SAMPLES = 480000; // 30 секунд
         if (totalLength > MAX_SAMPLES) {
             console.warn(`Audio too long (${totalLength} samples), truncating to ${MAX_SAMPLES}`);
             totalLength = MAX_SAMPLES;
@@ -399,7 +401,7 @@ class VoiceRecorder {
             offset += chunk.length;
         }
         
-        const sampleRate = this.sampleRate;
+        const sampleRate = 16000;
         const numChannels = 1;
         const bitsPerSample = 16;
         const byteRate = sampleRate * numChannels * bitsPerSample / 8;
@@ -596,7 +598,7 @@ class VoiceManager {
         this.recorder = null;
         this.player = null;
         
-        // ========== ОТКЛЮЧАЕМ WEBSOCKET, ИСПОЛЬЗУЕМ HTTP ==========
+        // ========== ИСПОЛЬЗУЕМ HTTP ==========
         this.useWebSocket = false;
         this.apiBaseUrl = config.apiBaseUrl || 'https://fredi-backend-flz2.onrender.com';
         
@@ -684,6 +686,7 @@ class VoiceManager {
             apiBaseUrl: this.apiBaseUrl
         });
         this.websocket.useWebSocket = false;
+        this.websocket.currentMode = this.currentMode;
         
         this.websocket.onTranscript = (text) => {
             if (this.onTranscript) {
@@ -717,11 +720,6 @@ class VoiceManager {
     
     async sendAudio(audioBlob) {
         // Используем HTTP всегда
-        return this.websocket.sendFullAudio(audioBlob);
-    }
-    
-    async sendViaHTTP(audioBlob) {
-        // Уже реализовано в VoiceWebSocket.sendFullAudio
         return this.websocket.sendFullAudio(audioBlob);
     }
     
