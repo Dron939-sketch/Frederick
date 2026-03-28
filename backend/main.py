@@ -439,21 +439,37 @@ async def log_requests(request: Request, call_next):
 @app.websocket("/ws/voice/{user_id}")
 async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     """
-    WebSocket эндпоинт для живого голосового диалога с поддержкой:
-    - VAD (определение начала/конца речи)
-    - Barge-in (перебивание ИИ)
-    - Потоковый TTS
+    WebSocket эндпоинт для живого голосового диалога
     """
+    logger.info(f"🔌 WebSocket connection attempt for user {user_id}")
+    
     if not voice_manager:
+        logger.error(f"❌ Voice manager not ready for user {user_id}")
         await websocket.close(code=1011, reason="Voice service not ready")
         return
     
     await voice_manager.connect(user_id, websocket)
+    logger.info(f"✅ WebSocket accepted for user {user_id}")
     
     # Получаем контекст и профиль пользователя
-    context = await context_repo.get(user_id) or {}
-    profile = await user_repo.get_profile(user_id) or {}
+    try:
+        context = await context_repo.get(user_id) or {}
+        logger.info(f"📦 Context loaded for user {user_id}: {context.get('name', 'unknown')}")
+    except Exception as e:
+        logger.error(f"❌ Failed to load context: {e}")
+        await websocket.close(code=1011, reason="Context load failed")
+        return
+    
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        logger.info(f"📊 Profile loaded for user {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to load profile: {e}")
+        await websocket.close(code=1011, reason="Profile load failed")
+        return
+    
     mode_name = context.get("communication_mode", "psychologist")
+    logger.info(f"🎭 Mode: {mode_name} for user {user_id}")
     
     # Создаем объект режима
     user_data = {
@@ -477,87 +493,116 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
             self.communication_mode = data.get("communication_mode", "psychologist")
     
     simple_context = SimpleContext(context)
-    mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
+    
+    try:
+        mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
+        logger.info(f"✅ Mode instance created: {mode_instance.__class__.__name__}")
+    except Exception as e:
+        logger.error(f"❌ Failed to create mode instance: {e}", exc_info=True)
+        await websocket.close(code=1011, reason="Mode creation failed")
+        return
     
     # Буфер для накопления аудио
     audio_buffer = bytearray()
-    vad = voice_service.create_vad(user_id)
+    try:
+        vad = voice_service.create_vad(user_id)
+        logger.info(f"✅ VAD created for user {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to create VAD: {e}")
+        vad = None
     
     try:
         while True:
             # Получаем сообщение от клиента
             data = await websocket.receive_json()
+            logger.debug(f"📨 Received message: {data.get('type')}")
             
             if data.get("type") == "audio_chunk":
                 chunk_base64 = data.get("data", "")
                 if chunk_base64:
-                    audio_buffer.extend(base64.b64decode(chunk_base64))
+                    try:
+                        audio_buffer.extend(base64.b64decode(chunk_base64))
+                    except Exception as e:
+                        logger.error(f"Failed to decode audio chunk: {e}")
                 
                 is_final = data.get("is_final", False)
                 
                 if is_final and len(audio_buffer) > 0:
+                    logger.info(f"🎤 Processing audio: {len(audio_buffer)} bytes")
                     await voice_manager.send_status(user_id, "processing")
                     
-                    # Распознаем речь
-                    recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
+                    try:
+                        # Распознаем речь
+                        recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
+                        logger.info(f"📝 Recognized: {recognized_text}")
+                        
+                        if recognized_text:
+                            await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
+                            
+                            # Получаем ответ от ИИ через потоковый метод
+                            response_text = ""
+                            async for chunk in mode_instance.process_question_streaming(recognized_text):
+                                response_text += chunk
+                                await voice_manager.send_text(user_id, f"🧠 Фреди: {chunk}")
+                            
+                            logger.info(f"💬 AI response: {response_text[:100]}...")
+                            await voice_manager.send_status(user_id, "speaking")
+                            
+                            # Потоковый TTS
+                            async def stream_tts():
+                                try:
+                                    async for audio_chunk in voice_service.text_to_speech_streaming(
+                                        response_text, mode_name, chunk_size=4096
+                                    ):
+                                        if audio_chunk:
+                                            audio_base64_chunk = base64.b64encode(audio_chunk).decode()
+                                            await voice_manager.send_audio(user_id, audio_base64_chunk, is_final=False)
+                                    
+                                    await voice_manager.send_audio(user_id, "", is_final=True)
+                                    logger.info(f"✅ TTS stream completed")
+                                except asyncio.CancelledError:
+                                    logger.info(f"🛑 TTS cancelled for user {user_id}")
+                                    raise
+                                except Exception as e:
+                                    logger.error(f"❌ TTS error: {e}")
+                                    await voice_manager.send_error(user_id, f"TTS error: {str(e)}")
+                            
+                            # Отменяем предыдущую задачу если есть
+                            if user_id in voice_manager.speaking_tasks:
+                                voice_manager.speaking_tasks[user_id].cancel()
+                            
+                            voice_manager.speaking_tasks[user_id] = asyncio.create_task(stream_tts())
+                            
+                            # Сохраняем в историю
+                            await message_repo.save(user_id, "user", recognized_text, {"voice": True})
+                            await message_repo.save(user_id, "assistant", response_text, {"voice": True})
+                            await log_event(user_id, "voice_stream", {"text_length": len(recognized_text)})
+                        else:
+                            logger.warning("⚠️ No text recognized")
+                            await voice_manager.send_error(user_id, "Не удалось распознать речь")
                     
-                    if recognized_text:
-                        await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
-                        
-                        # Получаем ответ от ИИ через потоковый метод
-                        response_text = ""
-                        async for chunk in mode_instance.process_question_streaming(recognized_text):
-                            response_text += chunk
-                            await voice_manager.send_text(user_id, f"🧠 Фреди: {chunk}")
-                        
-                        await voice_manager.send_status(user_id, "speaking")
-                        
-                        # Потоковый TTS
-                        async def stream_tts():
-                            try:
-                                async for audio_chunk in voice_service.text_to_speech_streaming(
-                                    response_text, mode_name, chunk_size=4096
-                                ):
-                                    if audio_chunk:
-                                        audio_base64_chunk = base64.b64encode(audio_chunk).decode()
-                                        await voice_manager.send_audio(user_id, audio_base64_chunk, is_final=False)
-                                
-                                await voice_manager.send_audio(user_id, "", is_final=True)
-                            except asyncio.CancelledError:
-                                logger.info(f"TTS cancelled for user {user_id}")
-                                raise
-                        
-                        # Отменяем предыдущую задачу если есть
-                        if user_id in voice_manager.speaking_tasks:
-                            voice_manager.speaking_tasks[user_id].cancel()
-                        
-                        voice_manager.speaking_tasks[user_id] = asyncio.create_task(stream_tts())
-                        
-                        # Сохраняем в историю
-                        await message_repo.save(user_id, "user", recognized_text, {"voice": True})
-                        await message_repo.save(user_id, "assistant", response_text, {"voice": True})
-                        await log_event(user_id, "voice_stream", {"text_length": len(recognized_text)})
-                    else:
-                        await voice_manager.send_error(user_id, "Не удалось распознать речь")
+                    except Exception as e:
+                        logger.error(f"❌ Error processing audio: {e}", exc_info=True)
+                        await voice_manager.send_error(user_id, f"Ошибка обработки: {str(e)}")
                     
                     audio_buffer = bytearray()
                     await voice_manager.send_status(user_id, "idle")
             
             elif data.get("type") == "interrupt":
-                # Пользователь перебил ИИ
+                logger.info(f"🛑 Interrupt received from user {user_id}")
                 if user_id in voice_manager.speaking_tasks:
                     voice_manager.speaking_tasks[user_id].cancel()
                     del voice_manager.speaking_tasks[user_id]
-                    logger.info(f"🛑 User {user_id} interrupted AI")
                 await voice_manager.send_status(user_id, "listening")
             
             elif data.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
     
     except WebSocketDisconnect:
+        logger.info(f"🔌 WebSocket disconnected for user {user_id}")
         voice_manager.disconnect(user_id)
     except Exception as e:
-        logger.error(f"WebSocket error for user {user_id}: {e}")
+        logger.error(f"❌ WebSocket error for user {user_id}: {e}", exc_info=True)
         voice_manager.disconnect(user_id)
 
 
