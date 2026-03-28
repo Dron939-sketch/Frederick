@@ -1,4 +1,118 @@
 // ============================================
+// АУДИО ПЛЕЕР
+// ============================================
+
+class AudioPlayer {
+    constructor() {
+        this.audio = null;
+        this.currentUrl = null;
+        this.onPlayStart = null;
+        this.onPlayEnd = null;
+        this.onError = null;
+    }
+    
+    play(audioData, mimeType = 'audio/mpeg') {
+        return new Promise((resolve, reject) => {
+            try {
+                this.stop();
+                
+                this.audio = new Audio();
+                let audioUrl = audioData;
+                
+                // Если это base64 данные
+                if (typeof audioData === 'string' && audioData.startsWith('data:audio/')) {
+                    const matches = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/);
+                    if (matches) {
+                        const detectedMimeType = matches[1];
+                        const base64Data = matches[2];
+                        
+                        const binaryString = atob(base64Data);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        
+                        const blob = new Blob([bytes], { type: detectedMimeType });
+                        audioUrl = URL.createObjectURL(blob);
+                    }
+                } 
+                // Если это URL
+                else if (typeof audioData === 'string' && audioData.startsWith('http')) {
+                    audioUrl = audioData;
+                }
+                // Если это Blob
+                else if (audioData instanceof Blob) {
+                    audioUrl = URL.createObjectURL(audioData);
+                }
+                
+                this.currentUrl = audioUrl;
+                this.audio.src = audioUrl;
+                this.audio.load();
+                
+                this.audio.oncanplaythrough = () => {
+                    if (this.onPlayStart) {
+                        this.onPlayStart();
+                    }
+                    
+                    this.audio.play().catch(error => {
+                        console.error('Play failed:', error);
+                        if (this.onError) {
+                            this.onError(error);
+                        }
+                        reject(error);
+                    });
+                };
+                
+                this.audio.onended = () => {
+                    if (this.currentUrl && this.currentUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(this.currentUrl);
+                    }
+                    
+                    if (this.onPlayEnd) {
+                        this.onPlayEnd();
+                    }
+                    resolve();
+                };
+                
+                this.audio.onerror = (error) => {
+                    console.error('Audio error:', error);
+                    if (this.onError) {
+                        this.onError(error);
+                    }
+                    reject(error);
+                };
+                
+            } catch (error) {
+                console.error('Playback error:', error);
+                reject(error);
+            }
+        });
+    }
+    
+    stop() {
+        if (this.audio) {
+            this.audio.pause();
+            this.audio.currentTime = 0;
+            
+            if (this.currentUrl && this.currentUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(this.currentUrl);
+            }
+            
+            this.audio = null;
+            this.currentUrl = null;
+        }
+    }
+    
+    isPlaying() {
+        return this.audio && !this.audio.paused && !this.audio.ended;
+    }
+    
+    dispose() {
+        this.stop();
+    }
+}
+
+// ============================================
 // КОНФИГУРАЦИЯ ГОЛОСА FREDI PREMIUM
 // ============================================
 
@@ -63,7 +177,7 @@ const VoiceConfig = {
 };
 
 // ============================================
-// УЛУЧШЕННЫЙ VoiceWebSocket С ПОДДЕРЖКОЙ НАСТРОЕК
+// VoiceWebSocket С ПОДДЕРЖКОЙ НАСТРОЕК
 // ============================================
 
 class VoiceWebSocket {
@@ -79,7 +193,7 @@ class VoiceWebSocket {
         this.onAIResponse = null;
         this.onStatusChange = null;
         this.onError = null;
-        this.onThinking = null;      // Новый колбэк для индикации "думает"
+        this.onThinking = null;
         
         // HTTP клиент
         this.apiBaseUrl = this.config.apiBaseUrl;
@@ -112,11 +226,11 @@ class VoiceWebSocket {
         }
     }
     
-    // ========== ОТПРАВКА АУДИО (УЛУЧШЕННАЯ) ==========
+    // ========== ОТПРАВКА АУДИО ==========
     async sendFullAudio(audioBlob) {
         // Проверка минимальной длины
         const minBytes = this.config.recording.minDuration * 
-                        (this.config.recording.sampleRate / 1000) * 2; // 16-bit = 2 байта на сэмпл
+                        (this.config.recording.sampleRate / 1000) * 2;
         
         if (audioBlob.size < minBytes) {
             console.warn(`⚠️ Audio too short: ${audioBlob.size} bytes < ${minBytes} bytes`);
@@ -169,7 +283,7 @@ class VoiceWebSocket {
             const response = await fetch(`${this.apiBaseUrl}/api/voice/process`, {
                 method: 'POST',
                 body: formData,
-                timeout: 30000  // 30 секунд таймаут
+                signal: AbortSignal.timeout(30000)
             });
             
             const elapsed = Date.now() - startTime;
@@ -223,7 +337,7 @@ class VoiceWebSocket {
             }
             
             let errorMessage = 'Ошибка соединения';
-            if (error.message.includes('timeout')) {
+            if (error.name === 'TimeoutError') {
                 errorMessage = 'Сервер не отвечает. Попробуйте позже.';
             } else if (error.message.includes('500')) {
                 errorMessage = 'Ошибка на сервере. Мы уже чиним.';
@@ -239,32 +353,17 @@ class VoiceWebSocket {
         }
     }
     
-    // Воспроизведение аудио из base64 (улучшенное)
+    // Воспроизведение аудио из base64
     async playAudioResponse(audioBase64) {
         return new Promise((resolve, reject) => {
             try {
-                // Проверяем формат аудио
-                const mimeType = this.config.playback.format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
-                
-                // Создаем аудио элемент
                 const audio = new Audio();
-                audio.src = `data:${mimeType};base64,${audioBase64}`;
+                audio.src = `data:audio/mpeg;base64,${audioBase64}`;
                 audio.volume = this.config.playback.volume;
-                audio.preload = this.config.playback.preload ? 'auto' : 'none';
                 
                 this.updateStatus('speaking');
                 
-                audio.oncanplaythrough = () => {
-                    if (this.config.debug) {
-                        console.log('🔊 Audio ready, playing...');
-                    }
-                    audio.play().catch(reject);
-                };
-                
                 audio.onended = () => {
-                    if (this.config.debug) {
-                        console.log('🔊 Playback finished');
-                    }
                     this.updateStatus('idle');
                     resolve();
                 };
@@ -275,14 +374,7 @@ class VoiceWebSocket {
                     reject(error);
                 };
                 
-                // Таймаут на загрузку
-                setTimeout(() => {
-                    if (audio.readyState === 0) {
-                        console.warn('Audio load timeout');
-                        this.updateStatus('idle');
-                        reject(new Error('Load timeout'));
-                    }
-                }, 10000);
+                audio.play().catch(reject);
                 
             } catch (error) {
                 console.error('Playback error:', error);
@@ -320,7 +412,6 @@ class VoiceWebSocket {
     }
     
     interrupt() {
-        // Останавливаем все аудио элементы
         const audioElements = document.querySelectorAll('audio');
         audioElements.forEach(audio => {
             audio.pause();
@@ -338,7 +429,7 @@ class VoiceWebSocket {
 }
 
 // ============================================
-// УЛУЧШЕННЫЙ VoiceRecorder С АВТО-СТОПОМ ПО ТИШИНЕ
+// VoiceRecorder С АВТО-СТОПОМ ПО ТИШИНЕ
 // ============================================
 
 class VoiceRecorder {
@@ -365,7 +456,7 @@ class VoiceRecorder {
         this.onRecordingStop = null;
         this.onVolumeChange = null;
         this.onError = null;
-        this.onSpeechDetected = null;  // Новый колбэк
+        this.onSpeechDetected = null;
     }
     
     async startRecording() {
@@ -404,7 +495,7 @@ class VoiceRecorder {
             this.analyser.fftSize = 256;
             source.connect(this.analyser);
             
-            // Запускаем визуализацию и детектор речи
+            // Запускаем визуализацию
             this.startVisualizer();
             
             // Создаём ScriptProcessorNode для захвата аудиоданных
@@ -445,7 +536,6 @@ class VoiceRecorder {
                     }
                     this.silenceStartTime = null;
                 } else if (this.speechDetected && !this.silenceStartTime) {
-                    // Речь была, но сейчас тишина
                     this.silenceStartTime = Date.now();
                 }
                 
@@ -565,7 +655,7 @@ class VoiceRecorder {
             totalLength += chunk.length;
         }
         
-        // Ограничиваем максимальную длину (30 секунд при 16kHz = 480,000 сэмплов)
+        // Ограничиваем максимальную длину
         const MAX_SAMPLES = this.config.maxDuration * this.config.sampleRate / 1000;
         
         if (totalLength > MAX_SAMPLES) {
@@ -668,7 +758,7 @@ class VoiceRecorder {
 }
 
 // ============================================
-// УЛУЧШЕННЫЙ VoiceManager
+// VoiceManager
 // ============================================
 
 class VoiceManager {
@@ -704,7 +794,7 @@ class VoiceManager {
         this.player = new AudioPlayer();
         this.player.onPlayStart = () => {
             this.isAISpeaking = true;
-            this.updateStatus('ai_speaking');
+            this.updateStatus('speaking');
         };
         this.player.onPlayEnd = () => {
             this.isAISpeaking = false;
@@ -814,7 +904,6 @@ class VoiceManager {
             formData.append('text', text);
             formData.append('mode', mode || this.currentMode);
             
-            // Добавляем настройки голоса
             const voiceSettings = this.config.voices[mode || this.currentMode];
             if (voiceSettings) {
                 formData.append('speed', voiceSettings.speed);
@@ -923,97 +1012,13 @@ class VoiceManager {
 }
 
 // ============================================
-// ПРИМЕР ИСПОЛЬЗОВАНИЯ С НАСТРОЙКАМИ
+// ЭКСПОРТ ДЛЯ БРАУЗЕРА
 // ============================================
 
-/*
-// Инициализация с кастомными настройками
-const voiceManager = new VoiceManager('user_123', {
-    apiBaseUrl: 'https://fredi-backend-flz2.onrender.com',
-    debug: true,
-    ui: {
-        autoStopAfterSilence: true,
-        silenceTimeout: 2000
-    }
-});
-
-// Настройка колбэков
-voiceManager.onTranscript = (text) => {
-    console.log('Распознано:', text);
-    document.getElementById('transcript').innerText = text;
-};
-
-voiceManager.onAIResponse = (answer) => {
-    console.log('Ответ:', answer);
-    document.getElementById('response').innerText = answer;
-};
-
-voiceManager.onThinking = (isThinking) => {
-    document.getElementById('thinking-indicator').style.display = 
-        isThinking ? 'block' : 'none';
-};
-
-voiceManager.onVolumeChange = (volume) => {
-    const meter = document.getElementById('volume-meter');
-    meter.style.width = `${volume}%`;
-};
-
-voiceManager.onStatusChange = (status) => {
-    const button = document.getElementById('voice-button');
-    
-    switch(status) {
-        case 'recording':
-            button.classList.add('recording');
-            button.innerText = '🔴 ОТПУСТИТЕ';
-            break;
-        case 'processing':
-            button.classList.add('processing');
-            button.innerText = '⏳ ОБРАБОТКА...';
-            break;
-        case 'speaking':
-            button.classList.add('speaking');
-            button.innerText = '🔊 ГОВОРИТ...';
-            break;
-        default:
-            button.classList.remove('recording', 'processing', 'speaking');
-            button.innerText = '🎤 НАЖМИТЕ И ГОВОРИТЕ';
-    }
-};
-
-// Смена режима
-voiceManager.setMode('psychologist');
-
-// Управление записью
-document.getElementById('voice-button').addEventListener('mousedown', () => {
-    voiceManager.startRecording();
-});
-
-document.getElementById('voice-button').addEventListener('mouseup', () => {
-    voiceManager.stopRecording();
-});
-
-// Поддержка touch для мобильных
-document.getElementById('voice-button').addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    voiceManager.startRecording();
-});
-
-document.getElementById('voice-button').addEventListener('touchend', (e) => {
-    e.preventDefault();
-    voiceManager.stopRecording();
-});
-
-// Кнопки смены режима
-document.getElementById('mode-coach').onclick = () => voiceManager.setMode('coach');
-document.getElementById('mode-psychologist').onclick = () => voiceManager.setMode('psychologist');
-document.getElementById('mode-trainer').onclick = () => voiceManager.setMode('trainer');
-*/
-
-// Экспорт
 if (typeof window !== 'undefined') {
+    window.AudioPlayer = AudioPlayer;
     window.VoiceManager = VoiceManager;
     window.VoiceConfig = VoiceConfig;
     window.VoiceWebSocket = VoiceWebSocket;
     window.VoiceRecorder = VoiceRecorder;
-    window.AudioPlayer = AudioPlayer;
 }
