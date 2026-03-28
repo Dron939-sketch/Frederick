@@ -341,6 +341,7 @@ class VoiceWebSocket {
         return true;
     }
     
+    // ========== ИСПРАВЛЕННЫЙ МЕТОД sendFullAudio ==========
     sendFullAudio(audioBlob) {
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
             console.warn('Cannot send audio: WebSocket not connected');
@@ -356,20 +357,44 @@ class VoiceWebSocket {
             return false;
         }
         
+        // Проверка минимального размера (0.5 секунды)
+        const MIN_AUDIO_BYTES = 8000;
+        if (audioBlob.size < MIN_AUDIO_BYTES) {
+            console.warn(`⚠️ Audio too short: ${audioBlob.size} bytes, skipping`);
+            if (this.onError) {
+                this.onError('Аудио слишком короткое (говорите дольше)');
+            }
+            return false;
+        }
+        
         const reader = new FileReader();
         reader.onload = () => {
             const base64Data = reader.result.split(',')[1];
+            
+            // ========== КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ДОБАВЛЯЕМ format И sample_rate ==========
             this.ws.send(JSON.stringify({
                 type: 'audio_chunk',
                 data: base64Data,
-                is_final: true
+                is_final: true,
+                format: 'pcm16',        // ← ОТПРАВЛЯЕМ КАК PCM16
+                sample_rate: 16000      // ← УКАЗЫВАЕМ ЧАСТОТУ
             }));
-            console.log(`📤 Sent full audio: ${audioBlob.size} bytes`);
+            
+            console.log(`📤 Sent full audio: ${audioBlob.size} bytes, format=pcm16, sample_rate=16000`);
         };
+        
+        reader.onerror = (error) => {
+            console.error('Failed to read audio blob:', error);
+            if (this.onError) {
+                this.onError('Ошибка чтения аудио');
+            }
+        };
+        
         reader.readAsDataURL(audioBlob);
         
         return true;
     }
+    // ========== КОНЕЦ ИСПРАВЛЕННОГО МЕТОДА ==========
     
     interrupt() {
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
