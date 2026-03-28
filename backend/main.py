@@ -2474,12 +2474,8 @@ if __name__ == "__main__":
 # ============================================
 # ДЛЯ ASGI СЕРВЕРОВ (Daphne, Uvicorn)
 # ============================================
-logger.info("=" * 60)
-logger.info("📦 ЭКСПОРТ ПРИЛОЖЕНИЯ ДЛЯ ASGI")
-logger.info(f"📦 __name__ = {__name__}")
-logger.info(f"📦 app создано: {app is not None}")
-logger.info(f"📦 lifespan прикреплен: {hasattr(app, 'router')}")
-logger.info("=" * 60)
+# ВАЖНО: НИЧЕГО НЕ ЗАПУСКАЕМ, ПРОСТО ЭКСПОРТИРУЕМ app
+# Daphne сам вызывает lifespan и управляет event loop
 
 # Экспортируем приложение для ASGI серверов
 application = app
