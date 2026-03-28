@@ -446,8 +446,17 @@ async def log_requests(request: Request, call_next):
 async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     """
     WebSocket эндпоинт для живого голосового диалога
+    Оптимизирован на основе практик Telegram Web и FastAPI
     """
     logger.info(f"🔌🔌🔌 WEBSOCKET START for user {user_id} 🔌🔌🔌")
+    
+    # ✅ Критически важно: сразу accept, не задерживать (Telegram подход)
+    try:
+        await websocket.accept()
+        logger.info(f"✅ WebSocket accepted for user {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to accept WebSocket: {e}")
+        return
     
     if not voice_manager:
         logger.error(f"❌ Voice manager not ready for user {user_id}")
@@ -455,20 +464,33 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
         return
     
     await voice_manager.connect(user_id, websocket)
-    logger.info(f"✅ WebSocket accepted for user {user_id}")
     
-    # Получаем контекст и профиль пользователя
+    # Получаем контекст и профиль пользователя с таймаутами
     try:
-        context = await context_repo.get(user_id) or {}
+        context = await asyncio.wait_for(
+            context_repo.get(user_id) or {},
+            timeout=5.0
+        )
         logger.info(f"📦 Context loaded for user {user_id}: {context.get('name', 'unknown')}")
+    except asyncio.TimeoutError:
+        logger.error(f"❌ Context load timeout for user {user_id}")
+        await websocket.close(code=1011, reason="Context load timeout")
+        return
     except Exception as e:
         logger.error(f"❌ Failed to load context: {e}")
         await websocket.close(code=1011, reason="Context load failed")
         return
     
     try:
-        profile = await user_repo.get_profile(user_id) or {}
+        profile = await asyncio.wait_for(
+            user_repo.get_profile(user_id) or {},
+            timeout=5.0
+        )
         logger.info(f"📊 Profile loaded for user {user_id}")
+    except asyncio.TimeoutError:
+        logger.error(f"❌ Profile load timeout for user {user_id}")
+        await websocket.close(code=1011, reason="Profile load timeout")
+        return
     except Exception as e:
         logger.error(f"❌ Failed to load profile: {e}")
         await websocket.close(code=1011, reason="Profile load failed")
@@ -521,7 +543,17 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     
     try:
         while True:
-            data = await websocket.receive_json()
+            # Получаем сообщение с таймаутом для предотвращения зависаний
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=60.0)
+            except asyncio.TimeoutError:
+                logger.debug(f"⏱️ WebSocket receive timeout for user {user_id}, continuing...")
+                # Отправляем ping чтобы проверить соединение
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    logger.warning(f"⚠️ Failed to send ping to user {user_id}")
+                continue
             
             if data.get("type") == "audio_chunk":
                 chunk_base64 = data.get("data", "")
@@ -541,7 +573,6 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                 # Если это финальный чанк и есть данные
                 if is_final and len(audio_buffer) > 0:
                     logger.info(f"🎤🎤🎤 FINAL AUDIO RECEIVED! Total: {len(audio_buffer)} bytes from {chunk_count} chunks")
-                    logger.info(f"🎤 First 50 bytes hex: {bytes(audio_buffer[:50]).hex()}")
                     
                     await voice_manager.send_status(user_id, "processing")
                     
