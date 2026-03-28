@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-МОДУЛЬ: РЕЖИМ БЕНДЕР (benader.py)
-Великий комбинатор — для пользователей, не прошедших тест.
+МОДУЛЬ: БАЗОВЫЙ РЕЖИМ (basic.py) - Великий Комбинатор
+Режим для пользователей, которые еще не прошли тест.
 Фреди в образе Остапа Бендера: харизматичный, остроумный, слегка нахальный, но обаятельный.
 Задача — вовлечь в диалог и привести к тесту через интригу, вызов и игру.
 """
@@ -13,14 +13,15 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 
-from .base_mode import BaseMode
+from modes.base_mode import BaseMode
 
 logger = logging.getLogger(__name__)
 
 
-class BenaderMode(BaseMode):
+class BasicMode(BaseMode):
     """
-    Режим ВЕЛИКОГО КОМБИНАТОРА (Остап Бендер 2.0)
+    Базовый режим для пользователей без теста.
+    Фреди в образе Великого Комбинатора (Остап Бендер 2.0)
     
     ЗАДАЧА:
     - Вовлечь пользователя в лёгкий, игривый диалог
@@ -139,7 +140,7 @@ class BenaderMode(BaseMode):
             ]
         }
         
-        logger.info(f"🎭 BenaderMode инициализирован для user_id={user_id}, пол={self.gender}, имя={self.user_name}")
+        logger.info(f"🎭 BasicMode (Бендер) инициализирован для user_id={user_id}, пол={self.gender}, имя={self.user_name}")
     
     # ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
     
@@ -398,7 +399,7 @@ class BenaderMode(BaseMode):
     # ========== ОСНОВНЫЕ МЕТОДЫ ==========
     
     def get_system_prompt(self) -> str:
-        """Возвращает системный промпт для режима Бендера"""
+        """Возвращает системный промпт для базового режима"""
         return """Ты — Фреди в режиме Великого Комбинатора (Остап Бендер 2.0).
 
 ТВОЯ ЗАДАЧА:
@@ -446,7 +447,7 @@ class BenaderMode(BaseMode):
     
     def process_question(self, question: str) -> Dict[str, Any]:
         """
-        Обрабатывает вопрос пользователя в режиме Бендера
+        Обрабатывает вопрос пользователя в базовом режиме (Бендер)
         """
         self.last_tools_used = []
         
@@ -518,7 +519,7 @@ class BenaderMode(BaseMode):
             if any(word in question.lower() for word in ["нет", "не хочу", "потом", "отстань", "не надо", "не нужно"]):
                 response = self._handle_refusal(question)
                 if "дверь всегда открыта" in response or "возвращайся" in response:
-                    self.dialog_stage = "exploration"  # Остаёмся в исследовании
+                    self.dialog_stage = "exploration"
                 self.last_tools_used.append("refusal_handling")
                 return {
                     "response": response,
@@ -582,4 +583,4 @@ class BenaderMode(BaseMode):
         }
     
     def __repr__(self) -> str:
-        return f"<BenaderMode(user_id={self.user_id}, stage={self.dialog_stage})>"
+        return f"<BasicMode(user_id={self.user_id}, stage={self.dialog_stage})>"
