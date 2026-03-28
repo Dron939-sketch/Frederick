@@ -244,7 +244,7 @@ class VoiceButtonHandler {
         this.mediaRecorder = null;
         this.mediaStream = null;
         this.audioChunks = [];
-        this.useWebSocket = true;
+        let useWebSocket = false;
         this.visualizerAnimation = null;
         this.visualizerContext = null;
         this.analyser = null;
