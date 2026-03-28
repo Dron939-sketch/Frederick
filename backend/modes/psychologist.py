@@ -29,45 +29,45 @@ class PsychologistMode(BaseMode):
     """
     
     def __init__(self, user_id: int, user_data: Dict[str, Any], context=None):
-    super().__init__(user_id, user_data, context)
-    
-    # Инструменты психолога
-    self.tools = {
-        "pattern_recognition": self._recognize_patterns,
-        "defense_analysis": self._analyze_defense,
-        "attachment_work": self._explore_attachment,
-        "interpretation": self._provide_interpretation,
-        "reflection": self._reflect_feelings,
-        "confrontation": self._gentle_confrontation,
-        "metaphor": self._create_therapeutic_metaphor,
-        "hypnotic_suggestion": self._hypnotic_suggestion
-    }
-    
-    # Извлекаем глубинные паттерны из этапа 5
-    self.attachment_type = self.deep_patterns.get('attachment', 'неопределенный')
-    self.defenses = self.deep_patterns.get('defense_mechanisms', [])
-    self.core_beliefs = self.deep_patterns.get('core_beliefs', [])
-    self.fears = self.deep_patterns.get('fears', [])
-    
-    # Карта защитных механизмов и стратегий работы
-    self.defense_strategies = {
-        "отрицание": "Мягко указывать на реальность, но не давить",
-        "проекция": "Возвращать проекцию, помогать присвоить",
-        "рационализация": "Исследовать чувства под логикой",
-        "интеллектуализация": "Смещать фокус на тело и эмоции",
-        "изоляция аффекта": "Помогать контейнировать чувства",
-        "реактивное образование": "Исследовать противоположное"
-    }
-    
-    # Карта типов привязанности
-    self.attachment_strategies = {
-        "надёжный": "Поддерживать, укреплять доверие к миру",
-        "тревожный": "Давать стабильность, предсказуемость, контейнировать тревогу",
-        "избегающий": "Уважать дистанцию, не давить, но быть доступным",
-        "дезорганизованный": "Быть максимально предсказуемым, безопасным"
-    }
-    
-    logger.info(f"PsychologistMode инициализирован для user_id={user_id}")
+        super().__init__(user_id, user_data, context)
+        
+        # Инструменты психолога
+        self.tools = {
+            "pattern_recognition": self._recognize_patterns,
+            "defense_analysis": self._analyze_defense,
+            "attachment_work": self._explore_attachment,
+            "interpretation": self._provide_interpretation,
+            "reflection": self._reflect_feelings,
+            "confrontation": self._gentle_confrontation,
+            "metaphor": self._create_therapeutic_metaphor,
+            "hypnotic_suggestion": self._hypnotic_suggestion
+        }
+        
+        # Извлекаем глубинные паттерны из этапа 5
+        self.attachment_type = self.deep_patterns.get('attachment', 'неопределенный')
+        self.defenses = self.deep_patterns.get('defense_mechanisms', [])
+        self.core_beliefs = self.deep_patterns.get('core_beliefs', [])
+        self.fears = self.deep_patterns.get('fears', [])
+        
+        # Карта защитных механизмов и стратегий работы
+        self.defense_strategies = {
+            "отрицание": "Мягко указывать на реальность, но не давить",
+            "проекция": "Возвращать проекцию, помогать присвоить",
+            "рационализация": "Исследовать чувства под логикой",
+            "интеллектуализация": "Смещать фокус на тело и эмоции",
+            "изоляция аффекта": "Помогать контейнировать чувства",
+            "реактивное образование": "Исследовать противоположное"
+        }
+        
+        # Карта типов привязанности
+        self.attachment_strategies = {
+            "надёжный": "Поддерживать, укреплять доверие к миру",
+            "тревожный": "Давать стабильность, предсказуемость, контейнировать тревогу",
+            "избегающий": "Уважать дистанцию, не давить, но быть доступным",
+            "дезорганизованный": "Быть максимально предсказуемым, безопасным"
+        }
+        
+        logger.info(f"PsychologistMode инициализирован для user_id={user_id}")
     
     def get_system_prompt(self) -> str:
         """Системный промпт для режима ПСИХОЛОГ с глубинным анализом"""
