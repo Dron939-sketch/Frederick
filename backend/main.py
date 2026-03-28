@@ -532,44 +532,16 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     except Exception as e:
                         logger.error(f"Failed to decode audio chunk: {e}")
                 
-                # Если это финальный чанк и есть данные
+                                # Если это финальный чанк и есть данные
                 if is_final and len(audio_buffer) > 0:
                     logger.info(f"🎤 Processing complete audio: {len(audio_buffer)} bytes from {chunk_count} chunks")
                     await voice_manager.send_status(user_id, "processing")
                     
                     try:
-                        # Распознаем речь
-                        recognized_text = None
-                        
-                        # Пробуем конвертировать WebM в WAV для лучшей совместимости
-                        try:
-                            from pydub import AudioSegment
-                            import io
-                            
-                            # Конвертируем WebM в WAV
-                            webm_bytes = bytes(audio_buffer)
-                            webm_io = io.BytesIO(webm_bytes)
-                            audio = AudioSegment.from_file(webm_io, format="webm")
-                            
-                            # Приводим к формату, который лучше всего понимает DeepGram
-                            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-                            
-                            wav_io = io.BytesIO()
-                            audio.export(wav_io, format="wav")
-                            wav_io.seek(0)
-                            wav_bytes = wav_io.read()
-                            
-                            logger.info(f"🎵 Converted WebM ({len(webm_bytes)} bytes) to WAV ({len(wav_bytes)} bytes)")
-                            
-                            # Отправляем в DeepGram как WAV
-                            recognized_text = await voice_service.speech_to_text(wav_bytes, "wav")
-                            logger.info(f"📝 Recognized from WAV: {recognized_text}")
-                            
-                        except Exception as e:
-                            # Если конвертация не удалась, пробуем отправить оригинальный WebM
-                            logger.warning(f"⚠️ WebM to WAV conversion failed: {e}, falling back to WebM")
-                            recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
-                            logger.info(f"📝 Recognized from WebM: {recognized_text}")
+                        # Клиент отправляет WAV напрямую (16kHz, моно, PCM)
+                        # Отправляем в DeepGram как WAV
+                        recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "wav")
+                        logger.info(f"📝 Recognized from WAV: {recognized_text}")
                         
                         if recognized_text:
                             await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
@@ -624,36 +596,6 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     audio_buffer = bytearray()
                     chunk_count = 0
                     await voice_manager.send_status(user_id, "idle")
-                
-                # Если финальный чанк без данных (пустая отправка)
-                elif is_final:
-                    logger.warning("⚠️ Final chunk received with no data, ignoring")
-                    audio_buffer = bytearray()
-                    chunk_count = 0
-            
-            elif data.get("type") == "interrupt":
-                logger.info(f"🛑 Interrupt received from user {user_id}")
-                if user_id in voice_manager.speaking_tasks:
-                    voice_manager.speaking_tasks[user_id].cancel()
-                    del voice_manager.speaking_tasks[user_id]
-                await voice_manager.send_status(user_id, "listening")
-                # Очищаем буфер при прерывании
-                audio_buffer = bytearray()
-                chunk_count = 0
-            
-            elif data.get("type") == "ping":
-                # Отвечаем на ping с timestamp для измерения задержки
-                timestamp = data.get("timestamp", 0)
-                await websocket.send_json({"type": "pong", "timestamp": timestamp})
-                logger.debug(f"💓 Pong sent, latency: {time.time() - timestamp:.0f}ms" if timestamp else "💓 Pong sent")
-    
-    except WebSocketDisconnect:
-        logger.info(f"🔌 WebSocket disconnected for user {user_id}")
-        voice_manager.disconnect(user_id)
-    except Exception as e:
-        logger.error(f"❌ WebSocket error for user {user_id}: {e}", exc_info=True)
-        voice_manager.disconnect(user_id)
-
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
 # ============================================
