@@ -206,6 +206,12 @@ class LiveVoiceWebSocket {
             this.handlePong(data);
             return;
         }
+        // ========== ДОБАВЬТЕ ЭТО ==========
+    if (data.type === 'chunk_ack') {
+        console.log(`✅ Chunk ${data.chunk_index} acknowledged`);
+        return;
+    }
+    // ========== КОНЕЦ ДОБАВЛЕНИЯ ==========
         
         switch (data.type) {
             case 'audio':
