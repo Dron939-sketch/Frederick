@@ -2453,12 +2453,13 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
 
 
 # ============================================
-# ТОЧКА ВХОДА
+# ТОЧКА ВХОДА - ТОЛЬКО ДЛЯ РАЗРАБОТКИ
 # ============================================
 
 if __name__ == "__main__":
     # Запуск в режиме разработки (python main.py)
     logger.info("🚀 Запуск в режиме разработки (Uvicorn)")
+    import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "main:app",
@@ -2468,6 +2469,11 @@ if __name__ == "__main__":
         reload=False
     )
 
-# Для ASGI серверов (Daphne, Uvicorn) - просто экспортируем app
-# Daphne самостоятельно управляет event loop и вызывает lifespan
+# ============================================
+# ДЛЯ ASGI СЕРВЕРОВ (Daphne, Uvicorn)
+# ============================================
+# ВАЖНО: НИЧЕГО НЕ ЗАПУСКАЕМ, ПРОСТО ЭКСПОРТИРУЕМ app
+# Daphne сам вызывает lifespan и управляет event loop
+
+# Экспортируем приложение для ASGI серверов
 application = app
