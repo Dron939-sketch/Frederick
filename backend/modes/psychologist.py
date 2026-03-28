@@ -11,7 +11,7 @@ import logging
 
 from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
-from hypno import HypnoOrchestrator, TherapeuticTales, Anchoring
+from hypno import HypnoOrchestrator, TherapeuticTales
 
 logger = logging.getLogger(__name__)
 
