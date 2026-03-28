@@ -540,7 +540,7 @@ class VoiceButtonHandler {
         // Ждем подтверждение (только для нефинальных чанков)
         if (!isFinal) {
             // Ждем 200ms между чанками (увеличено с 50ms)
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise(resolve => setTimeout(resolve, 300));
         }
     }
     
