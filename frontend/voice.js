@@ -244,7 +244,7 @@ class VoiceButtonHandler {
         this.mediaRecorder = null;
         this.mediaStream = null;
         this.audioChunks = [];
-        this.useWebSocket = false;
+        this.useWebSocket = false;  // Используем HTTP (стабильно)
         this.visualizerAnimation = null;
         this.visualizerContext = null;
         this.analyser = null;
@@ -413,12 +413,9 @@ class VoiceButtonHandler {
             
             console.log(`🔊 PCM data: ${combinedPCM.length} samples`);
             
-            if (liveVoiceWS && liveVoiceWS.isConnected && useWebSocket) {
-                this.sendAudioInChunks(combinedPCM);
-            } else {
-                const wavBlob = this.createWavBlob(this.wavData);
-                this.sendViaHTTPWithBlob(wavBlob);
-            }
+            // ВСЕГДА ИСПОЛЬЗУЕМ HTTP (стабильно)
+            const wavBlob = this.createWavBlob(this.wavData);
+            this.sendViaHTTPWithBlob(wavBlob);
         }
         
         if (this.mediaStream) {
