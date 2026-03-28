@@ -4,13 +4,15 @@
 МОДУЛЬ: БАЗОВЫЙ РЕЖИМ (base_mode.py)
 Базовый класс для всех режимов общения (КОУЧ/ПСИХОЛОГ/ТРЕНЕР)
 Интегрирован с конфайнтмент-моделью и гипнотическими техниками
+Поддержка потоковой обработки для живого голосового диалога
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, AsyncGenerator
 import logging
 from datetime import datetime
 import random
+import asyncio
 
 # Импорты для новой структуры
 from confinement import ConfinementModel9
@@ -24,6 +26,7 @@ class BaseMode(ABC):
     """
     Базовый класс для всех режимов общения.
     Интегрирован с конфайнтмент-моделью и гипнотическими техниками.
+    Поддерживает потоковую обработку для живого голосового диалога.
     """
     
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
@@ -124,7 +127,7 @@ class BaseMode(ABC):
     @abstractmethod
     def process_question(self, question: str) -> Dict[str, Any]:
         """
-        Обрабатывает вопрос пользователя
+        Обрабатывает вопрос пользователя (синхронная версия)
         
         Returns:
             dict: {
@@ -137,6 +140,123 @@ class BaseMode(ABC):
             }
         """
         pass
+    
+    async def process_question_streaming(
+        self, 
+        question: str,
+        chunk_size: int = 100
+    ) -> AsyncGenerator[str, None]:
+        """
+        ПОТОКОВАЯ обработка вопроса - отправляет ответ по частям.
+        Используется для живого голосового диалога, где нужно
+        начинать говорить до полного формирования ответа.
+        
+        Args:
+            question: текст вопроса пользователя
+            chunk_size: размер чанка в символах
+        
+        Yields:
+            str: части ответа (предложения или фразы)
+        """
+        logger.info(f"🎙️ Потоковая обработка вопроса в режиме {self.name}")
+        
+        # Получаем полный ответ через синхронный метод
+        result = self.process_question(question)
+        full_response = result["response"]
+        
+        # Сохраняем в историю (один раз, а не для каждого чанка)
+        self.save_to_history(question, full_response)
+        
+        # Разбиваем на предложения для естественного звучания
+        sentences = self._split_into_sentences(full_response)
+        
+        for i, sentence in enumerate(sentences):
+            if sentence.strip():
+                yield sentence.strip()
+                # Небольшая пауза между предложениями для естественности
+                await asyncio.sleep(0.05)
+        
+        # Если есть дополнительные предложения (follow-up), добавляем их
+        if result.get("follow_up"):
+            follow_up_sentences = self._split_into_sentences(
+                f"\n\n{self._get_follow_up_suggestion(result)}"
+            )
+            for sentence in follow_up_sentences:
+                if sentence.strip():
+                    yield sentence.strip()
+                    await asyncio.sleep(0.05)
+        
+        logger.info(f"✅ Потоковая обработка завершена, отправлено {len(sentences)} фрагментов")
+    
+    def _split_into_sentences(self, text: str) -> List[str]:
+        """
+        Разбивает текст на предложения для потоковой отправки
+        
+        Args:
+            text: исходный текст
+        
+        Returns:
+            список предложений
+        """
+        if not text:
+            return []
+        
+        # Разделители предложений
+        separators = ['。', '.', '!', '?', '!?', '?!', '\n\n', '\n']
+        
+        # Сначала пробуем разбить по переносам строк
+        if '\n\n' in text:
+            parts = text.split('\n\n')
+            result = []
+            for part in parts:
+                result.extend(self._split_by_punctuation(part))
+            return result
+        
+        return self._split_by_punctuation(text)
+    
+    def _split_by_punctuation(self, text: str) -> List[str]:
+        """Разбивает текст по знакам препинания"""
+        sentences = []
+        current = []
+        
+        for char in text:
+            current.append(char)
+            if char in ['。', '.', '!', '?']:
+                sentence = ''.join(current).strip()
+                if sentence:
+                    sentences.append(sentence)
+                current = []
+        
+        # Добавляем остаток
+        if current:
+            remainder = ''.join(current).strip()
+            if remainder:
+                sentences.append(remainder)
+        
+        return sentences
+    
+    def _get_follow_up_suggestion(self, result: Dict[str, Any]) -> str:
+        """
+        Генерирует предложение для продолжения диалога
+        
+        Args:
+            result: результат обработки вопроса
+        
+        Returns:
+            текст с предложением продолжения
+        """
+        suggestions = result.get("suggestions", [])
+        if suggestions:
+            return f"Кстати, вы можете спросить меня: {suggestions[0]}"
+        
+        # Дефолтные предложения в зависимости от режима
+        default_suggestions = {
+            "PsychologistMode": "Расскажите подробнее о том, что вас беспокоит?",
+            "CoachMode": "Как вы видите следующий шаг к этой цели?",
+            "TrainerMode": "Что вы чувствуете сейчас, думая об этом?"
+        }
+        
+        return default_suggestions.get(self.name, "Что вы думаете об этом?")
     
     def analyze_profile_for_response(self) -> Dict[str, Any]:
         """Анализирует профиль для настройки ответа"""
