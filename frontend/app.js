@@ -70,7 +70,788 @@ let audioContext = null;
 let mediaStream = null;
 let animationFrame = null;
 let liveVoiceWS = null;
-let useWebSocket = true;
+let useWebSocket = true; // Переключатель между WebSocket и HTTP
+
+// ============================================
+// WEBSOCKET ДЛЯ ЖИВОГО ГОЛОСОВОГО ДИАЛОГА
+// ============================================
+
+class LiveVoiceWebSocket {
+    constructor(userId) {
+        this.userId = userId;
+        this.ws = null;
+        this.isConnected = false;
+        this.isAISpeaking = false;
+        this.onTranscript = null;
+        this.onAIResponse = null;
+        this.onStatusChange = null;
+        this.onError = null;
+        this.audioQueue = [];
+        this.isPlaying = false;
+        this.currentSource = null;
+        this.audioContext = null;
+        
+        // ========== HEARTBEAT ДЛЯ ПОДДЕРЖАНИЯ СОЕДИНЕНИЯ ==========
+        this.pingInterval = null;
+        this.PING_INTERVAL_MS = 25000; // 25 секунд (меньше чем 30 сек таймаут Render)
+        this.lastPongTime = null;
+        this.pongTimeout = null;
+    }
+    
+    async connect() {
+        const wsUrl = `wss://fredi-backend-flz2.onrender.com/ws/voice/${this.userId}`;
+        
+        return new Promise((resolve, reject) => {
+            this.ws = new WebSocket(wsUrl);
+            
+            this.ws.onopen = () => {
+                console.log('✅ WebSocket connected for live voice');
+                this.isConnected = true;
+                
+                // ЗАПУСКАЕМ HEARTBEAT
+                this.startHeartbeat();
+                
+                if (this.onStatusChange) this.onStatusChange('connected');
+                resolve(true);
+            };
+            
+            this.ws.onclose = (event) => {
+                console.log(`❌ WebSocket disconnected: code=${event.code}, reason=${event.reason || 'no reason'}`);
+                this.isConnected = false;
+                
+                // ОСТАНАВЛИВАЕМ HEARTBEAT
+                this.stopHeartbeat();
+                
+                if (this.onStatusChange) this.onStatusChange('disconnected');
+            };
+            
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                if (this.onError) this.onError('Connection error');
+                reject(error);
+            };
+            
+            this.ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                this.handleMessage(data);
+            };
+        });
+    }
+    
+    // ========== HEARTBEAT МЕТОДЫ ==========
+    
+    startHeartbeat() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+        }
+        
+        // Отправляем первый ping через 5 секунд
+        setTimeout(() => {
+            if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.sendPing();
+            }
+        }, 5000);
+        
+        // Запускаем периодический ping
+        this.pingInterval = setInterval(() => {
+            if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.sendPing();
+            } else if (this.pingInterval) {
+                // Если соединение закрыто, останавливаем интервал
+                this.stopHeartbeat();
+            }
+        }, this.PING_INTERVAL_MS);
+        
+        console.log(`💓 Heartbeat started: ping every ${this.PING_INTERVAL_MS / 1000} seconds`);
+    }
+    
+    stopHeartbeat() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+            console.log('💓 Heartbeat stopped');
+        }
+        
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+    }
+    
+    sendPing() {
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        
+        const pingTime = Date.now();
+        console.log(`💓 Sending heartbeat ping at ${pingTime}`);
+        
+        this.ws.send(JSON.stringify({ 
+            type: 'ping',
+            timestamp: pingTime 
+        }));
+        
+        // Таймаут на получение pong (5 секунд)
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+        }
+        
+        this.pongTimeout = setTimeout(() => {
+            console.warn('⚠️ No pong received from server, connection may be dead');
+            if (this.isConnected) {
+                // Пытаемся переподключиться
+                this.reconnect();
+            }
+        }, 5000);
+    }
+    
+    handlePong(data) {
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+        
+        const latency = data.timestamp ? Date.now() - data.timestamp : null;
+        if (latency) {
+            console.log(`💓 Pong received, latency: ${latency}ms`);
+        } else {
+            console.log('💓 Pong received');
+        }
+    }
+    
+    async reconnect() {
+        console.log('🔄 Attempting to reconnect WebSocket...');
+        this.disconnect();
+        
+        // Ждём 2 секунды перед переподключением
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        try {
+            await this.connect();
+            console.log('✅ WebSocket reconnected successfully');
+        } catch (error) {
+            console.error('❌ WebSocket reconnection failed:', error);
+        }
+    }
+    
+    handleMessage(data) {
+        // Обработка pong
+        if (data.type === 'pong') {
+            this.handlePong(data);
+            return;
+        }
+        
+        switch (data.type) {
+            case 'audio':
+                if (data.data) {
+                    this.playAudioChunk(data.data);
+                }
+                if (data.is_final) {
+                    console.log('Audio stream ended');
+                }
+                break;
+                
+            case 'text':
+                console.log('📝 Transcript:', data.data);
+                if (this.onTranscript) this.onTranscript(data.data);
+                break;
+                
+            case 'status':
+                console.log('📊 Status:', data.status);
+                if (data.status === 'speaking') {
+                    this.isAISpeaking = true;
+                    if (this.onStatusChange) this.onStatusChange('ai_speaking');
+                } else if (data.status === 'processing') {
+                    if (this.onStatusChange) this.onStatusChange('processing');
+                } else if (data.status === 'idle') {
+                    this.isAISpeaking = false;
+                    if (this.onStatusChange) this.onStatusChange('idle');
+                } else if (data.status === 'listening') {
+                    if (this.onStatusChange) this.onStatusChange('listening');
+                } else if (data.status === 'connected') {
+                    if (this.onStatusChange) this.onStatusChange('connected');
+                }
+                break;
+                
+            case 'error':
+                console.error('Server error:', data.error);
+                if (this.onError) this.onError(data.error);
+                break;
+                
+            case 'audio_end':
+                console.log('Audio playback ended');
+                this.isAISpeaking = false;
+                if (this.onStatusChange) this.onStatusChange('idle');
+                break;
+        }
+    }
+    
+    async playAudioChunk(base64Data) {
+        try {
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                // Включаем AudioContext после взаимодействия пользователя
+                if (this.audioContext.state === 'suspended') {
+                    await this.audioContext.resume();
+                }
+            }
+            
+            // Декодируем base64 в ArrayBuffer
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            const audioBuffer = await this.audioContext.decodeAudioData(bytes.buffer);
+            
+            const source = this.audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this.audioContext.destination);
+            
+            // Останавливаем предыдущее воспроизведение если есть
+            if (this.currentSource) {
+                try {
+                    this.currentSource.stop();
+                } catch (e) {
+                    // Игнорируем ошибки остановки
+                }
+                this.currentSource = null;
+            }
+            
+            this.currentSource = source;
+            source.start();
+            
+            source.onended = () => {
+                if (this.currentSource === source) {
+                    this.currentSource = null;
+                }
+            };
+            
+        } catch (error) {
+            console.error('Error playing audio chunk:', error);
+        }
+    }
+    
+    sendAudioChunk(chunk, isFinal) {
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('Cannot send audio: WebSocket not connected');
+            return;
+        }
+        
+        let base64Data = '';
+        if (chunk) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                base64Data = reader.result.split(',')[1];
+                this.ws.send(JSON.stringify({
+                    type: 'audio_chunk',
+                    data: base64Data,
+                    is_final: isFinal
+                }));
+            };
+            reader.readAsDataURL(chunk);
+        } else {
+            this.ws.send(JSON.stringify({
+                type: 'audio_chunk',
+                data: '',
+                is_final: isFinal
+            }));
+        }
+    }
+
+    // ========== НОВЫЙ МЕТОД sendFullAudio (ДОБАВИТЬ СЮДА) ==========
+    sendFullAudio(audioBlob) {
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('Cannot send audio: WebSocket not connected');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64Data = reader.result.split(',')[1];
+            this.ws.send(JSON.stringify({
+                type: 'audio_chunk',
+                data: base64Data,
+                is_final: true
+            }));
+            console.log(`📤 Sent full audio: ${audioBlob.size} bytes as WAV`);
+        };
+        reader.readAsDataURL(audioBlob);
+    }
+    
+    interrupt() {
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        
+        // Останавливаем текущее воспроизведение
+        if (this.currentSource) {
+            try {
+                this.currentSource.stop();
+                this.currentSource = null;
+            } catch (e) {
+                // Игнорируем
+            }
+        }
+        
+        // Отправляем сигнал прерывания на сервер
+        this.ws.send(JSON.stringify({
+            type: 'interrupt'
+        }));
+        
+        console.log('🛑 Interrupt sent to server');
+    }
+    
+    ping() {
+        if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.sendPing();
+        }
+    }
+    
+    disconnect() {
+        this.stopHeartbeat();
+        
+        if (this.currentSource) {
+            try {
+                this.currentSource.stop();
+            } catch (e) {}
+            this.currentSource = null;
+        }
+        
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        
+        if (this.audioContext) {
+            this.audioContext.close().catch(console.warn);
+            this.audioContext = null;
+        }
+        
+        this.isConnected = false;
+        console.log('🔌 WebSocket disconnected manually');
+    }
+}
+
+// ============================================
+// ГОЛОСОВАЯ КНОПКА С УДЕРЖАНИЕМ (PUSH-TO-TALK)
+// ============================================
+
+class VoiceButtonHandler {
+    constructor() {
+        this.isPressing = false;
+        this.isRecording = false;
+        this.longPressTimer = null;
+        this.LONG_PRESS_DURATION = 150;
+        this.mediaRecorder = null;
+        this.mediaStream = null;
+        this.audioChunks = [];
+        this.useWebSocket = true;
+        this.visualizerAnimation = null;
+        this.audioContext = null;
+        this.analyser = null;
+        this.wavData = [];
+        this.processor = null;
+        this.recordingTimeout = null;
+    }
+    
+    setupButton(buttonElement) {
+        if (!buttonElement) return;
+        
+        // События для мыши
+        buttonElement.addEventListener('mousedown', (e) => this.onPressStart(e));
+        buttonElement.addEventListener('mouseup', (e) => this.onPressEnd(e));
+        buttonElement.addEventListener('mouseleave', (e) => this.onPressEnd(e));
+        
+        // События для касания (мобильные)
+        buttonElement.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.onPressStart(e);
+        }, { passive: false });
+        
+        buttonElement.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            this.onPressEnd(e);
+        }, { passive: false });
+        
+        buttonElement.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            this.onPressEnd(e);
+        }, { passive: false });
+        
+        buttonElement.addEventListener('contextmenu', (e) => e.preventDefault());
+        
+        console.log('Voice button handler initialized');
+    }
+    
+    async onPressStart(event) {
+        if (this.isPressing || this.isRecording) return;
+        
+        this.isPressing = true;
+        
+        this.longPressTimer = setTimeout(async () => {
+            if (this.isPressing) {
+                await this.startRecording();
+                this.isRecording = true;
+                this.updateButtonUI(true);
+            }
+        }, this.LONG_PRESS_DURATION);
+    }
+    
+    onPressEnd(event) {
+        clearTimeout(this.longPressTimer);
+        
+        if (this.isRecording) {
+            this.stopRecording();
+            this.isRecording = false;
+            this.updateButtonUI(false);
+        }
+        
+        this.isPressing = false;
+    }
+    
+    async startRecording() {
+        try {
+            // Проверяем, не говорит ли ИИ
+            if (liveVoiceWS && liveVoiceWS.isAISpeaking) {
+                liveVoiceWS.interrupt();
+                await new Promise(r => setTimeout(r, 300));
+            }
+            
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    sampleRate: 16000,   // ИСПРАВЛЕНО: 16kHz вместо 8kHz
+                    channelCount: 1       // моно
+                }
+            });
+            
+            this.mediaStream = stream;
+            this.audioChunks = [];
+            this.wavData = [];
+            
+            // Инициализируем визуализатор
+            this.initVisualizer(stream);
+            
+            // Создаём AudioContext для записи в WAV
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = this.audioContext.createMediaStreamSource(stream);
+            
+            // Создаём ScriptProcessorNode для захвата аудиоданных
+            this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+            
+            this.processor.onaudioprocess = (event) => {
+                if (!this.isRecording) return;
+                
+                const inputData = event.inputBuffer.getChannelData(0);
+                // Конвертируем float32 (-1..1) в int16 (-32768..32767)
+                const int16Data = new Int16Array(inputData.length);
+                for (let i = 0; i < inputData.length; i++) {
+                    const sample = Math.max(-1, Math.min(1, inputData[i]));
+                    int16Data[i] = Math.floor(sample * 32767);
+                }
+                this.wavData.push(int16Data);
+                
+                // Обновляем визуализатор
+                if (this.analyser) {
+                    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                    this.analyser.getByteFrequencyData(dataArray);
+                    let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                    let volume = Math.min(100, (average / 255) * 100);
+                    const voiceBtn = document.getElementById('mainVoiceBtn');
+                    if (voiceBtn) {
+                        const intensity = volume / 100;
+                        voiceBtn.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
+                    }
+                }
+            };
+            
+            source.connect(this.processor);
+            this.processor.connect(this.audioContext.destination);
+            
+            // Запускаем AudioContext
+            if (this.audioContext.state === 'suspended') {
+                await this.audioContext.resume();
+            }
+            
+            this.isRecording = true;
+            
+            // Таймаут на 60 секунд
+            this.recordingTimeout = setTimeout(() => {
+                if (this.isRecording) {
+                    this.stopRecording();
+                }
+            }, 30000);
+            
+            showToast('🎙️ Говорите... Отпустите для отправки', 'info');
+            
+        } catch (error) {
+            console.error('Start recording error:', error);
+            showToast('❌ Не удалось получить доступ к микрофону', 'error');
+            this.isRecording = false;
+        }
+    }
+    
+    stopRecording() {
+        if (!this.isRecording) return;
+        
+        this.isRecording = false;
+        
+        if (this.recordingTimeout) {
+            clearTimeout(this.recordingTimeout);
+            this.recordingTimeout = null;
+        }
+        
+        if (this.processor) {
+            this.processor.disconnect();
+            this.processor = null;
+        }
+        
+        if (this.audioContext) {
+            this.audioContext.close().catch(console.warn);
+            this.audioContext = null;
+        }
+        
+        // Останавливаем визуализатор
+        this.stopVisualizer();
+        
+        // Создаём WAV файл из собранных данных
+        if (this.wavData && this.wavData.length > 0) {
+            const wavBlob = this.createWavBlob(this.wavData);
+            
+            if (liveVoiceWS && liveVoiceWS.isConnected && useWebSocket) {
+                // Отправляем через WebSocket чанками
+                this.sendAudioInChunks(wavBlob);
+            } else {
+                // Fallback на HTTP
+                this.sendViaHTTPWithBlob(wavBlob);
+            }
+        }
+        
+        // Закрываем медиа-поток
+        if (this.mediaStream) {
+            this.mediaStream.getTracks().forEach(track => track.stop());
+            this.mediaStream = null;
+        }
+        
+        this.wavData = [];
+        this.audioChunks = [];
+        
+        // Обновляем UI кнопки
+        const voiceBtn = document.getElementById('mainVoiceBtn');
+        if (voiceBtn) {
+            voiceBtn.classList.remove('recording');
+            const iconSpan = voiceBtn.querySelector('.voice-icon');
+            const textSpan = voiceBtn.querySelector('.voice-text');
+            if (iconSpan) iconSpan.textContent = '🎤';
+            if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
+            voiceBtn.style.boxShadow = '';
+        }
+    }
+    
+    async sendAudioInChunks(audioBlob) {
+        const CHUNK_SIZE = 32000; // 32KB чанки
+        
+        // Конвертируем Blob в base64
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64Data = reader.result.split(',')[1];
+            const totalLength = base64Data.length;
+            
+            console.log(`📤 Sending audio in chunks: ${totalLength} bytes total`);
+            
+            // Отправляем чанками
+            for (let i = 0; i < totalLength; i += CHUNK_SIZE) {
+                const chunk = base64Data.slice(i, i + CHUNK_SIZE);
+                const isFinal = i + CHUNK_SIZE >= totalLength;
+                
+                liveVoiceWS.ws.send(JSON.stringify({
+                    type: 'audio_chunk',
+                    data: chunk,
+                    is_final: isFinal
+                }));
+                
+                console.log(`📦 Sent chunk ${Math.floor(i/CHUNK_SIZE)+1}: ${chunk.length} chars, is_final=${isFinal}`);
+                
+                // Небольшая задержка между чанками (10ms)
+                if (!isFinal) {
+                    const start = Date.now();
+                    while (Date.now() - start < 10) {
+                        // Синхронная задержка
+                    }
+                }
+            }
+            
+            console.log(`✅ All ${Math.ceil(totalLength/CHUNK_SIZE)} chunks sent`);
+        };
+        reader.readAsDataURL(audioBlob);
+    }
+    
+    createWavBlob(audioData) {
+        // Объединяем все чанки
+        let totalLength = 0;
+        for (const chunk of audioData) {
+            totalLength += chunk.length;
+        }
+        
+        // Ограничиваем максимальную длину (30 секунд при 16kHz = 480,000 сэмплов)
+        const MAX_SAMPLES = 480000; // 30 секунд при 16kHz
+        if (totalLength > MAX_SAMPLES) {
+            console.warn(`Audio too long (${totalLength} samples), truncating to ${MAX_SAMPLES}`);
+            totalLength = MAX_SAMPLES;
+        }
+        
+        const combined = new Int16Array(totalLength);
+        let offset = 0;
+        for (const chunk of audioData) {
+            if (offset + chunk.length > totalLength) {
+                const remaining = totalLength - offset;
+                combined.set(chunk.slice(0, remaining), offset);
+                break;
+            }
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+        
+        const sampleRate = 16000; // 16kHz
+        const numChannels = 1;
+        const bitsPerSample = 16;
+        const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+        const blockAlign = numChannels * bitsPerSample / 8;
+        
+        const buffer = new ArrayBuffer(44 + combined.length * 2);
+        const view = new DataView(buffer);
+        
+        // RIFF chunk
+        this.writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + combined.length * 2, true);
+        this.writeString(view, 8, 'WAVE');
+        
+        // fmt subchunk
+        this.writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bitsPerSample, true);
+        
+        // data subchunk
+        this.writeString(view, 36, 'data');
+        view.setUint32(40, combined.length * 2, true);
+        
+        // записываем данные
+        for (let i = 0; i < combined.length; i++) {
+            view.setInt16(44 + i * 2, combined[i], true);
+        }
+        
+        return new Blob([buffer], { type: 'audio/wav' });
+    }
+    
+    writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+        }
+    }
+    
+    sendViaHTTPWithBlob(audioBlob) {
+        const formData = new FormData();
+        formData.append('user_id', CONFIG.USER_ID);
+        formData.append('voice', audioBlob, 'audio.wav');
+        formData.append('mode', currentMode);
+        
+        fetch(`${CONFIG.API_BASE_URL}/api/voice/process`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                if (result.recognized_text) {
+                    addMessage(`🎤 "${result.recognized_text}"`, 'system');
+                }
+                if (result.answer) {
+                    addMessage(result.answer, 'bot');
+                }
+                if (result.audio_base64) {
+                    playAudioResponse(result.audio_base64);
+                }
+            } else {
+                showToast(`❌ ${result.error || 'Ошибка распознавания'}`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('HTTP voice error:', error);
+            showToast('❌ Ошибка соединения', 'error');
+        });
+    }
+    
+    updateButtonUI(isRecording) {
+        const voiceBtn = document.getElementById('mainVoiceBtn');
+        if (!voiceBtn) return;
+        
+        if (isRecording) {
+            voiceBtn.classList.add('recording');
+            const iconSpan = voiceBtn.querySelector('.voice-icon');
+            const textSpan = voiceBtn.querySelector('.voice-text');
+            if (iconSpan) iconSpan.textContent = '⏹️';
+            if (textSpan) textSpan.textContent = 'Отпустите для отправки';
+        } else {
+            voiceBtn.classList.remove('recording');
+            const iconSpan = voiceBtn.querySelector('.voice-icon');
+            const textSpan = voiceBtn.querySelector('.voice-text');
+            if (iconSpan) iconSpan.textContent = '🎤';
+            if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
+            voiceBtn.style.boxShadow = '';
+        }
+    }
+    
+    initVisualizer(stream) {
+        if (!window.AudioContext && !window.webkitAudioContext) return;
+        
+        this.visualizerContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = this.visualizerContext.createMediaStreamSource(stream);
+        this.analyser = this.visualizerContext.createAnalyser();
+        this.analyser.fftSize = 256;
+        source.connect(this.analyser);
+        
+        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+        
+        const updateVolume = () => {
+            if (!this.isRecording) return;
+            
+            this.analyser.getByteFrequencyData(dataArray);
+            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            let volume = Math.min(100, (average / 255) * 100);
+            
+            const voiceBtn = document.getElementById('mainVoiceBtn');
+            if (voiceBtn) {
+                const intensity = volume / 100;
+                voiceBtn.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
+            }
+            
+            this.visualizerAnimation = requestAnimationFrame(updateVolume);
+        };
+        
+        updateVolume();
+    }
+    
+    stopVisualizer() {
+        if (this.visualizerAnimation) {
+            cancelAnimationFrame(this.visualizerAnimation);
+            this.visualizerAnimation = null;
+        }
+        if (this.visualizerContext) {
+            this.visualizerContext.close().catch(console.warn);
+            this.visualizerContext = null;
+        }
+        this.analyser = null;
+    }
+}
 
 // ============================================
 // API ВЫЗОВЫ
@@ -1784,13 +2565,5 @@ async function init() {
         });
     });
 }
-
-// Делаем глобальные функции доступными для voice.js
-window.CONFIG = CONFIG;
-window.currentMode = () => currentMode;
-window.addMessage = addMessage;
-window.showToast = showToast;
-window.playAudioResponse = playAudioResponse;
-window.MODES = MODES;
 
 document.addEventListener('DOMContentLoaded', init);
