@@ -136,8 +136,7 @@ class Database:
                 yield conn
                 
         except (asyncpg.exceptions.ConnectionDoesNotExistError,
-                asyncpg.exceptions.ConnectionClosedError,
-                asyncpg.exceptions.InterfaceError) as e:
+        asyncpg.exceptions.InterfaceError) as e:
             logger.warning(f"⚠️ Connection error: {e}")
             # Пытаемся переподключиться
             if await self.reconnect():
