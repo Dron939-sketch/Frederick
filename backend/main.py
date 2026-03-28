@@ -586,14 +586,28 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                 
                 # Если это финальный чанк и есть данные
                 if is_final and len(audio_buffer) > 0:
-                    logger.info(f"🎤🎤🎤 FINAL AUDIO RECEIVED! Total: {len(audio_buffer)} bytes from {chunk_count} chunks")
-                    
-                    await voice_manager.send_status(user_id, "processing")
-                    
-                    try:
-                        logger.info(f"📡 Sending to DeepGram as WAV...")
-                        recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "wav")
-                        logger.info(f"📝 DeepGram result: '{recognized_text}'")
+       logger.info(f"🎤🎤🎤 FINAL AUDIO RECEIVED! Total: {len(audio_buffer)} bytes from {chunk_count} chunks")
+    
+    await voice_manager.send_status(user_id, "processing")
+    
+    try:
+        # Определяем формат аудио (приходит от клиента)
+        audio_format = data.get("format", "wav")
+        sample_rate = data.get("sample_rate", 16000)
+        
+        logger.info(f"📡 Audio format: {audio_format}, sample_rate: {sample_rate}")
+        
+        # ========== ВЫБОР МЕТОДА РАСПОЗНАВАНИЯ ==========
+        if audio_format == "pcm16":
+            recognized_text = await voice_service.speech_to_text_pcm(
+                bytes(audio_buffer), 
+                sample_rate=sample_rate
+            )
+        else:
+            recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "wav")
+        # ========== КОНЕЦ ==========
+        
+        logger.info(f"📝 DeepGram result: '{recognized_text}'")
                         
                         if recognized_text:
                             await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
