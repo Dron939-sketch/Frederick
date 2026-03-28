@@ -911,6 +911,10 @@ async def update_metrics():
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check для Render"""
+    logger.info("=" * 50)
+    logger.info("🏥 HEALTH CHECK CALLED")
+    logger.info("=" * 50)
+    
     status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
@@ -923,31 +927,69 @@ async def health_check():
         }
     }
     
+    # Проверка базы данных
     if db:
         try:
+            logger.info("🔍 Checking database connection...")
             async with db.get_connection() as conn:
                 await conn.execute("SELECT 1")
             status["services"]["database"] = True
+            logger.info("✅ Database connected successfully")
         except Exception as e:
-            logger.error(f"DB health check failed: {e}")
+            logger.error(f"❌ Database connection failed: {e}")
             status["services"]["database"] = False
             status["status"] = "degraded"
+    else:
+        logger.warning("⚠️ Database object is None")
+        status["services"]["database"] = False
+        status["status"] = "degraded"
     
+    # Проверка Redis
     if cache and cache.is_connected:
         try:
+            logger.info("🔍 Checking Redis connection...")
             await cache.redis.ping()
             status["services"]["redis"] = True
-        except Exception:
+            logger.info("✅ Redis connected successfully")
+        except Exception as e:
+            logger.error(f"❌ Redis connection failed: {e}")
             status["services"]["redis"] = False
+            status["status"] = "degraded"
+    else:
+        logger.warning("⚠️ Redis not connected or cache is None")
+        status["services"]["redis"] = False
     
+    # Проверка AI Service
     if ai_service and ai_service.api_key:
         status["services"]["ai_service"] = True
+        logger.info("✅ AI Service configured")
+    else:
+        logger.warning("⚠️ AI Service not configured")
+        status["services"]["ai_service"] = False
     
+    # Проверка Voice Service
     if voice_service:
         status["services"]["voice_service"] = True
+        logger.info("✅ Voice Service available")
+    else:
+        logger.warning("⚠️ Voice Service not available")
+        status["services"]["voice_service"] = False
+    
+    # Проверка WebSocket Manager
+    if voice_manager:
+        status["services"]["websocket"] = True
+        logger.info(f"✅ WebSocket Manager active, connections: {len(voice_manager.active_connections)}")
+    else:
+        logger.warning("⚠️ WebSocket Manager not initialized")
+        status["services"]["websocket"] = False
+    
+    logger.info(f"📊 Health status: {status['status']}")
+    logger.info(f"📊 Services: {status['services']}")
+    logger.info("=" * 50)
     
     if not status["services"]["database"]:
         status["status"] = "unhealthy"
+        logger.error("❌ Database is required, marking as unhealthy")
         return JSONResponse(status_code=503, content=status)
     
     return status
