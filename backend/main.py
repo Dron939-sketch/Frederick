@@ -3,7 +3,7 @@
 """
 Фреди - Виртуальный психолог
 Асинхронный API сервер на FastAPI
-Версия 3.0 - Полная интеграция с конфайнтмент-моделью, режимами, утренними сообщениями и планами на выходные
+Версия 3.1 - Добавлена поддержка живого голосового диалога (WebSocket + VAD)
 """
 
 import os
@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
 import signal
 
-from fastapi import FastAPI, Request, HTTPException, Depends, File, UploadFile, Form
+from fastapi import FastAPI, Request, HTTPException, Depends, File, UploadFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
@@ -56,14 +56,11 @@ from repositories.context_repo import ContextRepository
 from repositories.message_repo import MessageRepository
 
 # Конфайнтмент-модель
-import sys
-sys.path.insert(0, os.path.dirname(__file__))
-
-from confinement_model import ConfinementModel9
-from loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
-from key_confinement import KeyConfinementDetector
-from intervention_library import InterventionLibrary
-from question_analyzer import QuestionContextAnalyzer, create_analyzer_from_user_data
+from confinement.confinement_model import ConfinementModel9
+from confinement.loop_analyzer import LoopAnalyzer, create_analyzer_from_model_data
+from confinement.key_confinement import KeyConfinementDetector
+from confinement.intervention_library import InterventionLibrary
+from confinement.question_analyzer import QuestionContextAnalyzer, create_analyzer_from_user_data
 
 # Гипнотические модули
 from hypno.hypno_module import HypnoOrchestrator
@@ -117,6 +114,79 @@ intervention_lib: Optional[InterventionLibrary] = None
 # Утренние сообщения и планировщик
 morning_manager: Optional[MorningMessageManager] = None
 weekend_planner: Optional[WeekendPlanner] = None
+
+# ============================================
+# VOICE CONNECTION MANAGER (для WebSocket)
+# ============================================
+
+class VoiceConnectionManager:
+    """Управление WebSocket соединениями для голосового диалога"""
+    
+    def __init__(self):
+        self.active_connections: Dict[int, WebSocket] = {}
+        self.speaking_tasks: Dict[int, asyncio.Task] = {}
+    
+    async def connect(self, user_id: int, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+        logger.info(f"🔊 Voice WS connected for user {user_id}")
+    
+    def disconnect(self, user_id: int):
+        if user_id in self.active_connections:
+            del self.active_connections[user_id]
+        if user_id in self.speaking_tasks:
+            task = self.speaking_tasks.pop(user_id, None)
+            if task and not task.done():
+                task.cancel()
+        logger.info(f"🔊 Voice WS disconnected for user {user_id}")
+    
+    async def send_audio(self, user_id: int, audio_base64: str, is_final: bool = True):
+        """Отправить аудио клиенту"""
+        if user_id in self.active_connections:
+            try:
+                await self.active_connections[user_id].send_json({
+                    "type": "audio",
+                    "data": audio_base64,
+                    "is_final": is_final
+                })
+            except Exception as e:
+                logger.error(f"Error sending audio to {user_id}: {e}")
+    
+    async def send_text(self, user_id: int, text: str):
+        """Отправить текст клиенту (для субтитров)"""
+        if user_id in self.active_connections:
+            try:
+                await self.active_connections[user_id].send_json({
+                    "type": "text",
+                    "data": text
+                })
+            except Exception as e:
+                logger.error(f"Error sending text to {user_id}: {e}")
+    
+    async def send_status(self, user_id: int, status: str):
+        """Отправить статус клиенту"""
+        if user_id in self.active_connections:
+            try:
+                await self.active_connections[user_id].send_json({
+                    "type": "status",
+                    "status": status
+                })
+            except Exception as e:
+                logger.error(f"Error sending status to {user_id}: {e}")
+    
+    async def send_error(self, user_id: int, error: str):
+        """Отправить ошибку клиенту"""
+        if user_id in self.active_connections:
+            try:
+                await self.active_connections[user_id].send_json({
+                    "type": "error",
+                    "error": error
+                })
+            except Exception as e:
+                logger.error(f"Error sending error to {user_id}: {e}")
+
+# Создаем глобальный менеджер (будет инициализирован в lifespan)
+voice_manager: Optional[VoiceConnectionManager] = None
 
 # ============================================
 # RATE LIMITING
@@ -184,10 +254,11 @@ async def lifespan(app: FastAPI):
     global user_repo, context_repo, message_repo
     global hypno, tales, intervention_lib
     global morning_manager, weekend_planner
+    global voice_manager
     
     # ========== STARTUP ==========
     logger.info("=" * 60)
-    logger.info("🚀 ЗАПУСК ПРИЛОЖЕНИЯ ФРЕДИ v3.0")
+    logger.info("🚀 ЗАПУСК ПРИЛОЖЕНИЯ ФРЕДИ v3.1 (с живым голосом)")
     logger.info("=" * 60)
     
     try:
@@ -233,12 +304,16 @@ async def lifespan(app: FastAPI):
         morning_manager = MorningMessageManager()
         logger.info("✅ Утилиты готовы")
         
-        # 7. Создаем таблицы
+        # 7. Инициализируем менеджер голосовых соединений
+        voice_manager = VoiceConnectionManager()
+        logger.info("✅ VoiceConnectionManager готов")
+        
+        # 8. Создаем таблицы
         logger.info("📦 Проверка и создание таблиц...")
         await init_database_tables()
         logger.info("✅ Таблицы готовы")
         
-        # 8. Запускаем фоновые задачи
+        # 9. Запускаем фоновые задачи
         logger.info("📦 Запуск фоновых задач...")
         background_tasks = [
             asyncio.create_task(cleanup_old_data()),
@@ -291,7 +366,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Фреди API",
     description="Виртуальный психолог - API для работы с пользователями, голосом и AI",
-    version="3.0.0",
+    version="3.1.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -321,11 +396,15 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # ============================================
-# MIDDLEWARE: Логирование запросов
+# MIDDLEWARE: Логирование запросов (с поддержкой WebSocket)
 # ============================================
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Логирование всех HTTP запросов"""
+    """Логирование всех HTTP запросов (WebSocket пропускаем)"""
+    # Пропускаем WebSocket соединения
+    if request.headers.get("upgrade", "").lower() == "websocket":
+        return await call_next(request)
+    
     start_time = time.time()
     
     logger.debug(f"→ {request.method} {request.url.path}")
@@ -351,6 +430,135 @@ async def log_requests(request: Request, call_next):
             f"duration={duration:.3f}s"
         )
         raise
+
+
+# ============================================
+# WEBSOCKET ЭНДПОИНТ - ЖИВОЙ ГОЛОСОВОЙ ДИАЛОГ
+# ============================================
+
+@app.websocket("/ws/voice/{user_id}")
+async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
+    """
+    WebSocket эндпоинт для живого голосового диалога с поддержкой:
+    - VAD (определение начала/конца речи)
+    - Barge-in (перебивание ИИ)
+    - Потоковый TTS
+    """
+    if not voice_manager:
+        await websocket.close(code=1011, reason="Voice service not ready")
+        return
+    
+    await voice_manager.connect(user_id, websocket)
+    
+    # Получаем контекст и профиль пользователя
+    context = await context_repo.get(user_id) or {}
+    profile = await user_repo.get_profile(user_id) or {}
+    mode_name = context.get("communication_mode", "psychologist")
+    
+    # Создаем объект режима
+    user_data = {
+        "profile_data": profile.get("profile_data", {}),
+        "perception_type": profile.get("perception_type", "не определен"),
+        "thinking_level": profile.get("thinking_level", 5),
+        "deep_patterns": profile.get("deep_patterns", {}),
+        "behavioral_levels": profile.get("behavioral_levels", {}),
+        "dilts_counts": profile.get("dilts_counts", {}),
+        "confinement_model": profile.get("confinement_model"),
+        "history": []
+    }
+    
+    class SimpleContext:
+        def __init__(self, data):
+            self.name = data.get("name", "друг")
+            self.gender = data.get("gender")
+            self.age = data.get("age")
+            self.city = data.get("city")
+            self.weather_cache = data.get("weather_cache")
+            self.communication_mode = data.get("communication_mode", "psychologist")
+    
+    simple_context = SimpleContext(context)
+    mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
+    
+    # Буфер для накопления аудио
+    audio_buffer = bytearray()
+    vad = voice_service.create_vad(user_id)
+    
+    try:
+        while True:
+            # Получаем сообщение от клиента
+            data = await websocket.receive_json()
+            
+            if data.get("type") == "audio_chunk":
+                chunk_base64 = data.get("data", "")
+                if chunk_base64:
+                    audio_buffer.extend(base64.b64decode(chunk_base64))
+                
+                is_final = data.get("is_final", False)
+                
+                if is_final and len(audio_buffer) > 0:
+                    await voice_manager.send_status(user_id, "processing")
+                    
+                    # Распознаем речь
+                    recognized_text = await voice_service.speech_to_text(bytes(audio_buffer), "webm")
+                    
+                    if recognized_text:
+                        await voice_manager.send_text(user_id, f"🎤 Вы: {recognized_text}")
+                        
+                        # Получаем ответ от ИИ через потоковый метод
+                        response_text = ""
+                        async for chunk in mode_instance.process_question_streaming(recognized_text):
+                            response_text += chunk
+                            await voice_manager.send_text(user_id, f"🧠 Фреди: {chunk}")
+                        
+                        await voice_manager.send_status(user_id, "speaking")
+                        
+                        # Потоковый TTS
+                        async def stream_tts():
+                            try:
+                                async for audio_chunk in voice_service.text_to_speech_streaming(
+                                    response_text, mode_name, chunk_size=4096
+                                ):
+                                    if audio_chunk:
+                                        audio_base64_chunk = base64.b64encode(audio_chunk).decode()
+                                        await voice_manager.send_audio(user_id, audio_base64_chunk, is_final=False)
+                                
+                                await voice_manager.send_audio(user_id, "", is_final=True)
+                            except asyncio.CancelledError:
+                                logger.info(f"TTS cancelled for user {user_id}")
+                                raise
+                        
+                        # Отменяем предыдущую задачу если есть
+                        if user_id in voice_manager.speaking_tasks:
+                            voice_manager.speaking_tasks[user_id].cancel()
+                        
+                        voice_manager.speaking_tasks[user_id] = asyncio.create_task(stream_tts())
+                        
+                        # Сохраняем в историю
+                        await message_repo.save(user_id, "user", recognized_text, {"voice": True})
+                        await message_repo.save(user_id, "assistant", response_text, {"voice": True})
+                        await log_event(user_id, "voice_stream", {"text_length": len(recognized_text)})
+                    else:
+                        await voice_manager.send_error(user_id, "Не удалось распознать речь")
+                    
+                    audio_buffer = bytearray()
+                    await voice_manager.send_status(user_id, "idle")
+            
+            elif data.get("type") == "interrupt":
+                # Пользователь перебил ИИ
+                if user_id in voice_manager.speaking_tasks:
+                    voice_manager.speaking_tasks[user_id].cancel()
+                    del voice_manager.speaking_tasks[user_id]
+                    logger.info(f"🛑 User {user_id} interrupted AI")
+                await voice_manager.send_status(user_id, "listening")
+            
+            elif data.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+    
+    except WebSocketDisconnect:
+        voice_manager.disconnect(user_id)
+    except Exception as e:
+        logger.error(f"WebSocket error for user {user_id}: {e}")
+        voice_manager.disconnect(user_id)
 
 
 # ============================================
@@ -652,7 +860,9 @@ async def health_check():
         "services": {
             "database": False,
             "redis": False,
-            "ai_service": False
+            "ai_service": False,
+            "voice_service": False,
+            "websocket": voice_manager is not None
         }
     }
     
@@ -676,6 +886,9 @@ async def health_check():
     if ai_service and ai_service.api_key:
         status["services"]["ai_service"] = True
     
+    if voice_service:
+        status["services"]["voice_service"] = True
+    
     if not status["services"]["database"]:
         status["status"] = "unhealthy"
         return JSONResponse(status_code=503, content=status)
@@ -691,7 +904,8 @@ async def ping():
         "timestamp": datetime.utcnow().isoformat(),
         "services": {
             "database": db is not None,
-            "redis": cache.is_connected if cache else False
+            "redis": cache.is_connected if cache else False,
+            "websocket": voice_manager is not None
         }
     }
 
