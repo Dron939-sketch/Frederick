@@ -260,7 +260,7 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
     try:
         client = await get_http_client()
         
-        logger.info(f"📡 Отправка запроса в DeepGram (model=nova-2-multilingual, language=ru)...")
+        logger.info(f"📡 Отправка запроса в DeepGram (model=nova-2, language=ru)...")
         
         response = await client.post(
             DEEPGRAM_API_URL,
