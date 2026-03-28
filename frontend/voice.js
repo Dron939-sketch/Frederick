@@ -1,6 +1,6 @@
 // ============================================
 // ГОЛОСОВОЙ МОДУЛЬ FREDI PREMIUM
-// Единый файл для всей голосовой функциональности
+// HTTP версия - стабильная и проверенная
 // ============================================
 
 class VoiceWebSocket {
@@ -22,231 +22,26 @@ class VoiceWebSocket {
         this.currentSource = null;
         this.audioContext = null;
         
-        // Heartbeat
-        this.pingInterval = null;
-        this.pingIntervalMs = config.pingIntervalMs || 25000;
-        this.pongTimeout = null;
-        
-        // Reconnection
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = config.maxReconnectAttempts || 5;
-        this.reconnectDelay = config.reconnectDelay || 2000;
-        this.reconnectTimer = null;
-        
-        // URL WebSocket
-        this.wsUrl = config.wsUrl || `wss://fredi-backend-flz2.onrender.com/ws/voice/${userId}`;
+        // HTTP вместо WebSocket
+        this.useWebSocket = false;
+        this.apiBaseUrl = config.apiBaseUrl || 'https://fredi-backend-flz2.onrender.com';
         
         // Флаги
         this.isReconnecting = false;
     }
     
     async connect() {
-        if (this.isConnected) {
-            console.log('📡 WebSocket already connected');
-            return true;
+        // HTTP режим - всегда "подключен"
+        console.log('📡 HTTP mode active (WebSocket disabled)');
+        this.isConnected = true;
+        if (this.onStatusChange) {
+            this.onStatusChange('connected');
         }
-        
-        return new Promise((resolve, reject) => {
-            try {
-                console.log(`📡 Connecting to WebSocket: ${this.wsUrl}`);
-                this.ws = new WebSocket(this.wsUrl);
-                
-                this.ws.onopen = () => {
-                    console.log('✅ WebSocket connected for live voice');
-                    this.isConnected = true;
-                    this.reconnectAttempts = 0;
-                    this.isReconnecting = false;
-                    
-                    this.startHeartbeat();
-                    
-                    if (this.onStatusChange) {
-                        this.onStatusChange('connected');
-                    }
-                    resolve(true);
-                };
-                
-                this.ws.onclose = (event) => {
-                    console.log(`❌ WebSocket disconnected: code=${event.code}, reason=${event.reason || 'no reason'}`);
-                    this.isConnected = false;
-                    
-                    this.stopHeartbeat();
-                    
-                    if (this.onStatusChange) {
-                        this.onStatusChange('disconnected');
-                    }
-                    
-                    // Автоматическое переподключение
-                    if (!this.isReconnecting && event.code !== 1000) {
-                        this.scheduleReconnect();
-                    }
-                };
-                
-                this.ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
-                    if (this.onError) {
-                        this.onError('Connection error');
-                    }
-                    reject(error);
-                };
-                
-                this.ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        this.handleMessage(data);
-                    } catch (error) {
-                        console.error('Failed to parse WebSocket message:', error);
-                    }
-                };
-            } catch (error) {
-                console.error('WebSocket connection error:', error);
-                reject(error);
-            }
-        });
-    }
-    
-    scheduleReconnect() {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.error('❌ Max reconnection attempts reached');
-            if (this.onError) {
-                this.onError('Не удалось восстановить соединение');
-            }
-            return;
-        }
-        
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-        }
-        
-        const delay = Math.min(30000, this.reconnectDelay * Math.pow(2, this.reconnectAttempts));
-        console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
-        
-        this.reconnectTimer = setTimeout(async () => {
-            this.reconnectAttempts++;
-            this.isReconnecting = true;
-            
-            try {
-                await this.connect();
-                console.log('✅ Reconnection successful');
-            } catch (error) {
-                console.log('Reconnection failed, will retry');
-            }
-        }, delay);
-    }
-    
-    startHeartbeat() {
-        this.stopHeartbeat();
-        
-        // Отправляем первый ping через 5 секунд
-        setTimeout(() => {
-            if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
-                this.sendPing();
-            }
-        }, 5000);
-        
-        // Запускаем периодический ping
-        this.pingInterval = setInterval(() => {
-            if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
-                this.sendPing();
-            } else if (this.pingInterval) {
-                this.stopHeartbeat();
-            }
-        }, this.pingIntervalMs);
-        
-        console.log(`💓 Heartbeat started: ping every ${this.pingIntervalMs / 1000} seconds`);
-    }
-    
-    stopHeartbeat() {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
-        }
-        
-        if (this.pongTimeout) {
-            clearTimeout(this.pongTimeout);
-            this.pongTimeout = null;
-        }
-    }
-    
-    sendPing() {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return;
-        }
-        
-        const pingTime = Date.now();
-        this.ws.send(JSON.stringify({ 
-            type: 'ping',
-            timestamp: pingTime 
-        }));
-        
-        // Таймаут на получение pong
-        if (this.pongTimeout) {
-            clearTimeout(this.pongTimeout);
-        }
-        
-        this.pongTimeout = setTimeout(() => {
-            console.warn('⚠️ No pong received from server, connection may be dead');
-            if (this.isConnected) {
-                this.scheduleReconnect();
-            }
-        }, 5000);
-    }
-    
-    handlePong(data) {
-        if (this.pongTimeout) {
-            clearTimeout(this.pongTimeout);
-            this.pongTimeout = null;
-        }
-        
-        const latency = data.timestamp ? Date.now() - data.timestamp : null;
-        if (latency) {
-            console.log(`💓 Pong received, latency: ${latency}ms`);
-        }
+        return true;
     }
     
     handleMessage(data) {
-        // Обработка pong
-        if (data.type === 'pong') {
-            this.handlePong(data);
-            return;
-        }
-        
-        switch (data.type) {
-            case 'audio':
-                if (data.data) {
-                    this.playAudioChunk(data.data);
-                }
-                if (data.is_final) {
-                    console.log('Audio stream ended');
-                }
-                break;
-                
-            case 'text':
-                console.log('📝 Transcript:', data.data);
-                if (this.onTranscript) {
-                    this.onTranscript(data.data);
-                }
-                break;
-                
-            case 'status':
-                console.log('📊 Status:', data.status);
-                this.updateStatus(data.status);
-                break;
-                
-            case 'error':
-                console.error('Server error:', data.error);
-                if (this.onError) {
-                    this.onError(data.error);
-                }
-                break;
-                
-            case 'audio_end':
-                console.log('Audio playback ended');
-                this.isAISpeaking = false;
-                if (this.onStatusChange) {
-                    this.onStatusChange('idle');
-                }
-                break;
-        }
+        // Не используется в HTTP режиме
     }
     
     updateStatus(status) {
@@ -264,100 +59,11 @@ class VoiceWebSocket {
         }
     }
     
-    async playAudioChunk(base64Data) {
-        try {
-            if (!this.audioContext) {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // Включаем AudioContext после взаимодействия пользователя
-                if (this.audioContext.state === 'suspended') {
-                    await this.audioContext.resume();
-                }
-            }
-            
-            // Декодируем base64 в ArrayBuffer
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            
-            const audioBuffer = await this.audioContext.decodeAudioData(bytes.buffer);
-            
-            const source = this.audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(this.audioContext.destination);
-            
-            // Останавливаем предыдущее воспроизведение если есть
-            if (this.currentSource) {
-                try {
-                    this.currentSource.stop();
-                } catch (e) {
-                    // Игнорируем ошибки остановки
-                }
-                this.currentSource = null;
-            }
-            
-            this.currentSource = source;
-            source.start();
-            
-            source.onended = () => {
-                if (this.currentSource === source) {
-                    this.currentSource = null;
-                }
-            };
-            
-        } catch (error) {
-            console.error('Error playing audio chunk:', error);
-        }
-    }
-    
-    sendAudioChunk(chunk, isFinal) {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn('Cannot send audio: WebSocket not connected');
-            return false;
-        }
-        
-        if (!chunk) {
-            this.ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: '',
-                is_final: isFinal
-            }));
-            return true;
-        }
-        
-        const reader = new FileReader();
-        reader.onload = () => {
-            const base64Data = reader.result.split(',')[1];
-            this.ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: base64Data,
-                is_final: isFinal
-            }));
-        };
-        reader.readAsDataURL(chunk);
-        
-        return true;
-    }
-    
-    // ========== ИСПРАВЛЕННЫЙ МЕТОД sendFullAudio ==========
+    // ========== ОТПРАВКА АУДИО ЧЕРЕЗ HTTP ==========
     sendFullAudio(audioBlob) {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn('Cannot send audio: WebSocket not connected');
-            return false;
-        }
+        console.log(`📤 Отправка через HTTP: ${audioBlob.size} bytes`);
         
-        // Проверка размера аудио (макс 10MB)
-        if (audioBlob.size > 10 * 1024 * 1024) {
-            console.error('Audio too large:', audioBlob.size);
-            if (this.onError) {
-                this.onError('Аудио слишком длинное (макс. 60 сек)');
-            }
-            return false;
-        }
-        
-        // Проверка минимального размера (0.5 секунды)
+        // Проверка минимального размера
         const MIN_AUDIO_BYTES = 8000;
         if (audioBlob.size < MIN_AUDIO_BYTES) {
             console.warn(`⚠️ Audio too short: ${audioBlob.size} bytes, skipping`);
@@ -367,40 +73,119 @@ class VoiceWebSocket {
             return false;
         }
         
-        const reader = new FileReader();
-        reader.onload = () => {
-            const base64Data = reader.result.split(',')[1];
-            
-            // ========== КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ДОБАВЛЯЕМ format И sample_rate ==========
-            this.ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: base64Data,
-                is_final: true,
-                format: 'pcm16',        // ← ОТПРАВЛЯЕМ КАК PCM16
-                sample_rate: 16000      // ← УКАЗЫВАЕМ ЧАСТОТУ
-            }));
-            
-            console.log(`📤 Sent full audio: ${audioBlob.size} bytes, format=pcm16, sample_rate=16000`);
-        };
+        // Создаем FormData
+        const formData = new FormData();
+        formData.append('user_id', this.userId);
+        formData.append('voice', audioBlob, 'audio.wav');
+        formData.append('mode', this.currentMode || 'psychologist');
         
-        reader.onerror = (error) => {
-            console.error('Failed to read audio blob:', error);
-            if (this.onError) {
-                this.onError('Ошибка чтения аудио');
+        // Обновляем статус
+        if (this.onStatusChange) {
+            this.onStatusChange('processing');
+        }
+        
+        // Отправляем через fetch
+        fetch(`${this.apiBaseUrl}/api/voice/process`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                console.log('✅ Распознано:', result.recognized_text);
+                
+                // Отображаем распознанный текст
+                if (this.onTranscript && result.recognized_text) {
+                    this.onTranscript(result.recognized_text);
+                }
+                
+                // Отображаем ответ ИИ
+                if (this.onAIResponse && result.answer) {
+                    this.onAIResponse(result.answer);
+                }
+                
+                // Воспроизводим аудио ответ
+                if (result.audio_base64) {
+                    this.playAudioResponse(result.audio_base64);
+                }
+                
+                if (this.onStatusChange) {
+                    this.onStatusChange('idle');
+                }
+            } else {
+                console.error('❌ Ошибка:', result.error);
+                if (this.onError) {
+                    this.onError(result.error || 'Ошибка распознавания');
+                }
+                if (this.onStatusChange) {
+                    this.onStatusChange('idle');
+                }
             }
-        };
-        
-        reader.readAsDataURL(audioBlob);
+        })
+        .catch(error => {
+            console.error('HTTP error:', error);
+            if (this.onError) {
+                this.onError('Ошибка соединения');
+            }
+            if (this.onStatusChange) {
+                this.onStatusChange('idle');
+            }
+        });
         
         return true;
     }
-    // ========== КОНЕЦ ИСПРАВЛЕННОГО МЕТОДА ==========
+    
+    // Воспроизведение аудио из base64
+    playAudioResponse(audioBase64) {
+        try {
+            // Создаем аудио элемент
+            const audio = new Audio();
+            audio.src = `data:audio/mpeg;base64,${audioBase64}`;
+            
+            // Обновляем статус
+            if (this.onStatusChange) {
+                this.onStatusChange('speaking');
+            }
+            
+            audio.onplay = () => {
+                console.log('🔊 Воспроизведение начато');
+            };
+            
+            audio.onended = () => {
+                console.log('🔊 Воспроизведение завершено');
+                if (this.onStatusChange) {
+                    this.onStatusChange('idle');
+                }
+            };
+            
+            audio.onerror = (error) => {
+                console.error('Playback error:', error);
+                if (this.onStatusChange) {
+                    this.onStatusChange('idle');
+                }
+            };
+            
+            audio.play().catch(e => {
+                console.error('Play failed:', e);
+                if (this.onStatusChange) {
+                    this.onStatusChange('idle');
+                }
+            });
+        } catch (error) {
+            console.error('Playback error:', error);
+            if (this.onStatusChange) {
+                this.onStatusChange('idle');
+            }
+        }
+    }
+    
+    sendAudioChunk(chunk, isFinal) {
+        // Не используется в HTTP режиме
+        console.warn('sendAudioChunk not used in HTTP mode');
+        return false;
+    }
     
     interrupt() {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return;
-        }
-        
         // Останавливаем текущее воспроизведение
         if (this.currentSource) {
             try {
@@ -410,43 +195,12 @@ class VoiceWebSocket {
                 // Игнорируем
             }
         }
-        
-        // Отправляем сигнал прерывания на сервер
-        this.ws.send(JSON.stringify({
-            type: 'interrupt'
-        }));
-        
-        console.log('🛑 Interrupt sent to server');
+        console.log('🛑 Interrupt (HTTP mode)');
     }
     
     disconnect() {
-        this.stopHeartbeat();
-        
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
-        
-        if (this.currentSource) {
-            try {
-                this.currentSource.stop();
-            } catch (e) {}
-            this.currentSource = null;
-        }
-        
-        if (this.ws) {
-            this.ws.close(1000, 'Manual disconnect');
-            this.ws = null;
-        }
-        
-        if (this.audioContext) {
-            this.audioContext.close().catch(console.warn);
-            this.audioContext = null;
-        }
-        
         this.isConnected = false;
-        this.isReconnecting = false;
-        console.log('🔌 WebSocket disconnected manually');
+        console.log('🔌 HTTP mode disconnected');
     }
 }
 
@@ -727,7 +481,7 @@ class VoiceRecorder {
 }
 
 // ============================================
-// АУДИО ПЛЕЕР
+// АУДИО ПЛЕЕР (запасной)
 // ============================================
 
 class AudioPlayer {
@@ -742,15 +496,11 @@ class AudioPlayer {
     play(audioData, mimeType = 'audio/mpeg') {
         return new Promise((resolve, reject) => {
             try {
-                // Останавливаем текущее воспроизведение
                 this.stop();
                 
-                // Создаем новый аудио элемент
                 this.audio = new Audio();
-                
                 let audioUrl = audioData;
                 
-                // Если это base64 данные
                 if (audioData.startsWith('data:audio/')) {
                     const matches = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/);
                     if (matches) {
@@ -846,7 +596,8 @@ class VoiceManager {
         this.recorder = null;
         this.player = null;
         
-        this.useWebSocket = config.useWebSocket !== false;
+        // ========== ОТКЛЮЧАЕМ WEBSOCKET, ИСПОЛЬЗУЕМ HTTP ==========
+        this.useWebSocket = false;
         this.apiBaseUrl = config.apiBaseUrl || 'https://fredi-backend-flz2.onrender.com';
         
         // Состояние
@@ -923,18 +674,26 @@ class VoiceManager {
             }
         };
         
-        // Инициализируем WebSocket если нужно
-        if (this.useWebSocket) {
-            this.initWebSocket();
-        }
+        // Инициализируем HTTP клиент
+        this.initHTTP();
     }
     
-    initWebSocket() {
-        this.websocket = new VoiceWebSocket(this.userId);
+    initHTTP() {
+        console.log('📡 HTTP mode active (stable)');
+        this.websocket = new VoiceWebSocket(this.userId, {
+            apiBaseUrl: this.apiBaseUrl
+        });
+        this.websocket.useWebSocket = false;
         
         this.websocket.onTranscript = (text) => {
             if (this.onTranscript) {
                 this.onTranscript(text);
+            }
+        };
+        
+        this.websocket.onAIResponse = (answer) => {
+            if (this.onAIResponse) {
+                this.onAIResponse(answer);
             }
         };
         
@@ -953,67 +712,17 @@ class VoiceManager {
             }
         };
         
-        this.websocket.connect().catch(error => {
-            console.warn('WebSocket failed, falling back to HTTP', error);
-            this.useWebSocket = false;
-            if (this.onError) {
-                this.onError('WebSocket connection failed, using HTTP fallback');
-            }
-        });
+        this.websocket.connect();
     }
     
     async sendAudio(audioBlob) {
-        if (this.useWebSocket && this.websocket?.isConnected) {
-            return this.websocket.sendFullAudio(audioBlob);
-        } else {
-            return this.sendViaHTTP(audioBlob);
-        }
+        // Используем HTTP всегда
+        return this.websocket.sendFullAudio(audioBlob);
     }
     
     async sendViaHTTP(audioBlob) {
-        const formData = new FormData();
-        formData.append('user_id', this.userId);
-        formData.append('voice', audioBlob, 'audio.wav');
-        
-        if (this.currentMode) {
-            formData.append('mode', this.currentMode);
-        }
-        
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/api/voice/process`, {
-                method: 'POST',
-                body: formData
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                if (result.recognized_text && this.onTranscript) {
-                    this.onTranscript(result.recognized_text);
-                }
-                
-                if (result.answer && this.onAIResponse) {
-                    this.onAIResponse(result.answer);
-                }
-                
-                if (result.audio_base64) {
-                    await this.player.play(result.audio_base64);
-                }
-            } else {
-                if (this.onError) {
-                    this.onError(result.error || 'Ошибка распознавания');
-                }
-            }
-            
-            return result;
-            
-        } catch (error) {
-            console.error('HTTP voice error:', error);
-            if (this.onError) {
-                this.onError('Ошибка соединения');
-            }
-            return null;
-        }
+        // Уже реализовано в VoiceWebSocket.sendFullAudio
+        return this.websocket.sendFullAudio(audioBlob);
     }
     
     async textToSpeech(text, mode) {
@@ -1051,10 +760,8 @@ class VoiceManager {
     }
     
     startRecording() {
-        // Если ИИ говорит, прерываем его
         if (this.isAISpeaking) {
             this.interrupt();
-            // Небольшая задержка перед началом записи
             setTimeout(() => {
                 this.recorder.startRecording();
             }, 300);
@@ -1085,6 +792,9 @@ class VoiceManager {
     
     setMode(mode) {
         this.currentMode = mode;
+        if (this.websocket) {
+            this.websocket.currentMode = mode;
+        }
     }
     
     isRecordingActive() {
