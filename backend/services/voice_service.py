@@ -563,6 +563,99 @@ class VoiceService:
         if audio_bytes:
             return base64.b64encode(audio_bytes).decode('utf-8')
         return None
+
+     async def speech_to_text_pcm(self, pcm_bytes: bytes, sample_rate: int = 16000) -> Optional[str]:
+        """
+        Распознавание речи из сырых PCM данных (linear16)
+        """
+        logger.info(f"🎤 Распознавание PCM, размер: {len(pcm_bytes)} байт, sample_rate: {sample_rate}")
+        
+        if not DEEPGRAM_API_KEY:
+            logger.error("❌ DEEPGRAM_API_KEY не настроен")
+            return None
+        
+        # Проверяем громкость
+        try:
+            import numpy as np
+            audio_array = np.frombuffer(pcm_bytes, dtype=np.int16)
+            max_amp = np.max(np.abs(audio_array))
+            avg_amp = np.mean(np.abs(audio_array))
+            logger.info(f"🔊 Анализ PCM: max={max_amp}, avg={avg_amp:.2f}")
+            
+            if max_amp < 500:
+                logger.warning(f"⚠️ Аудио слишком тихое (max={max_amp}), речь может не распознаться")
+            else:
+                logger.info(f"✅ Аудио нормальной громкости (max={max_amp})")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось проанализировать PCM: {e}")
+        
+        headers = {
+            "Authorization": f"Token {DEEPGRAM_API_KEY}",
+            "Content-Type": "application/octet-stream",
+        }
+        
+        params = {
+            "model": "nova-2",
+            "language": "ru",
+            "encoding": "linear16",        # ← КЛЮЧЕВОЙ ПАРАМЕТР!
+            "sample_rate": sample_rate,
+            "channels": 1,
+            "punctuate": "true",
+            "smart_format": "true",
+            "interim_results": "false",
+            "vad_events": "false",
+        }
+        
+        try:
+            client = await get_http_client()
+            
+            logger.info(f"📡 Отправка PCM в DeepGram (encoding=linear16, sample_rate={sample_rate})...")
+            
+            response = await client.post(
+                DEEPGRAM_API_URL,
+                headers=headers,
+                params=params,
+                content=pcm_bytes,
+                timeout=30.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                try:
+                    transcript = data['results']['channels'][0]['alternatives'][0].get('transcript', '')
+                    confidence = data['results']['channels'][0]['alternatives'][0].get('confidence', 0)
+                    
+                    logger.info(f"📝 DeepGram результат: '{transcript}' (уверенность: {confidence:.2f})")
+                    
+                    if transcript and transcript.strip():
+                        return transcript.strip()
+                    else:
+                        logger.warning("⚠️ DeepGram вернул пустой текст")
+                        return None
+                        
+                except (KeyError, IndexError) as e:
+                    logger.error(f"❌ Не удалось извлечь транскрипт: {e}")
+                    logger.error(f"Ответ DeepGram: {data}")
+                    return None
+                    
+            elif response.status_code == 401:
+                logger.error("❌ Неверный API ключ DeepGram")
+                return None
+            elif response.status_code == 429:
+                logger.error("❌ Превышен лимит запросов DeepGram")
+                return None
+            else:
+                logger.error(f"❌ DeepGram error {response.status_code}: {response.text[:200]}")
+                return None
+                
+        except httpx.TimeoutException:
+            logger.error("❌ Таймаут DeepGram")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка распознавания: {e}")
+            logger.error(traceback.format_exc())
+            return None
     
     async def text_to_speech_bytes(self, text: str, mode: str = "psychologist") -> Optional[bytes]:
         """Синтез речи, возвращает байты аудио"""
