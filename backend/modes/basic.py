@@ -34,14 +34,14 @@ class BasicMode(BaseMode):
         self.conversation_history: List[str] = []
 
         # ========== МНОГОУРОВНЕВЫЙ АНАЛИЗ ==========
-        self.rules: List[str] = []          # уровень 1
-        self.patterns: List[str] = []       # уровень 2
-        self.trends: List[str] = []         # уровень 3
-        self.mainstreams: List[str] = []    # уровень 4
-        self.fates: List[str] = []          # уровень 5
-        self.rock: List[str] = []           # уровень 6
+        self.rules: List[str] = []          # уровень 1: факты
+        self.patterns: List[str] = []       # уровень 2: закономерности
+        self.trends: List[str] = []         # уровень 3: тенденции
+        self.mainstreams: List[str] = []    # уровень 4: мейнстримы
+        self.fates: List[str] = []          # уровень 5: судьбы
+        self.rock: List[str] = []           # уровень 6: рок
 
-        # Счётчики обработанных пар (чтобы не дублировать)
+        # Счётчики обработанных пар (чтобы не анализировать одни и те же данные дважды)
         self.processed_rules = 0
         self.processed_patterns = 0
         self.processed_trends = 0
@@ -49,7 +49,7 @@ class BasicMode(BaseMode):
         self.processed_fates = 0
 
         self.current_insight: Optional[str] = None
-        self.current_insight_level: int = 0   # 0..6
+        self.current_insight_level: int = 0  # 0..6
 
         self.message_counter = 0
         self.LEVEL_INTERVAL = 2
@@ -67,8 +67,9 @@ class BasicMode(BaseMode):
     # ====================== УРОВНИ АНАЛИЗА ======================
 
     async def _extract_rule(self, message: str) -> Optional[str]:
-        prompt = f"""Извлеки ОДИН конкретный факт (максимум 8 слов). 
-Если факта нет — верни "НЕТ".
+        """Уровень 1: Извлекает один конкретный факт"""
+        prompt = f"""Извлеки ОДИН конкретный факт о жизни или проблеме человека (максимум 8 слов).
+Если конкретного факта нет — верни ровно "НЕТ".
 
 Сообщение: "{message}"
 Правило:"""
@@ -78,67 +79,72 @@ class BasicMode(BaseMode):
         return cleaned if cleaned != "НЕТ" and len(cleaned) > 3 else None
 
     async def _extract_pattern(self, rules: List[str]) -> Optional[str]:
+        """Уровень 2: Закономерность из двух правил"""
         prompt = f"""Два факта:
 1. {rules[0]}
 2. {rules[1]}
 
-Найди общую закономерность. Одно предложение, максимум 12 слов, с лёгкой иронией.
+Найди общую закономерность. Одно предложение, максимум 12 слов, простым языком, с лёгкой иронией.
 
 Закономерность:"""
         response = await call_deepseek(prompt, max_tokens=60, temperature=0.8)
         return response.strip() if response and len(response.strip()) > 5 else None
 
     async def _extract_trend(self, patterns: List[str]) -> Optional[str]:
+        """Уровень 3: Тенденция"""
         prompt = f"""Две закономерности:
 1. {patterns[0]}
 2. {patterns[1]}
 
-Найди тенденцию. Одно предложение, максимум 15 слов, житейский язык + ирония.
+Найди общую тенденцию. Одно предложение, максимум 15 слов, житейский язык, лёгкая ирония.
 
 Тенденция:"""
         response = await call_deepseek(prompt, max_tokens=80, temperature=0.8)
         return response.strip() if response and len(response.strip()) > 5 else None
 
     async def _extract_mainstream(self, trends: List[str]) -> Optional[str]:
+        """Уровень 4: Мейнстрим (в стиле Бендера)"""
         prompt = f"""Две тенденции:
 1. {trends[0]}
 2. {trends[1]}
 
-Найди мейнстрим в стиле Остапа Бендера (с иронией). Одно предложение, максимум 12 слов.
+Найди общий мейнстрим. Одно предложение, максимум 12 слов, с иронией и сарказмом в стиле Остапа Бендера.
 
 Мейнстрим:"""
         response = await call_deepseek(prompt, max_tokens=70, temperature=0.85)
         return response.strip() if response and len(response.strip()) > 5 else None
 
     async def _extract_fate(self, mainstreams: List[str]) -> Optional[str]:
+        """Уровень 5: Судьба"""
         prompt = f"""Два мейнстрима:
 1. {mainstreams[0]}
 2. {mainstreams[1]}
 
-Сделай вывод о судьбе. Одно предложение, максимум 10 слов, с юмором.
+Сделай вывод о судьбе. Одно ёмкое предложение, максимум 10 слов, с юмором, но без жестокости.
 
 Судьба:"""
         response = await call_deepseek(prompt, max_tokens=60, temperature=0.85)
         return response.strip() if response and len(response.strip()) > 5 else None
 
     async def _extract_rock(self, fates: List[str]) -> Optional[str]:
+        """Уровень 6: Рок"""
         prompt = f"""Две судьбы:
 1. {fates[0]}
 2. {fates[1]}
 
-Сделай вывод о роке. Одно предложение, максимум 10 слов, с чёрным юмором.
+Сделай вывод о роке человека. Одно предложение, максимум 10 слов, с чёрным юмором, как приговор.
 
 Рок:"""
         response = await call_deepseek(prompt, max_tokens=60, temperature=0.9)
         return response.strip() if response and len(response.strip()) > 5 else None
 
-    # ====================== ОБНОВЛЕНИЕ УРОВНЕЙ ======================
+    # ====================== КАСКАДНОЕ ОБНОВЛЕНИЕ УРОВНЕЙ ======================
 
     async def _update_analysis_levels(self):
-        """Каскадное обновление всех уровней анализа"""
+        """Каскадное обновление уровней анализа"""
         updated = False
 
-        # Уровень 2: правила → закономерности
+        # Уровень 2
         while len(self.rules) - self.processed_rules >= self.LEVEL_INTERVAL:
             pair = self.rules[-2:]
             pattern = await self._extract_pattern(pair)
@@ -150,7 +156,7 @@ class BasicMode(BaseMode):
             else:
                 break
 
-        # Уровень 3: закономерности → тенденции
+        # Уровень 3
         while len(self.patterns) - self.processed_patterns >= self.LEVEL_INTERVAL:
             pair = self.patterns[-2:]
             trend = await self._extract_trend(pair)
@@ -162,7 +168,7 @@ class BasicMode(BaseMode):
             else:
                 break
 
-        # Уровень 4: тенденции → мейнстрим
+        # Уровень 4
         while len(self.trends) - self.processed_trends >= self.LEVEL_INTERVAL:
             pair = self.trends[-2:]
             mainstream = await self._extract_mainstream(pair)
@@ -174,7 +180,7 @@ class BasicMode(BaseMode):
             else:
                 break
 
-        # Уровень 5: мейнстрим → судьба
+        # Уровень 5
         while len(self.mainstreams) - self.processed_mainstreams >= self.LEVEL_INTERVAL:
             pair = self.mainstreams[-2:]
             fate = await self._extract_fate(pair)
@@ -186,7 +192,7 @@ class BasicMode(BaseMode):
             else:
                 break
 
-        # Уровень 6: судьба → рок
+        # Уровень 6
         while len(self.fates) - self.processed_fates >= self.LEVEL_INTERVAL:
             pair = self.fates[-2:]
             rock = await self._extract_rock(pair)
@@ -202,7 +208,7 @@ class BasicMode(BaseMode):
             self._update_current_insight()
 
     def _update_current_insight(self):
-        """Определяет самый высокий актуальный инсайт"""
+        """Определяет самый высокий активный инсайт"""
         if self.rock:
             self.current_insight = self.rock[-1]
             self.current_insight_level = 6
@@ -242,13 +248,13 @@ class BasicMode(BaseMode):
 Мягко и с юмором подводи к тесту, но не дави."""
 
     def _build_prompt(self, question: str) -> str:
+        """Собирает полный промпт с текущим инсайтом"""
         system = self.get_system_prompt()
 
         insight_section = ""
         if self.current_insight and self.current_insight_level >= 2:
             level_names = {2: "закономерность", 3: "тенденцию", 4: "мейнстрим", 5: "судьбу", 6: "рок"}
             level_name = level_names.get(self.current_insight_level, "закономерность")
-
             insight_section = f"""
 Я уже заметил про человека {level_name}:
 "{self.current_insight}"
@@ -264,6 +270,7 @@ class BasicMode(BaseMode):
 Ответь коротко, остроумно и в характере."""
 
     def get_greeting(self) -> str:
+        """Приветствие"""
         address = self._get_address()
         name_part = f", {self.user_name}" if self.user_name else ""
         return f"Привет{name_part}, {address}. Я Фреди, великий комбинатор. Чую в тебе что-то интересное. Любовь, деньги, слава или бананы?"
@@ -271,24 +278,24 @@ class BasicMode(BaseMode):
     # ====================== ОСНОВНОЙ МЕТОД ======================
 
     async def process_question_streaming(self, question: str):
-        """Основной потоковый обработчик Бендера"""
+        """Основной потоковый обработчик"""
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
 
-        # Реакция на желание пройти тест
+        # Проверка на желание пройти тест
         if re.search(r"(да|хочу|давай|рискну|сыграем|тест|погнали|ок|хорошо)", question.lower()):
             if self.dialog_stage in ["greeting", "exploration", "test_offered"]:
                 self.dialog_stage = "test_offered"
                 yield "Отлично, тогда первый вопрос..."
                 return
 
-        # Реакция на отказ
+        # Проверка на отказ
         if re.search(r"(нет|не хочу|потом|отстань|не надо|не нужно)", question.lower()):
             self.dialog_stage = "exploration"
             yield f"{self._get_address()}, не хочешь — не надо. Дверь всегда открыта. О чём ещё поболтаем?"
             return
 
-        # Извлечение правила и обновление анализа
+        # Анализ сообщения и обновление уровней
         rule = await self._extract_rule(question)
         if rule:
             self.rules.append(rule)
@@ -320,6 +327,7 @@ class BasicMode(BaseMode):
         text = re.sub(r'\*(.*?)\*', r'\1', text)
         text = re.sub(r'`(.*?)`', r'\1', text)
 
+        # Удаление эмодзи
         emoji_pattern = re.compile(
             "[" 
             "\U0001F600-\U0001F64F"  
@@ -342,7 +350,7 @@ class BasicMode(BaseMode):
         return text
 
     def process_question(self, question: str) -> Dict[str, Any]:
-        """Заглушка для совместимости с BaseMode"""
+        """Синхронная заглушка для совместимости с BaseMode"""
         return {
             "response": "",
             "tools_used": [],
