@@ -4,7 +4,7 @@
 Voice Service - сервис для работы с голосом
 Поддержка живого голосового диалога (WebSocket + VAD + Barge-in)
 Адаптирован из рабочего кода Telegram-бота MAX
-ВЕРСИЯ 2.1 — Оптимизировано для Бендера
+ВЕРСИЯ 2.1 - С ПОДДЕРЖКОЙ ГОЛОСА БЕНДЕРА
 """
 
 import logging
@@ -96,7 +96,12 @@ BENDER_PREFIXES = [
 ]
 
 BENDER_SUFFIXES = [
-    " 🦾", " 🤖", " 😎", " 🎭", " 🔥", " 💪"
+    " 🦾",
+    " 🤖",
+    " 😎",
+    " 🎭",
+    " 🔥",
+    " 💪"
 ]
 
 def add_bender_flavor(text: str) -> str:
@@ -105,23 +110,19 @@ def add_bender_flavor(text: str) -> str:
     """
     original_text = text
 
-    # Добавляем случайную фразу в начало, если её нет
     if not any(p.strip() in text for p in BENDER_PREFIXES):
         prefix = random.choice(BENDER_PREFIXES)
         text = prefix + text[0].lower() + text[1:] if text else prefix
 
-    # Добавляем эмодзи в конец, если нет
     if not any(emoji in text for emoji in BENDER_SUFFIXES):
         if len(text) < 500:
             suffix = random.choice(BENDER_SUFFIXES)
             text = text.rstrip() + suffix
 
-    # Заменяем многоточия на паузы для драматического эффекта
     text = text.replace("...", " <break time='400ms'/> ")
     text = text.replace("!", "! <break time='200ms'/> ")
     text = text.replace("?", "? <break time='250ms'/> ")
 
-    # Добавляем фирменные бендеровские слова, если их нет
     bender_words = ["братец", "сударь", "детка", "комбинатор", "банан"]
     if not any(word in text.lower() for word in bender_words):
         if len(text) > 50:
@@ -142,9 +143,7 @@ _http_client: Optional[httpx.AsyncClient] = None
 _client_lock = asyncio.Lock()
 
 async def get_http_client():
-    """Возвращает глобальный HTTPX клиент"""
     global _http_client
-
     if _http_client is None:
         async with _client_lock:
             if _http_client is None:
@@ -165,12 +164,10 @@ async def get_http_client():
                     follow_redirects=True
                 )
                 logger.info("✅ Глобальный HTTPX клиент создан")
-
     return _http_client
 
 
 async def close_http_client():
-    """Закрывает глобальный HTTPX клиент"""
     global _http_client
     if _http_client:
         await _http_client.aclose()
@@ -182,10 +179,6 @@ async def close_http_client():
 # VAD - Voice Activity Detection
 # ============================================
 class VADDetector:
-    """
-    Voice Activity Detector для потокового аудио
-    Определяет начало и конец речи для живого диалога
-    """
     def __init__(self, sample_rate: int = 16000, mode: int = 3):
         self.sample_rate = sample_rate
         self.mode = mode
@@ -472,17 +465,26 @@ async def speech_to_text_streaming(
                     }
                 else:
                     logger.warning("⚠️ Речь не распознана")
-                    yield {"type": "error", "error": "Речь не распознана"}
+                    yield {
+                        "type": "error",
+                        "error": "Речь не распознана"
+                    }
 
             except Exception as e:
                 logger.error(f"Ошибка распознавания: {e}")
-                yield {"type": "error", "error": str(e)}
+                yield {
+                    "type": "error",
+                    "error": str(e)
+                }
 
             audio_buffer.clear()
             is_collecting = False
             vad.reset()
 
-        yield {"type": "vad_state", **vad_result}
+        yield {
+            "type": "vad_state",
+            **vad_result
+        }
 
     logger.info("🎤 Потоковое распознавание завершено")
 
@@ -505,7 +507,7 @@ async def text_to_speech_streaming(
             chunk = audio_bytes[i:i + chunk_size]
             yield chunk
             total_sent += len(chunk)
-            await asyncio.sleep(0.012)   # улучшает плавность в голосовом режиме
+            await asyncio.sleep(0.012)   # улучшает плавность в WebSocket
 
         logger.info(f"✅ Потоковый синтез завершен, отправлено {total_sent} байт")
     else:
