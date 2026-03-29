@@ -16,6 +16,42 @@ from typing import Optional, Dict, Any, List, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
+# ============================================
+# ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ УДОБНОГО ИМПОРТА
+# ============================================
+
+async def call_deepseek(prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
+    """
+    Упрощённый вызов DeepSeek API
+    
+    Args:
+        prompt: Текст запроса
+        max_tokens: Максимальное количество токенов в ответе
+        temperature: Температура генерации (0-1)
+    
+    Returns:
+        Сгенерированный текст или None
+    """
+    service = AIService()
+    return await service._simple_call(prompt, max_tokens, temperature)
+
+
+async def call_deepseek_streaming(prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> AsyncGenerator[str, None]:
+    """
+    Упрощённый потоковый вызов DeepSeek API
+    
+    Args:
+        prompt: Текст запроса
+        max_tokens: Максимальное количество токенов в ответе
+        temperature: Температура генерации (0-1)
+    
+    Yields:
+        Части сгенерированного текста
+    """
+    service = AIService()
+    async for chunk in service._simple_call_streaming(prompt, max_tokens, temperature):
+        yield chunk
+
 
 class AIService:
     """Сервис для работы с DeepSeek API"""
@@ -32,6 +68,102 @@ class AIService:
             self.session = aiohttp.ClientSession()
         return self.session
     
+    async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
+        """
+        Простой вызов DeepSeek (без истории)
+        """
+        if not self.api_key:
+            logger.warning("DEEPSEEK_API_KEY not set")
+            return None
+        
+        try:
+            session = await self._get_session()
+            
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                },
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    return data['choices'][0]['message']['content']
+                else:
+                    logger.error(f"DeepSeek error: {response.status}")
+                    return None
+                    
+        except asyncio.TimeoutError:
+            logger.error("DeepSeek timeout")
+            return None
+        except Exception as e:
+            logger.error(f"DeepSeek error: {e}")
+            return None
+    
+    async def _simple_call_streaming(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> AsyncGenerator[str, None]:
+        """
+        Простой потоковый вызов DeepSeek
+        """
+        if not self.api_key:
+            yield None
+            return
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "deepseek-chat",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True
+        }
+        
+        try:
+            session = await self._get_session()
+            
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status != 200:
+                    logger.error(f"DeepSeek streaming error: {response.status}")
+                    yield None
+                    return
+                
+                async for line in response.content:
+                    if line:
+                        line_str = line.decode('utf-8').strip()
+                        if line_str.startswith('data: '):
+                            data_str = line_str[6:]
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                if 'choices' in chunk and chunk['choices']:
+                                    delta = chunk['choices'][0].get('delta', {})
+                                    content = delta.get('content', '')
+                                    if content:
+                                        yield content
+                            except json.JSONDecodeError:
+                                continue
+                            
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield None
+    
     async def generate_response(
         self,
         user_id: int,
@@ -41,20 +173,9 @@ class AIService:
         mode: str = 'psychologist'
     ) -> str:
         """
-        Генерация ответа через DeepSeek
-        
-        Args:
-            user_id: ID пользователя
-            message: Текст сообщения
-            context: Контекст пользователя (город, возраст и т.д.)
-            profile: Профиль пользователя (результаты теста)
-            mode: Режим общения (basic, coach, psychologist, trainer)
-        
-        Returns:
-            Сгенерированный ответ
+        Генерация ответа через DeepSeek с учётом контекста и профиля
         """
-        
-        # Проверяем кэш (на 5 минут)
+        # Проверяем кэш
         cache_key = f"response:{user_id}:{hash(message)}:{mode}"
         if self.cache:
             cached = await self.cache.get(cache_key)
@@ -470,7 +591,7 @@ class AIService:
         max_tokens: int = 1000,
         temperature: float = 0.7
     ) -> Optional[str]:
-        """Вызов DeepSeek API"""
+        """Вызов DeepSeek API с системным промптом"""
         if not self.api_key:
             return None
         
