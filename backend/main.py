@@ -1334,41 +1334,35 @@ async def process_voice(
     voice: UploadFile = File(...),
     mode: str = Form("psychologist")
 ):
-    """Обработка голосового сообщения (STT + AI + TTS)"""
+    """Обработка голосового сообщения (STT + AI + TTS) — исправленная версия для Бендера"""
     try:
         audio_bytes = await voice.read()
-        
+      
         if len(audio_bytes) < 1000:
-            return VoiceProcessResponse(
-                success=False,
-                error="Аудио файл слишком короткий"
-            )
-        
+            return {"success": False, "error": "Аудио файл слишком короткий"}
+
+        # STT — распознавание речи
         recognized_text = await voice_service.speech_to_text(audio_bytes, "wav")
-        
-        if not recognized_text:
-            return VoiceProcessResponse(
-                success=False,
-                error="Не удалось распознать речь"
-            )
-        
+      
+        if not recognized_text or not recognized_text.strip():
+            return {"success": False, "error": "Не удалось распознать речь"}
+
+        logger.info(f"🎤 Распознано: «{recognized_text}»")
+
+        # Загрузка данных пользователя
         context_obj = await context_repo.get(user_id) or {}
         profile = await user_repo.get_profile(user_id) or {}
-        
-        # ========== АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ РЕЖИМА ==========
-        # Проверяем, прошел ли пользователь тест
+
+        # === ОПРЕДЕЛЕНИЕ РЕЖИМА ===
         has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
-        
+      
         if not has_profile:
-            # Если нет профиля — включаем режим БЕНДЕРА (BasicMode)
             mode_name = "basic"
-            logger.info(f"🎭 User {user_id} has no profile in voice, switching to BENADER mode")
+            logger.info(f"🎭 User {user_id} has no profile → BENADER (BasicMode)")
         else:
-            # Если есть профиль — используем выбранный режим
             mode_name = context_obj.get("communication_mode", mode)
-        # ========== КОНЕЦ ОПРЕДЕЛЕНИЯ ==========
-        
-        # Создаем объект режима
+
+        # === Создание объекта режима ===
         user_data = {
             "profile_data": profile.get("profile_data", {}),
             "perception_type": profile.get("perception_type", "не определен"),
@@ -1379,7 +1373,7 @@ async def process_voice(
             "confinement_model": profile.get("confinement_model"),
             "history": []
         }
-        
+
         class SimpleContext:
             def __init__(self, data):
                 self.name = data.get("name", "друг")
@@ -1388,38 +1382,48 @@ async def process_voice(
                 self.city = data.get("city")
                 self.weather_cache = data.get("weather_cache")
                 self.communication_mode = data.get("communication_mode", "psychologist")
-        
+
         simple_context = SimpleContext(context_obj)
+       
+        # Получаем режим (BasicMode для Бендера)
         mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
-        
-        result = mode_instance.process_question(recognized_text)
-        response = result["response"]
-        
-        # Получаем аудио в MP3 формате
-        audio_base64 = await voice_service.text_to_speech(response, mode_name)
-        
+
+        # === ГЛАВНОЕ: используем streaming-версию Бендера ===
+        response_text = ""
+        async for chunk in mode_instance.process_question_streaming(recognized_text):
+            response_text += chunk
+
+        # Защита от пустого ответа
+        if not response_text.strip():
+            address = getattr(mode_instance, '_get_address', lambda: lambda: "Друг мой")()
+            response_text = f"{address()}, вопрос интересный. Расскажи подробнее."
+
+        # === TTS (синтез речи) ===
+        audio_base64 = await voice_service.text_to_speech(response_text, mode_name)
+
+        # Сохранение в историю
         await message_repo.save(user_id, "user", recognized_text, {"voice": True})
-        await message_repo.save(user_id, "assistant", response, {"voice": True})
-        
+        await message_repo.save(user_id, "assistant", response_text, {"voice": True})
+
         await log_event(user_id, "voice", {
             "text_length": len(recognized_text),
             "mode": mode_name,
             "has_profile": has_profile
         })
-        
+
         return {
             "success": True,
             "recognized_text": recognized_text,
-            "answer": response,
+            "answer": response_text,
             "audio_base64": audio_base64,
             "audio_mime": "audio/mpeg"
         }
-        
+
     except Exception as e:
-        logger.error(f"Error processing voice for user {user_id}: {e}")
+        logger.error(f"Error processing voice for user {user_id}: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
-
-
+        
+    
 @app.post("/api/voice/tts")
 @limiter.limit("30/minute")
 async def text_to_speech_endpoint(
