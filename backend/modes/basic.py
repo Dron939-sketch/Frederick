@@ -64,7 +64,7 @@ class BasicMode(BaseMode):
         name_part = f", {self.user_name}" if self.user_name else ""
         return f"Привет{name_part}, {address}. Я Фреди, великий комбинатор. Чую в тебе что-то интересное. Любовь, деньги, слава или бананы?"
 
-    async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
+        async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
         """Главный метод — должен всегда срабатывать"""
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
@@ -81,64 +81,61 @@ class BasicMode(BaseMode):
             yield "Отлично! Тогда первый вопрос..."
             return
 
-        # Чистый промпт
         full_prompt = self._build_clean_prompt(question)
 
         try:
             async for chunk in self.ai_service._simple_call_streaming(
                 prompt=full_prompt,
-                max_tokens=160,          # короткие ответы
-                temperature=0.87
+                max_tokens=130,          # ещё короче ответы
+                temperature=0.92
             ):
                 clean_chunk = self._clean_for_tts(chunk)
                 if clean_chunk.strip():
                     yield clean_chunk
-                    await asyncio.sleep(0.012)   # чуть быстрее для естественности
-
+                    await asyncio.sleep(0.010)
         except Exception as e:
             logger.error(f"BasicMode streaming error: {e}")
             address = self._get_address()
-            yield f"{address}, дело интересное. Расскажи подробнее, что у тебя стряслось?"
+            yield f"{address}, интересный вопрос. Расскажи подробнее."
 
     def _build_clean_prompt(self, question: str) -> str:
-        """Строгий промпт для коротких и чистых ответов"""
+        """Очень строгий промпт специально для чистого голосового вывода"""
         address = self._get_address()
-        history = "\n".join(self.conversation_history[-8:])
+        history = "\n".join(self.conversation_history[-5:])
 
         return f"""{self.get_system_prompt()}
 
 История разговора:
 {history}
 
-Новое сообщение пользователя: {question}
+Сообщение пользователя: {question}
 
-Правила:
-- Отвечай максимум 2 коротких предложения.
-- Говори живо, с лёгкой иронией, как Остап Бендер.
+Правила для ответа:
+- Максимум 2 коротких предложения.
+- Говори живо, с иронией, как Остап Бендер.
+- Используй нормальные пробелы после запятых, тире и точек.
 - Обязательно закончи вопросом.
-- Используй нормальные пробелы и правильную пунктуацию.
-- Никаких длинных философствований, повторов и сложных конструкций."""
+- Никаких длинных фраз, никакого "арифметика — это конечно сильно" если это не по теме.
+- Реагируй сразу на смысл сказанного."""
 
     def _clean_for_tts(self, text: str) -> str:
-        """Улучшенная очистка специально для TTS (решает проблему слипания слов)"""
+        """Максимально агрессивная очистка для TTS"""
         if not text:
             return ""
-        
-        # 1. Добавляем пробелы после знаков препинания
+
+        # 1. Добавляем пробел после всех знаков препинания
+        text = re.sub(r'([.,!?;:-])(\S)', r'\1 \2', text)
         text = re.sub(r'([.,!?;:-])\s*', r'\1 ', text)
-        
-        # 2. Убираем повторяющиеся символы
-        text = re.sub(r'([*`_#@~^!]){2,}', r' \1 ', text)
-        
-        # 3. Исправляем случаи типа "слово,другое" → "слово, другое"
-        text = re.sub(r'(\w)([.,!?;:-])(\w)', r'\1\2 \3', text)
-        
-        # 4. Убираем множественные пробелы и тире
-        text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'—\s*—', '—', text)
-        text = re.sub(r'-\s*-', '-', text)
-        
-        return text.strip()
+
+        # 2. Убираем повторяющиеся символы и тире
+        text = re.sub(r'([*`_#@~^!]){2,}', ' ', text)
+        text = re.sub(r'—\s*—', ' — ', text)
+        text = re.sub(r'-\s*-', ' - ', text)
+
+        # 3. Финальная нормализация пробелов
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        return text
 
     # Заглушка для совместимости
     def process_question(self, question: str):
