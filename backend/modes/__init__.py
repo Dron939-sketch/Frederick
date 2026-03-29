@@ -2,42 +2,42 @@
 # -*- coding: utf-8 -*-
 """
 МОДУЛЬ: ИНИЦИАЛИЗАЦИЯ РЕЖИМОВ (modes/__init__.py)
-Фабрика для создания режимов общения
+Центральная фабрика для создания всех режимов общения.
+
+Основное правило:
+- Если пользователь НЕ прошёл тест → всегда возвращаем BasicMode (Великий Комбинатор / Остап Бендер)
+- Если тест пройден → возвращаем запрошенный режим (psychologist, coach, trainer)
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from modes.base_mode import BaseMode
+from modes.basic import BasicMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
 from modes.trainer import TrainerMode
-from modes.basic import BasicMode
 
 logger = logging.getLogger(__name__)
 
 
 def is_test_completed(user_data: Dict[str, Any]) -> bool:
     """
-    Проверяет, прошел ли пользователь тест
+    Определяет, прошёл ли пользователь психологический тест.
     
-    Args:
-        user_data: словарь с данными пользователя
-    
-    Returns:
-        True если тест пройден, False если нет
+    Критерии:
+    - Есть profile_data или ai_generated_profile
+    - Или присутствуют ключевые поля профиля
     """
-    # Проверяем наличие данных профиля
-    if user_data.get("profile_data"):
+    # Прямые признаки наличия профиля
+    if user_data.get("profile_data") or user_data.get("ai_generated_profile"):
         return True
-    if user_data.get("ai_generated_profile"):
+
+    # Косвенные признаки
+    required_fields = ["perception_type", "thinking_level", "behavioral_levels"]
+    if all(field in user_data and user_data.get(field) for field in required_fields):
         return True
-    
-    # Проверяем обязательные поля
-    required = ["perception_type", "thinking_level", "behavioral_levels"]
-    if all(field in user_data for field in required):
-        return True
-    
+
     return False
 
 
@@ -48,47 +48,47 @@ def get_mode(
     context: Any = None
 ) -> BaseMode:
     """
-    Фабрика для создания режимов общения
-    
+    Главная фабрика режимов общения.
+
     Args:
-        mode_name: имя режима ('coach', 'psychologist', 'trainer', 'basic')
+        mode_name: желаемый режим ('basic', 'psychologist', 'coach', 'trainer')
         user_id: ID пользователя
-        user_data: словарь с данными пользователя
-        context: объект контекста пользователя
-    
+        user_data: данные пользователя (профиль, история и т.д.)
+        context: контекст пользователя (имя, пол, город и т.д.)
+
     Returns:
-        Экземпляр режима
+        Экземпляр соответствующего режима (наследник BaseMode)
     """
-    
-    # Проверяем, прошел ли пользователь тест
-    test_passed = is_test_completed(user_data)
-    
-    # Если тест не пройден, всегда возвращаем BasicMode
-    if not test_passed:
-        logger.info(f"User {user_id} hasn't completed test, using BasicMode")
+    # === КРИТИЧЕСКАЯ ЛОГИКА ===
+    # Если тест НЕ пройден — принудительно используем BasicMode (Бендер)
+    if not is_test_completed(user_data):
+        logger.info(f"User {user_id} → тест не пройден → включаем BasicMode (Великий Комбинатор)")
         return BasicMode(user_id, user_data, context)
-    
-    # Тест пройден - выбираем режим по запросу
+
+    # Тест пройден — используем запрошенный режим
+    mode_name = mode_name.lower().strip()
+
     mode_map = {
-        'coach': CoachMode,
-        'psychologist': PsychologistMode,
-        'trainer': TrainerMode,
-        'basic': BasicMode  # на случай если кто-то запросит basic
+        "basic": BasicMode,
+        "psychologist": PsychologistMode,
+        "coach": CoachMode,
+        "trainer": TrainerMode,
     }
-    
-    mode_class = mode_map.get(mode_name, PsychologistMode)
-    logger.info(f"Creating {mode_class.__name__} for user {user_id}")
-    
+
+    mode_class = mode_map.get(mode_name, PsychologistMode)  # по умолчанию — психолог
+
+    logger.info(f"User {user_id} → тест пройден → создаём {mode_class.__name__}")
+
     return mode_class(user_id, user_data, context)
 
 
-# Экспортируем классы для удобства
+# Экспортируем для удобного импорта в других модулях
 __all__ = [
-    'BaseMode',
-    'CoachMode',
-    'PsychologistMode',
-    'TrainerMode',
-    'BasicMode',
-    'get_mode',
-    'is_test_completed'
+    "BaseMode",
+    "BasicMode",
+    "CoachMode",
+    "PsychologistMode",
+    "TrainerMode",
+    "get_mode",
+    "is_test_completed",
 ]
