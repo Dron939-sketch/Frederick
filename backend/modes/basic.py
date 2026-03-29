@@ -341,7 +341,8 @@ class BasicMode(BaseMode):
             self.current_insight_level = 0
     
     # ========== СИСТЕМНЫЙ ПРОМПТ ==========
-    def _get_system_prompt(self) -> str:
+    # ИСПРАВЛЕНИЕ 1: переименован с _get_system_prompt → get_system_prompt
+    def get_system_prompt(self) -> str:
         """Базовый системный промпт Бендера (без психологии)"""
         return """Ты Фреди в режиме Великого Комбинатора, как Остап Бендер. Твой голос будет озвучен.
 
@@ -377,7 +378,8 @@ class BasicMode(BaseMode):
     def _build_prompt(self, question: str) -> str:
         """Строит промпт с учётом текущего инсайта (самого высокого уровня)"""
         
-        system = self._get_system_prompt()
+        # ИСПРАВЛЕНИЕ 2: self._get_system_prompt() → self.get_system_prompt()
+        system = self.get_system_prompt()
         
         insight_section = ""
         if self.current_insight:
@@ -413,6 +415,22 @@ class BasicMode(BaseMode):
         address = self._get_address()
         name = f", {self.user_name}" if self.user_name else ""
         return f"Привет{name}, {address}. Я Фреди, великий комбинатор. Чую в тебе что-то интересное. Любовь, деньги, слава или бананы?"
+    
+    # ИСПРАВЛЕНИЕ 3: добавлен обязательный метод process_question
+    def process_question(self, question: str) -> Dict[str, Any]:
+        """
+        Синхронная заглушка — BasicMode работает только через
+        process_question_streaming (async generator).
+        Метод реализован для соответствия абстрактному классу BaseMode.
+        """
+        return {
+            "response": "",
+            "tools_used": [],
+            "follow_up": False,
+            "suggestions": [],
+            "hypnotic_suggestion": False,
+            "tale_suggested": False
+        }
     
     # ========== ОСНОВНОЙ МЕТОД ==========
     async def process_question_streaming(self, question: str):
@@ -482,7 +500,7 @@ class BasicMode(BaseMode):
         # Удаляем Markdown
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'\*(.*?)\*', r'\1', text)
-        text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
+        text = re.sub(r'$(.*?)$$.*?$', r'\1', text)
         
         # Удаляем эмодзи
         emoji_pattern = re.compile(
@@ -504,7 +522,7 @@ class BasicMode(BaseMode):
         text = emoji_pattern.sub('', text)
         
         # Удаляем спецсимволы
-        text = re.sub(r'[#*_`~<>|@$%^&(){}\[\]]', '', text)
+        text = re.sub(r'[#*_`~<>|@$%^&(){}$$]', '', text)
         
         # Нормализуем пробелы
         text = re.sub(r'\s+', ' ', text)
