@@ -34,22 +34,43 @@ async def call_deepseek_streaming(prompt: str, max_tokens: int = 500, temperatur
     """
     service = AIService()
     async for chunk in service._simple_call_streaming(prompt, max_tokens, temperature):
-        yield chunk
+        if chunk is not None:
+            yield chunk
 
 
 class AIService:
     """Сервис для работы с DeepSeek API"""
 
+    # Singleton pattern
+    _instance = None
+
+    def __new__(cls, cache=None):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, cache=None):
+        if getattr(self, '_initialized', False):
+            return
+
         self.api_key = os.environ.get('DEEPSEEK_API_KEY')
         self.cache = cache
         self.session: Optional[aiohttp.ClientSession] = None
         self.base_url = "https://api.deepseek.com/v1"
+        self._initialized = True
+
+        if self.api_key:
+            logger.info("AIService инициализирован (singleton)")
+        else:
+            logger.warning("DEEPSEEK_API_KEY not set")
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Получение HTTP сессии"""
         if not self.session or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            self.session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=35)
+            )
         return self.session
 
     async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
@@ -60,7 +81,6 @@ class AIService:
 
         try:
             session = await self._get_session()
-
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers={
@@ -75,14 +95,12 @@ class AIService:
                 },
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
-
                 if response.status == 200:
                     data = await response.json()
                     return data['choices'][0]['message']['content']
                 else:
                     logger.error(f"DeepSeek error: {response.status}")
                     return None
-
         except asyncio.TimeoutError:
             logger.error("DeepSeek timeout")
             return None
@@ -100,7 +118,6 @@ class AIService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-
         data = {
             "model": "deepseek-chat",
             "messages": [{"role": "user", "content": prompt}],
@@ -111,14 +128,12 @@ class AIService:
 
         try:
             session = await self._get_session()
-
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
-
                 if response.status != 200:
                     logger.error(f"DeepSeek streaming error: {response.status}")
                     yield None
@@ -138,9 +153,9 @@ class AIService:
                                     content = delta.get('content', '')
                                     if content:
                                         yield content
+                                        await asyncio.sleep(0.005)  # плавность для WebSocket
                             except json.JSONDecodeError:
                                 continue
-
         except Exception as e:
             logger.error(f"Streaming error: {e}")
             yield None
@@ -175,7 +190,6 @@ class AIService:
 
         try:
             session = await self._get_session()
-
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers={
@@ -196,31 +210,25 @@ class AIService:
                 },
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
-
                 if response.status == 200:
                     data = await response.json()
                     result = data['choices'][0]['message']['content']
-
                     # Очищаем для голосового вывода
                     result = self._clean_for_voice(result)
-
                     # Сохраняем в кэш
                     if self.cache:
                         await self.cache.set(cache_key, result, ttl=300)
-
                     return result
                 else:
                     error_text = await response.text()
                     logger.error(f"DeepSeek API error: {response.status} - {error_text}")
                     return self._get_fallback_response(mode)
-
         except asyncio.TimeoutError:
             logger.error("DeepSeek API timeout")
             return "Извините, сервер временно перегружен. Попробуйте позже."
         except Exception as e:
             logger.error(f"DeepSeek API error: {e}")
             return self._get_fallback_response(mode)
-
     async def generate_response_streaming(
         self,
         message: str,
@@ -242,7 +250,6 @@ class AIService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-
         data = {
             "model": "deepseek-chat",
             "messages": [
@@ -256,14 +263,12 @@ class AIService:
 
         try:
             session = await self._get_session()
-
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
-
                 if response.status != 200:
                     yield self._get_fallback_response(mode)
                     return
@@ -286,7 +291,6 @@ class AIService:
                                             yield clean_content
                             except json.JSONDecodeError:
                                 continue
-
         except Exception as e:
             logger.error(f"Streaming error: {e}")
             yield self._get_fallback_response(mode)
@@ -316,7 +320,6 @@ class AIService:
 
         profile_data = profile.get('profile_data', {})
         scores = profile.get('behavioral_levels', {})
-
         user_prompt = f"""
 Профиль пользователя:
 - Код профиля: {profile_data.get('display_name', 'не определен')}
@@ -333,7 +336,6 @@ class AIService:
 """
 
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1500)
-
         if response:
             response = self._clean_for_voice(response)
             return response
@@ -356,9 +358,7 @@ class AIService:
 
         profile_data = profile.get('profile_data', {})
         scores = profile.get('behavioral_levels', {})
-
         weakest = self._find_weakest_vector(scores)
-
         user_prompt = f"""
 Профиль: {profile_data.get('display_name', 'не определен')}
 Тип восприятия: {profile.get('perception_type', 'не определен')}
@@ -368,7 +368,6 @@ class AIService:
 """
 
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=300)
-
         if response:
             response = self._clean_for_voice(response)
             return response
@@ -417,7 +416,6 @@ class AIService:
 """
 
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
-
         if response:
             ideas = []
             for line in response.strip().split('\n'):
@@ -426,7 +424,6 @@ class AIService:
                 if line and len(line) > 10:
                     ideas.append(line)
             return ideas[:5] if ideas else self._get_ideas_fallback(profile)
-
         return self._get_ideas_fallback(profile)
 
     async def generate_goals(
@@ -467,7 +464,6 @@ class AIService:
             scores[k] = sum(levels) / len(levels) if levels else 3
 
         profile_data = profile.get('profile_data', {})
-
         user_prompt = f"""
 Профиль: {profile_data.get('display_name', 'не определен')}
 Баллы:
@@ -482,7 +478,6 @@ class AIService:
 """
 
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1000)
-
         if response:
             try:
                 json_match = re.search(r'\[.*\]', response, re.DOTALL)
@@ -491,7 +486,6 @@ class AIService:
                     return goals[:6] if isinstance(goals, list) else self._get_goals_fallback(profile, mode)
             except json.JSONDecodeError:
                 logger.error("Failed to parse goals JSON")
-
         return self._get_goals_fallback(profile, mode)
 
     async def generate_questions(self, user_id: int, profile: Dict) -> List[str]:
@@ -510,9 +504,7 @@ class AIService:
 
         profile_data = profile.get('profile_data', {})
         scores = profile.get('behavioral_levels', {})
-
         weakest = self._find_weakest_vector(scores)
-
         user_prompt = f"""
 Профиль: {profile_data.get('display_name', 'не определен')}
 Тип восприятия: {profile.get('perception_type', 'не определен')}
@@ -522,11 +514,9 @@ class AIService:
 """
 
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
-
         if response:
             questions = [q.strip() for q in response.split('\n') if q.strip() and '?' in q]
             return questions[:5] if questions else self._get_questions_fallback()
-
         return self._get_questions_fallback()
 
     async def _call_deepseek(
@@ -542,7 +532,6 @@ class AIService:
 
         try:
             session = await self._get_session()
-
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers={
@@ -560,14 +549,12 @@ class AIService:
                 },
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
-
                 if response.status == 200:
                     data = await response.json()
                     return data['choices'][0]['message']['content']
                 else:
                     logger.error(f"DeepSeek error: {response.status}")
                     return None
-
         except asyncio.TimeoutError:
             logger.error("DeepSeek timeout")
             return None
@@ -580,7 +567,6 @@ class AIService:
         Формирование системного промпта
         БЕЗ ЭМОДЗИ для голосового вывода
         """
-        # Базовый промпт для BASIC режима УБРАН — теперь BasicMode полностью самостоятельный
         if mode == 'psychologist':
             return """Ты Фреди, психолог. Исследуешь глубинные паттерны, защитные механизмы, прошлый опыт.
 Правила:
@@ -589,7 +575,6 @@ class AIService:
 - Не давай советов, а помогай увидеть
 - Говори короткими предложениями, готовыми для озвучивания
 - НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
-
         if mode == 'coach':
             return """Ты Фреди, коуч. Помогаешь клиенту найти ответы внутри себя.
 Правила:
@@ -598,7 +583,6 @@ class AIService:
 - Используй техники коучинга
 - Говори короткими предложениями, готовыми для озвучивания
 - НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
-
         if mode == 'trainer':
             return """Ты Фреди, тренер. Даёшь чёткие инструменты, алгоритмы, формируешь навыки.
 Правила:
@@ -607,8 +591,6 @@ class AIService:
 - Используй нумерацию для действий
 - Говори ясно и по делу
 - НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
-
-        # По умолчанию
         return """Ты Фреди, виртуальный помощник. Будь вежливым и полезным. Говори короткими предложениями. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
 
     def _get_user_prompt(self, message: str, context: Dict, profile: Dict, mode: str) -> str:
@@ -616,7 +598,6 @@ class AIService:
         Формирование пользовательского промпта
         """
         prompt = message
-
         if context and mode != 'basic':
             context_parts = []
             if context.get('city'):
@@ -625,12 +606,10 @@ class AIService:
                 context_parts.append(f"возраст {context['age']}")
             if context_parts:
                 prompt += f"\n\nКонтекст: {', '.join(context_parts)}"
-
         if profile and mode != 'basic':
             profile_code = profile.get('profile_data', {}).get('display_name')
             if profile_code:
                 prompt += f"\n\nПрофиль: {profile_code}"
-
         return prompt
 
     def _clean_for_voice(self, text: str) -> str:
@@ -640,59 +619,29 @@ class AIService:
         """
         if not text:
             return text
-
-        # Удаляем Markdown жирный
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'__(.*?)__', r'\1', text)
-
-        # Удаляем Markdown курсив
         text = re.sub(r'\*(.*?)\*', r'\1', text)
         text = re.sub(r'_(.*?)_', r'\1', text)
-
-        # Удаляем Markdown ссылки
         text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
-
-        # Удаляем код
         text = re.sub(r'`(.*?)`', r'\1', text)
-
-        # Удаляем заголовки
         text = re.sub(r'#{1,6}\s+', '', text)
-
-        # Удаляем списки
         text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
         text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
 
-        # Удаляем эмодзи
         emoji_pattern = re.compile(
-            "["
-            "\U0001F600-\U0001F64F"
-            "\U0001F300-\U0001F5FF"
-            "\U0001F680-\U0001F6FF"
-            "\U0001F700-\U0001F77F"
-            "\U0001F780-\U0001F7FF"
-            "\U0001F800-\U0001F8FF"
-            "\U0001F900-\U0001F9FF"
-            "\U0001FA00-\U0001FA6F"
-            "\U0001FA70-\U0001FAFF"
-            "\U00002702-\U000027B0"
-            "\U000024C2-\U0001F251"
-            "]+",
+            "[" "\U0001F600-\U0001F64F" "\U0001F300-\U0001F5FF" "\U0001F680-\U0001F6FF"
+            "\U0001F700-\U0001F77F" "\U0001F780-\U0001F7FF" "\U0001F800-\U0001F8FF"
+            "\U0001F900-\U0001F9FF" "\U0001FA00-\U0001FA6F" "\U0001FA70-\U0001FAFF"
+            "\U00002702-\U000027B0" "\U000024C2-\U0001F251" "]+",
             flags=re.UNICODE
         )
         text = emoji_pattern.sub('', text)
 
-        # Удаляем оставшиеся спецсимволы
         text = re.sub(r'[#*_`~<>|@$%^&(){}\[\]]', '', text)
-
-        # Заменяем множественные пробелы на один
         text = re.sub(r'\s+', ' ', text)
-
-        # Удаляем лишние восклицательные знаки
         text = re.sub(r'!+', '!', text)
-
-        # Убираем пробелы в начале и конце
         text = text.strip()
-
         return text
 
     def _get_fallback_response(self, mode: str) -> str:
@@ -771,12 +720,10 @@ class AIService:
             "УБ": {"name": "Понимание мира", "level": 3},
             "ЧВ": {"name": "Отношения", "level": 3}
         }
-
         for k, v in vectors.items():
             levels = scores.get(k, [])
             if levels:
                 vectors[k]["level"] = sum(levels) / len(levels)
-
         weakest = min(vectors.items(), key=lambda x: x[1]["level"])
         return {"name": weakest[1]["name"], "level": weakest[1]["level"]}
 
@@ -784,7 +731,6 @@ class AIService:
         """Форматирование глубинных паттернов"""
         if not patterns:
             return "Данные отсутствуют"
-
         lines = []
         if patterns.get('attachment'):
             lines.append(f"- Тип привязанности: {patterns['attachment']}")
@@ -792,7 +738,6 @@ class AIService:
             lines.append(f"- Защитные механизмы: {', '.join(patterns['defense_mechanisms'])}")
         if patterns.get('core_beliefs'):
             lines.append(f"- Глубинные убеждения: {', '.join(patterns['core_beliefs'])}")
-
         return "\n".join(lines) if lines else "Данные отсутствуют"
 
     async def close(self):
