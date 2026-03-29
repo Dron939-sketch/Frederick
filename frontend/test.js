@@ -1,7 +1,6 @@
 // ============================================
 // ПОЛНЫЙ ТЕСТ ИЗ 5 ЭТАПОВ
-// Версия 4.2 - ИСПРАВЛЕННЫЙ ДИЗАЙН + КНОПКИ + СЕРВЕРНАЯ ПОГОДА
-// Диалоговый интерфейс + сбор контекста + жирный текст HTML + кнопки ДЕТАЛИ
+// Версия 4.3 - ИСПРАВЛЕННЫЙ ДИЗАЙН + УТОЧНЯЮЩИЕ ВОПРОСЫ + ЖИРНЫЙ ТЕКСТ
 // ============================================
 
 const Test = {
@@ -14,7 +13,7 @@ const Test = {
     answers: [],
     showIntro: true,
     
-    // Контекст пользователя (город, пол, возраст, погода)
+    // Контекст пользователя
     context: {
         city: null,
         gender: null,
@@ -24,28 +23,15 @@ const Test = {
         name: null
     },
     
-    // Данные для расчетов (этап 1)
-    perceptionScores: {
-        EXTERNAL: 0,
-        INTERNAL: 0,
-        SYMBOLIC: 0,
-        MATERIAL: 0
-    },
+    // Данные для расчетов
+    perceptionScores: { EXTERNAL: 0, INTERNAL: 0, SYMBOLIC: 0, MATERIAL: 0 },
     perceptionType: null,
-    
-    // Данные для расчетов (этап 2)
     thinkingLevel: null,
     thinkingScores: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0 },
     strategyLevels: { "СБ": [], "ТФ": [], "УБ": [], "ЧВ": [] },
-    
-    // Данные для расчетов (этап 3)
     behavioralLevels: { "СБ": [], "ТФ": [], "УБ": [], "ЧВ": [] },
     stage3Scores: [],
-    
-    // Данные для расчетов (этап 4)
     diltsCounts: { "ENVIRONMENT": 0, "BEHAVIOR": 0, "CAPABILITIES": 0, "VALUES": 0, "IDENTITY": 0 },
-    
-    // Данные для расчетов (этап 5)
     deepAnswers: [],
     deepPatterns: null,
     profileData: null,
@@ -58,7 +44,7 @@ const Test = {
     clarifyingCurrent: 0,
     
     // ============================================
-    // СТРУКТУРА ЭТАПОВ С ДЕТАЛЬНЫМИ ОПИСАНИЯМИ
+    // СТРУКТУРА ЭТАПОВ (разделено на краткое и детальное описание)
     // ============================================
     stages: [
         { 
@@ -66,7 +52,7 @@ const Test = {
             number: 1,
             name: 'КОНФИГУРАЦИЯ ВОСПРИЯТИЯ',
             shortDesc: 'Линза, через которую вы смотрите на мир',
-            longDesc: `🔍 ЧТО МЫ ИССЛЕДУЕМ:
+            detailedDesc: `🔍 ЧТО МЫ ИССЛЕДУЕМ:
 
 • Куда направлено ваше внимание — вовне или внутрь
 • Какая тревога доминирует — страх отвержения или страх потери контроля
@@ -75,15 +61,14 @@ const Test = {
 ⏱ Время: ~3 минуты
 
 💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
-            total: 8,
-            questions: null
+            total: 8
         },
         { 
             id: 'thinking', 
             number: 2,
             name: 'КОНФИГУРАЦИЯ МЫШЛЕНИЯ',
             shortDesc: 'Как вы обрабатываете информацию',
-            longDesc: `🎯 САМОЕ ВАЖНОЕ:
+            detailedDesc: `🎯 САМОЕ ВАЖНОЕ:
 
 Конфигурация мышления — это траектория с чётким пунктом назначения: результат, к которому вы придёте. Если ничего не менять — вы попадёте именно туда.
 
@@ -91,15 +76,14 @@ const Test = {
 ⏱ Время: ~3-4 минуты
 
 💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
-            total: null,
-            questions: null
+            total: null
         },
         { 
             id: 'behavior', 
             number: 3,
             name: 'КОНФИГУРАЦИЯ ПОВЕДЕНИЯ',
             shortDesc: 'Ваши автоматические реакции',
-            longDesc: `🔍 ЗДЕСЬ МЫ ИССЛЕДУЕМ:
+            detailedDesc: `🔍 ЗДЕСЬ МЫ ИССЛЕДУЕМ:
 
 • Ваши автоматические реакции
 • Как вы действуете в разных ситуациях
@@ -109,15 +93,14 @@ const Test = {
 ⏱ Время: ~3 минуты
 
 💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
-            total: 8,
-            questions: null
+            total: 8
         },
         { 
             id: 'growth', 
             number: 4,
             name: 'ТОЧКА РОСТА',
             shortDesc: 'Где находится рычаг изменений',
-            longDesc: `⚡ ЧТО МЫ НАЙДЁМ:
+            detailedDesc: `⚡ ЧТО МЫ НАЙДЁМ:
 
 Где именно находится рычаг — место, где минимальное усилие даёт максимальные изменения.
 
@@ -125,15 +108,14 @@ const Test = {
 ⏱ Время: ~3 минуты
 
 💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
-            total: 8,
-            questions: null
+            total: 8
         },
         { 
             id: 'deep', 
             number: 5,
             name: 'ГЛУБИННЫЕ ПАТТЕРНЫ',
             shortDesc: 'Тип привязанности, защитные механизмы',
-            longDesc: `🔍 ЗДЕСЬ МЫ ИССЛЕДУЕМ:
+            detailedDesc: `🔍 ЗДЕСЬ МЫ ИССЛЕДУЕМ:
 
 • Какой у вас тип привязанности (из детства)
 • Какие защитные механизмы вы используете
@@ -144,10 +126,112 @@ const Test = {
 ⏱ Время: ~5 минут
 
 💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
-            total: 10,
-            questions: null
+            total: 10
         }
     ],
+    
+    // ============================================
+    // УТОЧНЯЮЩИЕ ВОПРОСЫ (из Python)
+    // ============================================
+    clarifyingQuestionsDB: {
+        "СБ": [
+            {
+                level: 2,
+                text: "Ты сказал, что избегаешь конфликтов. А что именно происходит в момент ссоры?",
+                options: {
+                    "1": "Просто ухожу, не хочу скандала",
+                    "2": "Замираю и не могу слова сказать",
+                    "3": "Внешне спокоен, внутри всё кипит",
+                    "4": "Пытаюсь перевести в шутку"
+                }
+            },
+            {
+                level: 4,
+                text: "Ты внешне спокоен в конфликтах. А что ты чувствуешь внутри?",
+                options: {
+                    "1": "Пустоту и отстранённость",
+                    "2": "Злость и раздражение",
+                    "3": "Страх и тревогу",
+                    "4": "Ничего особенного"
+                }
+            }
+        ],
+        "ТФ": [
+            {
+                level: 2,
+                text: "С деньгами 'как повезёт' — это про удачу или про отсутствие плана?",
+                options: {
+                    "1": "Про удачу — верю в случай",
+                    "2": "Про отсутствие плана — не умею планировать",
+                    "3": "Про лень — не хочу заморачиваться",
+                    "4": "Про страх — боюсь ошибиться"
+                }
+            }
+        ],
+        "УБ": [
+            {
+                level: 2,
+                text: "Ты веришь в знаки и судьбу. А бывало, что твои предсказания не сбывались?",
+                options: {
+                    "1": "Да, часто",
+                    "2": "Иногда",
+                    "3": "Редко",
+                    "4": "Всегда сбываются"
+                }
+            }
+        ],
+        "ЧВ": [
+            {
+                level: 2,
+                text: "Ты подстраиваешься под других. А помнишь, когда в последний раз ты делал то, что хотел именно ты?",
+                options: {
+                    "1": "Недавно",
+                    "2": "Давно",
+                    "3": "Очень давно",
+                    "4": "Не помню такого"
+                }
+            }
+        ]
+    },
+    
+    discrepancyQuestions: {
+        "people": {
+            text: "Ты сказал, что про людей не совсем точно. Расскажи подробнее:",
+            options: {
+                "1": "Я вообще не завишу от чужого мнения",
+                "2": "Завишу, но меньше, чем описано",
+                "3": "Мне всё равно, что думают другие",
+                "4": "Другое"
+            }
+        },
+        "money": {
+            text: "С деньгами у тебя действительно проблемы? Какие именно?",
+            options: {
+                "1": "Не хватает на базовые нужды",
+                "2": "Не могу накопить",
+                "3": "Не знаю, как заработать больше",
+                "4": "Боюсь вкладывать и рисковать"
+            }
+        },
+        "signs": {
+            text: "Про знаки и судьбу — ты считаешь, что анализируешь достаточно?",
+            options: {
+                "1": "Да, я всё анализирую",
+                "2": "Анализирую, но могу и знаки заметить",
+                "3": "Больше анализирую, чем верю в знаки",
+                "4": "Другое"
+            }
+        },
+        "relations": {
+            text: "В отношениях ты уверен в себе? Расскажи:",
+            options: {
+                "1": "Знаю, чего хочу, и добиваюсь",
+                "2": "Знаю, но боюсь проявлять",
+                "3": "Не знаю, чего хочу",
+                "4": "Мне всё равно"
+            }
+        }
+    },
     
     // ============================================
     // ВОПРОСЫ ЭТАПА 1 (8 вопросов)
@@ -773,13 +857,50 @@ const Test = {
         const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
         
         const attachmentDesc = {
-            "🤗 Надежный": "✅ У тебя надёжный тип привязанности — ты уверен в отношениях и не боишься близости.",
-            "😥 Тревожный": "⚠️ Тревожный тип привязанности: ты часто боишься, что тебя бросят, нуждаешься в подтверждениях любви.",
-            "🛡️ Избегающий": "⚠️ Избегающий тип привязанности: ты держишь дистанцию, боишься близости, надеясь только на себя.",
-            "🏔️ Отстраненный": "⚠️ Отстранённый тип: ты обесцениваешь отношения, считая, что лучше быть одному."
+            "🤗 Надежный": "У тебя надёжный тип привязанности — ты уверен в отношениях и не боишься близости.",
+            "😥 Тревожный": "Тревожный тип привязанности: ты часто боишься, что тебя бросят, нуждаешься в подтверждениях любви.",
+            "🛡️ Избегающий": "Избегающий тип привязанности: ты держишь дистанцию, боишься близости, надеясь только на себя.",
+            "🏔️ Отстраненный": "Отстранённый тип: ты обесцениваешь отношения, считая, что лучше быть одному."
         };
         
         return `🔗 Тип привязанности:\n${attachmentDesc[deep.attachment] || attachmentDesc["🤗 Надежный"]}`;
+    },
+    
+    // ============================================
+    // ФУНКЦИИ ДЛЯ УТОЧНЯЮЩИХ ВОПРОСОВ
+    // ============================================
+    
+    getClarifyingQuestions(discrepancies, currentLevels) {
+        const questions = [];
+        
+        for (const item of discrepancies) {
+            if (["people", "money", "signs", "relations"].includes(item)) {
+                const qData = this.discrepancyQuestions[item];
+                if (qData) {
+                    questions.push({
+                        type: "discrepancy",
+                        target: item,
+                        text: qData.text,
+                        options: qData.options
+                    });
+                }
+            } else if (this.clarifyingQuestionsDB[item]) {
+                const level = currentLevels[item] || 3;
+                for (const q of this.clarifyingQuestionsDB[item]) {
+                    if (q.level === Math.round(level)) {
+                        questions.push({
+                            type: "vector",
+                            vector: item,
+                            text: q.text,
+                            options: q.options
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+        
+        return questions.slice(0, 5);
     },
     
     // ============================================
@@ -996,34 +1117,7 @@ const Test = {
     },
     
     // ============================================
-    // ДЕТАЛИ ЭТАПА
-    // ============================================
-    
-    showStageDetails(stageIndex) {
-        const stage = this.stages[stageIndex];
-        
-        const text = `
-🔍 ЭТАП ${stage.number}: ${stage.name}
-
-${stage.longDesc}
-
-👇 НАЧИНАЕМ?
-`;
-        
-        this.addMessageWithButtons(text, [
-            { text: "▶️ НАЧАТЬ ЭТАП", callback: () => this.startStageFromDetails(stageIndex) },
-            { text: "◀️ НАЗАД К СПИСКУ", callback: () => this.showIntroScreen() }
-        ]);
-    },
-    
-    startStageFromDetails(stageIndex) {
-        this.currentStage = stageIndex;
-        this.currentQuestionIndex = 0;
-        this.sendStageIntro();
-    },
-    
-    // ============================================
-    // ИНФОРМАЦИЯ О БОТЕ
+    // ИНФОРМАЦИЯ О БОТЕ (кто такой Фреди)
     // ============================================
     
     showBotInfo() {
@@ -1064,6 +1158,47 @@ ${stage.longDesc}
     },
     
     // ============================================
+    // ЧТО ДАЕТ ТЕСТ (преимущества)
+    // ============================================
+    
+    showTestBenefits() {
+        const text = `
+🔍 ЧТО ВЫ УЗНАЕТЕ О СЕБЕ:
+
+🧠 ЭТАП 1: КОНФИГУРАЦИЯ ВОСПРИЯТИЯ
+Линза, через которую вы смотрите на мир.
+
+🧠 ЭТАП 2: КОНФИГУРАЦИЯ МЫШЛЕНИЯ
+Как вы обрабатываете информацию.
+
+🧠 ЭТАП 3: КОНФИГУРАЦИЯ ПОВЕДЕНИЯ
+Ваши автоматические реакции.
+
+🧠 ЭТАП 4: ТОЧКА РОСТА
+Где находится рычаг изменений.
+
+🧠 ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ
+Тип привязанности, защитные механизмы, базовые убеждения.
+
+⚡ ПОСЛЕ ТЕСТА ВЫ ПОЛУЧИТЕ:
+
+✅ Полный психологический портрет
+✅ Глубинный анализ подсознательных паттернов
+✅ Выбор стиля общения: 🔮 КОУЧ | 🧠 ПСИХОЛОГ | ⚡ ТРЕНЕР
+✅ Индивидуальный навигатор по целям
+
+⏱ Всего 15 минут
+`;
+        
+        this.addBotMessage(text, true);
+        
+        this.addMessageWithButtons("", [
+            { text: "🚀 НАЧАТЬ ТЕСТ", callback: () => this.startTest() },
+            { text: "◀️ НАЗАД", callback: () => this.showContextComplete() }
+        ]);
+    },
+    
+    // ============================================
     // СБОР КОНТЕКСТА
     // ============================================
     
@@ -1079,7 +1214,7 @@ ${stage.longDesc}
 `;
         
         this.addBotMessage(text, true);
-        this.showTextInput("city", "📍 Напишите город...");
+        this.showTextInput("city", "📍 Напишите город...", true);
     },
     
     askGender() {
@@ -1106,7 +1241,7 @@ ${this.context.weather ? `🌡️ Погода: ${this.context.weather.icon} ${t
 `;
         
         this.addBotMessage(text, true);
-        this.showTextInput("age", "📅 Напишите число от 1 до 120...");
+        this.showTextInput("age", "📅 Напишите число от 1 до 120...", true);
     },
     
     setGender(gender) {
@@ -1124,7 +1259,7 @@ ${this.context.weather ? `🌡️ Погода: ${this.context.weather.icon} ${t
         
         this.addBotMessage(`📍 Город сохранен: ${city}`, true);
         
-        // Сохраняем город на сервере
+        // Сохраняем контекст на сервер
         await this.saveContextToServer();
         
         // Получаем погоду с сервера
@@ -1187,7 +1322,7 @@ ${this.context.weather ? `🌡️ Погода: ${this.context.weather.icon} ${t
             this.showContextComplete();
         } else {
             this.addBotMessage("❌ Возраст должен быть от 1 до 120 лет. Попробуйте еще раз:", true);
-            this.showTextInput("age", "📅 Напишите число от 1 до 120...");
+            this.showTextInput("age", "📅 Напишите число от 1 до 120...", true);
         }
     },
     
@@ -1228,43 +1363,6 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
             'other': 'Другое'
         };
         return map[this.context.gender] || 'не указан';
-    },
-    
-    showTestBenefits() {
-        const text = `
-🔍 ЧТО ВЫ УЗНАЕТЕ О СЕБЕ:
-
-🧠 ЭТАП 1: КОНФИГУРАЦИЯ ВОСПРИЯТИЯ
-Линза, через которую вы смотрите на мир.
-
-🧠 ЭТАП 2: КОНФИГУРАЦИЯ МЫШЛЕНИЯ
-Как вы обрабатываете информацию.
-
-🧠 ЭТАП 3: КОНФИГУРАЦИЯ ПОВЕДЕНИЯ
-Ваши автоматические реакции.
-
-🧠 ЭТАП 4: ТОЧКА РОСТА
-Где находится рычаг изменений.
-
-🧠 ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ
-Тип привязанности, защитные механизмы, базовые убеждения.
-
-⚡ ПОСЛЕ ТЕСТА ВЫ ПОЛУЧИТЕ:
-
-✅ Полный психологический портрет
-✅ Глубинный анализ подсознательных паттернов
-✅ Выбор стиля общения: 🔮 КОУЧ | 🧠 ПСИХОЛОГ | ⚡ ТРЕНЕР
-✅ Индивидуальный навигатор по целям
-
-⏱ Всего 15 минут
-`;
-        
-        this.addBotMessage(text, true);
-        
-        this.addMessageWithButtons("", [
-            { text: "🚀 НАЧАТЬ ТЕСТ", callback: () => this.startTest() },
-            { text: "◀️ НАЗАД", callback: () => this.showContextComplete() }
-        ]);
     },
     
     startTest() {
@@ -1353,7 +1451,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         
         const textDiv = document.createElement('div');
         textDiv.className = 'test-message-text';
-        textDiv.innerHTML = `Вопрос ${current}/${total}<br><br>${text}`;
+        textDiv.innerHTML = `<b>Вопрос ${current}/${total}</b><br><br>${text}`;
         
         const buttonsDiv = document.createElement('div');
         buttonsDiv.className = 'test-message-buttons';
@@ -1481,7 +1579,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         return msgDiv;
     },
     
-    showTextInput(field, placeholder) {
+    showTextInput(field, placeholder, showSkip = false) {
         const messagesContainer = document.getElementById('testChatMessages');
         if (!messagesContainer) return;
         
@@ -1490,6 +1588,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         inputDiv.style.display = 'flex';
         inputDiv.style.gap = '8px';
         inputDiv.style.marginTop = '8px';
+        inputDiv.style.flexWrap = 'wrap';
         
         const input = document.createElement('input');
         input.type = 'text';
@@ -1510,15 +1609,6 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         button.style.color = 'white';
         button.style.cursor = 'pointer';
         
-        const skipButton = document.createElement('button');
-        skipButton.textContent = '⏭ ПРОПУСТИТЬ';
-        skipButton.style.padding = '10px 15px';
-        skipButton.style.borderRadius = '20px';
-        skipButton.style.border = '1px solid rgba(255,107,59,0.3)';
-        skipButton.style.background = 'rgba(255,107,59,0.15)';
-        skipButton.style.color = 'white';
-        skipButton.style.cursor = 'pointer';
-        
         button.onclick = () => {
             const value = input.value.trim();
             if (value) {
@@ -1532,16 +1622,6 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
             }
         };
         
-        skipButton.onclick = () => {
-            this.addUserMessage('Пропустить');
-            inputDiv.remove();
-            if (field === 'city') {
-                this.askGender();
-            } else if (field === 'age') {
-                this.showContextComplete();
-            }
-        };
-        
         input.onkeypress = (e) => {
             if (e.key === 'Enter') {
                 button.click();
@@ -1550,7 +1630,30 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         
         inputDiv.appendChild(input);
         inputDiv.appendChild(button);
-        inputDiv.appendChild(skipButton);
+        
+        if (showSkip) {
+            const skipButton = document.createElement('button');
+            skipButton.textContent = '⏭ ПРОПУСТИТЬ';
+            skipButton.style.padding = '10px 15px';
+            skipButton.style.borderRadius = '20px';
+            skipButton.style.border = '1px solid rgba(255,107,59,0.3)';
+            skipButton.style.background = 'rgba(255,107,59,0.15)';
+            skipButton.style.color = 'white';
+            skipButton.style.cursor = 'pointer';
+            
+            skipButton.onclick = () => {
+                this.addUserMessage('Пропустить');
+                inputDiv.remove();
+                if (field === 'city') {
+                    this.askGender();
+                } else if (field === 'age') {
+                    this.showContextComplete();
+                }
+            };
+            
+            inputDiv.appendChild(skipButton);
+        }
+        
         messagesContainer.appendChild(inputDiv);
         input.focus();
         this.scrollToBottom();
@@ -1592,17 +1695,12 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         
         const stage = this.stages[this.currentStage];
         
-        let text = `
+        const text = `
 🧠 ${stage.name}
 
 ${stage.shortDesc}
 
-🔍 ЧТО МЫ ИССЛЕДУЕМ:
-
-${stage.longDesc}
-
-📊 Вопросов: ${stage.total}
-⏱ Время: ~${stage.id === 'thinking' ? '3-4' : '3'} минуты
+${stage.detailedDesc}
 
 👇 НАЧИНАЕМ?
 `;
@@ -1613,6 +1711,29 @@ ${stage.longDesc}
             { text: "▶️ НАЧАТЬ ЭТАП", callback: () => this.sendNextQuestion() },
             { text: "📖 ПОДРОБНЕЕ ОБ ЭТАПЕ", callback: () => this.showStageDetails(this.currentStage) }
         ]);
+    },
+    
+    showStageDetails(stageIndex) {
+        const stage = this.stages[stageIndex];
+        
+        const text = `
+🔍 ЭТАП ${stage.number}: ${stage.name}
+
+${stage.detailedDesc}
+
+👇 НАЧИНАЕМ?
+`;
+        
+        this.addMessageWithButtons(text, [
+            { text: "▶️ НАЧАТЬ ЭТАП", callback: () => this.startStageFromDetails(stageIndex) },
+            { text: "◀️ НАЗАД К СПИСКУ", callback: () => this.showIntroScreen() }
+        ]);
+    },
+    
+    startStageFromDetails(stageIndex) {
+        this.currentStage = stageIndex;
+        this.currentQuestionIndex = 0;
+        this.sendStageIntro();
     },
     
     sendNextQuestion() {
@@ -1938,9 +2059,18 @@ ${thinkingDesc}
             return;
         }
         
-        const questions = [
-            { text: "Расскажите подробнее, что именно не так с описанием?", options: ["Я спокойнее", "Я агрессивнее", "Я вообще не такой"] }
-        ];
+        const currentLevels = {};
+        for (const v of ["СБ", "ТФ", "УБ", "ЧВ"]) {
+            const levels = this.behavioralLevels[v] || [];
+            currentLevels[v] = levels.length ? levels.reduce((a, b) => a + b, 0) / levels.length : 3;
+        }
+        
+        const questions = this.getClarifyingQuestions(this.discrepancies, currentLevels);
+        
+        if (questions.length === 0) {
+            alert("Нет уточняющих вопросов");
+            return;
+        }
         
         this.clarifyingQuestions = questions;
         this.clarifyingCurrent = 0;
@@ -1960,14 +2090,16 @@ ${thinkingDesc}
 ${q.text}
 `;
         
-        this.addMessageWithButtons(text, q.options.map((opt, i) => ({
-            text: opt,
+        const options = Object.entries(q.options).map(([key, value]) => ({
+            text: value,
             callback: () => {
-                this.clarifyingAnswers.push({ question: q.text, answer: opt });
+                this.clarifyingAnswers.push({ question: q.text, answer: value, key: key });
                 this.clarifyingCurrent++;
                 this.askClarifyingQuestion();
             }
-        })));
+        }));
+        
+        this.addMessageWithButtons(text, options);
     },
     
     updateProfileWithClarifications() {
@@ -2200,4 +2332,4 @@ ${interpretation}
 // Глобальный экспорт
 window.Test = Test;
 
-console.log('✅ Модуль теста загружен (версия 4.2 - исправленный дизайн, кнопки, серверная погода)');
+console.log('✅ Модуль теста загружен (версия 4.3 - исправленный дизайн, уточняющие вопросы, жирный текст)');
