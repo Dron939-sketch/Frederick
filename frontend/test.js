@@ -1,6 +1,6 @@
 // ============================================
 // ПОЛНЫЙ ТЕСТ ИЗ 5 ЭТАПОВ
-// Версия 4.0 - ОБЪЕДИНЕНИЕ ЛУЧШЕГО ИЗ ВСЕХ ПРОЕКТОВ
+// Версия 4.2 - ИСПРАВЛЕННЫЙ ДИЗАЙН + КНОПКИ + СЕРВЕРНАЯ ПОГОДА
 // Диалоговый интерфейс + сбор контекста + жирный текст HTML + кнопки ДЕТАЛИ
 // ============================================
 
@@ -20,7 +20,6 @@ const Test = {
         gender: null,
         age: null,
         weather: null,
-        timezone: null,
         isComplete: false,
         name: null
     },
@@ -58,9 +57,6 @@ const Test = {
     clarifyingQuestions: [],
     clarifyingCurrent: 0,
     
-    // API ключ для погоды (нужно заменить на свой)
-    weatherApiKey: 'YOUR_OPENWEATHER_API_KEY',
-    
     // ============================================
     // СТРУКТУРА ЭТАПОВ С ДЕТАЛЬНЫМИ ОПИСАНИЯМИ
     // ============================================
@@ -70,7 +66,15 @@ const Test = {
             number: 1,
             name: 'КОНФИГУРАЦИЯ ВОСПРИЯТИЯ',
             shortDesc: 'Линза, через которую вы смотрите на мир',
-            longDesc: `🔍 <b>ЧТО МЫ ИССЛЕДУЕМ:</b>\n\n• Куда направлено ваше внимание — вовне или внутрь\n• Какая тревога доминирует — страх отвержения или страх потери контроля\n\n<b>📊 Вопросов:</b> 8\n<b>⏱ Время:</b> ~3 минуты\n\n💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
+            longDesc: `🔍 ЧТО МЫ ИССЛЕДУЕМ:
+
+• Куда направлено ваше внимание — вовне или внутрь
+• Какая тревога доминирует — страх отвержения или страх потери контроля
+
+📊 Вопросов: 8
+⏱ Время: ~3 минуты
+
+💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
             total: 8,
             questions: null
         },
@@ -79,7 +83,14 @@ const Test = {
             number: 2,
             name: 'КОНФИГУРАЦИЯ МЫШЛЕНИЯ',
             shortDesc: 'Как вы обрабатываете информацию',
-            longDesc: `🎯 <b>САМОЕ ВАЖНОЕ:</b>\n\nКонфигурация мышления — это траектория с чётким пунктом назначения: результат, к которому вы придёте. Если ничего не менять — вы попадёте именно туда.\n\n<b>📊 Вопросов:</b> 4-5\n<b>⏱ Время:</b> ~3-4 минуты\n\n💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
+            longDesc: `🎯 САМОЕ ВАЖНОЕ:
+
+Конфигурация мышления — это траектория с чётким пунктом назначения: результат, к которому вы придёте. Если ничего не менять — вы попадёте именно туда.
+
+📊 Вопросов: 4-5
+⏱ Время: ~3-4 минуты
+
+💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
             total: null,
             questions: null
         },
@@ -88,7 +99,16 @@ const Test = {
             number: 3,
             name: 'КОНФИГУРАЦИЯ ПОВЕДЕНИЯ',
             shortDesc: 'Ваши автоматические реакции',
-            longDesc: `🔍 <b>ЗДЕСЬ МЫ ИССЛЕДУЕМ:</b>\n\n• Ваши автоматические реакции\n• Как вы действуете в разных ситуациях\n• Какие стратегии поведения закреплены\n\n<b>📊 Вопросов:</b> 8\n<b>⏱ Время:</b> ~3 минуты\n\n💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
+            longDesc: `🔍 ЗДЕСЬ МЫ ИССЛЕДУЕМ:
+
+• Ваши автоматические реакции
+• Как вы действуете в разных ситуациях
+• Какие стратегии поведения закреплены
+
+📊 Вопросов: 8
+⏱ Время: ~3 минуты
+
+💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
             total: 8,
             questions: null
         },
@@ -97,7 +117,14 @@ const Test = {
             number: 4,
             name: 'ТОЧКА РОСТА',
             shortDesc: 'Где находится рычаг изменений',
-            longDesc: `⚡ <b>ЧТО МЫ НАЙДЁМ:</b>\n\nГде именно находится рычаг — место, где минимальное усилие даёт максимальные изменения.\n\n<b>📊 Вопросов:</b> 8\n<b>⏱ Время:</b> ~3 минуты\n\n💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
+            longDesc: `⚡ ЧТО МЫ НАЙДЁМ:
+
+Где именно находится рычаг — место, где минимальное усилие даёт максимальные изменения.
+
+📊 Вопросов: 8
+⏱ Время: ~3 минуты
+
+💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
             total: 8,
             questions: null
         },
@@ -106,7 +133,17 @@ const Test = {
             number: 5,
             name: 'ГЛУБИННЫЕ ПАТТЕРНЫ',
             shortDesc: 'Тип привязанности, защитные механизмы',
-            longDesc: `🔍 <b>ЗДЕСЬ МЫ ИССЛЕДУЕМ:</b>\n\n• Какой у вас тип привязанности (из детства)\n• Какие защитные механизмы вы используете\n• Какие глубинные убеждения управляют вами\n• Чего вы боитесь на самом деле\n\n<b>📊 Вопросов:</b> 10\n<b>⏱ Время:</b> ~5 минут\n\n💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
+            longDesc: `🔍 ЗДЕСЬ МЫ ИССЛЕДУЕМ:
+
+• Какой у вас тип привязанности (из детства)
+• Какие защитные механизмы вы используете
+• Какие глубинные убеждения управляют вами
+• Чего вы боитесь на самом деле
+
+📊 Вопросов: 10
+⏱ Время: ~5 минут
+
+💡 Совет: Отвечайте честно — это поможет мне лучше понять вас.`,
             total: 10,
             questions: null
         }
@@ -742,7 +779,7 @@ const Test = {
             "🏔️ Отстраненный": "⚠️ Отстранённый тип: ты обесцениваешь отношения, считая, что лучше быть одному."
         };
         
-        return `🔗 <b>Тип привязанности:</b>\n${attachmentDesc[deep.attachment] || attachmentDesc["🤗 Надежный"]}`;
+        return `🔗 Тип привязанности:\n${attachmentDesc[deep.attachment] || attachmentDesc["🤗 Надежный"]}`;
     },
     
     // ============================================
@@ -813,7 +850,6 @@ const Test = {
             gender: null,
             age: null,
             weather: null,
-            timezone: null,
             isComplete: false,
             name: null
         };
@@ -840,7 +876,7 @@ const Test = {
                 this.deepAnswers = data.deepAnswers || [];
                 this.deepPatterns = data.deepPatterns || null;
                 this.profileData = data.profileData || null;
-                this.context = data.context || { city: null, gender: null, age: null, weather: null, timezone: null, isComplete: false, name: null };
+                this.context = data.context || { city: null, gender: null, age: null, weather: null, isComplete: false, name: null };
                 
                 if (this.perceptionType) {
                     const isExternal = this.perceptionType.includes("СОЦИАЛЬНО") || this.perceptionType.includes("СТАТУСНО");
@@ -887,9 +923,8 @@ const Test = {
         this.showTestScreen();
         
         setTimeout(() => {
-            // Проверяем, есть ли контекст
             if (this.context.isComplete) {
-                this.addBotMessage('🧠 <b>ФРЕДИ: ВИРТУАЛЬНЫЙ ПСИХОЛОГ</b>\n\nПривет! Я помню тебя. Хочешь пройти тест заново?');
+                this.addBotMessage('🧠 ФРЕДИ: ВИРТУАЛЬНЫЙ ПСИХОЛОГ\n\nПривет! Я помню тебя. Хочешь пройти тест заново?');
                 this.addMessageWithButtons("", [
                     { text: "🚀 НАЧАТЬ ТЕСТ", callback: () => this.startTest() },
                     { text: "🔄 ОБНОВИТЬ КОНТЕКСТ", callback: () => this.startContextCollection() }
@@ -919,7 +954,7 @@ const Test = {
     
     showIntroScreen() {
         const text = `
-🧠 <b>ФРЕДИ: ВИРТУАЛЬНЫЙ ПСИХОЛОГ</b>
+🧠 ФРЕДИ: ВИРТУАЛЬНЫЙ ПСИХОЛОГ
 
 Привет! 👋
 
@@ -929,31 +964,27 @@ const Test = {
 🕒 Нам нужно познакомиться, чтобы я понимал,
    с кем имею дело и чем могу быть полезен.
 
-<b>📊 5 ЭТАПОВ ТЕСТИРОВАНИЯ:</b>
+📊 5 ЭТАПОВ ТЕСТИРОВАНИЯ:
 
-┌─────────────────────────────────────────────────┐
-│ 1️⃣ <b>ВОСПРИЯТИЕ</b>              [📖 ДЕТАЛИ]   │
-│    Линза, через которую вы смотрите на мир     │
-├─────────────────────────────────────────────────┤
-│ 2️⃣ <b>МЫШЛЕНИЕ</b>                [📖 ДЕТАЛИ]   │
-│    Как вы обрабатываете информацию              │
-├─────────────────────────────────────────────────┤
-│ 3️⃣ <b>ПОВЕДЕНИЕ</b>               [📖 ДЕТАЛИ]   │
-│    Ваши автоматические реакции                  │
-├─────────────────────────────────────────────────┤
-│ 4️⃣ <b>ТОЧКА РОСТА</b>             [📖 ДЕТАЛИ]   │
-│    Где находится рычаг изменений                │
-├─────────────────────────────────────────────────┤
-│ 5️⃣ <b>ГЛУБИННЫЕ ПАТТЕРНЫ</b>      [📖 ДЕТАЛИ]   │
-│    Тип привязанности, защитные механизмы        │
-└─────────────────────────────────────────────────┘
+1️⃣ КОНФИГУРАЦИЯ ВОСПРИЯТИЯ
+   Линза, через которую вы смотрите на мир
 
-⏱ <b>15 минут</b> — и я буду знать о вас больше,
+2️⃣ КОНФИГУРАЦИЯ МЫШЛЕНИЯ
+   Как вы обрабатываете информацию
+
+3️⃣ КОНФИГУРАЦИЯ ПОВЕДЕНИЯ
+   Ваши автоматические реакции
+
+4️⃣ ТОЧКА РОСТА
+   Где находится рычаг изменений
+
+5️⃣ ГЛУБИННЫЕ ПАТТЕРНЫ
+   Тип привязанности, защитные механизмы
+
+⏱ 15 минут — и я буду знать о вас больше,
    чем вы думаете.
 
-👇 <b>СНАЧАЛА НУЖНО НЕМНОГО УЗНАТЬ О ВАС:</b>
-
-📍 Город     👤 Пол     📅 Возраст
+👇 СНАЧАЛА НУЖНО НЕМНОГО УЗНАТЬ О ВАС
 `;
         
         this.addBotMessage(text, true);
@@ -972,11 +1003,11 @@ const Test = {
         const stage = this.stages[stageIndex];
         
         const text = `
-🔍 <b>ЭТАП ${stage.number}: ${stage.name}</b>
+🔍 ЭТАП ${stage.number}: ${stage.name}
 
 ${stage.longDesc}
 
-👇 <b>НАЧИНАЕМ?</b>
+👇 НАЧИНАЕМ?
 `;
         
         this.addMessageWithButtons(text, [
@@ -997,7 +1028,7 @@ ${stage.longDesc}
     
     showBotInfo() {
         const text = `
-🎭 <b>Ну, вопрос хороший. Давайте по существу.</b>
+🎭 Ну, вопрос хороший. Давайте по существу.
 
 Видите ли, дорогой человек, я — экспериментальная модель.
 Андрей Мейстер однажды подумал: "А что, если я создам свою цифровую копию?
@@ -1005,14 +1036,14 @@ ${stage.longDesc}
 
 Так я и появился. 🧠
 
-🧐 <b>Что я умею:</b>
+🧐 Что я умею:
 
 • Вижу паттерны там, где вы видите просто день сурка
 • Нахожу систему в ваших "случайных" решениях
 • Понимаю, почему вы выбираете одних и тех же "не тех" людей
 • Я реально беспристрастен — у меня нет плохого настроения
 
-🎯 <b>Конкретно по тесту:</b>
+🎯 Конкретно по тесту:
 
 1️⃣ Восприятие — поймём, какую линзу вы носите
 2️⃣ Мышление — узнаем, как вы пережёвываете реальность
@@ -1020,7 +1051,7 @@ ${stage.longDesc}
 4️⃣ Точка роста — я скажу, куда вам двигаться
 5️⃣ Глубинные паттерны — заглянем в детство и подсознание
 
-⏱ <b>15 минут</b> — и я составлю ваш профиль.
+⏱ 15 минут — и я составлю ваш профиль.
 
 👌 Погнали?
 `;
@@ -1042,40 +1073,40 @@ ${stage.longDesc}
     
     askCity() {
         const text = `
-📝 <b>ДАВАЙТЕ ПОЗНАКОМИМСЯ</b>
+📝 ДАВАЙТЕ ПОЗНАКОМИМСЯ
 
-🏙️ <b>В каком городе вы живете?</b>
-(Это нужно для погоды и часового пояса)
-
-👇 Напишите название города:
+🏙️ В каком городе вы живете?
 `;
         
         this.addBotMessage(text, true);
-        this.showTextInput("city");
+        this.showTextInput("city", "📍 Напишите город...");
     },
     
     askGender() {
         const text = `
-👤 <b>Теперь скажите, ваш пол:</b>
+📍 Город сохранен: ${this.context.city}
+
+${this.context.weather ? `🌡️ Погода: ${this.context.weather.icon} ${this.context.weather.description}, ${this.context.weather.temp}°C` : ''}
+
+👤 Теперь скажите, ваш пол
 `;
         
-        this.addMessageWithButtons(text, [
+        this.addBotMessage(text, true);
+        
+        this.addMessageWithButtons("", [
             { text: "👨 МУЖСКОЙ", callback: () => this.setGender("male") },
             { text: "👩 ЖЕНСКИЙ", callback: () => this.setGender("female") },
-            { text: "🧑 ДРУГОЕ", callback: () => this.setGender("other") },
             { text: "⏭ ПРОПУСТИТЬ", callback: () => this.skipGender() }
         ]);
     },
     
     askAge() {
         const text = `
-📅 <b>Сколько вам лет?</b>
-
-Напишите число от 1 до 120
+📅 Сколько вам лет?
 `;
         
         this.addBotMessage(text, true);
-        this.showTextInput("age");
+        this.showTextInput("age", "📅 Напишите число от 1 до 120...");
     },
     
     setGender(gender) {
@@ -1091,10 +1122,13 @@ ${stage.longDesc}
     async setCity(city) {
         this.context.city = city;
         
-        this.addBotMessage(`📍 Город сохранен: <b>${city}</b>`, true);
+        this.addBotMessage(`📍 Город сохранен: ${city}`, true);
         
-        // Получаем погоду
-        const weather = await this.fetchWeather(city);
+        // Сохраняем город на сервере
+        await this.saveContextToServer();
+        
+        // Получаем погоду с сервера
+        const weather = await this.fetchWeatherFromServer();
         if (weather) {
             this.context.weather = weather;
             this.addBotMessage(`${weather.icon} Погода: ${weather.description}, ${weather.temp}°C`, true);
@@ -1103,56 +1137,57 @@ ${stage.longDesc}
         this.askGender();
     },
     
-    async fetchWeather(city) {
+    async saveContextToServer() {
+        if (!this.userId) return;
+        
         try {
-            if (!this.weatherApiKey || this.weatherApiKey === 'YOUR_OPENWEATHER_API_KEY') {
-                console.warn('⚠️ API ключ для погоды не настроен');
-                return null;
-            }
-            const response = await fetch(
-                `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${this.weatherApiKey}&units=metric&lang=ru`
-            );
+            await fetch('/api/save-context', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: this.userId,
+                    context: {
+                        city: this.context.city,
+                        gender: this.context.gender,
+                        age: this.context.age
+                    }
+                })
+            });
+        } catch (error) {
+            console.error('Ошибка сохранения контекста:', error);
+        }
+    },
+    
+    async fetchWeatherFromServer() {
+        if (!this.userId || !this.context.city) return null;
+        
+        try {
+            const response = await fetch(`/api/weather/${this.userId}`);
             const data = await response.json();
             
-            if (data.cod === 200) {
+            if (data.success && data.weather) {
                 return {
-                    temp: Math.round(data.main.temp),
-                    description: data.weather[0].description,
-                    icon: this.getWeatherIcon(data.weather[0].icon)
+                    temp: data.weather.temperature,
+                    description: data.weather.description,
+                    icon: data.weather.icon
                 };
-            } else {
-                console.warn('Погода не найдена:', data.message);
-                return null;
             }
+            return null;
         } catch (error) {
             console.error('Ошибка получения погоды:', error);
             return null;
         }
     },
     
-    getWeatherIcon(iconCode) {
-        const icons = {
-            '01d': '☀️', '01n': '🌙',
-            '02d': '⛅', '02n': '☁️',
-            '03d': '☁️', '03n': '☁️',
-            '04d': '☁️', '04n': '☁️',
-            '09d': '🌧️', '09n': '🌧️',
-            '10d': '🌦️', '10n': '🌧️',
-            '11d': '⛈️', '11n': '⛈️',
-            '13d': '❄️', '13n': '❄️',
-            '50d': '🌫️', '50n': '🌫️'
-        };
-        return icons[iconCode] || '🌡️';
-    },
-    
     setAge(age) {
         const ageNum = parseInt(age);
         if (ageNum >= 1 && ageNum <= 120) {
             this.context.age = ageNum;
+            this.saveContextToServer();
             this.showContextComplete();
         } else {
             this.addBotMessage("❌ Возраст должен быть от 1 до 120 лет. Попробуйте еще раз:", true);
-            this.showTextInput("age");
+            this.showTextInput("age", "📅 Напишите число от 1 до 120...");
         }
     },
     
@@ -1161,21 +1196,21 @@ ${stage.longDesc}
         this.saveProgress();
         
         const text = `
-✅ <b>ОТЛИЧНО! ТЕПЕРЬ Я ЗНАЮ О ВАС</b>
+✅ ОТЛИЧНО! ТЕПЕРЬ Я ЗНАЮ О ВАС
 
-📍 Город: <b>${this.context.city || 'не указан'}</b>
-👤 Пол: <b>${this.getGenderText()}</b>
-📅 Возраст: <b>${this.context.age || 'не указан'}</b>
-${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.context.weather.description}, ${this.context.weather.temp}°C</b>` : ''}
+📍 Город: ${this.context.city || 'не указан'}
+👤 Пол: ${this.getGenderText()}
+📅 Возраст: ${this.context.age || 'не указан'}
+${this.context.weather ? `${this.context.weather.icon} Погода: ${this.context.weather.description}, ${this.context.weather.temp}°C` : ''}
 
 🎯 Теперь я буду учитывать это в наших разговорах!
 
-🧠 <b>ЧТО ДАЛЬШЕ?</b>
+🧠 ЧТО ДАЛЬШЕ?
 
 Чтобы я мог помочь по-настоящему, нужно пройти тест (15 минут).
 Он определит ваш психологический профиль по 4 векторам и глубинным паттернам.
 
-👇 <b>НАЧИНАЕМ?</b>
+👇 НАЧИНАЕМ?
 `;
         
         this.addBotMessage(text, true);
@@ -1197,31 +1232,31 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
     
     showTestBenefits() {
         const text = `
-🔍 <b>ЧТО ВЫ УЗНАЕТЕ О СЕБЕ:</b>
+🔍 ЧТО ВЫ УЗНАЕТЕ О СЕБЕ:
 
-🧠 <b>ЭТАП 1: КОНФИГУРАЦИЯ ВОСПРИЯТИЯ</b>
+🧠 ЭТАП 1: КОНФИГУРАЦИЯ ВОСПРИЯТИЯ
 Линза, через которую вы смотрите на мир.
 
-🧠 <b>ЭТАП 2: КОНФИГУРАЦИЯ МЫШЛЕНИЯ</b>
+🧠 ЭТАП 2: КОНФИГУРАЦИЯ МЫШЛЕНИЯ
 Как вы обрабатываете информацию.
 
-🧠 <b>ЭТАП 3: КОНФИГУРАЦИЯ ПОВЕДЕНИЯ</b>
+🧠 ЭТАП 3: КОНФИГУРАЦИЯ ПОВЕДЕНИЯ
 Ваши автоматические реакции.
 
-🧠 <b>ЭТАП 4: ТОЧКА РОСТА</b>
+🧠 ЭТАП 4: ТОЧКА РОСТА
 Где находится рычаг изменений.
 
-🧠 <b>ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ</b>
+🧠 ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ
 Тип привязанности, защитные механизмы, базовые убеждения.
 
-⚡ <b>ПОСЛЕ ТЕСТА ВЫ ПОЛУЧИТЕ:</b>
+⚡ ПОСЛЕ ТЕСТА ВЫ ПОЛУЧИТЕ:
 
 ✅ Полный психологический портрет
 ✅ Глубинный анализ подсознательных паттернов
 ✅ Выбор стиля общения: 🔮 КОУЧ | 🧠 ПСИХОЛОГ | ⚡ ТРЕНЕР
 ✅ Индивидуальный навигатор по целям
 
-⏱ <b>Всего 15 минут</b>
+⏱ Всего 15 минут
 `;
         
         this.addBotMessage(text, true);
@@ -1318,7 +1353,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
         
         const textDiv = document.createElement('div');
         textDiv.className = 'test-message-text';
-        textDiv.innerHTML = `<b>Вопрос ${current}/${total}</b><br><br>${text}`;
+        textDiv.innerHTML = `Вопрос ${current}/${total}<br><br>${text}`;
         
         const buttonsDiv = document.createElement('div');
         buttonsDiv.className = 'test-message-buttons';
@@ -1351,7 +1386,9 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
                 btn.style.transform = 'scale(1)';
             });
             btn.addEventListener('click', () => {
-                buttonsDiv.remove();
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'default';
                 this.addUserMessage(optText);
                 callback(idx, opt);
             });
@@ -1420,7 +1457,9 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
                 button.style.transform = 'scale(1)';
             });
             button.addEventListener('click', () => {
-                buttonsDiv.remove();
+                button.disabled = true;
+                button.style.opacity = '0.5';
+                button.style.cursor = 'default';
                 btn.callback();
             });
             buttonsDiv.appendChild(button);
@@ -1442,7 +1481,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
         return msgDiv;
     },
     
-    showTextInput(field) {
+    showTextInput(field, placeholder) {
         const messagesContainer = document.getElementById('testChatMessages');
         if (!messagesContainer) return;
         
@@ -1454,7 +1493,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
         
         const input = document.createElement('input');
         input.type = 'text';
-        input.placeholder = field === 'city' ? 'Напишите город...' : 'Напишите возраст...';
+        input.placeholder = placeholder;
         input.style.flex = '1';
         input.style.padding = '10px';
         input.style.borderRadius = '20px';
@@ -1463,13 +1502,22 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
         input.style.color = 'white';
         
         const button = document.createElement('button');
-        button.textContent = '📤';
+        button.textContent = '📤 ОТПРАВИТЬ';
         button.style.padding = '10px 15px';
         button.style.borderRadius = '20px';
         button.style.border = '1px solid rgba(255,107,59,0.3)';
         button.style.background = 'rgba(255,107,59,0.15)';
         button.style.color = 'white';
         button.style.cursor = 'pointer';
+        
+        const skipButton = document.createElement('button');
+        skipButton.textContent = '⏭ ПРОПУСТИТЬ';
+        skipButton.style.padding = '10px 15px';
+        skipButton.style.borderRadius = '20px';
+        skipButton.style.border = '1px solid rgba(255,107,59,0.3)';
+        skipButton.style.background = 'rgba(255,107,59,0.15)';
+        skipButton.style.color = 'white';
+        skipButton.style.cursor = 'pointer';
         
         button.onclick = () => {
             const value = input.value.trim();
@@ -1484,6 +1532,16 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
             }
         };
         
+        skipButton.onclick = () => {
+            this.addUserMessage('Пропустить');
+            inputDiv.remove();
+            if (field === 'city') {
+                this.askGender();
+            } else if (field === 'age') {
+                this.showContextComplete();
+            }
+        };
+        
         input.onkeypress = (e) => {
             if (e.key === 'Enter') {
                 button.click();
@@ -1492,6 +1550,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
         
         inputDiv.appendChild(input);
         inputDiv.appendChild(button);
+        inputDiv.appendChild(skipButton);
         messagesContainer.appendChild(inputDiv);
         input.focus();
         this.scrollToBottom();
@@ -1534,17 +1593,18 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: <b>${this.c
         const stage = this.stages[this.currentStage];
         
         let text = `
-🧠 <b>${stage.name}</b>
+🧠 ${stage.name}
 
 ${stage.shortDesc}
 
-<b>🔍 ЧТО МЫ ИССЛЕДУЕМ:</b><br>
+🔍 ЧТО МЫ ИССЛЕДУЕМ:
+
 ${stage.longDesc}
 
-<b>📊 Вопросов:</b> ${stage.total}
-<b>⏱ Время:</b> ~${stage.id === 'thinking' ? '3-4' : '3'} минуты
+📊 Вопросов: ${stage.total}
+⏱ Время: ~${stage.id === 'thinking' ? '3-4' : '3'} минуты
 
-👇 <b>НАЧИНАЕМ?</b>
+👇 НАЧИНАЕМ?
 `;
         
         this.addBotMessage(text, true);
@@ -1595,14 +1655,12 @@ ${stage.longDesc}
             target: q.target
         });
         
-        // Этап 1: Восприятие
         if (stageId === 'perception' && opt.scores) {
             for (let axis in opt.scores) {
                 this.perceptionScores[axis] += opt.scores[axis];
             }
         }
         
-        // Этап 2: Мышление
         if (stageId === 'thinking' && opt.level) {
             this.thinkingScores[opt.level] = (this.thinkingScores[opt.level] || 0) + 1;
             if (q.measures && q.measures !== 'thinking') {
@@ -1610,7 +1668,6 @@ ${stage.longDesc}
             }
         }
         
-        // Этап 3: Поведение
         if (stageId === 'behavior' && opt.level) {
             this.stage3Scores.push(opt.level);
             if (opt.strategy) {
@@ -1618,12 +1675,10 @@ ${stage.longDesc}
             }
         }
         
-        // Этап 4: Точка роста
         if (stageId === 'growth' && opt.dilts) {
             this.diltsCounts[opt.dilts] = (this.diltsCounts[opt.dilts] || 0) + 1;
         }
         
-        // Этап 5: Глубинные паттерны
         if (stageId === 'deep') {
             this.deepAnswers.push({
                 questionId: q.id,
@@ -1668,20 +1723,20 @@ ${stage.longDesc}
         const interpretation = this.getStage1Interpretation();
         
         const text = `
-✨ <b>РЕЗУЛЬТАТ ЭТАПА 1</b>
+✨ РЕЗУЛЬТАТ ЭТАПА 1
 
-Ваш тип восприятия: <b>${this.perceptionType}</b>
+Ваш тип восприятия: ${this.perceptionType}
 
 ${interpretation}
 
-<b>▶️ ЧТО ДАЛЬШЕ?</b>
+▶️ ЧТО ДАЛЬШЕ?
 
-<b>Этап 2: КОНФИГУРАЦИЯ МЫШЛЕНИЯ</b>
+ЭТАП 2: КОНФИГУРАЦИЯ МЫШЛЕНИЯ
 
 Мы узнали, как вы воспринимаете мир. Теперь исследуем, как вы обрабатываете информацию.
 
-<b>📊 Вопросов:</b> ${this.stages[1].total}
-<b>⏱ Время:</b> ~3-4 минуты
+📊 Вопросов: ${this.stages[1].total}
+⏱ Время: ~3-4 минуты
 `;
         
         this.addMessageWithButtons(text, [
@@ -1694,20 +1749,20 @@ ${interpretation}
         const interpretation = this.getStage2Interpretation();
         
         const text = `
-✨ <b>РЕЗУЛЬТАТ ЭТАПА 2</b>
+✨ РЕЗУЛЬТАТ ЭТАПА 2
 
-Уровень мышления: <b>${this.thinkingLevel}/9</b>
+Уровень мышления: ${this.thinkingLevel}/9
 
 ${interpretation}
 
-<b>▶️ ЧТО ДАЛЬШЕ?</b>
+▶️ ЧТО ДАЛЬШЕ?
 
-<b>Этап 3: КОНФИГУРАЦИЯ ПОВЕДЕНИЯ</b>
+ЭТАП 3: КОНФИГУРАЦИЯ ПОВЕДЕНИЯ
 
 Теперь посмотрим, как вы действуете на автомате.
 
-<b>📊 Вопросов:</b> 8
-<b>⏱ Время:</b> ~3 минуты
+📊 Вопросов: 8
+⏱ Время: ~3 минуты
 `;
         
         this.addMessageWithButtons(text, [
@@ -1734,26 +1789,26 @@ ${interpretation}
             : 3;
         
         const text = `
-✨ <b>РЕЗУЛЬТАТ ЭТАПА 3</b>
+✨ РЕЗУЛЬТАТ ЭТАПА 3
 
 Ваши поведенческие уровни:
-• Реакция на давление (СБ): <b>${sbAvg}/6</b>
-• Отношение к деньгам (ТФ): <b>${tfAvg}/6</b>
-• Понимание мира (УБ): <b>${ubAvg}/6</b>
-• Отношения с людьми (ЧВ): <b>${chvAvg}/6</b>
+• Реакция на давление (СБ): ${sbAvg}/6
+• Отношение к деньгам (ТФ): ${tfAvg}/6
+• Понимание мира (УБ): ${ubAvg}/6
+• Отношения с людьми (ЧВ): ${chvAvg}/6
 
-Финальный уровень: <b>${finalLevel}/9</b>
+Финальный уровень: ${finalLevel}/9
 
 ${interpretation}
 
-<b>▶️ ЧТО ДАЛЬШЕ?</b>
+▶️ ЧТО ДАЛЬШЕ?
 
-<b>Этап 4: ТОЧКА РОСТА</b>
+ЭТАП 4: ТОЧКА РОСТА
 
 Найдем, где находится рычаг изменений.
 
-<b>📊 Вопросов:</b> 8
-<b>⏱ Время:</b> ~3 минуты
+📊 Вопросов: 8
+⏱ Время: ~3 минуты
 `;
         
         this.addMessageWithButtons(text, [
@@ -1807,27 +1862,27 @@ ${interpretation}
         const confidenceBar = "█".repeat(Math.floor(confidence * 10)) + "░".repeat(10 - Math.floor(confidence * 10));
         
         const text = `
-🧠 <b>ПРЕДВАРИТЕЛЬНЫЙ ПОРТРЕТ</b>
+🧠 ПРЕДВАРИТЕЛЬНЫЙ ПОРТРЕТ
 
 ${attentionDesc}
 
 ${thinkingDesc}
 
-📊 <b>ТВОИ ВЕКТОРЫ:</b>
+📊 ТВОИ ВЕКТОРЫ:
 
-• <b>Реакция на давление (СБ ${profile.sbLevel}/6):</b> ${sbDesc}
+• Реакция на давление (СБ ${profile.sbLevel}/6): ${sbDesc}
 
-• <b>Отношение к деньгам (ТФ ${profile.tfLevel}/6):</b> ${tfDesc}
+• Отношение к деньгам (ТФ ${profile.tfLevel}/6): ${tfDesc}
 
-• <b>Понимание мира (УБ ${profile.ubLevel}/6):</b> ${ubDesc}
+• Понимание мира (УБ ${profile.ubLevel}/6): ${ubDesc}
 
-• <b>Отношения с людьми (ЧВ ${profile.chvLevel}/6):</b> ${chvDesc}
+• Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
 
-🎯 <b>Точка роста:</b> ${growthMap[profile.dominantDilts] || "Начните с малого — и увидите, куда приведёт."}
+🎯 Точка роста: ${growthMap[profile.dominantDilts] || "Начните с малого — и увидите, куда приведёт."}
 
-📊 <b>Уверенность:</b> ${confidenceBar} ${Math.floor(confidence * 100)}%
+📊 Уверенность: ${confidenceBar} ${Math.floor(confidence * 100)}%
 
-👇 <b>ЭТО ПОХОЖЕ НА ВАС?</b>
+👇 ЭТО ПОХОЖЕ НА ВАС?
 `;
         
         this.addMessageWithButtons(text, [
@@ -1844,7 +1899,7 @@ ${thinkingDesc}
     
     profileDoubt() {
         const text = `
-🔍 <b>ДАВАЙ УТОЧНИМ</b>
+🔍 ДАВАЙ УТОЧНИМ
 
 Что именно вам не подходит?
 (можно выбрать несколько)
@@ -1900,7 +1955,7 @@ ${thinkingDesc}
         
         const q = this.clarifyingQuestions[this.clarifyingCurrent];
         const text = `
-🔍 <b>УТОЧНЯЮЩИЙ ВОПРОС ${this.clarifyingCurrent + 1}/${this.clarifyingQuestions.length}</b>
+🔍 УТОЧНЯЮЩИЙ ВОПРОС ${this.clarifyingCurrent + 1}/${this.clarifyingQuestions.length}
 
 ${q.text}
 `;
@@ -1923,7 +1978,7 @@ ${q.text}
     
     profileReject() {
         const anecdote = `
-🧠 <b>ЧЕСТНОСТЬ - ЛУЧШАЯ ПОЛИТИКА</b>
+🧠 ЧЕСТНОСТЬ - ЛУЧШАЯ ПОЛИТИКА
 
 Две подруги решили сходить на ипподром. Приходят, а там скачки, все ставки делают. Решили и они ставку сделать — вдруг повезёт? Одна другой и говорит: «Слушай, у тебя какой размер груди?». Вторая: «Второй… а у тебя?». Первая: «Третий… ну давай на пятую поставим — чтоб сумма была…».
 
@@ -1935,7 +1990,7 @@ ${q.text}
 
 Мужики переглянулись: «Не напиздили бы — выиграли…».
 
-<b>Мораль:</b> Если врать в тесте — результат будет как у мужиков на скачках. Хотите попробовать еще раз?
+Мораль: Если врать в тесте — результат будет как у мужиков на скачках. Хотите попробовать еще раз?
 `;
         
         this.addMessageWithButtons(anecdote, [
@@ -1976,11 +2031,11 @@ ${q.text}
         const interpretation = this.getStage5Interpretation();
         
         const text = `
-✨ <b>РЕЗУЛЬТАТ ЭТАПА 5</b>
+✨ РЕЗУЛЬТАТ ЭТАПА 5
 
 ${interpretation}
 
-✅ <b>ТЕСТ ЗАВЕРШЕН!</b>
+✅ ТЕСТ ЗАВЕРШЕН!
 
 🧠 Собираю воедино результаты 5 этапов...
 `;
@@ -2063,25 +2118,25 @@ ${interpretation}
         }[profile.chvLevel] || "Информация уточняется";
         
         const text = `
-🧠 <b>ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ</b>
+🧠 ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
 
-<b>Профиль:</b> ${profile.displayName}
-<b>Тип восприятия:</b> ${profile.perceptionType}
-<b>Уровень мышления:</b> ${profile.thinkingLevel}/9
+Профиль: ${profile.displayName}
+Тип восприятия: ${profile.perceptionType}
+Уровень мышления: ${profile.thinkingLevel}/9
 
-📊 <b>ТВОИ ВЕКТОРЫ:</b>
+📊 ТВОИ ВЕКТОРЫ:
 
-• <b>Реакция на давление (СБ ${profile.sbLevel}/6):</b> ${sbDesc}
+• Реакция на давление (СБ ${profile.sbLevel}/6): ${sbDesc}
 
-• <b>Отношение к деньгам (ТФ ${profile.tfLevel}/6):</b> ${tfDesc}
+• Отношение к деньгам (ТФ ${profile.tfLevel}/6): ${tfDesc}
 
-• <b>Понимание мира (УБ ${profile.ubLevel}/6):</b> ${ubDesc}
+• Понимание мира (УБ ${profile.ubLevel}/6): ${ubDesc}
 
-• <b>Отношения с людьми (ЧВ ${profile.chvLevel}/6):</b> ${chvDesc}
+• Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
 
-🧠 <b>Глубинный паттерн:</b> ${deep.attachment}
+🧠 Глубинный паттерн: ${deep.attachment}
 
-👇 <b>Что дальше?</b>
+👇 Что дальше?
 `;
         
         this.addMessageWithButtons(text, [
@@ -2145,4 +2200,4 @@ ${interpretation}
 // Глобальный экспорт
 window.Test = Test;
 
-console.log('✅ Модуль теста загружен (версия 4.0 - с контекстом, деталями и жирным текстом)');
+console.log('✅ Модуль теста загружен (версия 4.2 - исправленный дизайн, кнопки, серверная погода)');
