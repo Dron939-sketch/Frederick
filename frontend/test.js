@@ -2211,7 +2211,16 @@ ${interpretation}
                 body: JSON.stringify(results)
             });
             
-            const data = await response.json();
+            // ======================================================
+            // ИСПРАВЛЕНИЕ 2: защита от пустого / невалидного JSON
+            // ======================================================
+            let data;
+            try {
+                data = await response.json();
+            } catch (jsonError) {
+                console.warn('⚠️ Сервер вернул не-JSON ответ, статус:', response.status);
+                data = { success: response.ok };
+            }
             
             if (data.success) {
                 console.log('✅ Результаты теста успешно отправлены на сервер');
@@ -2298,11 +2307,15 @@ ${interpretation}
         this.showFinalProfileButtons();
     },
     
+    // ======================================================
+    // ИСПРАВЛЕНИЕ 1: App → window.App во всех трёх методах
+    // ======================================================
+    
     showPsychologistThought() {
         if (window.dashboard && window.dashboard.renderPsychologistThoughtScreen) {
             window.dashboard.renderPsychologistThoughtScreen();
-        } else if (App && App.showPsychologistThought) {
-            App.showPsychologistThought();
+        } else if (window.App && window.App.showPsychologistThought) {
+            window.App.showPsychologistThought();
         } else {
             this.addBotMessage("🧠 Мысли психолога будут доступны в личном кабинете.", true);
         }
@@ -2311,8 +2324,8 @@ ${interpretation}
     showGoals() {
         if (window.dashboard && window.dashboard.renderGoalsScreen) {
             window.dashboard.renderGoalsScreen();
-        } else if (App && App.showDynamicDestinations) {
-            App.showDynamicDestinations();
+        } else if (window.App && window.App.showDynamicDestinations) {
+            window.App.showDynamicDestinations();
         } else {
             this.addBotMessage("🎯 Выбор целей будет доступен в личном кабинете.", true);
         }
@@ -2321,8 +2334,8 @@ ${interpretation}
     showModes() {
         if (window.dashboard && window.dashboard.renderModeSelectionScreen) {
             window.dashboard.renderModeSelectionScreen();
-        } else if (App && App.showModeSelection) {
-            App.showModeSelection();
+        } else if (window.App && window.App.showModeSelection) {
+            window.App.showModeSelection();
         } else {
             this.addBotMessage("⚙️ Выбор режима будет доступен в личном кабинете.", true);
         }
