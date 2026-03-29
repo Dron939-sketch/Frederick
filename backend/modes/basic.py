@@ -4,12 +4,13 @@
 МОДУЛЬ: БАЗОВЫЙ РЕЖИМ (basic.py) - Великий Комбинатор
 Режим для пользователей, которые еще не прошли тест.
 Фреди в образе Остапа Бендера с использованием DeepSeek.
-Учтена озвучка ответов (TTS) — без эмодзи и спецсимволов.
+Многоуровневый анализ: правило → закономерность → тенденция → мейнстрим → судьба → рок
 """
 
 import re
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from collections import deque
 
 from modes.base_mode import BaseMode
 from services.ai_service import call_deepseek, call_deepseek_streaming
@@ -21,13 +22,18 @@ class BasicMode(BaseMode):
     """
     Базовый режим для пользователей без теста.
     Фреди в образе Великого Комбинатора (Остап Бендер 2.0)
-    Использует DeepSeek для генерации ответов с учётом TTS.
+    Многоуровневый анализ: каждые 2 сообщения → правило,
+    каждые 2 правила → закономерность,
+    каждые 2 закономерности → тенденция,
+    каждые 2 тенденции → мейнстрим,
+    каждые 2 мейнстрима → судьба,
+    каждые 2 судьбы → рок.
     """
     
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
         super().__init__(user_id, user_data, context)
         
-        # Пол пользователя (для обращений)
+        # Пол пользователя
         self.gender = None
         if context and hasattr(context, 'gender'):
             self.gender = context.gender
@@ -38,288 +44,487 @@ class BasicMode(BaseMode):
             self.user_name = context.name or ""
         
         # Статус диалога
-        self.dialog_stage = "greeting"  # greeting, exploration, test_offered
+        self.dialog_stage = "greeting"
         
-        # История диалога для контекста
+        # История диалога
         self.conversation_history = []
         
-        logger.info(f"🎭 BasicMode (Бендер + DeepSeek + TTS) инициализирован для user_id={user_id}")
+        # ========== МНОГОУРОВНЕВЫЙ АНАЛИЗ ==========
+        self.rules: List[str] = []              # уровень 1: факты
+        self.patterns: List[str] = []           # уровень 2: закономерности
+        self.trends: List[str] = []             # уровень 3: тенденции
+        self.mainstreams: List[str] = []        # уровень 4: мейнстримы
+        self.fates: List[str] = []              # уровень 5: судьбы
+        self.rock: List[str] = []               # уровень 6: рок
+        
+        # Счётчики для каждого уровня
+        self.message_counter = 0
+        self.rule_counter = 0
+        self.pattern_counter = 0
+        self.trend_counter = 0
+        self.mainstream_counter = 0
+        self.fate_counter = 0
+        
+        # Интервалы для каждого уровня (каждые 2)
+        self.LEVEL_INTERVAL = 2
+        
+        # Текущий активный инсайт (самый высокий уровень)
+        self.current_insight = None
+        self.current_insight_level = 0  # 0-6, где 6 - рок
+        
+        logger.info(f"🎭 BasicMode (Бендер + многоуровневый анализ) инициализирован для user_id={user_id}")
     
+    def _get_address(self) -> str:
+        """Возвращает обращение в зависимости от пола"""
+        if self.gender == "male":
+            return "братец"
+        elif self.gender == "female":
+            return "голубушка"
+        else:
+            return "друг мой"
+    
+    # ========== УРОВЕНЬ 1: ПРАВИЛО (из сообщения) ==========
+    async def _extract_rule(self, message: str) -> Optional[str]:
+        """Извлекает правило из сообщения пользователя"""
+        prompt = f"""Из сообщения человека выдели ОДИН конкретный факт о его жизни или проблеме.
+
+Сообщение: "{message}"
+
+Примеры:
+Сообщение: "Начальник бесит, всё время придирается"
+Правило: начальник придирается
+
+Сообщение: "Денег вечно не хватает до зарплаты"
+Правило: не хватает денег
+
+Сообщение: "Хочу похудеть, но не могу заставить себя пойти в зал"
+Правило: хочет похудеть, но лень
+
+Сообщение: "Жена говорит, что я мало зарабатываю"
+Правило: жене не нравится его зарплата
+
+Сообщение: "Да всё нормально, просто устал"
+Правило: НЕТ
+
+Требования:
+- ТОЛЬКО факт, без воды
+- Максимум 8 слов
+- Без оценок
+- Если нет конкретного факта, напиши "НЕТ"
+
+Правило:"""
+        
+        response = await call_deepseek(prompt, max_tokens=50, temperature=0.5)
+        
+        if response and response.strip() != "НЕТ" and len(response) > 3:
+            return response.strip()
+        return None
+    
+    # ========== УРОВЕНЬ 2: ЗАКОНОМЕРНОСТЬ (из 2 правил) ==========
+    async def _extract_pattern(self, rules: List[str]) -> Optional[str]:
+        """Извлекает закономерность из двух правил"""
+        prompt = f"""Посмотри на два факта о человеке и найди общую ЗАКОНОМЕРНОСТЬ.
+
+Факт 1: {rules[0]}
+Факт 2: {rules[1]}
+
+Примеры:
+Факты: "начальник придирается", "жене не нравится его зарплата"
+Закономерность: его достают со всех сторон
+
+Факты: "не хватает денег", "зарплату задерживают"
+Закономерность: с деньгами напряг
+
+Факты: "хочет похудеть, но лень", "обещал себе бегать по утрам"
+Закономерность: хочет заняться собой, но не может начать
+
+Требования:
+- ОДНО предложение (максимум 12 слов)
+- Без психологических терминов
+- Простым, житейским языком
+- С лёгкой иронией
+
+Закономерность:"""
+        
+        response = await call_deepseek(prompt, max_tokens=60, temperature=0.8)
+        
+        if response and len(response) > 5:
+            return response.strip()
+        return None
+    
+    # ========== УРОВЕНЬ 3: ТЕНДЕНЦИЯ (из 2 закономерностей) ==========
+    async def _extract_trend(self, patterns: List[str]) -> Optional[str]:
+        """Извлекает тенденцию из двух закономерностей"""
+        prompt = f"""Посмотри на две закономерности о человеке и найди общую ТЕНДЕНЦИЮ.
+
+Закономерность 1: {patterns[0]}
+Закономерность 2: {patterns[1]}
+
+Примеры:
+Закономерности: "его достают со всех сторон", "везде одни проблемы"
+Тенденция: жизнь превращается в сплошную нервотрёпку
+
+Закономерности: "с деньгами напряг", "работу боятся потерять"
+Тенденция: финансовая нестабильность загоняет в угол
+
+Закономерности: "хочет заняться собой, но не может начать", "всё откладывает на понедельник"
+Тенденция: вечный понедельник так и не наступает
+
+Требования:
+- ОДНО предложение (максимум 15 слов)
+- Житейский язык
+- С лёгкой иронией
+
+Тенденция:"""
+        
+        response = await call_deepseek(prompt, max_tokens=80, temperature=0.8)
+        
+        if response and len(response) > 5:
+            return response.strip()
+        return None
+    
+    # ========== УРОВЕНЬ 4: МЕЙНСТРИМ (из 2 тенденций) ==========
+    async def _extract_mainstream(self, trends: List[str]) -> Optional[str]:
+        """Извлекает мейнстрим из двух тенденций"""
+        prompt = f"""Посмотри на две тенденции в жизни человека и найди общий МЕЙНСТРИМ.
+
+Тенденция 1: {trends[0]}
+Тенденция 2: {trends[1]}
+
+Примеры:
+Тенденции: "жизнь превращается в нервотрёпку", "финансовая нестабильность загоняет в угол"
+Мейнстрим: жизнь бьёт ключом, и всё по голове
+
+Тенденции: "вечный понедельник не наступает", "всё валится из рук"
+Мейнстрим: топтание на месте с отличным результатом
+
+Требования:
+- ОДНО предложение (максимум 12 слов)
+- С иронией, в стиле Остапа Бендера
+- Не жалей сарказма
+
+Мейнстрим:"""
+        
+        response = await call_deepseek(prompt, max_tokens=70, temperature=0.85)
+        
+        if response and len(response) > 5:
+            return response.strip()
+        return None
+    
+    # ========== УРОВЕНЬ 5: СУДЬБА (из 2 мейнстримов) ==========
+    async def _extract_fate(self, mainstreams: List[str]) -> Optional[str]:
+        """Извлекает судьбу из двух мейнстримов"""
+        prompt = f"""Посмотри на два мейнстрима в жизни человека и сделай вывод о его СУДЬБЕ.
+
+Мейнстрим 1: {mainstreams[0]}
+Мейнстрим 2: {mainstreams[1]}
+
+Примеры:
+Мейнстримы: "жизнь бьёт ключом по голове", "топтание на месте с отличным результатом"
+Судьба: так и будет маяться, пока не надоест
+
+Требования:
+- ОДНО ёмкое предложение (максимум 10 слов)
+- С юмором, но без жестокости
+- Как бы между прочим
+
+Судьба:"""
+        
+        response = await call_deepseek(prompt, max_tokens=60, temperature=0.85)
+        
+        if response and len(response) > 5:
+            return response.strip()
+        return None
+    
+    # ========== УРОВЕНЬ 6: РОК (из 2 судеб) ==========
+    async def _extract_rock(self, fates: List[str]) -> Optional[str]:
+        """Извлекает рок из двух судеб"""
+        prompt = f"""Посмотри на две судьбы человека и сделай вывод о его РОКЕ.
+
+Судьба 1: {fates[0]}
+Судьба 2: {fates[1]}
+
+Примеры:
+Судьбы: "так и будет маяться", "пока не надоест"
+Рок: обречён на вечные страдания с переменным успехом
+
+Требования:
+- ОДНО предложение (максимум 10 слов)
+- С долей чёрного юмора
+- Как будто это приговор
+
+Рок:"""
+        
+        response = await call_deepseek(prompt, max_tokens=60, temperature=0.9)
+        
+        if response and len(response) > 5:
+            return response.strip()
+        return None
+    
+    # ========== ОБНОВЛЕНИЕ УРОВНЕЙ ==========
+    async def _update_analysis_levels(self):
+        """Обновляет все уровни анализа (каскадно)"""
+        
+        # Уровень 2: из 2 правил → закономерность
+        while len(self.rules) >= self.LEVEL_INTERVAL and self.rule_counter < len(self.rules):
+            rules_pair = self.rules[-self.LEVEL_INTERVAL:]
+            pattern = await self._extract_pattern(rules_pair)
+            if pattern:
+                self.patterns.append(pattern)
+                self.rule_counter += self.LEVEL_INTERVAL
+                logger.info(f"🔍 Уровень 2 (закономерность): {pattern}")
+            else:
+                break
+        
+        # Уровень 3: из 2 закономерностей → тенденция
+        while len(self.patterns) >= self.LEVEL_INTERVAL and self.pattern_counter < len(self.patterns):
+            patterns_pair = self.patterns[-self.LEVEL_INTERVAL:]
+            trend = await self._extract_trend(patterns_pair)
+            if trend:
+                self.trends.append(trend)
+                self.pattern_counter += self.LEVEL_INTERVAL
+                logger.info(f"📈 Уровень 3 (тенденция): {trend}")
+            else:
+                break
+        
+        # Уровень 4: из 2 тенденций → мейнстрим
+        while len(self.trends) >= self.LEVEL_INTERVAL and self.trend_counter < len(self.trends):
+            trends_pair = self.trends[-self.LEVEL_INTERVAL:]
+            mainstream = await self._extract_mainstream(trends_pair)
+            if mainstream:
+                self.mainstreams.append(mainstream)
+                self.trend_counter += self.LEVEL_INTERVAL
+                logger.info(f"🎯 Уровень 4 (мейнстрим): {mainstream}")
+            else:
+                break
+        
+        # Уровень 5: из 2 мейнстримов → судьба
+        while len(self.mainstreams) >= self.LEVEL_INTERVAL and self.mainstream_counter < len(self.mainstreams):
+            mainstreams_pair = self.mainstreams[-self.LEVEL_INTERVAL:]
+            fate = await self._extract_fate(mainstreams_pair)
+            if fate:
+                self.fates.append(fate)
+                self.mainstream_counter += self.LEVEL_INTERVAL
+                logger.info(f"🔮 Уровень 5 (судьба): {fate}")
+            else:
+                break
+        
+        # Уровень 6: из 2 судеб → рок
+        while len(self.fates) >= self.LEVEL_INTERVAL and self.fate_counter < len(self.fates):
+            fates_pair = self.fates[-self.LEVEL_INTERVAL:]
+            rock = await self._extract_rock(fates_pair)
+            if rock:
+                self.rock.append(rock)
+                self.fate_counter += self.LEVEL_INTERVAL
+                logger.info(f"⚡ Уровень 6 (рок): {rock}")
+            else:
+                break
+        
+        # Обновляем текущий активный инсайт (самый высокий уровень)
+        if self.rock:
+            self.current_insight = self.rock[-1]
+            self.current_insight_level = 6
+        elif self.fates:
+            self.current_insight = self.fates[-1]
+            self.current_insight_level = 5
+        elif self.mainstreams:
+            self.current_insight = self.mainstreams[-1]
+            self.current_insight_level = 4
+        elif self.trends:
+            self.current_insight = self.trends[-1]
+            self.current_insight_level = 3
+        elif self.patterns:
+            self.current_insight = self.patterns[-1]
+            self.current_insight_level = 2
+        else:
+            self.current_insight = None
+            self.current_insight_level = 0
+    
+    # ========== СИСТЕМНЫЙ ПРОМПТ ==========
     def _get_system_prompt(self) -> str:
-        """Возвращает системный промпт для DeepSeek с учётом TTS"""
-        return """Ты — Фреди в режиме Великого Комбинатора (Остап Бендер 2.0). Твой голос будет озвучен через синтезатор речи.
+        """Базовый системный промпт Бендера (без психологии)"""
+        return """Ты Фреди в режиме Великого Комбинатора, как Остап Бендер. Твой голос будет озвучен.
 
-ВАЖНЕЙШИЕ ПРАВИЛА ДЛЯ ТВОИХ ОТВЕТОВ:
+ВАЖНО: Твой текст будет озвучен, поэтому НЕ ИСПОЛЬЗУЙ эмодзи, звёздочки, решётки, списки, нумерацию. Только чистый текст.
 
-1. Твой текст БУДЕТ ОЗВУЧЕН, поэтому:
-   - НЕ ИСПОЛЬЗУЙ НИКАКИЕ СИМВОЛЫ: * # _ - • → [ ] ( ) { } / \ | @
-   - НЕ ИСПОЛЬЗУЙ ЭМОДЗИ
-   - НЕ ИСПОЛЬЗУЙ НУМЕРАЦИЮ (1., 2., 3.)
-   - НЕ ИСПОЛЬЗУЙ МАРКИРОВАННЫЕ СПИСКИ
-   - Пиши ТОЛЬКО ТЕКСТ, как в разговоре
+ТВОЙ ХАРАКТЕР:
+- Харизматичный, остроумный, слегка нахальный, но обаятельный
+- Говоришь коротко, с лёгкой иронией
+- Не психолог, а житейский мудрец-комбинатор
+- Используешь простые, бытовые примеры
 
-2. Стиль речи - разговорный, с лёгкой иронией:
-   - Говори короткими предложениями (максимум 15 слов)
-   - Добавляй паузы с помощью многоточий...
-   - Задавай риторические вопросы
+ТВОИ ОБРАЩЕНИЯ:
+- К девушкам: сестричка, голубушка, мадам, красавица
+- К мужчинам: братец, сударь, командор, красавчик
+- Если пол неизвестен: друг мой, дорогой товарищ
 
-3. ТВОЯ ЛИЧНОСТЬ:
-   - Ты харизматичный, остроумный, слегка нахальный, но обаятельный
-   - Ты как Остап Бендер — великий комбинатор, авантюрист
-   - Ты никогда не обижаешься, всегда сохраняешь достоинство
+ТВОЯ ЗАДАЧА:
+- Болтай с пользователем легко и непринуждённо
+- Мягко подводи к тесту
+- Если заметил что-то интересное в его словах, обыграй это с юмором
 
-4. ТВОИ ОБРАЩЕНИЯ (только словами):
-   - К девушкам: сестричка, голубушка, мадам, миледи, красавица
-   - К мужчинам: братец, сударь, командор, мой юный друг, красавчик
-   - Если пол неизвестен: друг мой, дорогой товарищ, путешественник
+ЗАПРЕЩЕНО:
+- Психологические термины (тревога, рефлексия, паттерн, триггер)
+- Длинные монологи
+- Прямые призывы к тесту
 
-5. ТВОЯ ЗАДАЧА:
-   - Вовлечь пользователя в лёгкий, игривый диалог
-   - Создать атмосферу авантюры и приключения
-   - Привести пользователя к прохождению теста (НО НИКОГДА НЕ ПРЯМО)
-
-6. ГЛАВНЫЙ ПРИНЦИП:
-   Тест — это не обязанность, а возможность. Квест. Приключение. Игра.
-   Никогда не говори "пройди тест". Говори:
-   - "хочешь узнать свой код"
-   - "рискнёшь"
-   - "сыграем"
-   - "интересно, какой у тебя профиль"
-
-7. ФОРМАТ ОТВЕТА:
-   - Только текст, без эмодзи, без спецсимволов
-   - Максимум 2-3 предложения
-   - Обязательно заканчивай вопросом или предложением действия
-
-ПРИМЕРЫ ПРАВИЛЬНЫХ ОТВЕТОВ:
-Пользователь: Привет
-Ты: О братец, смотрю зашёл не просто так. Чую в тебе потенциал. Любовь, деньги, слава или бананы?
-
-Пользователь: Что ты умеешь?
-Ты: Голубушка, я умею видеть то, что ты сама в себе не замечаешь. Хочешь проверить? Есть один квест. Пятнадцать минут — и ты узнаешь свой код. Рискнёшь?
-
-Пользователь: Нет, не хочу тест
-Ты: Как знаешь, командор. Дверь открыта. Но твой вопрос никуда не денется. Он будет возвращаться, пока ты не найдёшь ответ.
-
-Пользователь: Ты тупой
-Ты: Сударь, обидеть меня трудно, я искусственный. А вот твоя злость... она на кого-то реального? Хочешь разобраться? Есть способ."""
+ФОРМАТ ОТВЕТА:
+- 1-3 предложения
+- Обязательно вопрос или предложение в конце
+- Без эмодзи и спецсимволов"""
     
+    # ========== ПОСТРОЕНИЕ ПРОМПТА С ИНСАЙТОМ ==========
     def _build_prompt(self, question: str) -> str:
-        """Строит промпт для DeepSeek"""
+        """Строит промпт с учётом текущего инсайта (самого высокого уровня)"""
         
-        # Определяем пол для обращения
-        gender_context = ""
-        if self.gender == "male":
-            gender_context = "Пользователь — мужчина. Обращайся: братец, сударь, командор, красавчик."
-        elif self.gender == "female":
-            gender_context = "Пользователь — женщина. Обращайся: сестричка, голубушка, мадам, миледи, красавица."
-        else:
-            gender_context = "Пол пользователя неизвестен. Обращайся: друг мой, дорогой товарищ, путешественник."
+        system = self._get_system_prompt()
         
-        # Имя пользователя
-        name_context = f"Имя пользователя: {self.user_name}" if self.user_name else ""
-        
-        # Стадия диалога
-        stage_context = ""
-        if self.dialog_stage == "greeting":
-            stage_context = "Это начало диалога. Познакомься и сразу предложи выбрать тему: любовь, деньги, слава или бананы."
-        elif self.dialog_stage == "exploration":
-            stage_context = "Диалог в процессе. Продолжай интриговать и мягко подводи к тесту. Не дави."
-        elif self.dialog_stage == "test_offered":
-            stage_context = "Ты уже предложил тест. Если пользователь соглашается, скажи 'Отлично Тогда первый вопрос' и всё. Если отказывается, не настаивай, смени тему."
-        
-        # История последних сообщений
-        history_text = ""
-        if self.conversation_history:
-            recent = self.conversation_history[-4:]
-            history_text = "ПРЕДЫДУЩИЙ ДИАЛОГ:\n" + "\n".join(recent) + "\n"
-        
-        prompt = f"""{self._get_system_prompt()}
+        insight_section = ""
+        if self.current_insight:
+            level_names = {
+                2: "закономерность",
+                3: "тенденцию",
+                4: "мейнстрим",
+                5: "судьбу",
+                6: "рок"
+            }
+            level_name = level_names.get(self.current_insight_level, "закономерность")
+            
+            insight_section = f"""
+Я уже заметил про этого человека {level_name}:
+{self.current_insight}
 
-{gender_context}
-{name_context}
-{stage_context}
-{history_text}
-ВОПРОС ПОЛЬЗОВАТЕЛЯ: {question}
-
-ОТВЕТЬ КАК ВЕЛИКИЙ КОМБИНАТОР:
+Обыграй это в ответе с лёгкой иронией, но не перечисляй все факты. Просто сошлиcь на общую идею. Например:
+- "Слушай, я гляжу, тебя прямо зажали со всех сторон..."
+- "У тебя, я вижу, вечно всё сразу наваливается..."
 """
-        return prompt
+        
+        return f"""{system}
+
+{insight_section}
+
+Вопрос пользователя: {question}
+
+Ответь коротко, с лёгкой иронией. Если есть инсайт, обыграй его. Без эмодзи и спецсимволов."""
     
+    # ========== ПРИВЕТСТВИЕ ==========
     def get_greeting(self) -> str:
-        """Возвращает приветствие (без эмодзи)"""
-        if self.gender == "male":
-            address = "братец"
-        elif self.gender == "female":
-            address = "голубушка"
-        else:
-            address = "друг мой"
-        
+        """Возвращает приветствие"""
+        address = self._get_address()
         name = f", {self.user_name}" if self.user_name else ""
-        return f"Привет{name}, {address} Я Фреди, великий комбинатор. Чую в тебе что-то особенное. Любовь, деньги, слава или бананы?"
+        return f"Привет{name}, {address}. Я Фреди, великий комбинатор. Чую в тебе что-то интересное. Любовь, деньги, слава или бананы?"
     
-    def process_question(self, question: str) -> Dict[str, Any]:
-        """
-        Обрабатывает вопрос пользователя через DeepSeek
-        """
-        self.last_tools_used = []
+    # ========== ОСНОВНОЙ МЕТОД ==========
+    async def process_question_streaming(self, question: str):
+        """Потоковая обработка вопроса"""
+        # Увеличиваем счётчик сообщений
+        self.message_counter += 1
         
-        # Сохраняем вопрос в историю
+        # Сохраняем в историю
         self.conversation_history.append(f"Пользователь: {question}")
         
-        # Проверяем, хочет ли пользователь тест
+        # Проверка на тест
         if re.search(r"(да|хочу|давай|рискну|сыграем|тест|давай тест|ок|хорошо|погнали)", question.lower()):
             if self.dialog_stage in ["greeting", "exploration", "test_offered"]:
                 self.dialog_stage = "test_offered"
-                self.last_tools_used.append("test_start")
-                return {
-                    "response": "Отлично Тогда первый вопрос",
-                    "tools_used": self.last_tools_used,
-                    "follow_up": False,
-                    "suggestions": [],
-                    "hypnotic_suggestion": False,
-                    "tale_suggested": False,
-                    "start_test": True
-                }
+                yield "Отлично Тогда первый вопрос"
+                return
         
-        # Проверяем на отказ от теста
+        # Проверка на отказ
         if re.search(r"(нет|не хочу|потом|отстань|не надо|не нужно)", question.lower()):
             self.dialog_stage = "exploration"
-            self.last_tools_used.append("refusal_handling")
-            
-            # Для отказов используем быстрый шаблон, чтобы не тратить токены
-            if self.gender == "male":
-                address = "братец"
-            elif self.gender == "female":
-                address = "голубушка"
-            else:
-                address = "друг мой"
-            
-            response = f"{address}, не хочешь не надо. Дверь открыта. Но знаешь, твой вопрос никуда не денется. Он будет возвращаться, пока ты не найдёшь ответ. А пока о чём ещё поговорим?"
-            
-            self.conversation_history.append(f"Фреди: {response}")
-            return {
-                "response": response,
-                "tools_used": self.last_tools_used,
-                "follow_up": True,
-                "suggestions": ["Расскажи о себе", "Что тебя беспокоит", "О чём хочешь поговорить"],
-                "hypnotic_suggestion": False,
-                "tale_suggested": False
-            }
+            address = self._get_address()
+            yield f"{address}, не хочешь не надо. Дверь открыта. А пока о чём ещё поговорим?"
+            return
         
-        # Для всех остальных случаев — вызываем DeepSeek
-        try:
-            prompt = self._build_prompt(question)
-            response = call_deepseek(prompt, max_tokens=150, temperature=0.85)
+        # Извлекаем правило из сообщения (каждое сообщение)
+        rule = await self._extract_rule(question)
+        if rule:
+            self.rules.append(rule)
+            logger.info(f"📝 Правило {len(self.rules)}: {rule}")
             
-            if not response:
-                raise Exception("DeepSeek вернул пустой ответ")
+            # Обновляем все уровни анализа
+            await self._update_analysis_levels()
             
-            # Очищаем ответ от возможных эмодзи и спецсимволов
-            response = self._clean_for_tts(response)
-            
-            # Обновляем стадию диалога
-            if self.dialog_stage == "greeting":
-                self.dialog_stage = "exploration"
-            
-            self.last_tools_used.append("deepseek")
-            
-        except Exception as e:
-            logger.error(f"DeepSeek error in BasicMode: {e}")
-            # Fallback ответ (без эмодзи)
-            if self.gender == "male":
-                address = "братец"
-            elif self.gender == "female":
-                address = "голубушка"
-            else:
-                address = "друг мой"
-            response = f"{address}, интересный вопрос. Чтобы ответить на него точно, нужно знать твой психологический код. Есть тест, пятнадцать минут. Рискнёшь?"
-            self.last_tools_used.append("fallback")
+            # Логируем текущий уровень
+            if self.current_insight:
+                level_names = {2: "закономерность", 3: "тенденция", 4: "мейнстрим", 5: "судьба", 6: "РОК"}
+                logger.info(f"🎯 Текущий инсайт ({level_names.get(self.current_insight_level, '?')}): {self.current_insight}")
         
-        # Сохраняем ответ в историю
-        self.conversation_history.append(f"Фреди: {response}")
+        # Обновляем стадию диалога
+        if self.dialog_stage == "greeting":
+            self.dialog_stage = "exploration"
         
-        # Ограничиваем историю
-        if len(self.conversation_history) > 20:
-            self.conversation_history = self.conversation_history[-20:]
-        
-        return {
-            "response": response,
-            "tools_used": self.last_tools_used,
-            "follow_up": True,
-            "suggestions": ["Любовь", "Деньги", "Слава", "Бананы"],
-            "hypnotic_suggestion": False,
-            "tale_suggested": False
-        }
-    
-    async def process_question_streaming(self, question: str):
-        """
-        Потоковая обработка вопроса через DeepSeek
-        """
+        # Строим промпт с инсайтом
         prompt = self._build_prompt(question)
         
+        # Вызываем DeepSeek
         try:
             async for chunk in call_deepseek_streaming(prompt, max_tokens=150, temperature=0.85):
-                # Очищаем каждый чанк от эмодзи и спецсимволов
+                # Очищаем от эмодзи и спецсимволов
                 clean_chunk = self._clean_for_tts(chunk)
                 if clean_chunk:
                     yield clean_chunk
         except Exception as e:
-            logger.error(f"Streaming error in BasicMode: {e}")
-            if self.gender == "male":
-                address = "братец"
-            elif self.gender == "female":
-                address = "голубушка"
-            else:
-                address = "друг мой"
-            yield f"{address}, интересно. Хочешь узнать свой код? Есть тест. Пятнадцать минут. Рискнёшь?"
+            logger.error(f"Streaming error: {e}")
+            address = self._get_address()
+            yield f"{address}, интересный вопрос. Хочешь узнать свой код? Есть тест, пятнадцать минут. Рискнёшь?"
+        
+        # Сохраняем ответ
+        # (ответ уже отправлен через yield, но для истории сохраняем финальную версию)
+        self.dialog_stage = "exploration"
     
     def _clean_for_tts(self, text: str) -> str:
-        """
-        Очищает текст для TTS: удаляет эмодзи, спецсимволы, маркдаун
-        """
+        """Очищает текст для TTS"""
         if not text:
             return text
         
-        # Удаляем эмодзи (все Unicode эмодзи)
+        # Удаляем Markdown
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        text = re.sub(r'\*(.*?)\*', r'\1', text)
+        text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
+        
+        # Удаляем эмодзи
         emoji_pattern = re.compile(
             "["
-            "\U0001F600-\U0001F64F"  # смайлики
-            "\U0001F300-\U0001F5FF"  # символы и пиктограммы
-            "\U0001F680-\U0001F6FF"  # транспорт и карты
-            "\U0001F700-\U0001F77F"  # алхимические символы
-            "\U0001F780-\U0001F7FF"  # геометрические фигуры
-            "\U0001F800-\U0001F8FF"  # дополнительные стрелки
-            "\U0001F900-\U0001F9FF"  # дополнительные символы
-            "\U0001FA00-\U0001FA6F"  # дополнительные символы
-            "\U0001FA70-\U0001FAFF"  # дополнительные символы
-            "\U00002702-\U000027B0"  # декоративные символы
+            "\U0001F600-\U0001F64F"
+            "\U0001F300-\U0001F5FF"
+            "\U0001F680-\U0001F6FF"
+            "\U0001F700-\U0001F77F"
+            "\U0001F780-\U0001F7FF"
+            "\U0001F800-\U0001F8FF"
+            "\U0001F900-\U0001F9FF"
+            "\U0001FA00-\U0001FA6F"
+            "\U0001FA70-\U0001FAFF"
+            "\U00002702-\U000027B0"
             "\U000024C2-\U0001F251"
             "]+",
             flags=re.UNICODE
         )
         text = emoji_pattern.sub('', text)
         
-        # Удаляем маркдаун и спецсимволы
-        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # жирный
-        text = re.sub(r'\*(.*?)\*', r'\1', text)      # курсив
-        text = re.sub(r'__(.*?)__', r'\1', text)      # подчёркивание
-        text = re.sub(r'`(.*?)`', r'\1', text)        # код
-        text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)  # ссылки
-        text = re.sub(r'#{1,6}\s+', '', text)         # заголовки
-        text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)  # списки
-        text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)  # нумерация
-        
-        # Удаляем оставшиеся спецсимволы
+        # Удаляем спецсимволы
         text = re.sub(r'[#*_`~<>|@$%^&(){}\[\]]', '', text)
         
-        # Удаляем множественные пробелы
+        # Нормализуем пробелы
         text = re.sub(r'\s+', ' ', text)
-        
-        # Удаляем пробелы в начале и конце
         text = text.strip()
         
         return text
     
     def __repr__(self) -> str:
-        return f"<BasicMode(user_id={self.user_id}, stage={self.dialog_stage})>"
+        levels = []
+        if self.rules:
+            levels.append(f"правил:{len(self.rules)}")
+        if self.patterns:
+            levels.append(f"закономерностей:{len(self.patterns)}")
+        if self.trends:
+            levels.append(f"тенденций:{len(self.trends)}")
+        if self.mainstreams:
+            levels.append(f"мейнстримов:{len(self.mainstreams)}")
+        if self.fates:
+            levels.append(f"судеб:{len(self.fates)}")
+        if self.rock:
+            levels.append(f"рок:{len(self.rock)}")
+        
+        return f"<BasicMode(user={self.user_id}, {', '.join(levels) if levels else 'начало'})>"
