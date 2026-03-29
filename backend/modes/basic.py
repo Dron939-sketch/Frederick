@@ -16,7 +16,7 @@ class BasicMode(BaseMode):
     """
 
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
-        # Минимальные данные для Бендера (чтобы не грузить тяжёлые системы)
+        # Минимальные данные для Бендера
         minimal_data = {
             "profile_data": {},
             "perception_type": user_data.get("perception_type", "не определен"),
@@ -28,7 +28,7 @@ class BasicMode(BaseMode):
         }
         super().__init__(user_id, minimal_data, context)
         
-        self.ai_service = AIService()                    # один экземпляр сервиса
+        self.ai_service = AIService()
         self.user_name = getattr(context, 'name', "") or ""
         self.gender = getattr(context, 'gender', None) if context else None
         
@@ -44,7 +44,6 @@ class BasicMode(BaseMode):
         return "друг мой"
 
     def get_system_prompt(self) -> str:
-        """Твой главный промпт — здесь вся суть Бендера"""
         return """Ты Фреди — Великий Комбинатор, современный Остап Бендер.
 Твой текст будет озвучиваться, поэтому говори чистым текстом без эмодзи, звёздочек, списков и спецсимволов.
 Характер: харизматичный, остроумный, слегка наглый, но очень обаятельный.
@@ -56,7 +55,8 @@ class BasicMode(BaseMode):
 - к мужчине: братец, сударь, командор, красавчик
 - нейтрально: друг мой, дорогой товарищ
 
-Отвечай 1-3 предложениями. В конце почти всегда вопрос или предложение продолжить разговор.
+Отвечай максимум 2 коротких предложения. 
+В конце почти всегда вопрос или предложение продолжить разговор.
 Мягко и с юмором подводи к тесту, но не дави."""
 
     def get_greeting(self) -> str:
@@ -69,14 +69,14 @@ class BasicMode(BaseMode):
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
 
-        # Предложение теста после нескольких сообщений
+        # Предложение теста
         if self.message_counter >= 4 and not self.test_offered:
             self.test_offered = True
             yield f"{self._get_address()}, слушай... У меня есть один интересный тест минут на 10–12. Хочешь узнать свой настоящий код личности?"
             await asyncio.sleep(0.02)
             return
 
-        # Если пользователь согласился на тест
+        # Согласие на тест
         if re.search(r'(да|хочу|давай|погнали|рискну|ок|тест)', question.lower()) and self.test_offered:
             yield "Отлично! Тогда первый вопрос..."
             return
@@ -85,26 +85,25 @@ class BasicMode(BaseMode):
         full_prompt = self._build_clean_prompt(question)
 
         try:
-            # Используем существующий метод из AIService (_simple_call_streaming)
             async for chunk in self.ai_service._simple_call_streaming(
                 prompt=full_prompt,
-                max_tokens=240,
-                temperature=0.85
+                max_tokens=160,          # короткие ответы
+                temperature=0.87
             ):
                 clean_chunk = self._clean_for_tts(chunk)
                 if clean_chunk.strip():
                     yield clean_chunk
-                    await asyncio.sleep(0.015)   # плавность для TTS
+                    await asyncio.sleep(0.012)   # чуть быстрее для естественности
 
         except Exception as e:
             logger.error(f"BasicMode streaming error: {e}")
             address = self._get_address()
-            yield f"{address}, вопрос интересный. Знаешь, у меня есть один тест... Рискнёшь?"
+            yield f"{address}, дело интересное. Расскажи подробнее, что у тебя стряслось?"
 
     def _build_clean_prompt(self, question: str) -> str:
-        """Чистый промпт без лишнего анализа"""
+        """Строгий промпт для коротких и чистых ответов"""
         address = self._get_address()
-        history = "\n".join(self.conversation_history[-12:])
+        history = "\n".join(self.conversation_history[-8:])
 
         return f"""{self.get_system_prompt()}
 
@@ -113,20 +112,35 @@ class BasicMode(BaseMode):
 
 Новое сообщение пользователя: {question}
 
-Отвечай коротко (1-3 предложения), остроумно и в характере.
-Обращайся к человеку как {address}.
-В конце почти всегда задай вопрос."""
+Правила:
+- Отвечай максимум 2 коротких предложения.
+- Говори живо, с лёгкой иронией, как Остап Бендер.
+- Обязательно закончи вопросом.
+- Используй нормальные пробелы и правильную пунктуацию.
+- Никаких длинных философствований, повторов и сложных конструкций."""
 
     def _clean_for_tts(self, text: str) -> str:
-        """Очистка текста для озвучивания"""
+        """Улучшенная очистка специально для TTS (решает проблему слипания слов)"""
         if not text:
             return ""
-        # Убираем лишние символы
-        text = re.sub(r'[*`_#@~^!]{2,}', lambda m: m.group(0)[0], text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
+        
+        # 1. Добавляем пробелы после знаков препинания
+        text = re.sub(r'([.,!?;:-])\s*', r'\1 ', text)
+        
+        # 2. Убираем повторяющиеся символы
+        text = re.sub(r'([*`_#@~^!]){2,}', r' \1 ', text)
+        
+        # 3. Исправляем случаи типа "слово,другое" → "слово, другое"
+        text = re.sub(r'(\w)([.,!?;:-])(\w)', r'\1\2 \3', text)
+        
+        # 4. Убираем множественные пробелы и тире
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'—\s*—', '—', text)
+        text = re.sub(r'-\s*-', '-', text)
+        
+        return text.strip()
 
-    # Заглушка для совместимости с другими частями кода
+    # Заглушка для совместимости
     def process_question(self, question: str):
         return {"response": "Бендер работает в streaming-режиме", "tools_used": []}
 
