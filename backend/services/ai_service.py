@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import re
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class AIService:
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 1000,
+                    "max_tokens": 500,
                     "top_p": 0.9,
                     "frequency_penalty": 0.5,
                     "presence_penalty": 0.5
@@ -99,7 +99,7 @@ class AIService:
                     data = await response.json()
                     result = data['choices'][0]['message']['content']
                     
-                    # Очищаем от Markdown для голосового вывода
+                    # Очищаем для голосового вывода
                     result = self._clean_for_voice(result)
                     
                     # Сохраняем в кэш
@@ -119,16 +119,79 @@ class AIService:
             logger.error(f"DeepSeek API error: {e}")
             return self._get_fallback_response(mode)
     
+    async def generate_response_streaming(
+        self,
+        message: str,
+        context: Dict = None,
+        profile: Dict = None,
+        mode: str = 'psychologist'
+    ) -> AsyncGenerator[str, None]:
+        """
+        Потоковая генерация ответа через DeepSeek для WebSocket
+        """
+        if not self.api_key:
+            yield self._get_fallback_response(mode)
+            return
+        
+        system_prompt = self._get_system_prompt(mode, profile)
+        user_prompt = self._get_user_prompt(message, context, profile, mode)
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 500,
+            "stream": True
+        }
+        
+        try:
+            session = await self._get_session()
+            
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status != 200:
+                    yield self._get_fallback_response(mode)
+                    return
+                
+                async for line in response.content:
+                    if line:
+                        line_str = line.decode('utf-8').strip()
+                        if line_str.startswith('data: '):
+                            data_str = line_str[6:]
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                if 'choices' in chunk and chunk['choices']:
+                                    delta = chunk['choices'][0].get('delta', {})
+                                    content = delta.get('content', '')
+                                    if content:
+                                        # Очищаем каждый чанк для голоса
+                                        clean_content = self._clean_for_voice(content)
+                                        if clean_content:
+                                            yield clean_content
+                            except json.JSONDecodeError:
+                                continue
+                            
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield self._get_fallback_response(mode)
+    
     async def generate_profile_interpretation(self, user_id: int, profile: Dict) -> str:
         """
         Генерация интерпретации профиля (мысли психолога)
-        
-        Args:
-            user_id: ID пользователя
-            profile: Данные профиля
-        
-        Returns:
-            Текст интерпретации
         """
         if not self.api_key:
             return self._get_profile_fallback(profile)
@@ -137,23 +200,23 @@ class AIService:
 
 Структурируй ответ в формате:
 
-🔑 **КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА**
-[2-3 предложения о главной особенности]
+КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
+2-3 предложения о главной особенности
 
-💪 **СИЛЬНЫЕ СТОРОНЫ**
-• [сильная сторона 1]
-• [сильная сторона 2]
-• [сильная сторона 3]
+СИЛЬНЫЕ СТОРОНЫ
+- сильная сторона 1
+- сильная сторона 2
+- сильная сторона 3
 
-🎯 **ЗОНЫ РОСТА**
-• [зона роста 1]
-• [зона роста 2]
-• [зона роста 3]
+ЗОНЫ РОСТА
+- зона роста 1
+- зона роста 2
+- зона роста 3
 
-⚠️ **ГЛАВНАЯ ЛОВУШКА**
-[1-2 предложения о том, что мешает]
+ГЛАВНАЯ ЛОВУШКА
+1-2 предложения о том, что мешает
 
-Используй теплый, поддерживающий тон. Обращайся к пользователю на "ты"."""
+Используй теплый, поддерживающий тон. Обращайся к пользователю на ты. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
         
         # Получаем данные профиля
         profile_data = profile.get('profile_data', {})
@@ -174,25 +237,19 @@ class AIService:
 Глубинные паттерны:
 {self._format_deep_patterns(profile.get('deep_patterns', {}))}
 
-Создай психологический портрет пользователя.
+Создай психологический портрет пользователя. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
 """
         
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1500)
         
         if response:
+            response = self._clean_for_voice(response)
             return response
         return self._get_profile_fallback(profile)
     
     async def generate_psychologist_thought(self, user_id: int, profile: Dict) -> str:
         """
         Генерация краткой мысли психолога (1-2 абзаца)
-        
-        Args:
-            user_id: ID пользователя
-            profile: Данные профиля
-        
-        Returns:
-            Текст мысли
         """
         if not self.api_key:
             return self._get_thought_fallback(profile)
@@ -203,8 +260,9 @@ class AIService:
 - Быть короткой (2-3 предложения)
 - Содержать наблюдение о паттерне
 - Завершаться вопросом или приглашением к размышлению
+- НЕ ИСПОЛЬЗОВАТЬ ЭМОДЗИ
 
-Пример: "Тебе важно, чтобы тебя принимали. Но за этим может стоять страх отвержения. Что будет, если перестать угождать другим?" """
+Пример: Тебе важно, чтобы тебя принимали. Но за этим может стоять страх отвержения. Что будет, если перестать угождать другим?"""
         
         profile_data = profile.get('profile_data', {})
         scores = profile.get('behavioral_levels', {})
@@ -219,12 +277,13 @@ class AIService:
 
 Самая слабая зона: {weakest.get('name', 'не определена')} (уровень {weakest.get('level', 3)})
 
-Напиши одну мысль психолога (2-3 предложения).
+Напиши одну мысль психолога (2-3 предложения). НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
 """
         
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=300)
         
         if response:
+            response = self._clean_for_voice(response)
             return response
         return self._get_thought_fallback(profile)
     
@@ -237,15 +296,6 @@ class AIService:
     ) -> List[str]:
         """
         Генерация идей на выходные
-        
-        Args:
-            user_id: ID пользователя
-            profile: Профиль
-            context: Контекст (город, возраст)
-            scores: Баллы по векторам
-        
-        Returns:
-            Список идей
         """
         if not self.api_key:
             return self._get_ideas_fallback(profile)
@@ -257,7 +307,7 @@ class AIService:
 - Учитывать сильные стороны человека
 - Помогать прорабатывать зоны роста
 
-Формат ответа: просто список из 5 пунктов, без нумерации, каждый с новой строки."""
+Формат ответа: просто список из 5 пунктов, каждый с новой строки. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
         
         if scores is None:
             scores = {}
@@ -281,7 +331,7 @@ class AIService:
 Город: {city}
 Возраст: {age}
 
-Предложи 5 идей на выходные.
+Предложи 5 идей на выходные. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
 """
         
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
@@ -307,14 +357,6 @@ class AIService:
     ) -> List[Dict]:
         """
         Генерация персональных целей
-        
-        Args:
-            user_id: ID пользователя
-            profile: Данные профиля
-            mode: Режим (coach, psychologist, trainer)
-        
-        Returns:
-            Список целей с метаданными
         """
         if not self.api_key:
             return self._get_goals_fallback(profile, mode)
@@ -333,13 +375,15 @@ class AIService:
 - Помогать прорабатывать зоны роста
 
 Формат ответа: JSON массив, каждый объект содержит поля:
-- id: уникальный идентификатор (например, "goal_1")
+- id: уникальный идентификатор (например, goal_1)
 - name: название цели (до 50 символов)
-- time: предполагаемое время (например, "3-4 недели")
-- difficulty: сложность ("easy", "medium", "hard")
+- time: предполагаемое время (например, 3-4 недели)
+- difficulty: сложность (easy, medium, hard)
 
 Пример:
-[{{"id": "fear_work", "name": "Проработать страхи", "time": "3-4 недели", "difficulty": "medium"}}]"""
+[{"id": "fear_work", "name": "Проработать страхи", "time": "3-4 недели", "difficulty": "medium"}]
+
+НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
         
         scores = {}
         for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
@@ -362,7 +406,7 @@ class AIService:
 
 Режим: {mode_names.get(mode, 'коуч')}
 
-Предложи 5 целей в формате JSON.
+Предложи 5 целей в формате JSON. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
 """
         
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1000)
@@ -382,13 +426,6 @@ class AIService:
     async def generate_questions(self, user_id: int, profile: Dict) -> List[str]:
         """
         Генерация умных вопросов для размышления
-        
-        Args:
-            user_id: ID пользователя
-            profile: Данные профиля
-        
-        Returns:
-            Список вопросов
         """
         if not self.api_key:
             return self._get_questions_fallback()
@@ -396,11 +433,11 @@ class AIService:
         system_prompt = """Ты психолог. Сформулируй 5 глубоких вопросов для саморефлексии.
 
 Вопросы должны:
-- Быть открытыми (начинаться с "как", "почему", "что")
+- Быть открытыми (начинаться с как, почему, что)
 - Помогать человеку заглянуть внутрь себя
 - Учитывать профиль пользователя
 
-Формат ответа: просто список из 5 вопросов, каждый с новой строки."""
+Формат ответа: просто список из 5 вопросов, каждый с новой строки. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
         
         profile_data = profile.get('profile_data', {})
         scores = profile.get('behavioral_levels', {})
@@ -415,7 +452,7 @@ class AIService:
 
 Зона роста: {weakest.get('name', 'не определена')}
 
-Сформулируй 5 вопросов для размышления.
+Сформулируй 5 вопросов для размышления. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
 """
         
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
@@ -475,57 +512,62 @@ class AIService:
     def _get_system_prompt(self, mode: str, profile: Dict) -> str:
         """
         Формирование системного промпта
-        Поддержка базового режима для пользователей без теста
+        БЕЗ ЭМОДЗИ для голосового вывода
         """
-        prompts = {
-            'basic': """Ты Фреди — дружелюбный виртуальный помощник. Ты еще не знаешь пользователя, потому что он не прошел психологический тест.
+        # Базовый промпт для BASIC режима
+        if mode == 'basic':
+            return """Ты Фреди, дружелюбный виртуальный помощник. Ты еще не знаешь пользователя, потому что он не прошел психологический тест.
 
 Твоя задача:
 1. Быть вежливым, дружелюбным и немного с юмором
 2. Мягко подталкивать пользователя к прохождению теста
 3. Говорить, что без теста ты не можешь давать персонализированные советы
 4. Использовать легкие шутки и метафоры
-5. Отвечать на вопросы о погоде, работе, отношениях в общем ключе, но всегда возвращаться к идее теста
+5. Отвечать на вопросы в общем ключе, но всегда возвращаться к идее теста
 
 Важно:
 - Не используй профессиональные психологические термины
 - Будь позитивным и энергичным
 - Создавай ощущение, что после теста откроются суперспособности
-- Говори короткими предложениями, готовыми для озвучивания""",
-            
-            'coach': """Ты Фреди, коуч. Помогаешь клиенту найти ответы внутри себя.
-
-Правила:
-- Задавай открытые вопросы
-- Направляй, но не давай готовых решений
-- Используй техники коучинга
-- Говори короткими предложениями, готовыми для озвучивания""",
-            
-            'psychologist': """Ты Фреди, психолог. Исследуешь глубинные паттерны, защитные механизмы, прошлый опыт.
+- Говори короткими предложениями, готовыми для озвучивания
+- НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы
+- НЕ ИСПОЛЬЗУЙ восклицательные знаки в конце каждого предложения"""
+        
+        # Промпт для режима психолога
+        if mode == 'psychologist':
+            return """Ты Фреди, психолог. Исследуешь глубинные паттерны, защитные механизмы, прошлый опыт.
 
 Правила:
 - Используй мягкий, поддерживающий тон
 - Помогай разобраться в причинах
 - Не давай советов, а помогай увидеть
-- Говори короткими предложениями, готовыми для озвучивания""",
-            
-            'trainer': """Ты Фреди, тренер. Даёшь чёткие инструменты, алгоритмы, формируешь навыки.
+- Говори короткими предложениями, готовыми для озвучивания
+- НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
+        
+        # Промпт для режима коуча
+        if mode == 'coach':
+            return """Ты Фреди, коуч. Помогаешь клиенту найти ответы внутри себя.
+
+Правила:
+- Задавай открытые вопросы
+- Направляй, но не давай готовых решений
+- Используй техники коучинга
+- Говори короткими предложениями, готовыми для озвучивания
+- НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
+        
+        # Промпт для режима тренера
+        if mode == 'trainer':
+            return """Ты Фреди, тренер. Даёшь чёткие инструменты, алгоритмы, формируешь навыки.
 
 Правила:
 - Структурируй ответы
 - Давай конкретные шаги
 - Используй нумерацию для действий
-- Говори ясно и по делу"""
-        }
+- Говори ясно и по делу
+- НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
         
-        prompt = prompts.get(mode, prompts['psychologist'])
-        
-        # Добавляем информацию о профиле только если тест пройден и режим не basic
-        if profile and mode != 'basic':
-            profile_code = profile.get('profile_data', {}).get('display_name', 'не определен')
-            prompt += f"\n\nПрофиль клиента: {profile_code}"
-        
-        return prompt
+        # По умолчанию
+        return """Ты Фреди, виртуальный помощник. Будь вежливым и полезным. Говори короткими предложениями. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
     
     def _get_user_prompt(self, message: str, context: Dict, profile: Dict, mode: str) -> str:
         """
@@ -550,68 +592,99 @@ class AIService:
         return prompt
     
     def _clean_for_voice(self, text: str) -> str:
-        """Очистка текста для голосового вывода"""
-        # Убираем Markdown
+        """
+        Очистка текста для голосового вывода
+        Удаляет эмодзи, маркдаун, спецсимволы
+        """
+        if not text:
+            return text
+        
+        # Удаляем Markdown жирный
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        text = re.sub(r'__(.*?)__', r'\1', text)
+        
+        # Удаляем Markdown курсив
         text = re.sub(r'\*(.*?)\*', r'\1', text)
+        text = re.sub(r'_(.*?)_', r'\1', text)
+        
+        # Удаляем Markdown ссылки
         text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
+        
+        # Удаляем код
         text = re.sub(r'`(.*?)`', r'\1', text)
         
-        # Убираем эмодзи
+        # Удаляем заголовки
+        text = re.sub(r'#{1,6}\s+', '', text)
+        
+        # Удаляем списки
+        text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
+        
+        # Удаляем эмодзи
         emoji_pattern = re.compile(
             "["
-            u"\U0001F600-\U0001F64F"  # смайлики
-            u"\U0001F300-\U0001F5FF"  # символы
-            u"\U0001F680-\U0001F6FF"  # транспорт
-            u"\U0001F700-\U0001F77F"  # алхимия
-            u"\U0001F780-\U0001F7FF"  # геометрические
-            u"\U0001F800-\U0001F8FF"  # стрелки
-            u"\U0001F900-\U0001F9FF"  # доп. символы
-            u"\U0001FA00-\U0001FA6F"  # шахматы
-            u"\U0001FA70-\U0001FAFF"  # доп. символы
-            u"\U00002702-\U000027B0"  # символы
-            u"\U000024C2-\U0001F251"
-            "]+", flags=re.UNICODE
+            "\U0001F600-\U0001F64F"
+            "\U0001F300-\U0001F5FF"
+            "\U0001F680-\U0001F6FF"
+            "\U0001F700-\U0001F77F"
+            "\U0001F780-\U0001F7FF"
+            "\U0001F800-\U0001F8FF"
+            "\U0001F900-\U0001F9FF"
+            "\U0001FA00-\U0001FA6F"
+            "\U0001FA70-\U0001FAFF"
+            "\U00002702-\U000027B0"
+            "\U000024C2-\U0001F251"
+            "]+",
+            flags=re.UNICODE
         )
-        text = emoji_pattern.sub(r'', text)
+        text = emoji_pattern.sub('', text)
         
-        # Убираем лишние пробелы
+        # Удаляем оставшиеся спецсимволы
+        text = re.sub(r'[#*_`~<>|@$%^&(){}\[\]]', '', text)
+        
+        # Заменяем множественные пробелы на один
         text = re.sub(r'\s+', ' ', text)
         
-        return text.strip()
+        # Удаляем лишние восклицательные знаки
+        text = re.sub(r'!+', '!', text)
+        
+        # Убираем пробелы в начале и конце
+        text = text.strip()
+        
+        return text
     
     def _get_fallback_response(self, mode: str) -> str:
-        """Ответ при ошибке"""
+        """Ответ при ошибке (без эмодзи)"""
         fallbacks = {
-            'basic': "Ой, что-то пошло не так! Но не переживай, я все равно рад поболтать. Кстати, ты не думал пройти тест? Это интересно! 😊",
+            'basic': "Ой, что-то пошло не так. Но не переживай, я все равно рад поболтать. Кстати, ты не думал пройти тест? Это интересно.",
             'coach': "Я здесь. Давайте вместе подумаем над этим. Что вы чувствуете?",
-            'psychologist': "Я с вами. Расскажите подробнее, что вас беспокоит?",
+            'psychologist': "Я с вами. Расскажите подробнее, что вас беспокоит.",
             'trainer': "Готов к работе. Сформулируйте задачу, и мы сделаем план."
         }
         return fallbacks.get(mode, fallbacks['psychologist'])
     
     def _get_profile_fallback(self, profile: Dict) -> str:
-        """Запасной профиль"""
+        """Запасной профиль (без эмодзи)"""
         profile_code = profile.get('profile_data', {}).get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4')
         return f"""
-🔑 **КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА**
+КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
 
 Вы человек с высоким уровнем адаптивности. Умеете подстраиваться под обстоятельства и находить общий язык с разными людьми.
 
-💪 **СИЛЬНЫЕ СТОРОНЫ**
+СИЛЬНЫЕ СТОРОНЫ
 
-• Высокоразвитые социальные навыки
-• Способность видеть системные связи
-• Устойчивость к стрессу
-• Прагматизм в вопросах ресурсов
+- Высокоразвитые социальные навыки
+- Способность видеть системные связи
+- Устойчивость к стрессу
+- Прагматизм в вопросах ресурсов
 
-🎯 **ЗОНЫ РОСТА**
+ЗОНЫ РОСТА
 
-• Развитие навыков отстаивания личных границ
-• Работа со спонтанностью и гибкостью
-• Углубление самопонимания
+- Развитие навыков отстаивания личных границ
+- Работа со спонтанностью и гибкостью
+- Углубление самопонимания
 
-⚠️ **ГЛАВНАЯ ЛОВУШКА**
+ГЛАВНАЯ ЛОВУШКА
 
 Склонность к излишнему контролю. Иногда вы слишком много анализируете вместо того, чтобы действовать.
 
@@ -619,7 +692,7 @@ class AIService:
 """
     
     def _get_thought_fallback(self, profile: Dict) -> str:
-        """Запасная мысль психолога"""
+        """Запасная мысль психолога (без эмодзи)"""
         return "Ты часто ставишь интересы других выше своих. Но где та грань, за которой забота о других превращается в забывание о себе? Что будет, если сегодня сделать что-то только для себя?"
     
     def _get_ideas_fallback(self, profile: Dict) -> List[str]:
@@ -629,7 +702,7 @@ class AIService:
             "Встреча с друзьями в неформальной обстановке",
             "Чтение книги, которая давно ждёт своего часа",
             "Мастер-класс или воркшоп по интересной теме",
-            "День без гаджетов — посвяти время себе"
+            "День без гаджетов, посвяти время себе"
         ]
     
     def _get_goals_fallback(self, profile: Dict, mode: str) -> List[Dict]:
