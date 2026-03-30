@@ -13,7 +13,6 @@
     <title>Фреди | Премиум виртуальный психолог</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css">
     
     <style>
         * {
@@ -22,63 +21,440 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --bg-dark: #0a0a0a;
+            --bg-card: rgba(255,255,255,0.05);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255,255,255,0.7);
+            --accent: #ff6b3b;
+            --accent-hover: #ff8c5a;
+            --border: rgba(255,255,255,0.1);
+        }
+
         body {
             font-family: 'Inter', sans-serif;
-            background: #0a0a0a;
-            color: #fff;
+            background: var(--bg-dark);
+            color: var(--text-primary);
             overflow: hidden;
             position: fixed;
             width: 100%;
             height: 100%;
         }
 
-        @supports (height: 100dvh) {
-            .app, .chat-panel, .screen-container, .test-chat-container {
-                height: 100dvh !important;
-                min-height: 100dvh !important;
-            }
+        /* App Layout */
+        .app {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            position: relative;
         }
-        
-        @supports (padding: max(0px)) {
-            .test-chat-messages { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
-            .test-message-input { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
-            .chats-list { padding-bottom: max(80px, env(safe-area-inset-bottom)); }
+
+        /* Chats Panel (Sidebar) */
+        .chats-panel {
+            width: 280px;
+            background: rgba(10,10,10,0.95);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease;
+            z-index: 100;
         }
-        
-        input, select, textarea { font-size: 16px !important; }
-        .test-message-button, .mode-btn, .chat-item, button { min-height: 44px; touch-action: manipulation; }
-        
-        .test-message { animation: fadeInUp 0.2s ease-out; }
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+
+        .chats-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
         }
-        
-        .test-chat-messages::-webkit-scrollbar { width: 4px; }
-        .test-chat-messages::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
-        .test-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,107,59,0.5); border-radius: 4px; }
-        
-        body.test-active { overflow: hidden; position: fixed; width: 100%; height: 100%; }
-        
-        /* ============================================
-           СТИЛИ ДЛЯ СТРАНИЦ ПРОФИЛЯ И МЫСЛЕЙ
-        ============================================ */
-        
+
+        .chats-title {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .chats-search {
+            padding: 12px 16px;
+        }
+
+        .chats-search input {
+            width: 100%;
+            padding: 10px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 30px;
+            color: white;
+            font-size: 14px;
+        }
+
+        .chats-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        .chat-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .chat-item:hover {
+            background: var(--bg-card);
+        }
+
+        .chat-item.active {
+            background: rgba(255,107,59,0.15);
+            border-left: 3px solid var(--accent);
+        }
+
+        .chat-avatar {
+            width: 40px;
+            height: 40px;
+            background: var(--bg-card);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .chat-info {
+            flex: 1;
+        }
+
+        .chat-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .chat-preview {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .chat-time {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 12px 16px;
+        }
+
+        .menu-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            letter-spacing: 1px;
+        }
+
+        .chats-footer {
+            padding: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .user-mini-profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-mini-avatar {
+            width: 40px;
+            height: 40px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+
+        .user-mini-name {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .user-mini-status {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Chat Panel */
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            position: relative;
+        }
+
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,10,10,0.95);
+        }
+
+        .chat-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .chat-header-avatar {
+            width: 40px;
+            height: 40px;
+            background: var(--bg-card);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .chat-header-name {
+            font-weight: 600;
+        }
+
+        .chat-header-status {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .mode-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+
+        .mode-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 30px;
+            padding: 8px 16px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+
+        .mode-btn:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .screen-container {
+            flex: 1;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        /* Dashboard Styles */
+        .dashboard-container {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .hero-section {
+            margin-bottom: 24px;
+        }
+
+        .user-greeting {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .greeting-text h2 {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .greeting-text p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .profile-badge {
+            text-align: center;
+        }
+
+        .profile-code {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .mode-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .mode-btn.coach.active {
+            background: #3b82ff;
+            border-color: #3b82ff;
+        }
+
+        .mode-btn.psychologist.active {
+            background: #ff6b3b;
+            border-color: #ff6b3b;
+        }
+
+        .mode-btn.trainer.active {
+            background: #ff3b3b;
+            border-color: #ff3b3b;
+        }
+
+        .voice-section {
+            margin-bottom: 24px;
+        }
+
+        .voice-card {
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 16px;
+        }
+
+        .voice-record-btn-premium {
+            width: 100%;
+            background: linear-gradient(135deg, rgba(255,107,59,0.2), rgba(255,107,59,0.05));
+            border: 1px solid rgba(255,107,59,0.3);
+            border-radius: 60px;
+            padding: 16px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .voice-record-btn-premium.recording {
+            background: rgba(255,59,59,0.3);
+            border-color: #ff3b3b;
+            animation: pulse 0.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .module-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .module-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .module-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .module-name {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .module-desc {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .quick-actions-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .quick-actions-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        .quick-action {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-action:hover {
+            background: rgba(255,107,59,0.15);
+            transform: translateY(-2px);
+        }
+
+        .action-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .action-name {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Content Pages */
         .full-content-page {
             padding: 20px;
             height: 100%;
             overflow-y: auto;
             animation: fadeIn 0.3s ease;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .back-btn {
-            background: rgba(224,224,224,0.1);
-            border: none;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
             border-radius: 30px;
             padding: 10px 20px;
             color: white;
@@ -86,44 +462,37 @@
             cursor: pointer;
             font-size: 14px;
             transition: all 0.2s;
-            font-weight: 500;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
         }
-        
+
         .back-btn:hover {
-            background: rgba(224,224,224,0.2);
-            transform: scale(1.02);
+            background: rgba(255,255,255,0.1);
         }
-        
+
         .content-header {
             text-align: center;
             margin-bottom: 20px;
         }
-        
+
         .content-emoji {
             font-size: 48px;
         }
-        
+
         .content-header h1 {
             font-size: 24px;
             margin-top: 10px;
-            background: linear-gradient(135deg, #fff 0%, #ff6b3b 100%);
+            background: linear-gradient(135deg, #fff, var(--accent));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
-        
+
         .content-body {
-            background: rgba(255,255,255,0.05);
+            background: var(--bg-card);
             border-radius: 20px;
             padding: 20px;
             line-height: 1.6;
             font-size: 15px;
         }
-        
-        /* Стили для профиля */
+
         .profile-section-title {
             font-size: 18px;
             font-weight: bold;
@@ -131,14 +500,13 @@
             margin-bottom: 12px;
             padding-bottom: 8px;
             border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
+            color: var(--accent);
         }
-        
+
         .profile-section-title:first-of-type {
             margin-top: 0;
         }
-        
-        /* Стили для мыслей психолога */
+
         .thoughts-section-title {
             font-size: 18px;
             font-weight: bold;
@@ -146,45 +514,29 @@
             margin-bottom: 12px;
             padding-bottom: 8px;
             border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
+            color: var(--accent);
         }
-        
-        .thoughts-section-title:first-of-type {
-            margin-top: 0;
+
+        .loading-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: 20px;
         }
-        
+
         .loading-spinner {
             font-size: 48px;
-            animation: pulse 1s ease infinite;
+            animation: spin 1s linear infinite;
         }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 0.6; transform: scale(1); }
-            50% { opacity: 1; transform: scale(1.1); }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
-        
-        .content-body p {
-            margin-bottom: 12px;
-        }
-        
-        .content-body ul, .content-body ol {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-        
-        .content-body li {
-            margin: 5px 0;
-        }
-        
-        .content-body blockquote {
-            border-left: 3px solid #ff6b3b;
-            margin: 15px 0;
-            padding-left: 15px;
-            color: rgba(255,255,255,0.7);
-            font-style: italic;
-        }
-        
-        /* Toast уведомления */
+
+        /* Floating Toast */
         .floating-message {
             position: fixed;
             bottom: 20px;
@@ -193,14 +545,14 @@
             z-index: 10000;
             animation: slideUp 0.3s ease;
         }
-        
+
         @keyframes slideUp {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .floating-message-content {
-            background: rgba(0,0,0,0.9);
+            background: rgba(0,0,0,0.95);
             backdrop-filter: blur(10px);
             border-radius: 16px;
             padding: 12px 16px;
@@ -210,28 +562,93 @@
             gap: 12px;
             border: 1px solid rgba(255,107,59,0.3);
         }
-        
+
         .floating-message-text {
             flex: 1;
             font-size: 14px;
-            color: white;
         }
-        
+
         .floating-message-close {
             width: 28px;
             height: 28px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(255,255,255,0.1);
+            background: var(--bg-card);
             border-radius: 50%;
             cursor: pointer;
-            font-size: 16px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .chats-panel {
+                position: fixed;
+                left: 0;
+                top: 0;
+                height: 100%;
+                transform: translateX(-100%);
+                z-index: 1000;
+                width: 280px;
+            }
+
+            .chats-panel.open {
+                transform: translateX(0);
+            }
+
+            .mobile-menu-btn {
+                display: block;
+            }
+
+            .quick-actions-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+
+            .modules-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .quick-actions-grid {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
+            }
+
+            .action-name {
+                font-size: 10px;
+            }
+
+            .modules-grid {
+                gap: 8px;
+            }
         }
     </style>
-    
-    <link rel="icon" href="/favicon.ico" type="image/x-icon">
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
     <div class="app" id="appRoot">
@@ -239,7 +656,7 @@
             <div class="chats-header">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div class="chats-title">FREDI</div>
-                    <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; background: rgba(224,224,224,0.1); border-radius: 50%;">✎</button>
+                    <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; border-radius: 50%;">✎</button>
                 </div>
             </div>
             
@@ -403,492 +820,502 @@
         </div>
     </div>
 
-    <script src="/test.js"></script>
-    <script src="/voice.js"></script>
-    <script src="/app.js"></script>
-    
     <script>
-    (function() {
-        // ============================================
-        // КОНФИГУРАЦИЯ
-        // ============================================
-        const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+    // ============================================
+    // ДИНАМИЧЕСКАЯ КОНФИГУРАЦИЯ ПОЛЬЗОВАТЕЛЯ
+    // ============================================
+
+    function generateUserId() {
+        return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    function getOrCreateUserId() {
+        let userId = localStorage.getItem('fredi_user_id');
+        if (!userId) {
+            userId = generateUserId();
+            localStorage.setItem('fredi_user_id', userId);
+            console.log('🆕 New user created with ID:', userId);
+        } else {
+            console.log('👤 Existing user ID:', userId);
+        }
+        return userId;
+    }
+
+    function getUserName() {
+        return localStorage.getItem('fredi_user_name') || null;
+    }
+
+    function setUserName(name) {
+        if (name && name.trim()) {
+            localStorage.setItem('fredi_user_name', name.trim());
+            console.log('📝 User name saved:', name);
+        }
+    }
+
+    const CONFIG = {
+        API_BASE_URL: 'https://fredi-backend-flz2.onrender.com',
+        get USER_ID() { return getOrCreateUserId(); },
+        get USER_NAME() { return getUserName() || 'друг'; },
+        PROFILE_CODE: null
+    };
+
+    // ============================================
+    // ФУНКЦИИ ФОРМАТИРОВАНИЯ
+    // ============================================
+
+    function formatProfileText(text) {
+        if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
         
-        // ============================================
-        // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-        // ============================================
+        text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+        text = text.replace(/\*(.*?)\*/g, '$1');
+        text = text.replace(/__(.*?)__/g, '$1');
         
-        function showToast(message, duration = 4000) {
-            const toast = document.getElementById('toastMessage');
-            const toastText = document.getElementById('toastText');
-            if (toast && toastText) {
-                toastText.innerHTML = message;
-                toast.style.display = 'flex';
-                setTimeout(() => {
-                    toast.style.display = 'none';
-                }, duration);
-            }
+        const headerMap = {
+            'КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
+            'СИЛЬНЫЕ СТОРОНЫ': '💪 СИЛЬНЫЕ СТОРОНЫ',
+            'ЗОНЫ РОСТА': '🎯 ЗОНЫ РОСТА',
+            'КАК ЭТО СФОРМИРОВАЛОСЬ': '🌱 КАК ЭТО СФОРМИРОВАЛОСЬ',
+            'ГЛАВНАЯ ЛОВУШКА': '⚠️ ГЛАВНАЯ ЛОВУШКА',
+            'БЛОК 1:': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
+            'БЛОК 2:': '💪 СИЛЬНЫЕ СТОРОНЫ',
+            'БЛОК 3:': '🎯 ЗОНЫ РОСТА',
+            'БЛОК 4:': '🌱 КАК ЭТО СФОРМИРОВАЛОСЬ',
+            'БЛОК 5:': '⚠️ ГЛАВНАЯ ЛОВУШКА'
+        };
+        
+        for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
+            const regex = new RegExp(oldHeader, 'gi');
+            text = text.replace(regex, `<div class="profile-section-title">${newHeader}</div>`);
         }
         
-        function showLoading(message) {
-            const container = document.getElementById('screenContainer');
-            if (container) {
-                container.innerHTML = `
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 20px;">
-                        <div class="loading-spinner">🧠</div>
-                        <div style="font-size: 16px; color: rgba(255,255,255,0.7);">${message}</div>
-                    </div>
-                `;
-            }
+        text = text.replace(/•\s*/g, '<br>• ');
+        text = text.replace(/-\s*/g, '<br>• ');
+        text = text.replace(/\n\n/g, '<br><br>');
+        text = text.replace(/\n/g, '<br>');
+        text = text.replace(/\s+/g, ' ');
+        text = text.replace(/\s+<br>/g, '<br>');
+        text = text.replace(/<br>\s+/g, '<br>');
+        
+        return text;
+    }
+
+    function formatThoughtText(text) {
+        if (!text) return '💭 Мысли психолога появятся после завершения теста.';
+        
+        text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+        text = text.replace(/\*(.*?)\*/g, '$1');
+        
+        const headerMap = {
+            'КЛЮЧЕВОЙ ЭЛЕМЕНТ': '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ',
+            'ПЕТЛЯ': '🔄 ПЕТЛЯ',
+            'ТОЧКА ВХОДА': '🚪 ТОЧКА ВХОДА',
+            'ПРОГНОЗ': '📊 ПРОГНОЗ',
+            'РЕКОМЕНДАЦИИ': '💡 РЕКОМЕНДАЦИИ'
+        };
+        
+        for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
+            const regex = new RegExp(oldHeader, 'gi');
+            text = text.replace(regex, `<div class="thoughts-section-title">${newHeader}</div>`);
         }
         
-        function showDashboard() {
-            console.log('🔄 Возврат на главный экран');
-            
-            // Пытаемся вызвать dashboard из разных источников
-            if (window.dashboard && typeof window.dashboard.renderDashboard === 'function') {
-                window.dashboard.renderDashboard();
-            } else if (typeof window.renderDashboard === 'function') {
-                window.renderDashboard();
-            } else if (window.app && typeof window.app.renderDashboard === 'function') {
-                window.app.renderDashboard();
-            } else {
-                // Если ничего не работает, перезагружаем страницу
-                console.log('🔄 Перезагрузка страницы');
-                location.reload();
-            }
+        text = text.replace(/•\s*/g, '<br>• ');
+        text = text.replace(/-\s*/g, '<br>• ');
+        text = text.replace(/\n\n/g, '<br><br>');
+        text = text.replace(/\n/g, '<br>');
+        text = text.replace(/\s+/g, ' ');
+        
+        if (text.match(/(по|на|в|с|к)$/)) {
+            text = text.slice(0, -2) + '...';
         }
         
-        // ============================================
-        // ФУНКЦИИ ФОРМАТИРОВАНИЯ ТЕКСТА
-        // ============================================
+        return text;
+    }
+
+    // ============================================
+    // API ВЫЗОВЫ
+    // ============================================
+
+    async function apiCall(endpoint, options = {}) {
+        const url = endpoint.startsWith('http') ? endpoint : `${CONFIG.API_BASE_URL}${endpoint}`;
+        const headers = { 'Content-Type': 'application/json', ...options.headers };
         
-        function formatProfileText(text) {
-            if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
-            
-            // Убираем маркдаун
-            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
-            text = text.replace(/\*(.*?)\*/g, '$1');
-            text = text.replace(/__(.*?)__/g, '$1');
-            text = text.replace(/`(.*?)`/g, '$1');
-            
-            // Заменяем заголовки на стилизованные
-            const headerMap = {
-                'КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
-                'СИЛЬНЫЕ СТОРОНЫ': '💪 СИЛЬНЫЕ СТОРОНЫ',
-                'ЗОНЫ РОСТА': '🎯 ЗОНЫ РОСТА',
-                'КАК ЭТО СФОРМИРОВАЛОСЬ': '🌱 КАК ЭТО СФОРМИРОВАЛОСЬ',
-                'ГЛАВНАЯ ЛОВУШКА': '⚠️ ГЛАВНАЯ ЛОВУШКА',
-                'БЛОК 1:': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
-                'БЛОК 2:': '💪 СИЛЬНЫЕ СТОРОНЫ',
-                'БЛОК 3:': '🎯 ЗОНЫ РОСТА',
-                'БЛОК 4:': '🌱 КАК ЭТО СФОРМИРОВАЛОСЬ',
-                'БЛОК 5:': '⚠️ ГЛАВНАЯ ЛОВУШКА'
-            };
-            
-            for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
-                const regex = new RegExp(oldHeader, 'gi');
-                text = text.replace(regex, `<div class="profile-section-title">${newHeader}</div>`);
-            }
-            
-            // Форматируем списки
-            text = text.replace(/•\s*/g, '<br>• ');
-            text = text.replace(/-\s*/g, '<br>• ');
-            text = text.replace(/\n\n/g, '<br><br>');
-            text = text.replace(/\n/g, '<br>');
-            
-            // Убираем лишние пробелы
-            text = text.replace(/\s+/g, ' ');
-            text = text.replace(/\s+<br>/g, '<br>');
-            text = text.replace(/<br>\s+/g, '<br>');
-            
-            // Убираем двойные теги
-            text = text.replace(/<div class="profile-section-title">([^<]+)<\/div>\s*<div class="profile-section-title">/g, '<div class="profile-section-title">$1</div>');
-            
-            return text;
+        try {
+            const response = await fetch(url, { ...options, headers });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            return data;
+        } catch (error) {
+            console.error(`API Error: ${endpoint}`, error);
+            throw error;
         }
-        
-        function formatThoughtText(text) {
-            if (!text) return '💭 Мысли психолога появятся после завершения теста.';
-            
-            // Убираем маркдаун
-            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
-            text = text.replace(/\*(.*?)\*/g, '$1');
-            text = text.replace(/__(.*?)__/g, '$1');
-            text = text.replace(/`(.*?)`/g, '$1');
-            
-            // Заменяем заголовки на стилизованные
-            const headerMap = {
-                'КЛЮЧЕВОЙ ЭЛЕМЕНТ': '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ',
-                'КЛЮЧЕВОЙ ЭЛЕМЕНТ:': '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ',
-                'ПЕТЛЯ': '🔄 ПЕТЛЯ',
-                'ПЕТЛЯ:': '🔄 ПЕТЛЯ',
-                'ТОЧКА ВХОДА': '🚪 ТОЧКА ВХОДА',
-                'ТОЧКА ВХОДА:': '🚪 ТОЧКА ВХОДА',
-                'ПРОГНОЗ': '📊 ПРОГНОЗ',
-                'ПРОГНОЗ:': '📊 ПРОГНОЗ',
-                'РЕКОМЕНДАЦИИ': '💡 РЕКОМЕНДАЦИИ',
-                'РЕКОМЕНДАЦИИ:': '💡 РЕКОМЕНДАЦИИ'
-            };
-            
-            for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
-                const regex = new RegExp(oldHeader, 'gi');
-                text = text.replace(regex, `<div class="thoughts-section-title">${newHeader}</div>`);
-            }
-            
-            // Форматируем списки
-            text = text.replace(/•\s*/g, '<br>• ');
-            text = text.replace(/-\s*/g, '<br>• ');
-            text = text.replace(/\n\n/g, '<br><br>');
-            text = text.replace(/\n/g, '<br>');
-            
-            // Убираем лишние пробелы
-            text = text.replace(/\s+/g, ' ');
-            text = text.replace(/\s+<br>/g, '<br>');
-            text = text.replace(/<br>\s+/g, '<br>');
-            
-            // Убираем возможное обрезание в конце
-            if (text.match(/(по|на|в|с|к|о|и)$/)) {
-                text = text.slice(0, -2) + '...';
-            }
-            
-            return text;
+    }
+
+    async function getUserStatus() {
+        try {
+            return await apiCall(`/api/user-status?user_id=${CONFIG.USER_ID}`);
+        } catch (error) {
+            return { has_profile: false, test_completed: false, profile_code: null, interpretation_ready: false };
         }
-        
-        // ============================================
-        // ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА
-        // ============================================
-        
-        async function isTestCompleted() {
-            try {
-                const userId = localStorage.getItem('fredi_user_id');
-                if (!userId) return false;
-                
-                // Проверяем через API
-                const response = await fetch(`${API_BASE_URL}/api/user-status?user_id=${userId}`);
-                const data = await response.json();
-                
-                if (data.success && data.has_profile) {
-                    return true;
-                }
-                
-                // Проверяем localStorage
-                const testResults = localStorage.getItem(`test_results_${userId}`);
-                if (testResults) {
-                    try {
-                        const results = JSON.parse(testResults);
-                        if (results.profile || results.aiProfile) return true;
-                    } catch(e) {}
-                }
-                
-                return false;
-            } catch (error) {
-                console.warn('Error checking test status:', error);
-                return false;
+    }
+
+    async function getAIGeneratedProfile() {
+        const userId = CONFIG.USER_ID;
+        try {
+            const response = await fetch(`${CONFIG.API_BASE_URL}/api/generated-profile/${userId}`);
+            const data = await response.json();
+            if (data.success && data.ai_profile) return data.ai_profile;
+            if (data.status === 'generating') {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                return getAIGeneratedProfile();
             }
+            return null;
+        } catch (error) {
+            console.error('Error fetching AI profile:', error);
+            return null;
         }
-        
-        // ============================================
-        // ПОЛУЧЕНИЕ ДАННЫХ ИЗ API
-        // ============================================
-        
-        async function getAIGeneratedProfile() {
-            const userId = localStorage.getItem('fredi_user_id');
-            if (!userId) return null;
-            
-            try {
-                console.log('📥 Запрос AI-профиля для userId:', userId);
-                const response = await fetch(`${API_BASE_URL}/api/generated-profile/${userId}`);
-                const data = await response.json();
-                
-                if (data.success && data.ai_profile) {
-                    console.log('✅ AI-профиль получен');
-                    return data.ai_profile;
-                }
-                
-                if (data.status === 'generating') {
-                    console.log('⏳ AI-профиль генерируется, ждём...');
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    return getAIGeneratedProfile();
-                }
-                
-                return null;
-            } catch (error) {
-                console.error('Error fetching AI profile:', error);
-                return null;
-            }
+    }
+
+    async function getPsychologistThought() {
+        const userId = CONFIG.USER_ID;
+        try {
+            const response = await fetch(`${CONFIG.API_BASE_URL}/api/psychologist-thought/${userId}`);
+            const data = await response.json();
+            return data.success ? data.thought : null;
+        } catch (error) {
+            console.error('Error fetching thought:', error);
+            return null;
         }
-        
-        async function getPsychologistThought() {
-            const userId = localStorage.getItem('fredi_user_id');
-            if (!userId) return null;
-            
-            try {
-                console.log('📥 Запрос мыслей психолога для userId:', userId);
-                const response = await fetch(`${API_BASE_URL}/api/psychologist-thought/${userId}`);
-                const data = await response.json();
-                
-                if (data.success && data.thought) {
-                    console.log('✅ Мысли психолога получены');
-                    return data.thought;
-                }
-                
-                if (data.status === 'generating') {
-                    console.log('⏳ Мысли психолога генерируются, ждём...');
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    return getPsychologistThought();
-                }
-                
-                return null;
-            } catch (error) {
-                console.error('Error fetching psychologist thought:', error);
-                return null;
-            }
+    }
+
+    async function getWeekendIdeas() {
+        try {
+            const data = await apiCall(`/api/ideas?user_id=${CONFIG.USER_ID}`);
+            return data.ideas || [];
+        } catch (error) {
+            return [];
         }
-        
-        async function getWeekendIdeas() {
-            const userId = localStorage.getItem('fredi_user_id');
-            if (!userId) return null;
-            
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/ideas?user_id=${userId}`);
-                const data = await response.json();
-                return data.ideas || [];
-            } catch (error) {
-                console.error('Error fetching ideas:', error);
-                return null;
-            }
+    }
+
+    async function getUserProfile() {
+        try {
+            const data = await apiCall(`/api/get-profile?user_id=${CONFIG.USER_ID}`);
+            return data.ai_generated_profile || 'Психологический портрет формируется.';
+        } catch (error) {
+            return 'Профиль временно недоступен.';
         }
-        
-        // ============================================
-        // ОТОБРАЖЕНИЕ СТРАНИЦ
-        // ============================================
-        
-        function showFullContentScreen(title, content, contentType) {
-            const container = document.getElementById('screenContainer');
-            if (!container) return;
-            
-            let formattedContent = content;
-            
-            if (contentType === 'profile') {
-                formattedContent = formatProfileText(content);
-            } else if (contentType === 'thoughts') {
-                formattedContent = formatThoughtText(content);
-            } else {
-                formattedContent = (content || '').replace(/\n/g, '<br>');
-            }
-            
-            const emojiMap = {
-                'profile': '🧠',
-                'thoughts': '💭',
-                'goals': '🎯'
-            };
-            
+    }
+
+    // ============================================
+    // UI ФУНКЦИИ
+    // ============================================
+
+    function showToast(message, type = 'info') {
+        const toast = document.getElementById('toastMessage');
+        const textEl = document.getElementById('toastText');
+        if (!toast || !textEl) return;
+        textEl.textContent = message;
+        toast.style.display = 'flex';
+        setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
+    }
+
+    function showLoading(message) {
+        const container = document.getElementById('screenContainer');
+        if (container) {
             container.innerHTML = `
-                <div class="full-content-page">
-                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                    <div class="content-header">
-                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
-                        <h1>${title}</h1>
-                    </div>
-                    <div class="content-body">
-                        ${formattedContent || 'Данные не найдены'}
-                    </div>
+                <div class="loading-screen">
+                    <div class="loading-spinner">🧠</div>
+                    <div class="loading-text">${message}</div>
                 </div>
             `;
-            
-            // Обработчик кнопки назад
-            const backBtn = document.getElementById('backBtn');
-            if (backBtn) {
-                backBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showDashboard();
-                });
-            }
         }
+    }
+
+    function showDashboard() {
+        const container = document.getElementById('screenContainer');
+        const userName = CONFIG.USER_NAME;
         
-        // ============================================
-        // ОСНОВНЫЕ ОБРАБОТЧИКИ
-        // ============================================
-        
-        async function handleProfileClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест, чтобы получить доступ к профилю');
-                return;
-            }
-            
-            showLoading('Загружаю ваш психологический портрет...');
-            
-            const aiProfile = await getAIGeneratedProfile();
-            
-            if (aiProfile) {
-                showFullContentScreen('Мой портрет', aiProfile, 'profile');
-            } else {
-                showFullContentScreen('Мой портрет', 
-                    '🧠 Психологический портрет формируется.\n\nПожалуйста, подождите несколько секунд и попробуйте снова.', 
-                    'profile');
-            }
-        }
-        
-        async function handleThoughtsClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест, чтобы получить доступ к мыслям психолога');
-                return;
-            }
-            
-            showLoading('Загружаю мысли психолога...');
-            
-            const thought = await getPsychologistThought();
-            
-            if (thought) {
-                showFullContentScreen('Мысли психолога', thought, 'thoughts');
-            } else {
-                showFullContentScreen('Мысли психолога', 
-                    '💭 Мысли психолога появятся после завершения теста.\n\nАнализ вашего профиля может занять до 30 секунд.', 
-                    'thoughts');
-            }
-        }
-        
-        async function handleGoalsClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест, чтобы получить персональные идеи');
-                return;
-            }
-            
-            showLoading('Подбираю идеи для вас...');
-            
-            const ideas = await getWeekendIdeas();
-            
-            if (ideas && ideas.length > 0) {
-                const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
-                showFullContentScreen('Идеи на выходные', ideasText, 'goals');
-            } else {
-                showFullContentScreen('Идеи на выходные', 
-                    '🎨 Идеи появятся после завершения теста.\n\nАнализ ваших интересов может занять несколько минут.', 
-                    'goals');
-            }
-        }
-        
-        // ============================================
-        // ПЕРЕОПРЕДЕЛЕНИЕ ОБРАБОТЧИКОВ МЕНЮ
-        // ============================================
-        
-        function overrideMenuHandlers() {
-            const profileItem = document.getElementById('profileChatItem');
-            const thoughtsItem = document.getElementById('thoughtsChatItem');
-            const goalsItem = document.getElementById('goalsChatItem');
-            
-            if (profileItem) {
-                const newProfileItem = profileItem.cloneNode(true);
-                profileItem.parentNode.replaceChild(newProfileItem, profileItem);
+        container.innerHTML = `
+            <div class="dashboard-container">
+                <div class="hero-section">
+                    <div class="user-greeting">
+                        <div class="greeting-text">
+                            <h2>🧠 Привет, ${userName}!</h2>
+                            <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
+                        </div>
+                        <div class="profile-badge">
+                            <div class="profile-code" id="profileCode">🎭</div>
+                            <div style="font-size: 10px;">ваш психотип</div>
+                        </div>
+                    </div>
+                </div>
                 
-                newProfileItem.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🧠 Клик по профилю');
-                    handleProfileClick();
-                });
-            }
-            
-            if (thoughtsItem) {
-                const newThoughtsItem = thoughtsItem.cloneNode(true);
-                thoughtsItem.parentNode.replaceChild(newThoughtsItem, thoughtsItem);
+                <div class="mode-selector">
+                    <button class="mode-btn psychologist active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                </div>
                 
-                newThoughtsItem.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('💭 Клик по мыслям психолога');
-                    handleThoughtsClick();
-                });
-            }
-            
-            if (goalsItem) {
-                const newGoalsItem = goalsItem.cloneNode(true);
-                goalsItem.parentNode.replaceChild(newGoalsItem, goalsItem);
+                <div class="voice-section">
+                    <div class="voice-card">
+                        <button class="voice-record-btn-premium" id="mainVoiceBtn">
+                            <span class="voice-icon">🎤</span>
+                            <span class="voice-text">Расскажите, что вас беспокоит</span>
+                        </button>
+                    </div>
+                </div>
                 
-                newGoalsItem.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🎯 Клик по идеям');
-                    handleGoalsClick();
-                });
-            }
-            
-            console.log('✅ Обработчики меню настроены');
-        }
+                <div class="modules-grid">
+                    <div class="module-card" data-module="analysis"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
+                    <div class="module-card" data-module="emotions"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
+                    <div class="module-card" data-module="trauma"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
+                    <div class="module-card" data-module="relations"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
+                </div>
+                
+                <div class="quick-actions">
+                    <div class="quick-actions-title">⚡ Быстрые действия</div>
+                    <div class="quick-actions-grid">
+                        <div class="quick-action" data-action="profile"><div class="action-icon">🧠</div><div class="action-name">Мой портрет</div></div>
+                        <div class="quick-action" data-action="thoughts"><div class="action-icon">💭</div><div class="action-name">Мысли психолога</div></div>
+                        <div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div>
+                    </div>
+                </div>
+            </div>
+        `;
         
-        // ============================================
-        // ИНИЦИАЛИЗАЦИЯ ТЕСТА
-        // ============================================
-        
-        let testInitialized = false;
-        
-        function initTest() {
-            if (testInitialized) return;
-            
-            if (window.Test) {
-                try {
-                    const userId = localStorage.getItem('fredi_user_id');
-                    window.Test.init(userId);
-                    testInitialized = true;
-                    console.log('✅ Тест инициализирован');
-                } catch (e) {
-                    console.error('Ошибка инициализации теста:', e);
+        // Добавляем обработчики
+        document.querySelectorAll('.quick-action').forEach(action => {
+            action.addEventListener('click', async () => {
+                const actionType = action.dataset.action;
+                switch(actionType) {
+                    case 'profile': await handleProfileClick(); break;
+                    case 'thoughts': await handleThoughtsClick(); break;
+                    case 'weekend': await handleWeekendClick(); break;
                 }
-            } else {
-                setTimeout(initTest, 500);
+            });
+        });
+        
+        document.querySelectorAll('.module-card').forEach(card => {
+            card.addEventListener('click', () => {
+                showToast('Модуль скоро будет доступен', 'info');
+            });
+        });
+        
+        // Загружаем код профиля
+        getUserStatus().then(status => {
+            const profileCodeEl = document.getElementById('profileCode');
+            if (profileCodeEl) {
+                if (status.has_profile && status.profile_code) {
+                    profileCodeEl.textContent = status.profile_code;
+                }
             }
+        });
+    }
+
+    function showFullContentScreen(title, content, contentType) {
+        const container = document.getElementById('screenContainer');
+        
+        let formattedContent = content;
+        if (contentType === 'profile') formattedContent = formatProfileText(content);
+        else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
+        else formattedContent = (content || '').replace(/\n/g, '<br>');
+        
+        const emojiMap = { profile: '🧠', thoughts: '💭', weekend: '🎨' };
+        
+        container.innerHTML = `
+            <div class="full-content-page">
+                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                <div class="content-header">
+                    <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
+                    <h1>${title}</h1>
+                </div>
+                <div class="content-body">
+                    ${formattedContent || 'Данные не найдены'}
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('backBtn').addEventListener('click', () => showDashboard());
+    }
+
+    // ============================================
+    // ОСНОВНЫЕ ОБРАБОТЧИКИ
+    // ============================================
+
+    async function isTestCompleted() {
+        try {
+            const status = await getUserStatus();
+            if (status.has_profile) return true;
+            const testResults = localStorage.getItem(`test_results_${CONFIG.USER_ID}`);
+            if (testResults) {
+                const results = JSON.parse(testResults);
+                if (results.profile || results.aiProfile) return true;
+            }
+            return false;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    async function handleProfileClick() {
+        const completed = await isTestCompleted();
+        if (!completed) {
+            showToast('📊 Сначала пройдите психологический тест, чтобы получить доступ к профилю');
+            return;
         }
         
-        function setupTestLauncher() {
-            const testChatItem = document.getElementById('testChatItem');
-            if (!testChatItem) return;
+        showLoading('Загружаю ваш психологический портрет...');
+        const profile = await getAIGeneratedProfile();
+        
+        if (profile) {
+            showFullContentScreen('Мой портрет', profile, 'profile');
+        } else {
+            showFullContentScreen('Мой портрет', '🧠 Психологический портрет формируется. Пожалуйста, подождите несколько секунд.', 'profile');
+        }
+    }
+
+    async function handleThoughtsClick() {
+        const completed = await isTestCompleted();
+        if (!completed) {
+            showToast('📊 Сначала пройдите психологический тест, чтобы получить доступ к мыслям психолога');
+            return;
+        }
+        
+        showLoading('Загружаю мысли психолога...');
+        const thought = await getPsychologistThought();
+        
+        if (thought) {
+            showFullContentScreen('Мысли психолога', thought, 'thoughts');
+        } else {
+            showFullContentScreen('Мысли психолога', '💭 Мысли психолога появятся после завершения теста. Анализ вашего профиля может занять до 30 секунд.', 'thoughts');
+        }
+    }
+
+    async function handleWeekendClick() {
+        const completed = await isTestCompleted();
+        if (!completed) {
+            showToast('📊 Сначала пройдите психологический тест, чтобы получить персональные идеи');
+            return;
+        }
+        
+        showLoading('Подбираю идеи для вас...');
+        const ideas = await getWeekendIdeas();
+        
+        if (ideas && ideas.length > 0) {
+            const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
+            showFullContentScreen('Идеи на выходные', ideasText, 'weekend');
+        } else {
+            showFullContentScreen('Идеи на выходные', '🎨 Идеи появятся после завершения теста.', 'weekend');
+        }
+    }
+
+    // ============================================
+    // ИНИЦИАЛИЗАЦИЯ
+    // ============================================
+
+    function initMobileMenu() {
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const chatsPanel = document.getElementById('chatsPanel');
+        
+        if (mobileMenuBtn && chatsPanel) {
+            mobileMenuBtn.addEventListener('click', () => {
+                chatsPanel.classList.toggle('open');
+            });
             
-            testChatItem.addEventListener('click', (e) => {
+            document.addEventListener('click', (e) => {
+                if (chatsPanel.classList.contains('open')) {
+                    if (!chatsPanel.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
+                        chatsPanel.classList.remove('open');
+                    }
+                }
+            });
+        }
+    }
+
+    function setupMenuHandlers() {
+        const profileItem = document.getElementById('profileChatItem');
+        const thoughtsItem = document.getElementById('thoughtsChatItem');
+        const goalsItem = document.getElementById('goalsChatItem');
+        const testItem = document.getElementById('testChatItem');
+        
+        if (profileItem) {
+            profileItem.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log('🎯 Запуск теста');
-                
-                if (!testInitialized) initTest();
-                
-                setTimeout(() => {
-                    if (window.Test && window.Test.start) {
-                        window.Test.start();
-                    } else {
-                        showToast('Тест загружается, попробуйте еще раз');
-                    }
-                }, 100);
+                handleProfileClick();
+                if (window.innerWidth <= 768) {
+                    document.getElementById('chatsPanel')?.classList.remove('open');
+                }
             });
         }
         
-        // ============================================
-        // ЗАПУСК
-        // ============================================
-        
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                initTest();
-                setupTestLauncher();
-                setTimeout(overrideMenuHandlers, 500);
+        if (thoughtsItem) {
+            thoughtsItem.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleThoughtsClick();
+                if (window.innerWidth <= 768) {
+                    document.getElementById('chatsPanel')?.classList.remove('open');
+                }
             });
-        } else {
-            initTest();
-            setupTestLauncher();
-            setTimeout(overrideMenuHandlers, 500);
         }
         
-        // Экспортируем функции в глобальный объект
-        window.profileHandlers = {
-            handleProfileClick,
-            handleThoughtsClick,
-            handleGoalsClick,
-            showDashboard
-        };
-    })();
+        if (goalsItem) {
+            goalsItem.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleWeekendClick();
+                if (window.innerWidth <= 768) {
+                    document.getElementById('chatsPanel')?.classList.remove('open');
+                }
+            });
+        }
+        
+        if (testItem) {
+            testItem.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (window.Test && window.Test.start) {
+                    window.Test.init(CONFIG.USER_ID);
+                    window.Test.start();
+                } else {
+                    showToast('Тест загружается, попробуйте еще раз');
+                }
+                if (window.innerWidth <= 768) {
+                    document.getElementById('chatsPanel')?.classList.remove('open');
+                }
+            });
+        }
+    }
+
+    function init() {
+        console.log('🚀 FREDI PREMIUM — запуск');
+        
+        initMobileMenu();
+        
+        const userName = CONFIG.USER_NAME;
+        document.getElementById('userName').textContent = userName;
+        document.getElementById('userMiniAvatar').textContent = userName.charAt(0).toUpperCase();
+        
+        showDashboard();
+        setupMenuHandlers();
+        
+        // Запрос имени у нового пользователя
+        setTimeout(async () => {
+            const status = await getUserStatus();
+            if (!localStorage.getItem('fredi_user_name') && !status.has_profile) {
+                const name = prompt('Как мне к вам обращаться?', '');
+                if (name && name.trim()) {
+                    setUserName(name);
+                    document.getElementById('userName').textContent = name;
+                    document.getElementById('userMiniAvatar').textContent = name.charAt(0).toUpperCase();
+                    showDashboard();
+                }
+            }
+        }, 500);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
     </script>
+    
+    <script src="/test.js"></script>
 </body>
 </html>
