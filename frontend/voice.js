@@ -171,7 +171,7 @@ const VoiceConfig = {
         showVolumeMeter: true,
         showRecordingTime: true,
         autoStopAfterSilence: true,
-        silenceTimeout: 2000,   // 2 секунды тишины = авто-стоп
+        silenceTimeout: 5000,   // 2 секунды тишины = авто-стоп
         minVolumeToConsiderSpeech: 5  // Минимальная громкость для речи
     },
     
