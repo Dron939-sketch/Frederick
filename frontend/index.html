@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Фреди">
     <meta name="theme-color" content="#0a0a0a">
-   meta name="format-detection" content="telephone=no">
+    <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
     
     <title>Фреди | Премиум виртуальный психолог</title>
@@ -60,7 +60,7 @@
         
         body.test-active { overflow: hidden; position: fixed; width: 100%; height: 100%; }
         
-        /* Dashboard Styles - ОРИГИНАЛЬНЫЕ */
+        /* Dashboard Styles */
         .dashboard-container {
             padding: 20px;
             height: 100%;
@@ -644,37 +644,6 @@
                 
                 <div class="menu-divider"></div>
                 
-                <div class="menu-section-title">ПСИХОЛОГИЧЕСКИЕ ИНСТРУМЕНТЫ</div>
-                
-                <div class="chat-item" data-chat="profile" id="profileChatItem">
-                    <div class="chat-avatar">🧠</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Мой портрет</div>
-                        <div class="chat-preview">Ваш психологический профиль</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="chat-item" data-chat="thoughts" id="thoughtsChatItem">
-                    <div class="chat-avatar">💭</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Мысли психолога</div>
-                        <div class="chat-preview">Глубинный анализ</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="chat-item" data-chat="goals" id="goalsChatItem">
-                    <div class="chat-avatar">🎯</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Идеи на выходные</div>
-                        <div class="chat-preview">Персональные рекомендации</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="menu-divider"></div>
-                
                 <div class="menu-section-title">РАСШИРЕННЫЕ ФУНКЦИИ</div>
                 
                 <div class="chat-item" data-chat="confinement">
@@ -951,32 +920,6 @@
             }
         }
 
-        function showFullContentScreen(title, content, contentType) {
-            const container = document.getElementById('screenContainer');
-            
-            let formattedContent = content;
-            if (contentType === 'profile') formattedContent = formatProfileText(content);
-            else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
-            else formattedContent = (content || '').replace(/\n/g, '<br>');
-            
-            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
-            
-            container.innerHTML = `
-                <div class="full-content-page">
-                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                    <div class="content-header">
-                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
-                        <h1>${title}</h1>
-                    </div>
-                    <div class="content-body">
-                        ${formattedContent || 'Данные не найдены'}
-                    </div>
-                </div>
-            `;
-            
-            document.getElementById('backBtn').addEventListener('click', () => renderDashboard());
-        }
-
         function renderDashboard() {
             const container = document.getElementById('screenContainer');
             const userName = localStorage.getItem('fredi_user_name') || 'друг';
@@ -1090,6 +1033,37 @@
             });
         }
 
+        function showFullContentScreen(title, content, contentType) {
+            const container = document.getElementById('screenContainer');
+            
+            let formattedContent = content;
+            if (contentType === 'profile') formattedContent = formatProfileText(content);
+            else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
+            else formattedContent = (content || '').replace(/\n/g, '<br>');
+            
+            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
+            
+            container.innerHTML = `
+                <div class="full-content-page">
+                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                    <div class="content-header">
+                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
+                        <h1>${title}</h1>
+                    </div>
+                    <div class="content-body">
+                        ${formattedContent || 'Данные не найдены'}
+                    </div>
+                </div>
+            `;
+            
+            const backBtn = document.getElementById('backBtn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => {
+                    renderDashboard();
+                });
+            }
+        }
+
         function startTest() {
             if (window.Test && window.Test.start) {
                 window.Test.init(USER_ID);
@@ -1173,9 +1147,7 @@
         }
 
         function setupMenuHandlers() {
-            document.getElementById('profileChatItem')?.addEventListener('click', () => handleProfileClick());
-            document.getElementById('thoughtsChatItem')?.addEventListener('click', () => handleThoughtsClick());
-            document.getElementById('goalsChatItem')?.addEventListener('click', () => handleWeekendClick());
+            // Только расширенные функции в меню
             document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
             
             document.getElementById('chatSearchInput')?.addEventListener('input', (e) => {
