@@ -19,9 +19,21 @@ class UserRepository:
         self.db = db
         self.cache = cache
     
+    def _ensure_int(self, user_id) -> int:
+        """Преобразует user_id в int, если это возможно"""
+        if user_id is None:
+            raise ValueError("user_id cannot be None")
+        if isinstance(user_id, int):
+            return user_id
+        if isinstance(user_id, str) and user_id.isdigit():
+            return int(user_id)
+        raise ValueError(f"Cannot convert {user_id} (type: {type(user_id)}) to int")
+    
     async def save_profile(self, user_id: int, profile: Dict[str, Any]) -> bool:
         """Сохранение профиля пользователя"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             await self.db.execute("""
                 INSERT INTO users (user_id, profile, updated_at, last_activity)
                 VALUES ($1, $2, NOW(), NOW())
@@ -29,11 +41,11 @@ class UserRepository:
                     profile = $2,
                     updated_at = NOW(),
                     last_activity = NOW()
-            """, user_id, json.dumps(profile, default=str))
+            """, user_id_int, json.dumps(profile, default=str))
             
             # Очищаем кэш
             if self.cache:
-                await self.cache.delete(f"profile:{user_id}")
+                await self.cache.delete(f"profile:{user_id_int}")
             
             return True
             
@@ -43,17 +55,19 @@ class UserRepository:
     
     async def get_profile(self, user_id: int) -> Optional[Dict[str, Any]]:
         """Получение профиля пользователя"""
-        # Проверяем кэш
-        cache_key = f"profile:{user_id}"
-        if self.cache:
-            cached = await self.cache.get(cache_key)
-            if cached:
-                return cached
-        
         try:
+            user_id_int = self._ensure_int(user_id)
+            
+            # Проверяем кэш
+            cache_key = f"profile:{user_id_int}"
+            if self.cache:
+                cached = await self.cache.get(cache_key)
+                if cached:
+                    return cached
+            
             row = await self.db.fetchrow("""
                 SELECT profile FROM users WHERE user_id = $1
-            """, user_id)
+            """, user_id_int)
             
             if row and row['profile']:
                 profile = row['profile'] if isinstance(row['profile'], dict) else json.loads(row['profile'])
@@ -70,38 +84,28 @@ class UserRepository:
             logger.error(f"Error getting profile for user {user_id}: {e}")
             return None
     
-    # ============================================
-    # ОБНОВЛЕНИЕ ОДНОГО ПОЛЯ ПРОФИЛЯ (ДОБАВЛЯЕМ!)
-    # ============================================
-    
     async def update_profile_field(self, user_id: int, field: str, value: Any) -> bool:
         """
         Обновляет одно поле в профиле пользователя
-        
-        Args:
-            user_id: ID пользователя
-            field: имя поля (например, 'ai_generated_profile', 'profile_generating')
-            value: значение (строка, число, словарь, список)
-        
-        Returns:
-            True если успешно, False если ошибка
         """
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             # Получаем текущий профиль
-            current_profile = await self.get_profile(user_id) or {}
+            current_profile = await self.get_profile(user_id_int) or {}
             
             # Обновляем поле
             current_profile[field] = value
             
             # Сохраняем обновлённый профиль
-            return await self.save_profile(user_id, current_profile)
+            return await self.save_profile(user_id_int, current_profile)
             
         except Exception as e:
             logger.error(f"Error updating profile field '{field}' for user {user_id}: {e}")
             return False
     
     # ============================================
-    # СОХРАНЕНИЕ РЕЗУЛЬТАТОВ ТЕСТА
+    # ОСТАЛЬНЫЕ МЕТОДЫ (с добавленным преобразованием типов)
     # ============================================
     
     async def save_test_results(
@@ -116,24 +120,10 @@ class UserRepository:
         behavioral_levels: Dict = None,
         confinement_model: Dict = None
     ) -> Optional[int]:
-        """
-        Сохраняет результаты теста в таблицу test_results
-        
-        Args:
-            user_id: ID пользователя
-            test_type: тип теста (full_test, quick_test и т.д.)
-            results: полные результаты теста (JSON)
-            profile_code: код профиля (например, СБ-4_ТФ-4_УБ-4_ЧВ-4)
-            perception_type: тип восприятия
-            thinking_level: уровень мышления (1-9)
-            vectors: баллы по векторам
-            behavioral_levels: поведенческие уровни
-            confinement_model: модель ограничений
-        
-        Returns:
-            ID записи в test_results или None при ошибке
-        """
+        """Сохраняет результаты теста в таблицу test_results"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             result_id = await self.db.fetchval("""
                 INSERT INTO test_results (
                     user_id, test_type, results, profile_code, 
@@ -142,7 +132,7 @@ class UserRepository:
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
                 RETURNING id
             """, 
-                user_id, 
+                user_id_int, 
                 test_type, 
                 json.dumps(results, default=str), 
                 profile_code,
@@ -161,17 +151,10 @@ class UserRepository:
             return None
     
     async def get_test_results(self, user_id: int, limit: int = 5) -> List[Dict]:
-        """
-        Получает результаты тестов пользователя
-        
-        Args:
-            user_id: ID пользователя
-            limit: максимальное количество результатов
-        
-        Returns:
-            Список результатов тестов
-        """
+        """Получает результаты тестов пользователя"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             rows = await self.db.fetch("""
                 SELECT id, test_type, results, profile_code, 
                        perception_type, thinking_level, created_at
@@ -179,7 +162,7 @@ class UserRepository:
                 WHERE user_id = $1
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, user_id, limit)
+            """, user_id_int, limit)
             
             results = []
             for row in rows:
@@ -199,32 +182,26 @@ class UserRepository:
             logger.error(f"Error getting test results: {e}")
             return []
     
-    # ============================================
-    # СООБЩЕНИЯ
-    # ============================================
-    
     async def save_message(self, user_id: int, role: str, content: str, metadata: Dict = None) -> bool:
         """Сохранение сообщения"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             await self.db.execute("""
                 INSERT INTO messages (user_id, role, content, metadata, created_at)
                 VALUES ($1, $2, $3, $4, NOW())
-            """, user_id, role, content, json.dumps(metadata or {}))
+            """, user_id_int, role, content, json.dumps(metadata or {}))
             
             # Обновляем активность
             await self.db.execute("""
                 UPDATE users SET last_activity = NOW() WHERE user_id = $1
-            """, user_id)
+            """, user_id_int)
             
             return True
             
         except Exception as e:
             logger.error(f"Error saving message: {e}")
             return False
-    
-    # ============================================
-    # МЫСЛИ ПСИХОЛОГА
-    # ============================================
     
     async def save_psychologist_thought(
         self, 
@@ -233,25 +210,16 @@ class UserRepository:
         test_result_id: int = None,
         thought_type: str = 'psychologist_thought'
     ) -> Optional[int]:
-        """
-        Сохранение мысли психолога
-        
-        Args:
-            user_id: ID пользователя
-            thought: текст мысли
-            test_result_id: ID результата теста (опционально)
-            thought_type: тип мысли (psychologist_thought, profile_description, anchor)
-        
-        Returns:
-            ID записи или None при ошибке
-        """
+        """Сохранение мысли психолога"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             thought_id = await self.db.fetchval("""
                 INSERT INTO psychologist_thoughts (
                     user_id, test_result_id, thought_type, thought_text, thought_summary
                 ) VALUES ($1, $2, $3, $4, $5)
                 RETURNING id
-            """, user_id, test_result_id, thought_type, thought, thought[:200])
+            """, user_id_int, test_result_id, thought_type, thought, thought[:200])
             
             logger.info(f"✅ Psychologist thought saved for user {user_id}, id={thought_id}")
             return thought_id
@@ -261,23 +229,16 @@ class UserRepository:
             return None
     
     async def get_psychologist_thought(self, user_id: int, thought_type: str = 'psychologist_thought') -> Optional[str]:
-        """
-        Получение последней мысли психолога
-        
-        Args:
-            user_id: ID пользователя
-            thought_type: тип мысли (psychologist_thought, profile_description)
-        
-        Returns:
-            Текст мысли или None
-        """
+        """Получение последней мысли психолога"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             row = await self.db.fetchrow("""
                 SELECT thought_text FROM psychologist_thoughts
                 WHERE user_id = $1 AND thought_type = $2 AND is_active = TRUE
                 ORDER BY created_at DESC
                 LIMIT 1
-            """, user_id, thought_type)
+            """, user_id_int, thought_type)
             
             return row['thought_text'] if row else None
             
@@ -286,24 +247,17 @@ class UserRepository:
             return None
     
     async def get_all_psychologist_thoughts(self, user_id: int, limit: int = 10) -> List[Dict]:
-        """
-        Получение всех мыслей психолога пользователя
-        
-        Args:
-            user_id: ID пользователя
-            limit: максимальное количество
-        
-        Returns:
-            Список мыслей
-        """
+        """Получение всех мыслей психолога пользователя"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             rows = await self.db.fetch("""
                 SELECT id, thought_type, thought_text, thought_summary, created_at
                 FROM psychologist_thoughts
                 WHERE user_id = $1 AND is_active = TRUE
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, user_id, limit)
+            """, user_id_int, limit)
             
             thoughts = []
             for row in rows:
@@ -321,16 +275,14 @@ class UserRepository:
             logger.error(f"Error getting psychologist thoughts: {e}")
             return []
     
-    # ============================================
-    # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЕМ
-    # ============================================
-    
     async def update_user_activity(self, user_id: int) -> bool:
         """Обновление времени последней активности"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             await self.db.execute("""
                 UPDATE users SET last_activity = NOW() WHERE user_id = $1
-            """, user_id)
+            """, user_id_int)
             return True
         except Exception as e:
             logger.error(f"Error updating user activity: {e}")
@@ -339,9 +291,11 @@ class UserRepository:
     async def user_exists(self, user_id: int) -> bool:
         """Проверка существования пользователя"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             count = await self.db.fetchval("""
                 SELECT COUNT(*) FROM users WHERE user_id = $1
-            """, user_id)
+            """, user_id_int)
             return count > 0
         except Exception as e:
             logger.error(f"Error checking user existence: {e}")
@@ -350,11 +304,13 @@ class UserRepository:
     async def create_user_if_not_exists(self, user_id: int, username: str = None, first_name: str = None) -> bool:
         """Создание пользователя если не существует"""
         try:
+            user_id_int = self._ensure_int(user_id)
+            
             await self.db.execute("""
                 INSERT INTO users (user_id, username, first_name, created_at, last_activity)
                 VALUES ($1, $2, $3, NOW(), NOW())
                 ON CONFLICT (user_id) DO NOTHING
-            """, user_id, username, first_name)
+            """, user_id_int, username, first_name)
             return True
         except Exception as e:
             logger.error(f"Error creating user: {e}")
