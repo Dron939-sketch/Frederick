@@ -207,25 +207,47 @@ class AIService:
             logger.error(f"Streaming error: {e}")
             yield ""
 
-    # ============================================
+       # ============================================
     # ГЕНЕРАЦИЯ AI-ПРОФИЛЯ
     # ============================================
 
     async def generate_ai_profile(self, user_id: int, profile: Dict) -> Optional[str]:
-        """Генерация AI-профиля (психологический портрет)"""
+        """Генерация AI-профиля (психологический портрет) с красивым оформлением"""
         if not self.api_key:
             logger.warning("DEEPSEEK_API_KEY not set, using fallback")
             return self._get_profile_fallback(profile)
         
         system_prompt = """Ты — психолог Фреди. Напиши подробный психологический портрет пользователя.
-Структура портрета:
-1. КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА — основная черта (2-3 предложения)
-2. СИЛЬНЫЕ СТОРОНЫ — что работает (3 пункта)
-3. ЗОНЫ РОСТА — что можно развить (3 пункта)
-4. КАК ЭТО СФОРМИРОВАЛОСЬ — откуда паттерны (1-2 предложения)
-5. ГЛАВНАЯ ЛОВУШКА — что мешает (1-2 предложения)
 
-Используй теплый, поддерживающий тон. Обращайся к пользователю на "ты". НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
+ВАЖНЫЕ ПРАВИЛА ФОРМАТИРОВАНИЯ:
+1. Используй эмодзи перед каждым заголовком: 🔑 💪 🎯 🌱 ⚠️
+2. Заголовки пиши ЗАГЛАВНЫМИ буквами
+3. После каждого заголовка делай перенос строки
+4. Между разными блоками ставь пустую строку
+5. Используй маркированные списки (через •)
+
+СТРУКТУРА ПОРТРЕТА:
+
+🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
+(2-3 предложения)
+
+💪 СИЛЬНЫЕ СТОРОНЫ
+• пункт 1
+• пункт 2
+• пункт 3
+
+🎯 ЗОНЫ РОСТА
+• пункт 1
+• пункт 2
+• пункт 3
+
+🌱 КАК ЭТО СФОРМИРОВАЛОСЬ
+(1-2 предложения)
+
+⚠️ ГЛАВНАЯ ЛОВУШКА
+(1-2 предложения)
+
+Используй теплый, поддерживающий тон. Обращайся к пользователю на "ты"."""
         
         profile_data = profile.get('profile_data', {})
         perception_type = profile.get('perception_type', 'не определен')
@@ -253,12 +275,11 @@ class AIService:
 Глубинные паттерны:
 {self._format_deep_patterns(deep_patterns)}
 
-Напиши психологический портрет пользователя. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
+Напиши психологический портрет пользователя. Следуй правилам форматирования с эмодзи и заголовками.
 """
         
         response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1500)
         if response:
-            response = self._clean_for_voice(response)
             return response
         return self._get_profile_fallback(profile)
 
@@ -310,19 +331,33 @@ class AIService:
             return None
 
     async def generate_psychologist_thought(self, user_id: int, profile: Dict) -> str:
-        """
-        Генерация краткой мысли психолога (1-2 абзаца)
-        """
+        """Генерация мысли психолога с красивым оформлением"""
         if not self.api_key:
             return self._get_thought_fallback(profile)
         
-        system_prompt = """Ты психолог. Напиши одну глубокую, инсайтную мысль о клиенте на основе его профиля.
-Мысль должна:
-- Быть короткой (2-3 предложения)
-- Содержать наблюдение о паттерне
-- Завершаться вопросом или приглашением к размышлению
-- НЕ ИСПОЛЬЗОВАТЬ ЭМОДЗИ
-Пример: Тебе важно, чтобы тебя принимали. Но за этим может стоять страх отвержения. Что будет, если перестать угождать другим?"""
+        system_prompt = """Ты психолог. Напиши глубокую мысль о клиенте.
+
+ПРАВИЛА ФОРМАТИРОВАНИЯ:
+- Используй эмодзи перед заголовками: 🔐 🔄 🚪 📊 💡
+- Заголовки пиши ЗАГЛАВНЫМИ буквами
+- После заголовка делай перенос строки
+
+СТРУКТУРА:
+
+🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ
+(суть паттерна, 1 предложение)
+
+🔄 ПЕТЛЯ
+(как это зацикливается, 1 предложение)
+
+🚪 ТОЧКА ВХОДА
+(что можно изменить, 1 предложение)
+
+📊 ПРОГНОЗ
+(что будет если ничего не менять, 1 предложение)
+
+💡 РЕКОМЕНДАЦИИ
+(что делать, 1 предложение)"""
         
         profile_data = profile.get('profile_data', {})
         scores = profile.get('behavioral_levels', {})
@@ -333,25 +368,17 @@ class AIService:
 Тип восприятия: {profile.get('perception_type', 'не определен')}
 Уровень мышления: {profile.get('thinking_level', 5)}/9
 Самая слабая зона: {weakest.get('name', 'не определена')} (уровень {weakest.get('level', 3)})
-Напиши одну мысль психолога (2-3 предложения). НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
+
+Напиши мысль психолога. Следуй правилам форматирования с эмодзи и заголовками.
 """
         
-        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=300)
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
         if response:
-            response = self._clean_for_voice(response)
             return response
         return self._get_thought_fallback(profile)
 
-    async def generate_profile_interpretation(self, user_id: int, profile: Dict) -> str:
-        """
-        Генерация интерпретации профиля (мысли психолога) — алиас для generate_psychologist_thought
-        """
-        return await self.generate_psychologist_thought(user_id, profile)
-
     async def generate_questions(self, user_id: int, profile: Dict) -> List[str]:
-        """
-        Генерация умных вопросов для размышления
-        """
+        """Генерация умных вопросов для размышления"""
         if not self.api_key:
             return self._get_questions_fallback()
 
