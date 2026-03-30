@@ -5,7 +5,7 @@
 Базовый класс для всех режимов общения (КОУЧ/ПСИХОЛОГ/ТРЕНЕР/BASIC)
 Интегрирован с конфайнтмент-моделью и гипнотическими техниками
 Поддержка потоковой обработки для живого голосового диалога
-ВЕРСИЯ 2.0 — с улучшенным разбиением на предложения и восстановлением пунктуации
+ВЕРСИЯ 2.1 — с совместимостью для voice_service
 """
 
 from abc import ABC, abstractmethod
@@ -93,6 +93,25 @@ class BaseMode(ABC):
             self.weakest_profile = {}
 
         logger.info(f"BaseMode инициализирован для user_id={user_id}, режим={self.name}")
+
+    # ====================== СВОЙСТВА ДЛЯ СОВМЕСТИМОСТИ С voice_service ======================
+    @property
+    def profile_data(self) -> Dict[str, Any]:
+        """Совместимость с voice_service (алиас для profile)"""
+        return self.profile
+
+    @profile_data.setter
+    def profile_data(self, value: Dict[str, Any]):
+        """Сеттер для profile_data"""
+        self.profile = value
+
+    @property
+    def confinement_model_data(self) -> Optional[Dict]:
+        """Возвращает данные конфайнтмент-модели для voice_service"""
+        if self.confinement_model and hasattr(self.confinement_model, 'to_dict'):
+            return self.confinement_model.to_dict()
+        return None
+    # ====================================================================
 
     def _level(self, score: float) -> int:
         """Дробный балл 1..6 → целый уровень 1..6"""
