@@ -432,7 +432,7 @@ async function getUserStatus() {
 
 async function getPsychologistThought() {
     try {
-        const data = await apiCall(`/api/thought?user_id=${CONFIG.USER_ID}`);
+        const data = await apiCall(`/api/psychologist-thought/${CONFIG.USER_ID}`);
         return data.thought;
     } catch (error) {
         return null;
@@ -462,9 +462,10 @@ async function getWeekendIdeas() {
 
 async function getUserProfile() {
     try {
-        const data = await apiCall(`/api/get-profile?user_id=${CONFIG.USER_ID}`);
-        return data.ai_generated_profile || 'Психологический портрет формируется.';
+        const data = await apiCall(`/api/get-profile/${CONFIG.USER_ID}`);
+        return data.profile?.ai_generated_profile || 'Психологический портрет формируется.';
     } catch (error) {
+        console.error('Error getting profile:', error);
         return 'Профиль временно недоступен.';
     }
 }
