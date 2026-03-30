@@ -2489,6 +2489,13 @@ ${interpretation}
         this.addBotMessage(text, true);
         this.sendTestResultsToServer();
     },
+
+goToNextStage() {
+    this.currentStage++;
+    this.currentQuestionIndex = 0;
+    this.sendStageIntro();
+},
+
     
     async sendTestResultsToServer() {
         if (!this.userId) {
