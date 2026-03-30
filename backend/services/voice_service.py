@@ -128,10 +128,6 @@ def normalize_tts_text(text: str) -> str:
     # 2. Убираем спецсимволы
     text = re.sub(r'[#*_`~<>|@$%^&+={}[\]\\;:]', ' ', text)
 
-    # 3. Склеиваем разорванные буквы (два прохода)
-    for _ in range(2):
-        text = re.sub(r'([а-яёА-ЯЁa-zA-Z])\s+([а-яёА-ЯЁa-zA-Z])', r'\1\2', text)
-
     # 5. Нормализуем пробелы
     text = re.sub(r'\s+', ' ', text)
 
