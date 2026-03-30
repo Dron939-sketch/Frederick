@@ -112,9 +112,7 @@ class AIService:
                     logger.info(repr(result[:300]))
                     logger.info("=" * 80)
                     
-                    # Очистка на случай битых ответов
-                    for _ in range(2):
-                        result = re.sub(r'([а-яёА-ЯЁa-zA-Z])\s+([а-яёА-ЯЁa-zA-Z])', r'\1\2', result)
+                    # Очистка текста
                     result = re.sub(r'\s+', ' ', result).strip()
                     
                     logger.info(f"💬 Ответ ИИ после очистки: {len(result)} символов")
