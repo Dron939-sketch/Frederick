@@ -76,41 +76,70 @@ class AIService:
         if not self.api_key:
             logger.warning("DEEPSEEK_API_KEY not set")
             return None
+        
+        logger.info(f"📝 Промпт для DeepSeek: {len(prompt)} символов")
+        
         try:
             session = await self._get_session()
+            
+            request_body = {
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            logger.info(f"📝 Промпт (первые 200 символов): {prompt[:200]}...")
+            
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 },
-                json={
-                    "model": "deepseek-v3.1-terminus",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens
-                },
+                json=request_body,
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
+                
+                logger.info(f"📡 DeepSeek ответ: статус {response.status}")
+                
                 if response.status == 200:
                     data = await response.json()
                     result = data['choices'][0]['message']['content']
+                    
+                    logger.info("=" * 80)
+                    logger.info("🔴 RAW RESPONSE FROM DEEPSEEK (first 300 chars):")
+                    logger.info(repr(result[:300]))
+                    logger.info("=" * 80)
                     
                     # Очистка на случай битых ответов
                     for _ in range(2):
                         result = re.sub(r'([а-яёА-ЯЁa-zA-Z])\s+([а-яёА-ЯЁa-zA-Z])', r'\1\2', result)
                     result = re.sub(r'\s+', ' ', result).strip()
                     
-                    logger.info(f"💬 Ответ ИИ: {len(result)} символов")
+                    logger.info(f"💬 Ответ ИИ после очистки: {len(result)} символов")
                     return result
-                else:
-                    logger.error(f"DeepSeek error: {response.status}")
+                    
+                elif response.status == 400:
+                    error_text = await response.text()
+                    logger.error(f"❌ DeepSeek 400 error!")
+                    logger.error(f"   Response body: {error_text}")
+                    logger.error(f"   Request body (first 500 chars): {json.dumps(request_body, ensure_ascii=False)[:500]}")
                     return None
+                    
+                elif response.status == 401:
+                    logger.error("❌ DeepSeek 401 error: Invalid API key")
+                    return None
+                    
+                else:
+                    logger.error(f"❌ DeepSeek error: {response.status}")
+                    return None
+                    
         except asyncio.TimeoutError:
-            logger.error("DeepSeek timeout")
+            logger.error("❌ DeepSeek timeout")
             return None
         except Exception as e:
-            logger.error(f"DeepSeek error: {e}")
+            logger.error(f"❌ DeepSeek error: {e}")
             return None
 
     async def _simple_call_streaming(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> AsyncGenerator[str, None]:
@@ -124,7 +153,7 @@ class AIService:
             "Content-Type": "application/json"
         }
         data = {
-            "model": "deepseek-v3.1-terminus",
+            "model": "deepseek-chat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -264,7 +293,7 @@ class AIService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-v3.1-terminus",
+                    "model": "deepseek-chat",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -317,7 +346,7 @@ class AIService:
             "Content-Type": "application/json"
         }
         data = {
-            "model": "deepseek-v3.1-terminus",
+            "model": "deepseek-chat",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -603,7 +632,7 @@ class AIService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-v3.1-terminus",
+                    "model": "deepseek-chat",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
