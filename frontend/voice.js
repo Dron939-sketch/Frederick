@@ -120,6 +120,9 @@ const VoiceConfig = {
     // Настройки API
     apiBaseUrl: 'https://fredi-backend-flz2.onrender.com',
     
+    // Использовать WebSocket (если доступен)
+    useWebSocket: true,
+    
     // Настройки записи
     recording: {
         sampleRate: 16000,      // 16kHz - оптимально для распознавания
@@ -177,7 +180,7 @@ const VoiceConfig = {
 };
 
 // ============================================
-// VoiceWebSocket С ПОДДЕРЖКОЙ НАСТРОЕК
+// VoiceWebSocket С ПОДДЕРЖКОЙ WEBSOCKET И HTTP FALLBACK
 // ============================================
 
 class VoiceWebSocket {
@@ -187,6 +190,8 @@ class VoiceWebSocket {
         this.isConnected = false;
         this.isAISpeaking = false;
         this.currentMode = 'psychologist';
+        this.useWebSocket = false;
+        this.ws = null;
         
         // Колбэки
         this.onTranscript = null;
@@ -194,6 +199,7 @@ class VoiceWebSocket {
         this.onStatusChange = null;
         this.onError = null;
         this.onThinking = null;
+        this.onWeather = null;
         
         // HTTP клиент
         this.apiBaseUrl = this.config.apiBaseUrl;
@@ -204,10 +210,142 @@ class VoiceWebSocket {
     }
     
     async connect() {
-        console.log('📡 HTTP mode active (WebSocket disabled)');
+        // Пробуем WebSocket сначала
+        if (this.config.useWebSocket && window.WebSocket) {
+            try {
+                const wsUrl = `wss://${new URL(this.apiBaseUrl).host}/ws/voice/${this.userId}`;
+                console.log(`🔌 Connecting WebSocket: ${wsUrl}`);
+                
+                this.ws = new WebSocket(wsUrl);
+                
+                // Настройка таймаута
+                const connectionTimeout = setTimeout(() => {
+                    if (!this.isConnected) {
+                        console.warn('WebSocket connection timeout, falling back to HTTP');
+                        this.useWebSocket = false;
+                        this.initHTTP();
+                    }
+                }, 5000);
+                
+                this.ws.onopen = () => {
+                    clearTimeout(connectionTimeout);
+                    console.log('✅ WebSocket connected');
+                    this.isConnected = true;
+                    this.useWebSocket = true;
+                    this.updateStatus('connected');
+                    
+                    // Отправляем приветствие
+                    this.ws.send(JSON.stringify({
+                        type: 'init',
+                        mode: this.currentMode,
+                        timestamp: Date.now()
+                    }));
+                };
+                
+                this.ws.onmessage = (event) => {
+                    this.handleWebSocketMessage(event.data);
+                };
+                
+                this.ws.onerror = (error) => {
+                    console.warn('WebSocket error:', error);
+                    if (!this.useWebSocket) return;
+                    this.useWebSocket = false;
+                    this.initHTTP();
+                };
+                
+                this.ws.onclose = () => {
+                    console.log('WebSocket closed');
+                    if (this.useWebSocket) {
+                        this.useWebSocket = false;
+                        this.initHTTP();
+                    }
+                };
+                
+                // Ждём подключения
+                await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error('WebSocket timeout')), 5000);
+                    this.ws.onopen = () => {
+                        clearTimeout(timeout);
+                        resolve();
+                    };
+                    this.ws.onerror = () => reject(new Error('WebSocket failed'));
+                });
+                
+                return true;
+                
+            } catch (error) {
+                console.warn('WebSocket failed:', error);
+                this.useWebSocket = false;
+            }
+        }
+        
+        // Fallback на HTTP
+        return this.initHTTP();
+    }
+    
+    initHTTP() {
+        console.log('📡 HTTP mode active (fallback)');
         this.isConnected = true;
+        this.useWebSocket = false;
         this.updateStatus('connected');
         return true;
+    }
+    
+    handleWebSocketMessage(data) {
+        try {
+            const message = JSON.parse(data);
+            
+            switch(message.type) {
+                case 'text':
+                    // Обработка текстовых сообщений
+                    if (message.data) {
+                        if (message.data.includes('Вы:') && this.onTranscript) {
+                            const text = message.data.replace('🎤 Вы: ', '');
+                            this.onTranscript(text);
+                        } else if (message.data.includes('Фреди:') && this.onAIResponse) {
+                            const text = message.data.replace('🧠 Фреди: ', '');
+                            this.onAIResponse(text);
+                        }
+                    }
+                    break;
+                    
+                case 'audio':
+                    // Воспроизведение аудио
+                    if (message.data) {
+                        this.playAudioResponse(message.data);
+                    }
+                    break;
+                    
+                case 'status':
+                    this.updateStatus(message.status);
+                    break;
+                    
+                case 'error':
+                    if (this.onError) {
+                        this.onError(message.error);
+                    }
+                    break;
+                    
+                case 'ping':
+                    // Ответ на ping
+                    if (this.ws && this.useWebSocket) {
+                        this.ws.send(JSON.stringify({
+                            type: 'pong',
+                            timestamp: message.timestamp
+                        }));
+                    }
+                    break;
+                    
+                case 'weather':
+                    if (this.onWeather && message.data) {
+                        this.onWeather(message.data);
+                    }
+                    break;
+            }
+            
+        } catch (error) {
+            console.error('WebSocket message error:', error);
+        }
     }
     
     updateStatus(status) {
@@ -252,6 +390,45 @@ class VoiceWebSocket {
             return false;
         }
         
+        // Если используем WebSocket — отправляем через него
+        if (this.useWebSocket && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            return this.sendAudioViaWebSocket(audioBlob);
+        }
+        
+        // Иначе через HTTP
+        return this.sendAudioViaHTTP(audioBlob);
+    }
+    
+    async sendAudioViaWebSocket(audioBlob) {
+        return new Promise((resolve) => {
+            try {
+                // Конвертируем Blob в base64
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64Data = reader.result.split(',')[1];
+                    
+                    this.ws.send(JSON.stringify({
+                        type: 'audio_chunk',
+                        data: base64Data,
+                        format: this.config.recording.format,
+                        sample_rate: this.config.recording.sampleRate,
+                        is_final: true,
+                        timestamp: Date.now()
+                    }));
+                    
+                    this.updateStatus('processing');
+                    resolve(true);
+                };
+                reader.readAsDataURL(audioBlob);
+                
+            } catch (error) {
+                console.error('WebSocket audio send error:', error);
+                resolve(this.sendAudioViaHTTP(audioBlob));
+            }
+        });
+    }
+    
+    async sendAudioViaHTTP(audioBlob) {
         // Создаем FormData
         const formData = new FormData();
         formData.append('user_id', this.userId);
@@ -303,7 +480,9 @@ class VoiceWebSocket {
             }
             
             if (result.success) {
-                console.log('✅ Распознано:', result.recognized_text);
+                if (this.config.debug) {
+                    console.log('✅ Распознано:', result.recognized_text);
+                }
                 
                 // Отображаем распознанный текст
                 if (this.onTranscript && result.recognized_text) {
@@ -411,7 +590,70 @@ class VoiceWebSocket {
         });
     }
     
+    // ========== ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ==========
+    
+    async getWeather() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/weather/${this.userId}`);
+            const data = await response.json();
+            
+            if (data.success && data.weather) {
+                if (this.onWeather) {
+                    this.onWeather(data.weather);
+                }
+                return data.weather;
+            }
+            return null;
+        } catch (error) {
+            console.error('Weather fetch error:', error);
+            return null;
+        }
+    }
+    
+    async getWeatherByCity(city) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/weather/by-city?city=${encodeURIComponent(city)}`);
+            const data = await response.json();
+            
+            if (data.success && data.weather) {
+                return data.weather;
+            }
+            return null;
+        } catch (error) {
+            console.error('Weather fetch error:', error);
+            return null;
+        }
+    }
+    
+    async setUserCity(city) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/weather/set-city`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    user_id: this.userId,
+                    city: city
+                })
+            });
+            
+            const data = await response.json();
+            return data.success;
+        } catch (error) {
+            console.error('Set city error:', error);
+            return false;
+        }
+    }
+    
     interrupt() {
+        if (this.ws && this.useWebSocket && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'interrupt',
+                timestamp: Date.now()
+            }));
+        }
+        
         const audioElements = document.querySelectorAll('audio');
         audioElements.forEach(audio => {
             audio.pause();
@@ -423,8 +665,12 @@ class VoiceWebSocket {
     }
     
     disconnect() {
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
         this.isConnected = false;
-        console.log('🔌 HTTP mode disconnected');
+        console.log('🔌 Disconnected');
     }
 }
 
@@ -784,6 +1030,7 @@ class VoiceManager {
         this.onVolumeChange = null;
         this.onThinking = null;
         this.onSpeechDetected = null;
+        this.onWeather = null;
         
         // Инициализация
         this.init();
@@ -849,12 +1096,12 @@ class VoiceManager {
             }
         };
         
-        // Инициализируем HTTP клиент
-        this.initHTTP();
+        // Инициализируем WebSocket/HTTP клиент
+        this.initWebSocket();
     }
     
-    initHTTP() {
-        console.log('📡 HTTP mode active (stable)');
+    async initWebSocket() {
+        console.log('🎤 Initializing voice service...');
         this.websocket = new VoiceWebSocket(this.userId, this.config);
         this.websocket.currentMode = this.currentMode;
         
@@ -891,7 +1138,13 @@ class VoiceManager {
             }
         };
         
-        this.websocket.connect();
+        this.websocket.onWeather = (weather) => {
+            if (this.onWeather) {
+                this.onWeather(weather);
+            }
+        };
+        
+        await this.websocket.connect();
     }
     
     async sendAudio(audioBlob) {
@@ -938,6 +1191,22 @@ class VoiceManager {
             return null;
         }
     }
+    
+    // ========== МЕТОДЫ ПОГОДЫ ==========
+    
+    async getWeather() {
+        return this.websocket.getWeather();
+    }
+    
+    async getWeatherByCity(city) {
+        return this.websocket.getWeatherByCity(city);
+    }
+    
+    async setUserCity(city) {
+        return this.websocket.setUserCity(city);
+    }
+    
+    // ========== УПРАВЛЕНИЕ ЗАПИСЬЮ ==========
     
     startRecording() {
         if (this.isAISpeaking) {
