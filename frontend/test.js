@@ -1,6 +1,6 @@
 // ============================================
 // ПОЛНЫЙ ТЕСТ ИЗ 5 ЭТАПОВ
-// Версия 4.4 - ИСПРАВЛЕННЫЕ API ВЫЗОВЫ + ПОЛНЫЙ URL
+// Версия 4.5 - МОБИЛЬНАЯ ОПТИМИЗАЦИЯ + ИСПРАВЛЕННЫЕ ПРОБЛЕМЫ С ВЫСОТОЙ
 // ============================================
 
 // ============================================
@@ -53,7 +53,7 @@ const Test = {
     psychologistThought: null,
     
     // ============================================
-    // СТРУКТУРА ЭТАПОВ (разделено на краткое и детальное описание)
+    // СТРУКТУРА ЭТАПОВ
     // ============================================
     stages: [
         { 
@@ -849,6 +849,69 @@ const Test = {
     ],
     
     // ============================================
+    // МОБИЛЬНАЯ ОПТИМИЗАЦИЯ
+    // ============================================
+    
+    isMobile() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    },
+    
+    optimizeMobileView() {
+        if (!this.isMobile()) return;
+        
+        const container = document.getElementById('testChatContainer');
+        if (!container) return;
+        
+        // 1. Добавляем meta viewport если нет
+        let viewport = document.querySelector('meta[name="viewport"]');
+        if (!viewport) {
+            viewport = document.createElement('meta');
+            viewport.name = 'viewport';
+            document.head.appendChild(viewport);
+        }
+        viewport.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no';
+        
+        // 2. Фиксируем body для предотвращения скролла
+        document.body.style.overflow = 'hidden';
+        document.body.style.position = 'fixed';
+        document.body.style.top = '0';
+        document.body.style.left = '0';
+        document.body.style.right = '0';
+        document.body.style.bottom = '0';
+        
+        // 3. Используем visualViewport для динамической высоты
+        const updateHeight = () => {
+            const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+            container.style.height = `${height}px`;
+            container.style.minHeight = `${height}px`;
+        };
+        
+        updateHeight();
+        
+        // 4. Слушаем изменения видимой области
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', updateHeight);
+            window.visualViewport.addEventListener('scroll', updateHeight);
+        }
+        
+        // 5. Принудительный скролл для Android
+        setTimeout(() => {
+            window.scrollTo(0, 1);
+        }, 100);
+        
+        // 6. Блокируем скролл body, разрешаем только внутри чата
+        container.addEventListener('touchmove', (e) => {
+            const messages = document.getElementById('testChatMessages');
+            if (messages && messages.contains(e.target)) {
+                return; // разрешаем скролл внутри чата
+            }
+            e.preventDefault();
+        }, { passive: false });
+        
+        console.log('📱 Мобильная оптимизация применена');
+    },
+    
+    // ============================================
     // РАСЧЕТНЫЕ ФУНКЦИИ
     // ============================================
     
@@ -1339,6 +1402,12 @@ const Test = {
                 </div>
             </div>
         `;
+        
+        // Мобильная оптимизация
+        setTimeout(() => {
+            this.optimizeMobileView();
+        }, 100);
+        
         this.scrollToBottom();
     },
     
@@ -1390,7 +1459,7 @@ const Test = {
     },
     
     // ============================================
-    // ИНФОРМАЦИЯ О БОТЕ (кто такой Фреди)
+    // ИНФОРМАЦИЯ О БОТЕ
     // ============================================
     
     showBotInfo() {
@@ -1431,7 +1500,7 @@ const Test = {
     },
     
     // ============================================
-    // ЧТО ДАЕТ ТЕСТ (преимущества)
+    // ЧТО ДАЕТ ТЕСТ
     // ============================================
     
     showTestBenefits() {
@@ -1532,10 +1601,8 @@ ${this.context.weather ? `🌡️ Погода: ${this.context.weather.icon} ${t
         
         this.addBotMessage(`📍 Город сохранен: ${city}`, true);
         
-        // Сохраняем контекст на сервер
         await this.saveContextToServer();
         
-        // Получаем погоду с сервера
         const weather = await this.fetchWeatherFromServer();
         if (weather) {
             this.context.weather = weather;
@@ -1872,6 +1939,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         input.style.border = '1px solid rgba(255,107,59,0.3)';
         input.style.background = 'rgba(255,255,255,0.1)';
         input.style.color = 'white';
+        input.style.fontSize = '16px';
         
         const button = document.createElement('button');
         button.textContent = '📤 ОТПРАВИТЬ';
@@ -2372,7 +2440,6 @@ ${q.text}
             }
         }));
         
-        // Добавляем кнопку "Пропустить"
         options.push({
             text: "⏭ ПРОПУСТИТЬ",
             callback: () => {
@@ -2503,10 +2570,7 @@ ${interpretation}
             
             if (data.success) {
                 console.log('✅ Результаты теста успешно отправлены на сервер');
-                
-                // Получаем AI-сгенерированный профиль
                 await this.fetchAIGeneratedProfile();
-                
             } else {
                 console.error('❌ Ошибка при отправке:', data.error);
                 this.showFinalProfileButtons();
@@ -2530,7 +2594,6 @@ ${interpretation}
                 console.log('✅ AI-профиль получен');
             } else if (data.status === 'generating') {
                 console.log('⏳ AI-профиль генерируется, ждём...');
-                // Повторяем запрос через 3 секунды
                 setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
                 return;
             }
@@ -2782,4 +2845,4 @@ ${formattedThought}
 // Глобальный экспорт
 window.Test = Test;
 
-console.log('✅ Модуль теста загружен (версия 4.4 - исправленные API вызовы, полный URL)');
+console.log('✅ Модуль теста загружен (версия 4.5 - мобильная оптимизация)');
