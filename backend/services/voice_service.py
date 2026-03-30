@@ -106,33 +106,32 @@ BENDER_SUFFIXES = [
 
 def add_bender_flavor(text: str) -> str:
     """
-    Добавляет фирменные бендеровские вставки в текст
+    Очень мягкая бендеровская обработка — минимум вмешательства
     """
-    original_text = text
+    if not text or not text.strip():
+        return text
 
-    if not any(p.strip() in text for p in BENDER_PREFIXES):
+    original = text.strip()
+
+    # Добавляем префикс ТОЛЬКО если его нет
+    if not any(p.strip().lower() in original.lower()[:30] for p in BENDER_PREFIXES):
         prefix = random.choice(BENDER_PREFIXES)
-        text = prefix + text[0].lower() + text[1:] if text else prefix
+        # Добавляем префикс с пробелом, не ломая регистр
+        text = prefix + original
+    else:
+        text = original
 
-    if not any(emoji in text for emoji in BENDER_SUFFIXES):
-        if len(text) < 500:
-            suffix = random.choice(BENDER_SUFFIXES)
-            text = text.rstrip() + suffix
+    # Убираем ВСЕ эмодзи полностью
+    text = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251]', '', text)
 
-    text = text.replace("...", " <break time='400ms'/> ")
-    text = text.replace("!", "! <break time='200ms'/> ")
-    text = text.replace("?", "? <break time='250ms'/> ")
+    # Убираем возможные SSML-теги
+    text = re.sub(r'<break[^>]*>', ' ', text)
 
-    bender_words = ["братец", "сударь", "детка", "комбинатор", "банан"]
-    if not any(word in text.lower() for word in bender_words):
-        if len(text) > 50:
-            address = random.choice(["братец", "сударь", "друг мой"])
-            words = text.split()
-            insert_pos = min(len(words) // 2, 5)
-            words.insert(insert_pos, address + ",")
-            text = " ".join(words)
+    # Финальная супер-очистка пробелов
+    text = re.sub(r'([.,!?;:-—])(\S)', r'\1 \2', text)   # пробел после знака
+    text = re.sub(r'\s+', ' ', text).strip()
 
-    logger.debug(f"✨ Бендеровская обработка текста: {len(original_text)} -> {len(text)} символов")
+    logger.debug(f"✨ Бендер flavor: '{original[:70]}...' → '{text[:90]}...'")
     return text
 
 
@@ -346,30 +345,46 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
 # TTS - Text-to-Speech (Yandex) с поддержкой Бендера
 # ============================================
 async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
-    logger.info(f"🎤 Синтез речи (Yandex TTS), режим: {mode}, текст: {text[:100]}...")
+    logger.info(f"🎤 Синтез речи (Yandex TTS), режим: {mode}, текст: {text[:150]}...")
 
     if not YANDEX_API_KEY:
         logger.error("❌ YANDEX_API_KEY не настроен")
-        logger.info("💡 Добавьте YANDEX_API_KEY в переменные окружения Render")
+        return None
+
+    if not text or not text.strip():
+        logger.warning("⚠️ Пустой текст для TTS")
         return None
 
     settings = VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"])
     voice = VOICES.get(mode, VOICES["default"])
 
-    if mode == "basic" and settings.get("add_flavor", False):
-        original_text = text
+    # === ОБРАБОТКА ДЛЯ БЕНДЕРА ===
+    if mode == "basic":
         text = add_bender_flavor(text)
-        logger.debug(f"✨ Бендеровская обработка: '{original_text[:50]}...' -> '{text[:80]}...'")
+    else:
+        # Для остальных режимов просто убираем эмодзи
+        text = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF]+', '', text)
+
+    # === ФИНАЛЬНАЯ ОЧИСТКА ПЕРЕД YANDEX TTS (самая важная часть) ===
+    # Принудительно вставляем пробелы после всех знаков препинания
+    text = re.sub(r'([.,!?;:-—])(\S)', r'\1 \2', text)
+    text = re.sub(r'([.,!?;:-—])\s*', r'\1 ', text)
+
+    # Убираем повторяющиеся тире и символы
+    text = re.sub(r'—+', ' — ', text)
+    text = re.sub(r'-+', ' - ', text)
+    text = re.sub(r'([*`_#@~^!]){2,}', ' ', text)
+
+    # Нормализация пробелов
+    text = re.sub(r'\s+', ' ', text).strip()
 
     if len(text) > 4500:
         text = text[:4500] + "..."
-        logger.warning(f"⚠️ Текст обрезан до 4500 символов")
 
     headers = {
         "Authorization": f"Api-Key {YANDEX_API_KEY}",
         "Content-Type": "application/x-www-form-urlencoded"
     }
-
     data = {
         "text": text,
         "lang": "ru-RU",
@@ -381,25 +396,19 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
 
     try:
         client = await get_http_client()
-
         response = await client.post(
             YANDEX_TTS_API_URL,
             headers=headers,
             data=data,
             timeout=30.0
         )
-
         if response.status_code == 200:
             audio_data = response.content
-            logger.info(f"✅ Речь синтезирована: {len(audio_data)} байт, формат: MP3, голос: {voice}")
+            logger.info(f"✅ Речь синтезирована: {len(audio_data)} байт, голос: {voice}")
             return audio_data
         else:
             logger.error(f"❌ Yandex TTS error {response.status_code}: {response.text[:200]}")
             return None
-
-    except httpx.TimeoutException:
-        logger.error("❌ Таймаут Yandex TTS")
-        return None
     except Exception as e:
         logger.error(f"❌ Ошибка синтеза речи: {e}")
         logger.error(traceback.format_exc())
