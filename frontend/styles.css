@@ -1,6 +1,6 @@
 * {
     margin: 0;
-    padding: 0;
+    padding:  
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
 }
@@ -37,10 +37,19 @@ body {
     color: var(--text-primary);
     overflow: hidden;
     height: 100vh;
+    height: 100dvh;  /* 👈 ДОБАВЛЕНО: динамическая высота */
     width: 100%;
     position: fixed;
     top: 0;
     left: 0;
+}
+
+/* 👇 ДОБАВЛЕНО: поддержка динамической высоты для мобильных */
+@supports (height: 100dvh) {
+    body, .app, .chat-panel, .screen-container, .test-chat-container {
+        height: 100dvh !important;
+        min-height: 100dvh !important;
+    }
 }
 
 body::before {
@@ -137,6 +146,13 @@ body::after {
     padding: 8px;
 }
 
+/* 👇 ДОБАВЛЕНО: безопасная зона для iPhone с notch */
+@supports (padding: max(0px)) {
+    .chats-list {
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+}
+
 /* Разделитель в меню */
 .menu-divider {
     height: 1px;
@@ -164,6 +180,8 @@ body::after {
     transition: all 0.2s;
     gap: 12px;
     border: 1px solid transparent;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО: минимальная высота для тапа */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО: улучшение тапа */
 }
 
 .chat-item:hover {
@@ -264,6 +282,7 @@ body::after {
     flex-direction: column;
     overflow: hidden;
     background: rgba(10, 10, 10, 0.5);
+    height: 100%;  /* 👈 ДОБАВЛЕНО */
 }
 
 .chat-header {
@@ -292,6 +311,8 @@ body::after {
     width: 40px;
     height: 40px;
     border-radius: 50%;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 @media (max-width: 768px) {
@@ -345,6 +366,13 @@ body::after {
     -webkit-overflow-scrolling: touch;
 }
 
+/* 👇 ДОБАВЛЕНО: безопасная зона для iPhone */
+@supports (padding: max(0px)) {
+    .screen-container {
+        padding-bottom: max(20px, env(safe-area-inset-bottom));
+    }
+}
+
 /* ========== ОБЩИЕ СТИЛИ ДЛЯ СТРАНИЦ ========== */
 .full-content-page {
     max-width: 800px;
@@ -379,6 +407,8 @@ body::after {
     margin-bottom: 20px;
     transition: all 0.2s;
     font-size: 14px;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .back-btn:active {
@@ -430,6 +460,8 @@ body::after {
     border: 1px solid rgba(224, 224, 224, 0.1);
     transition: all 0.3s;
     cursor: pointer;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .confinement-element:hover {
@@ -564,6 +596,8 @@ body::after {
     margin: 8px 0;
     cursor: pointer;
     transition: all 0.2s;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .tale-card:hover {
@@ -582,6 +616,7 @@ body::after {
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
 }
 
 .anchor-phrase {
@@ -625,6 +660,7 @@ body::after {
     color: var(--text-primary);
     margin-bottom: 12px;
     resize: none;
+    font-size: 16px;  /* 👈 ДОБАВЛЕНО: предотвращает zoom на iOS */
 }
 
 .hypno-topics {
@@ -642,6 +678,8 @@ body::after {
     color: var(--chrome);
     cursor: pointer;
     font-size: 12px;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 /* ========== ВСПОМОГАТЕЛЬНЫЕ КНОПКИ ========== */
@@ -655,6 +693,8 @@ body::after {
     font-size: 14px;
     transition: all 0.2s;
     margin: 8px 0;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .action-btn:active {
@@ -684,6 +724,8 @@ body::after {
     transition: all 0.2s;
     border: 1px solid rgba(224, 224, 224, 0.1);
     text-align: center;
+    min-height: 88px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .module-card:active {
@@ -729,6 +771,11 @@ body::after {
     cursor: pointer;
     transition: all 0.2s;
     border: 1px solid rgba(224, 224, 224, 0.1);
+    min-height: 88px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .quick-action:active {
@@ -758,6 +805,8 @@ body::after {
     cursor: pointer;
     padding: 8px 0;
     color: var(--chrome);
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .expandable-content {
@@ -795,6 +844,8 @@ body::after {
     align-items: center;
     justify-content: center;
     gap: 6px;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .mode-btn.active {
@@ -811,6 +862,13 @@ body::after {
 
 .voice-section {
     margin-bottom: 32px;
+}
+
+/* 👇 ДОБАВЛЕНО: безопасная зона для iPhone */
+@supports (padding: max(0px)) {
+    .voice-section {
+        margin-bottom: max(16px, env(safe-area-inset-bottom));
+    }
 }
 
 .voice-card {
@@ -838,6 +896,7 @@ body::after {
     font-weight: 500;
     touch-action: manipulation;
     user-select: none;
+    min-height: 64px;  /* 👈 ДОБАВЛЕНО */
 }
 
 .voice-record-btn-premium:active {
@@ -929,6 +988,11 @@ body::after {
     cursor: pointer;
     opacity: 0.7;
     font-size: 16px;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
 }
 
 @keyframes slideUp {
@@ -976,6 +1040,14 @@ body::after {
     background: transparent;
 }
 
+/* 👇 ДОБАВЛЕНО: поддержка динамической высоты */
+@supports (height: 100dvh) {
+    .test-chat-container {
+        height: 100dvh !important;
+        min-height: 100dvh !important;
+    }
+}
+
 /* Для планшетов */
 @media (max-width: 1024px) and (min-width: 769px) {
     .test-chat-container {
@@ -1010,6 +1082,13 @@ body::after {
     flex-direction: column;
     gap: 12px;
     scroll-behavior: smooth;
+}
+
+/* 👇 ДОБАВЛЕНО: безопасная зона для iPhone */
+@supports (padding: max(0px)) {
+    .test-chat-messages {
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+    }
 }
 
 .test-chat-placeholder {
@@ -1121,6 +1200,8 @@ body::after {
     transition: all 0.2s ease;
     font-family: inherit;
     backdrop-filter: blur(5px);
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .test-message-button:hover {
@@ -1145,6 +1226,13 @@ body::after {
     border: 1px solid rgba(224, 224, 224, 0.15);
 }
 
+/* 👇 ДОБАВЛЕНО: безопасная зона для iPhone */
+@supports (padding: max(0px)) {
+    .test-message-input {
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+}
+
 .test-message-input input {
     flex: 1;
     padding: 12px 16px;
@@ -1152,9 +1240,10 @@ body::after {
     border: 1px solid rgba(224, 224, 224, 0.2);
     border-radius: 30px;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 16px;  /* 👈 ИЗМЕНЕНО: предотвращает zoom на iOS */
     font-family: inherit;
     outline: none;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
 }
 
 .test-message-input input:focus {
@@ -1175,6 +1264,8 @@ body::after {
     cursor: pointer;
     font-weight: 500;
     transition: all 0.2s;
+    min-height: 44px;  /* 👈 ДОБАВЛЕНО */
+    touch-action: manipulation;  /* 👈 ДОБАВЛЕНО */
 }
 
 .test-message-input button:hover {
@@ -1222,7 +1313,7 @@ body::after {
     
     .test-message-input input {
         padding: 10px 14px;
-        font-size: 13px;
+        font-size: 16px;
     }
     
     .test-message-input button {
