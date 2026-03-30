@@ -55,7 +55,7 @@ class BasicMode(BaseMode):
 - к мужчине: братец, сударь, командор, красавчик
 - нейтрально: друг мой, дорогой товарищ
 
-Отвечай максимум 2 коротких предложения. 
+Отвечай максимум 2 коротких предложения.
 В конце почти всегда вопрос или предложение продолжить разговор.
 Мягко и с юмором подводи к тесту, но не дави."""
 
@@ -64,7 +64,7 @@ class BasicMode(BaseMode):
         name_part = f", {self.user_name}" if self.user_name else ""
         return f"Привет{name_part}, {address}. Я Фреди, великий комбинатор. Чую в тебе что-то интересное. Любовь, деньги, слава или бананы?"
 
-        async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
+    async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
         """Главный метод — должен всегда срабатывать"""
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
@@ -86,7 +86,7 @@ class BasicMode(BaseMode):
         try:
             async for chunk in self.ai_service._simple_call_streaming(
                 prompt=full_prompt,
-                max_tokens=130,          # ещё короче ответы
+                max_tokens=130,
                 temperature=0.92
             ):
                 clean_chunk = self._clean_for_tts(chunk)
@@ -115,24 +115,24 @@ class BasicMode(BaseMode):
 - Говори живо, с иронией, как Остап Бендер.
 - Используй нормальные пробелы после запятых, тире и точек.
 - Обязательно закончи вопросом.
-- Никаких длинных фраз, никакого "арифметика — это конечно сильно" если это не по теме.
-- Реагируй сразу на смысл сказанного."""
+- Реагируй сразу на смысл сказанного.
+- Никаких длинных фраз и философии."""
 
     def _clean_for_tts(self, text: str) -> str:
         """Максимально агрессивная очистка для TTS"""
         if not text:
             return ""
 
-        # 1. Добавляем пробел после всех знаков препинания
-        text = re.sub(r'([.,!?;:-])(\S)', r'\1 \2', text)
-        text = re.sub(r'([.,!?;:-])\s*', r'\1 ', text)
+        # Принудительно вставляем пробел после всех знаков препинания
+        text = re.sub(r'([.,!?;:-—])(\S)', r'\1 \2', text)
+        text = re.sub(r'([.,!?;:-—])\s*', r'\1 ', text)
 
-        # 2. Убираем повторяющиеся символы и тире
+        # Убираем повторяющиеся символы и тире
         text = re.sub(r'([*`_#@~^!]){2,}', ' ', text)
         text = re.sub(r'—\s*—', ' — ', text)
         text = re.sub(r'-\s*-', ' - ', text)
 
-        # 3. Финальная нормализация пробелов
+        # Финальная нормализация
         text = re.sub(r'\s+', ' ', text).strip()
 
         return text
