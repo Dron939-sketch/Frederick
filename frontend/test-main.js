@@ -3,9 +3,6 @@
 // UI, навигация, управление этапами
 // ============================================
 
-// Подключаем модули (в браузере через script tags)
-// В реальном проекте используйте import/export или сборщик
-
 class TestApp {
     constructor() {
         this.core = new TestCore();
@@ -308,7 +305,7 @@ class TestApp {
                 if (field === 'city') {
                     this.askGender();
                 } else if (field === 'age') {
-                    this.showContextComplete();
+                    this.showContextSummary();
                 }
             });
             inputDiv.appendChild(skipButton);
@@ -492,8 +489,7 @@ class TestApp {
         this.addBotMessage(text, true);
         
         this.addMessageWithButtons("", [
-            { text: "🚀 НАЧАТЬ ТЕСТ", callback: () => this.startTest() },
-            { text: "◀️ НАЗАД", callback: () => this.showContextComplete() }
+            { text: "🚀 НАЧАТЬ ТЕСТ", callback: () => this.startTest() }
         ]);
     }
     
@@ -502,6 +498,7 @@ class TestApp {
     // ============================================
     
     startContextCollection() {
+        this.core.context.isComplete = false;
         this.askCity();
     }
     
@@ -512,15 +509,19 @@ class TestApp {
 🏙️ В каком городе вы живете?
 `;
         this.addBotMessage(text, true);
-        this.showTextInput("city", "📍 Напишите город...", true);
+        this.showTextInput("city", "📍 Напишите город...", false);
+    }
+    
+    async setCity(city) {
+        this.core.context.city = city;
+        this.addBotMessage(`📍 Город сохранен: ${city}`, true);
+        
+        this.core.saveContextToServer();
+        this.askGender();
     }
     
     askGender() {
         const text = `
-📍 Город сохранен: ${this.core.context.city}
-
-${this.core.context.weather ? `🌡️ Погода: ${this.core.context.weather.icon} ${this.core.context.weather.description}, ${this.core.context.weather.temp}°C` : ''}
-
 👤 Теперь скажите, ваш пол
 `;
         this.addBotMessage(text, true);
@@ -532,66 +533,69 @@ ${this.core.context.weather ? `🌡️ Погода: ${this.core.context.weather
         ]);
     }
     
-    askAge() {
-        const text = `
-📅 Сколько вам лет?
-`;
-        this.addBotMessage(text, true);
-        this.showTextInput("age", "📅 Напишите число от 1 до 120...", true);
-    }
-    
     setGender(gender) {
         this.core.context.gender = gender;
+        const genderText = gender === 'male' ? 'Мужской' : gender === 'female' ? 'Женский' : 'Другое';
+        this.addBotMessage(`👤 Пол сохранен: ${genderText}`, true);
+        
+        this.core.saveContextToServer();
         this.askAge();
     }
     
     skipGender() {
         this.core.context.gender = "other";
+        this.addBotMessage(`👤 Пол пропущен`, true);
         this.askAge();
     }
     
-    async setCity(city) {
-        this.core.context.city = city;
-        
-        this.addBotMessage(`📍 Город сохранен: ${city}`, true);
-        
-        await this.core.saveContextToServer();
+    askAge() {
+        const text = `
+📅 Сколько вам лет?
+`;
+        this.addBotMessage(text, true);
+        this.showTextInput("age", "📅 Напишите число от 1 до 120...", false);
+    }
+    
+    async setAge(age) {
+        const ageNum = parseInt(age);
+        if (ageNum >= 1 && ageNum <= 120) {
+            this.core.context.age = ageNum;
+            this.addBotMessage(`📅 Возраст сохранен: ${ageNum} лет`, true);
+            
+            await this.core.saveContextToServer();
+            await this.showContextSummary();
+        } else {
+            this.addBotMessage("❌ Возраст должен быть от 1 до 120 лет. Попробуйте еще раз:", true);
+            this.showTextInput("age", "📅 Напишите число от 1 до 120...", false);
+        }
+    }
+    
+    async showContextSummary() {
+        this.addBotMessage("🌤️ Получаю данные о погоде...", true);
         
         const weather = await this.core.fetchWeatherFromServer();
         if (weather) {
             this.core.context.weather = weather;
-            this.addBotMessage(`${weather.icon} Погода: ${weather.description}, ${weather.temp}°C`, true);
         }
         
-        this.askGender();
-    }
-    
-    setAge(age) {
-        const ageNum = parseInt(age);
-        if (ageNum >= 1 && ageNum <= 120) {
-            this.core.context.age = ageNum;
-            this.core.saveContextToServer();
-            this.showContextComplete();
+        const genderMap = { male: 'Мужчина', female: 'Женщина', other: 'Не указан' };
+        const genderText = genderMap[this.core.context.gender] || 'Не указан';
+        
+        let weatherText = '';
+        if (this.core.context.weather) {
+            weatherText = `
+${this.core.context.weather.icon} Погода: ${this.core.context.weather.description}, ${this.core.context.weather.temp}°C`;
         } else {
-            this.addBotMessage("❌ Возраст должен быть от 1 до 120 лет. Попробуйте еще раз:", true);
-            this.showTextInput("age", "📅 Напишите число от 1 до 120...", true);
+            weatherText = `
+🌤️ Погода: данные не получены`;
         }
-    }
-    
-    showContextComplete() {
-        this.core.context.isComplete = true;
-        this.core.saveProgress();
         
-        const genderMap = { male: 'Мужчина', female: 'Женщина', other: 'Другое' };
-        const genderText = genderMap[this.core.context.gender] || 'не указан';
-        
-        const text = `
+        const summaryText = `
 ✅ ОТЛИЧНО! ТЕПЕРЬ Я ЗНАЮ О ВАС
 
 📍 Город: ${this.core.context.city || 'не указан'}
 👤 Пол: ${genderText}
-📅 Возраст: ${this.core.context.age || 'не указан'}
-${this.core.context.weather ? `${this.core.context.weather.icon} Погода: ${this.core.context.weather.description}, ${this.core.context.weather.temp}°C` : ''}
+📅 Возраст: ${this.core.context.age || 'не указан'}${weatherText}
 
 🎯 Теперь я буду учитывать это в наших разговорах!
 
@@ -603,7 +607,10 @@ ${this.core.context.weather ? `${this.core.context.weather.icon} Погода: $
 👇 НАЧИНАЕМ?
 `;
         
-        this.addBotMessage(text, true);
+        this.addBotMessage(summaryText, true);
+        
+        this.core.context.isComplete = true;
+        this.core.saveProgress();
         
         this.addMessageWithButtons("", [
             { text: "🚀 НАЧАТЬ ТЕСТ", callback: () => this.startTest() },
@@ -705,7 +712,6 @@ ${intro.detailedDesc || stage.detailedDesc}
     }
     
     handleAnswer(stageId, q, idx, opt) {
-        // Сохраняем ответ
         this.core.answers.push({
             stage: stageId,
             questionIndex: this.core.currentQuestionIndex,
@@ -721,7 +727,6 @@ ${intro.detailedDesc || stage.detailedDesc}
             target: q.target
         });
         
-        // Передаём в менеджер этапа
         const manager = this.stageManagers[stageId];
         if (manager && manager.handleAnswer) {
             manager.handleAnswer(opt, q);
@@ -803,9 +808,6 @@ ${interpretation}
     }
     
     showStage3Result(result) {
-        const growthManager = this.stageManagers.growth;
-        const growthTip = growthManager.getGrowthTip();
-        
         const text = `
 ✨ РЕЗУЛЬТАТ ЭТАПА 3
 
@@ -836,26 +838,6 @@ ${result.interpretation}
     }
     
     showStage4Result(profile) {
-        const sbDesc = {
-            1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
-            4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
-        }[profile.sbLevel] || "Информация уточняется";
-        
-        const tfDesc = {
-            1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
-            4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
-        }[profile.tfLevel] || "Информация уточняется";
-        
-        const ubDesc = {
-            1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
-            4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
-        }[profile.ubLevel] || "Информация уточняется";
-        
-        const chvDesc = {
-            1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
-            4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
-        }[profile.chvLevel] || "Информация уточняется";
-        
         const growthManager = this.stageManagers.growth;
         const growthTip = growthManager.getGrowthTip();
         
@@ -878,16 +860,6 @@ ${result.interpretation}
 ${attentionDesc}
 
 ${thinkingDesc}
-
-📊 ТВОИ ВЕКТОРЫ:
-
-• Реакция на давление (СБ ${profile.sbLevel}/6): ${sbDesc}
-
-• Отношение к деньгам (ТФ ${profile.tfLevel}/6): ${tfDesc}
-
-• Понимание мира (УБ ${profile.ubLevel}/6): ${ubDesc}
-
-• Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
 
 🎯 Точка роста: ${growthTip}
 
@@ -1010,7 +982,6 @@ ${q.text}
         this.core.clarificationIteration++;
         this.core.saveProgress();
         
-        // Пересчитываем профиль
         this.core.profileData = this.core.calculateFinalProfile();
         this.showStage4Result(this.core.profileData);
     }
@@ -1074,56 +1045,159 @@ ${interpretation}
         this.showFinalProfile();
     }
     
+    // ============================================
+    // ФОРМАТИРОВАНИЕ ПРОФИЛЯ
+    // ============================================
+    
+    getVectorDescription(vector, level) {
+        const descriptions = {
+            sb: {
+                1: "Под давлением замираете, слова не идут",
+                2: "Избегаете конфликтов, уходите от напряжения",
+                3: "Внешне соглашаетесь, внутри кипите",
+                4: "Внешне спокойны, но внутри переживаете",
+                5: "Умеете защищать себя и свои границы",
+                6: "Защищаете себя и можете использовать силу"
+            },
+            tf: {
+                1: "Деньги приходят и уходят как повезёт",
+                2: "Ищете возможности заработать с нуля",
+                3: "Зарабатываете трудом, но не масштабируете",
+                4: "Хорошо зарабатываете, но не инвестируете",
+                5: "Создаёте системы пассивного дохода",
+                6: "Управляете капиталом и инвестируете"
+            },
+            ub: {
+                1: "Стараетесь не думать о сложных вещах",
+                2: "Верите в знаки, судьбу, карму",
+                3: "Доверяете экспертам и авторитетам",
+                4: "Ищете заговоры и скрытые мотивы",
+                5: "Анализируете факты и проверяете информацию",
+                6: "Строите теории и находите закономерности"
+            },
+            chv: {
+                1: "Сильно привязываетесь, тяжело переживаете расставание",
+                2: "Подстраиваетесь под других, теряете себя",
+                3: "Хотите нравиться, нуждаетесь в одобрении",
+                4: "Умеете влиять на людей и убеждать",
+                5: "Строите равные партнёрские отношения",
+                6: "Создаёте сообщества и вдохновляете других"
+            }
+        };
+        
+        return descriptions[vector]?.[level] || "Информация уточняется";
+    }
+    
+    formatProfileHTML(profile, deep, aiProfile = null) {
+        const sbDesc = this.getVectorDescription('sb', profile.sbLevel);
+        const tfDesc = this.getVectorDescription('tf', profile.tfLevel);
+        const ubDesc = this.getVectorDescription('ub', profile.ubLevel);
+        const chvDesc = this.getVectorDescription('chv', profile.chvLevel);
+        
+        let html = `
+            <div style="font-family: inherit; max-width: 100%;">
+                <!-- Заголовок -->
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <div style="font-size: 48px; margin-bottom: 8px;">🧠</div>
+                    <div style="font-size: 22px; font-weight: 700; background: linear-gradient(135deg, #ff6b3b, #ff9f3b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                        ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
+                    </div>
+                    <div style="font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px;">
+                        ID: ${profile.displayName}
+                    </div>
+                </div>
+                
+                <!-- Основные характеристики -->
+                <div style="background: rgba(255,255,255,0.05); border-radius: 20px; padding: 16px; margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+                        <div style="flex: 1; min-width: 100px;">
+                            <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 6px;">🎭 ТИП ВОСПРИЯТИЯ</div>
+                            <div style="font-size: 13px; font-weight: 600;">${profile.perceptionType}</div>
+                        </div>
+                        <div style="flex: 1; min-width: 100px;">
+                            <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 6px;">🧠 УРОВЕНЬ МЫШЛЕНИЯ</div>
+                            <div style="font-size: 13px; font-weight: 600;">${profile.thinkingLevel}/9</div>
+                        </div>
+                        <div style="flex: 1; min-width: 100px;">
+                            <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 6px;">🔗 ГЛУБИННЫЙ ПАТТЕРН</div>
+                            <div style="font-size: 13px; font-weight: 600;">${deep.attachment}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Векторы -->
+                <div style="margin-bottom: 20px;">
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #ff9f3b;">📊 ТВОИ ВЕКТОРЫ</div>
+                    
+                    <div style="background: rgba(255,255,255,0.03); border-radius: 16px; padding: 12px; margin-bottom: 10px; border-left: 3px solid #ff6b3b;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 13px; font-weight: 600;">🛡️ Реакция на давление (СБ)</span>
+                            <span style="font-size: 18px; font-weight: 700; color: #ff6b3b;">${profile.sbLevel}/6</span>
+                        </div>
+                        <div style="font-size: 12px; color: rgba(255,255,255,0.7);">${sbDesc}</div>
+                        <div style="margin-top: 8px; background: rgba(255,255,255,0.1); border-radius: 10px; height: 4px; overflow: hidden;">
+                            <div style="width: ${(profile.sbLevel / 6) * 100}%; background: #ff6b3b; height: 100%; border-radius: 10px;"></div>
+                        </div>
+                    </div>
+                    
+                    <div style="background: rgba(255,255,255,0.03); border-radius: 16px; padding: 12px; margin-bottom: 10px; border-left: 3px solid #ff9f3b;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 13px; font-weight: 600;">💰 Отношение к деньгам (ТФ)</span>
+                            <span style="font-size: 18px; font-weight: 700; color: #ff9f3b;">${profile.tfLevel}/6</span>
+                        </div>
+                        <div style="font-size: 12px; color: rgba(255,255,255,0.7);">${tfDesc}</div>
+                        <div style="margin-top: 8px; background: rgba(255,255,255,0.1); border-radius: 10px; height: 4px; overflow: hidden;">
+                            <div style="width: ${(profile.tfLevel / 6) * 100}%; background: #ff9f3b; height: 100%; border-radius: 10px;"></div>
+                        </div>
+                    </div>
+                    
+                    <div style="background: rgba(255,255,255,0.03); border-radius: 16px; padding: 12px; margin-bottom: 10px; border-left: 3px solid #6c47ff;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 13px; font-weight: 600;">🔍 Понимание мира (УБ)</span>
+                            <span style="font-size: 18px; font-weight: 700; color: #6c47ff;">${profile.ubLevel}/6</span>
+                        </div>
+                        <div style="font-size: 12px; color: rgba(255,255,255,0.7);">${ubDesc}</div>
+                        <div style="margin-top: 8px; background: rgba(255,255,255,0.1); border-radius: 10px; height: 4px; overflow: hidden;">
+                            <div style="width: ${(profile.ubLevel / 6) * 100}%; background: #6c47ff; height: 100%; border-radius: 10px;"></div>
+                        </div>
+                    </div>
+                    
+                    <div style="background: rgba(255,255,255,0.03); border-radius: 16px; padding: 12px; margin-bottom: 10px; border-left: 3px solid #3b82ff;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 13px; font-weight: 600;">🤝 Отношения с людьми (ЧВ)</span>
+                            <span style="font-size: 18px; font-weight: 700; color: #3b82ff;">${profile.chvLevel}/6</span>
+                        </div>
+                        <div style="font-size: 12px; color: rgba(255,255,255,0.7);">${chvDesc}</div>
+                        <div style="margin-top: 8px; background: rgba(255,255,255,0.1); border-radius: 10px; height: 4px; overflow: hidden;">
+                            <div style="width: ${(profile.chvLevel / 6) * 100}%; background: #3b82ff; height: 100%; border-radius: 10px;"></div>
+                        </div>
+                    </div>
+                </div>
+        `;
+        
+        if (aiProfile) {
+            html += `
+                <div style="margin-top: 20px;">
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #ff6b3b;">🧠 AI-АНАЛИЗ</div>
+                    <div style="background: linear-gradient(135deg, rgba(255,107,59,0.1), rgba(255,159,59,0.05)); border-radius: 20px; padding: 16px; border: 1px solid rgba(255,107,59,0.2);">
+                        <div style="font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.9);">
+                            ${aiProfile.replace(/\n/g, '<br>')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        html += `</div>`;
+        return html;
+    }
+    
     showFinalProfile() {
         const profile = this.core.calculateFinalProfile();
         const deep = this.core.deepPatterns || { attachment: "🤗 Надежный" };
         
-        const sbDesc = {
-            1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
-            4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
-        }[profile.sbLevel] || "Информация уточняется";
-        
-        const tfDesc = {
-            1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
-            4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
-        }[profile.tfLevel] || "Информация уточняется";
-        
-        const ubDesc = {
-            1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
-            4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
-        }[profile.ubLevel] || "Информация уточняется";
-        
-        const chvDesc = {
-            1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
-            4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
-        }[profile.chvLevel] || "Информация уточняется";
-        
-        let profileText = `
-🧠 ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
-
-Профиль: ${profile.displayName}
-Тип восприятия: ${profile.perceptionType}
-Уровень мышления: ${profile.thinkingLevel}/9
-
-📊 ТВОИ ВЕКТОРЫ:
-
-• Реакция на давление (СБ ${profile.sbLevel}/6): ${sbDesc}
-
-• Отношение к деньгам (ТФ ${profile.tfLevel}/6): ${tfDesc}
-
-• Понимание мира (УБ ${profile.ubLevel}/6): ${ubDesc}
-
-• Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
-
-🧠 Глубинный паттерн: ${deep.attachment}
-`;
-        
-        if (this.core.aiGeneratedProfile) {
-            const formattedAI = this.core.formatProfileText(this.core.aiGeneratedProfile);
-            profileText += `\n\n🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:\n\n${formattedAI}`;
-        }
-        
-        this.addBotMessage(profileText, true);
+        const formattedProfile = this.formatProfileHTML(profile, deep, this.core.aiGeneratedProfile);
+        this.addBotMessage(formattedProfile, true);
         
         this.addMessageWithButtons("👇 ЧТО ДАЛЬШЕ?", [
             { text: "🧠 МЫСЛИ ПСИХОЛОГА", callback: () => this.showPsychologistThought() }
@@ -1189,4 +1263,4 @@ document.addEventListener('DOMContentLoaded', () => {
     window.testApp.start();
 });
 
-console.log('✅ Тест загружен (модульная версия)');
+console.log('✅ Тест загружен (модульная версия с улучшенным форматированием)');
