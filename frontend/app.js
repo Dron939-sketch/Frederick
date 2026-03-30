@@ -606,18 +606,23 @@ function showFullContentScreen(title, content, contentType, rawText = null) {
             <div class="content-body" id="contentBody">
                 ${formattedContent}
             </div>
-            <button class="action-btn primary-btn" id="speakBtn" style="margin-top: 20px;">🔊 Озвучить</button>
         </div>
     `;
     
-    document.getElementById('backBtn').onclick = () => navigateBack();
-    document.getElementById('speakBtn').onclick = async () => {
-        const textToSpeak = rawText || (typeof content === 'string' ? content.replace(/\*\*(.*?)\*\*/g, '$1') : '');
-        showToast('Озвучиваю...', 'info');
-        if (voiceManager) {
-            await voiceManager.textToSpeech(textToSpeak, currentMode);
-        }
-    };
+    // Кнопка НАЗАД - исправлена
+    const backBtn = document.getElementById('backBtn');
+    if (backBtn) {
+        backBtn.onclick = function() {
+            if (container) {
+                container.innerHTML = '';
+            }
+            if (typeof renderDashboard === 'function') {
+                renderDashboard();
+            } else {
+                location.reload();
+            }
+        };
+    }
 }
 
 function formatContentForDisplay(text) {
