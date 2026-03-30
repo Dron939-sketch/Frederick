@@ -1463,22 +1463,124 @@ async def text_to_speech_endpoint(
 
 
 # ---------- ПОГОДА ----------
+# ============================================
+# ПОГОДА - ПОЛНАЯ ВЕРСИЯ ДЛЯ ФРОНТЕНДА
+# ============================================
+
 @app.get("/api/weather/{user_id}")
 @limiter.limit("30/minute")
 async def get_weather(request: Request, user_id: int):
-    """Получить погоду для пользователя"""
+    """Получить погоду для пользователя по ID"""
     try:
         context = await context_repo.get(user_id) or {}
         city = context.get("city")
         
         if not city:
-            return {"success": False, "error": "Город не указан"}
+            return {
+                "success": False, 
+                "error": "Город не указан в профиле"
+            }
         
         weather = await weather_service.get_weather(city)
-        return {"success": True, "weather": weather}
+        
+        if weather:
+            return {
+                "success": True,
+                "weather": {
+                    "city": weather["city"],
+                    "temperature": weather["temperature"],
+                    "feels_like": weather["feels_like"],
+                    "description": weather["description"],
+                    "icon": weather["icon"],
+                    "humidity": weather["humidity"],
+                    "wind_speed": weather["wind_speed"],
+                    "pressure": weather["pressure"]
+                }
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Не удалось получить погоду для города {city}"
+            }
+            
     except Exception as e:
-        logger.error(f"Error getting weather: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting weather for user {user_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/weather/by-city")
+@limiter.limit("60/minute")
+async def get_weather_by_city(request: Request, city: str):
+    """Получить погоду по названию города"""
+    try:
+        if not city:
+            return {
+                "success": False,
+                "error": "Название города не указано"
+            }
+        
+        weather = await weather_service.get_weather(city)
+        
+        if weather:
+            return {
+                "success": True,
+                "weather": {
+                    "city": weather["city"],
+                    "temperature": weather["temperature"],
+                    "feels_like": weather["feels_like"],
+                    "description": weather["description"],
+                    "icon": weather["icon"],
+                    "humidity": weather["humidity"],
+                    "wind_speed": weather["wind_speed"],
+                    "pressure": weather["pressure"]
+                }
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Не удалось получить погоду для города {city}"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting weather for city {city}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/weather/set-city")
+@limiter.limit("10/minute")
+async def set_user_city(request: Request):
+    """Сохранить город пользователя"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        city = data.get("city")
+        
+        if not user_id or not city:
+            return {
+                "success": False,
+                "error": "user_id и city обязательны"
+            }
+        
+        # Получаем текущий контекст
+        context = await context_repo.get(user_id) or {}
+        
+        # Обновляем город
+        context["city"] = city
+        
+        # Сохраняем контекст
+        await context_repo.save(user_id, context)
+        
+        # Логируем событие
+        await log_event(user_id, "set_city", {"city": city})
+        
+        return {
+            "success": True,
+            "message": f"Город {city} сохранён для пользователя {user_id}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error setting city: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # ---------- ИДЕИ НА ВЫХОДНЫЕ ----------
