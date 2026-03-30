@@ -965,12 +965,40 @@ body::after {
    ТЕСТ В СТИЛЕ ДИАЛОГА (КАК В TELEGRAM)
    ============================================ */
 
-/* Контейнер для чата теста */
+/* Контейнер для чата теста - ШИРИНА 85% */
 .test-chat-container {
     display: flex;
     flex-direction: column;
     height: 100%;
+    max-width: 85%;
+    width: 85%;
+    margin: 0 auto;
     background: transparent;
+}
+
+/* Для планшетов */
+@media (max-width: 1024px) and (min-width: 769px) {
+    .test-chat-container {
+        max-width: 90%;
+        width: 90%;
+    }
+}
+
+/* Для мобильных устройств */
+@media (max-width: 768px) {
+    .test-chat-container {
+        max-width: 95%;
+        width: 95%;
+        margin: 0 auto;
+    }
+}
+
+/* Для очень широких экранов (4K) */
+@media (min-width: 1920px) {
+    .test-chat-container {
+        max-width: 70%;
+        width: 70%;
+    }
 }
 
 /* Область сообщений */
