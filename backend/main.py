@@ -28,6 +28,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel, Field
 import uvicorn
+from services.voice_service import VoiceService, normalize_tts_text
 
 # Настройка логирования
 logging.basicConfig(
@@ -1388,10 +1389,21 @@ async def process_voice(
         # Получаем режим (BasicMode для Бендера)
         mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
 
-        # === ГЛАВНОЕ: используем streaming-версию Бендера ===
-        response_text = ""
+               # === СБОР ОТВЕТА ИЗ СТРИМИНГА С ПРАВИЛЬНОЙ СКЛЕЙКОЙ ===
+        response_chunks = []
         async for chunk in mode_instance.process_question_streaming(recognized_text):
-            response_text += chunk
+            if chunk and chunk.strip():
+                response_chunks.append(chunk.strip())
+                # Отправляем чанк пользователю для субтитров (опционально)
+                # await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
+        
+        # Правильная склейка предложений
+        response_text = " ".join(response_chunks)
+        
+        # Финальная нормализация (дополнительная защита)
+        response_text = normalize_tts_text(response_text)   # ← добавь эту строку!
+        
+        logger.info(f"💬 AI response collected: {len(response_text)} chars")
 
         # Защита от пустого ответа
         if not response_text.strip():
