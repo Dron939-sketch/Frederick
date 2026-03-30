@@ -2526,161 +2526,88 @@ ${interpretation}
     },
     
     async sendTestResultsToServer() {
-        if (!this.userId) {
-            console.warn('⚠️ Нет user_id, результаты сохранены локально');
-            this.showFinalProfileButtons();
-            return;
+    if (!this.userId) {
+        console.warn('⚠️ Нет user_id, результаты сохранены локально');
+        this.showFinalProfileButtons();
+        return;
+    }
+    
+    const profile = this.calculateFinalProfile();
+    const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
+    
+    const results = {
+        user_id: parseInt(this.userId),
+        context: this.context,
+        results: {
+            perception_type: this.perceptionType,
+            thinking_level: this.thinkingLevel,
+            behavioral_levels: this.behavioralLevels,
+            dilts_counts: this.diltsCounts,
+            deep_patterns: deep,
+            profile_data: profile,
+            all_answers: this.answers,
+            test_completed: true,
+            test_completed_at: new Date().toISOString()
         }
+    };
+    
+    console.log('📤 Отправка результатов на сервер...', { userId: parseInt(this.userId) });
+    
+    try {
+        const response = await fetch(`${TEST_API_BASE_URL}/api/save-test-results`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(results)
+        });
         
-        const profile = this.calculateFinalProfile();
-        const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
+        const data = await response.json();
         
-        const results = {
-            user_id: parseInt(this.userId),
-            context: this.context,
-            results: {
-                perception_type: this.perceptionType,
-                thinking_level: this.thinkingLevel,
-                behavioral_levels: this.behavioralLevels,
-                dilts_counts: this.diltsCounts,
-                deep_patterns: deep,
-                profile_data: profile,
-                all_answers: this.answers,
-                test_completed: true,
-                test_completed_at: new Date().toISOString()
-            }
-        };
-        
-        console.log('📤 Отправка результатов на сервер...', { userId: parseInt(this.userId) });
-        
-        try {
-            const response = await fetch(`${TEST_API_BASE_URL}/api/save-test-results`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(results)
-            });
+        if (data.success) {
+            console.log('✅ Результаты теста успешно отправлены на сервер');
             
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                console.warn('⚠️ Сервер вернул не-JSON ответ, статус:', response.status);
-                data = { success: response.ok };
+            // Сохраняем полученный AI-профиль
+            if (data.ai_profile) {
+                this.aiGeneratedProfile = data.ai_profile;
+                console.log('✅ AI-профиль получен сразу');
             }
             
-            if (data.success) {
-                console.log('✅ Результаты теста успешно отправлены на сервер');
-                await this.fetchAIGeneratedProfile();
-            } else {
-                console.error('❌ Ошибка при отправке:', data.error);
-                this.showFinalProfileButtons();
+            if (data.psychologist_thought) {
+                this.psychologistThought = data.psychologist_thought;
+                console.log('✅ Мысль психолога получена сразу');
             }
-        } catch (error) {
-            console.error('❌ Ошибка сети:', error);
+            
+            // Показываем финальный экран
+            this.showFinalProfileButtons();
+            
+        } else {
+            console.error('❌ Ошибка при отправке:', data.error);
             this.showFinalProfileButtons();
         }
-    },
+    } catch (error) {
+        console.error('❌ Ошибка сети:', error);
+        this.showFinalProfileButtons();
+    }
+}
     
     async fetchAIGeneratedProfile() {
-        if (!this.userId) return;
-        
-        try {
-            console.log('📥 Запрос AI-профиля...');
-            const response = await fetch(`${TEST_API_BASE_URL}/api/generated-profile/${this.userId}`);
-            const data = await response.json();
-            
-            if (data.success && data.ai_profile) {
-                this.aiGeneratedProfile = data.ai_profile;
-                console.log('✅ AI-профиль получен');
-            } else if (data.status === 'generating') {
-                console.log('⏳ AI-профиль генерируется, ждём...');
-                setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
-                return;
-            }
-        } catch (error) {
-            console.error('Ошибка получения AI-профиля:', error);
-        }
-        
-        this.showFinalProfileButtons();
-    },
+    // Этот метод больше не нужен, так как профиль приходит сразу
+    // Но оставим как fallback
+    if (!this.userId) return;
     
-    showFinalProfileButtons() {
-        const profile = this.calculateFinalProfile();
-        const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
+    try {
+        console.log('📥 Запрос AI-профиля (fallback)...');
+        const response = await fetch(`${TEST_API_BASE_URL}/api/generated-profile/${this.userId}`);
+        const data = await response.json();
         
-        const sbDesc = {
-            1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
-            4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
-        }[profile.sbLevel] || "Информация уточняется";
-        
-        const tfDesc = {
-            1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
-            4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
-        }[profile.tfLevel] || "Информация уточняется";
-        
-        const ubDesc = {
-            1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
-            4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
-        }[profile.ubLevel] || "Информация уточняется";
-        
-        const chvDesc = {
-            1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
-            4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
-        }[profile.chvLevel] || "Информация уточняется";
-        
-        let profileText = `
-🧠 ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
-
-Профиль: ${profile.displayName}
-Тип восприятия: ${profile.perceptionType}
-Уровень мышления: ${profile.thinkingLevel}/9
-
-📊 ТВОИ ВЕКТОРЫ:
-
-• Реакция на давление (СБ ${profile.sbLevel}/6): ${sbDesc}
-
-• Отношение к деньгам (ТФ ${profile.tfLevel}/6): ${tfDesc}
-
-• Понимание мира (УБ ${profile.ubLevel}/6): ${ubDesc}
-
-• Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
-
-🧠 Глубинный паттерн: ${deep.attachment}
-`;
-        
-        if (this.aiGeneratedProfile) {
-            profileText += `\n\n🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:\n\n${this.aiGeneratedProfile}`;
+        if (data.success && data.ai_profile) {
+            this.aiGeneratedProfile = data.ai_profile;
+            console.log('✅ AI-профиль получен');
+            this.showFinalProfileButtons();
         }
-        
-        this.addBotMessage(profileText, true);
-        
-        this.addMessageWithButtons("👇 ЧТО ДАЛЬШЕ?", [
-            { text: "🧠 МЫСЛИ ПСИХОЛОГА", callback: () => this.showPsychologistThought() },
-            { text: "🎯 ВЫБРАТЬ ЦЕЛЬ", callback: () => this.showGoals() },
-            { text: "⚙️ ВЫБРАТЬ РЕЖИМ", callback: () => this.showModes() }
-        ]);
-        
-        if (this.userId) {
-            localStorage.setItem(`test_results_${this.userId}`, JSON.stringify({
-                profile,
-                deepPatterns: deep,
-                perceptionType: this.perceptionType,
-                thinkingLevel: this.thinkingLevel,
-                context: this.context,
-                aiProfile: this.aiGeneratedProfile
-            }));
-        }
-    },
-    
-    goToNextStage() {
-        this.currentStage++;
-        this.currentQuestionIndex = 0;
-        this.sendStageIntro();
-    },
-    
-    showFinalProfile() {
-        this.showFinalProfileButtons();
-    },
+    } catch (error) {
+        console.error('Ошибка получения AI-профиля:', error);
+    }
+}
     
     async showPsychologistThought() {
         if (this.psychologistThought) {
