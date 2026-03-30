@@ -19,9 +19,8 @@
     <!-- Основные стили -->
     <link rel="stylesheet" href="/styles.css">
     
-    <!-- ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ДЛЯ МОБИЛЬНЫХ (inline для быстрой загрузки) -->
+    <!-- ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ДЛЯ МОБИЛЬНЫХ -->
     <style>
-        /* Исправления для мобильных устройств */
         @supports (height: 100dvh) {
             .app, .chat-panel, .screen-container, .test-chat-container {
                 height: 100dvh !important;
@@ -29,7 +28,6 @@
             }
         }
         
-        /* iOS Safari specific */
         @supports (padding: max(0px)) {
             .test-chat-messages {
                 padding-bottom: max(20px, env(safe-area-inset-bottom));
@@ -42,18 +40,15 @@
             }
         }
         
-        /* Предотвращение zoom на input focus для iOS */
         input, select, textarea {
             font-size: 16px !important;
         }
         
-        /* Улучшенный touch-target */
         .test-message-button, .mode-btn, .chat-item, button {
             min-height: 44px;
             touch-action: manipulation;
         }
         
-        /* Анимация для плавного появления */
         .test-message {
             animation: fadeInUp 0.2s ease-out;
         }
@@ -69,7 +64,6 @@
             }
         }
         
-        /* Скрытие скроллбара для чистоты (опционально) */
         .test-chat-messages::-webkit-scrollbar {
             width: 4px;
         }
@@ -81,7 +75,6 @@
             border-radius: 4px;
         }
         
-        /* Фикс для body при открытом тесте */
         body.test-active {
             overflow: hidden;
             position: fixed;
@@ -89,7 +82,6 @@
             height: 100%;
         }
         
-        /* Стили для индикатора загрузки "Фреди думает" */
         .loading-indicator {
             opacity: 0.9;
             animation: fadeIn 0.3s ease;
@@ -119,7 +111,6 @@
             50% { opacity: 1; }
         }
         
-        /* Анимации для голосовой кнопки */
         .voice-btn.thinking {
             background: linear-gradient(135deg, #3b82ff, #6c47ff);
             animation: thinkPulse 1.5s ease infinite;
@@ -156,7 +147,6 @@
             100% { transform: scale(1); }
         }
         
-        /* Стили для чата теста */
         .test-chat-container {
             width: 100%;
             height: 100%;
@@ -267,7 +257,6 @@
             color: rgba(255,255,255,0.5);
         }
         
-        /* Кнопка запуска теста в чатах */
         .test-start-btn {
             background: linear-gradient(135deg, #ff6b3b, #ff9f3b);
             border: none;
@@ -307,7 +296,6 @@
             </div>
             
             <div class="chats-list" id="chatsList">
-                <!-- Основной чат с Фреди -->
                 <div class="chat-item active" data-chat="fredi">
                     <div class="chat-avatar">⭐</div>
                     <div class="chat-info">
@@ -416,7 +404,6 @@
             </div>
             
             <div id="screenContainer" class="screen-container">
-                <!-- Здесь динамически загружается контент через app.js -->
                 <div class="loading-screen">
                     <div class="loading-spinner">⭐</div>
                     <div class="loading-text">Инициализация Фреди...</div>
@@ -425,10 +412,8 @@
         </div>
     </div>
 
-    <!-- Скрытый аудиоплеер -->
     <audio id="hiddenAudioPlayer" preload="auto"></audio>
 
-    <!-- Toast уведомления -->
     <div id="toastMessage" class="floating-message" style="display: none;">
         <div class="floating-message-content">
             <div class="floating-message-text" id="toastText"></div>
@@ -437,15 +422,9 @@
     </div>
 
     <!-- ============================================ -->
-    <!-- МОДУЛИ ТЕСТА (ПОДКЛЮЧАЕМ В ПРАВИЛЬНОМ ПОРЯДКЕ) -->
+    <!-- ОДИН ФАЙЛ ТЕСТА (вместо 7 модулей) -->
     <!-- ============================================ -->
-    <script src="/test-modules/test-core.js"></script>
-    <script src="/test-modules/stage1.js"></script>
-    <script src="/test-modules/stage2.js"></script>
-    <script src="/test-modules/stage3.js"></script>
-    <script src="/test-modules/stage4.js"></script>
-    <script src="/test-modules/stage5.js"></script>
-    <script src="/test-modules/test-main.js"></script>
+    <script src="/test.js"></script>
     
     <!-- Основные скрипты -->
     <script src="/voice.js"></script>
@@ -454,26 +433,19 @@
     <!-- ДОПОЛНИТЕЛЬНЫЙ СКРИПТ ДЛЯ МОБИЛЬНЫХ И ИНТЕГРАЦИИ ТЕСТА -->
     <script>
     (function() {
-        // ============================================
-        // МОБИЛЬНАЯ ОПТИМИЗАЦИЯ
-        // ============================================
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         
         if (isMobile) {
-            // Функция обновления высоты
             function updateHeight() {
                 const app = document.getElementById('appRoot');
                 const chatPanel = document.getElementById('chatPanel');
                 const screenContainer = document.getElementById('screenContainer');
-                
                 const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-                
                 if (app) app.style.height = vh + 'px';
                 if (chatPanel) chatPanel.style.height = vh + 'px';
                 if (screenContainer) screenContainer.style.height = vh + 'px';
             }
             
-            // Слушаем изменения visualViewport
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', updateHeight);
                 window.visualViewport.addEventListener('scroll', updateHeight);
@@ -481,13 +453,11 @@
             window.addEventListener('resize', updateHeight);
             window.addEventListener('orientationchange', () => setTimeout(updateHeight, 50));
             
-            // Принудительный скролл для скрытия адресной строки
             setTimeout(() => {
                 window.scrollTo(0, 1);
                 updateHeight();
             }, 100);
             
-            // Добавляем класс для body при открытии теста
             const observer = new MutationObserver((mutations) => {
                 mutations.forEach((mutation) => {
                     if (mutation.type === 'childList') {
@@ -510,29 +480,17 @@
             console.log('📱 Мобильная оптимизация активирована');
         }
         
-        // ============================================
         // ИНИЦИАЛИЗАЦИЯ ТЕСТА
-        // ============================================
         let testInitialized = false;
         
         function initTest() {
             if (testInitialized) return;
             
             console.log('🔍 Инициализация теста...');
-            console.log('window.TestApp:', window.TestApp);
-            console.log('window.testApp:', window.testApp);
+            console.log('window.Test:', window.Test);
             
-            if (window.TestApp) {
+            if (window.Test) {
                 try {
-                    // Создаём экземпляр если его нет
-                    if (!window.testApp) {
-                        window.testApp = new window.TestApp();
-                        console.log('✅ TestApp instance created');
-                    }
-                    
-                    testInitialized = true;
-                    
-                    // Инициализируем тест с user_id
                     let userId = null;
                     if (window.CONFIG && window.CONFIG.USER_ID) {
                         userId = window.CONFIG.USER_ID;
@@ -540,48 +498,37 @@
                         userId = localStorage.getItem('fredi_user_id');
                     }
                     
-                    if (window.testApp.core) {
-                        window.testApp.core.init(userId);
-                        console.log('✅ Test initialized with userId:', userId);
-                    }
+                    window.Test.init(userId);
+                    testInitialized = true;
+                    console.log('✅ Test initialized with userId:', userId);
                 } catch (e) {
                     console.error('❌ Test initialization error:', e);
                 }
             } else {
-                console.log('⏳ TestApp not loaded yet, waiting...');
+                console.log('⏳ Test not loaded yet, waiting...');
                 setTimeout(initTest, 500);
             }
         }
         
-        // ============================================
-        // ЗАПУСК ТЕСТА ПРИ КЛИКЕ НА ПУНКТ МЕНЮ
-        // ============================================
+        // ЗАПУСК ТЕСТА ПРИ КЛИКЕ
         function setupTestLauncher() {
             const testChatItem = document.getElementById('testChatItem');
             if (!testChatItem) return;
             
-            // Перехватываем клик по пункту "Психологический тест"
             testChatItem.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                
                 console.log('🎯 Запуск теста по клику');
                 
-                // Убеждаемся что тест инициализирован
                 if (!testInitialized) {
                     initTest();
                 }
                 
-                // Запускаем тест через небольшую задержку
                 setTimeout(() => {
-                    if (window.testApp && window.testApp.start) {
-                        window.testApp.start();
-                    } else if (window.Test && window.Test.start) {
-                        // Fallback на старую версию
+                    if (window.Test && window.Test.start) {
                         window.Test.start();
                     } else {
                         console.error('❌ Test not available');
-                        // Показываем уведомление
                         const toast = document.getElementById('toastMessage');
                         const toastText = document.getElementById('toastText');
                         if (toast && toastText) {
@@ -598,9 +545,6 @@
             console.log('✅ Test launcher setup complete');
         }
         
-        // ============================================
-        // ПРОВЕРКА ГОЛОСОВОГО МЕНЕДЖЕРА
-        // ============================================
         setTimeout(() => {
             if (window.voiceManager) {
                 console.log('🎤 VoiceManager ready');
@@ -609,10 +553,6 @@
             }
         }, 2000);
         
-        // ============================================
-        // ЗАПУСК ИНИЦИАЛИЗАЦИИ
-        // ============================================
-        // Ждём загрузки DOM
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 initTest();
@@ -623,7 +563,6 @@
             setupTestLauncher();
         }
         
-        // Дополнительная инициализация после загрузки всех скриптов
         setTimeout(() => {
             if (!testInitialized) {
                 console.log('🔄 Fallback initialization');
@@ -632,11 +571,8 @@
             }
         }, 3000);
         
-        // Экспортируем функцию запуска для внешнего использования
         window.startTest = function() {
-            if (window.testApp && window.testApp.start) {
-                window.testApp.start();
-            } else if (window.Test && window.Test.start) {
+            if (window.Test && window.Test.start) {
                 window.Test.start();
             } else {
                 console.error('Test not available');
