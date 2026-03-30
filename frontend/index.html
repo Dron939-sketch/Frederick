@@ -10,9 +10,10 @@
     <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
     
-    <title>Фреди | Психолог | Коуч | Тренер</title>
+    <title>Фреди | Премиум виртуальный психолог</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
     
     <style>
         * {
@@ -23,150 +24,205 @@
         }
 
         :root {
-            --psychologist: #ff6b3b;
-            --coach: #3b82ff;
-            --trainer: #ff3b3b;
-            --bg-dark: #0a0a0a;
-            --bg-card: rgba(255,255,255,0.05);
+            --black-obsidian: #0a0a0a;
+            --black-matte: #111111;
+            --carbon-fiber: #1a1a1a;
+            --glass-dark: rgba(10, 10, 10, 0.85);
+            --chrome: #e0e0e0;
+            --silver-metallic: #c0c0c0;
+            --silver-brushed: #b0b0b0;
+            --platinum: #a0a0a0;
+            --amg-red: #ff3b3b;
+            --amg-orange: #ff6b3b;
+            --amg-blue: #3b82ff;
+            --amber: #ffb83b;
+            --shadow-premium: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            --glow-iphone: 0 0 20px rgba(255, 255, 255, 0.5), 0 0 40px rgba(255, 255, 255, 0.3);
             --text-primary: #ffffff;
-            --text-secondary: rgba(255,255,255,0.7);
-            --border: rgba(255,255,255,0.1);
+            --text-secondary: #a0a3b0;
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background: var(--bg-dark);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--black-obsidian);
             color: var(--text-primary);
             overflow: hidden;
-            position: fixed;
+            height: 100vh;
+            height: 100dvh;
             width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
         }
 
-        /* App Layout */
+        @supports (height: 100dvh) {
+            body, .app, .chat-panel, .screen-container, .test-chat-container {
+                height: 100dvh !important;
+                min-height: 100dvh !important;
+            }
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 30% 40%, rgba(224, 224, 224, 0.03) 0%, transparent 60%),
+                        radial-gradient(circle at 70% 80%, rgba(255, 59, 59, 0.02) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: repeating-linear-gradient(45deg, rgba(224, 224, 224, 0.008) 0px, rgba(224, 224, 224, 0.008) 2px, transparent 2px, transparent 8px);
+            pointer-events: none;
+        }
+
         .app {
             display: flex;
-            width: 100%;
             height: 100%;
-            position: relative;
+            width: 100%;
             overflow: hidden;
+            position: relative;
         }
 
-        /* Chats Panel (Sidebar) */
+        /* Левая панель */
         .chats-panel {
             width: 280px;
-            flex-shrink: 0;
-            background: rgba(10,10,10,0.95);
-            border-right: 1px solid var(--border);
+            background: rgba(10, 10, 10, 0.85);
+            backdrop-filter: blur(25px);
+            border-right: 1px solid rgba(224, 224, 224, 0.15);
             display: flex;
             flex-direction: column;
-            transition: transform 0.3s ease;
-            z-index: 100;
-            height: 100%;
-            overflow-y: auto;
-            overflow-x: hidden;
+            flex-shrink: 0;
+            transition: left 0.3s ease;
+            z-index: 20;
+            position: relative;
+        }
+
+        @media (max-width: 768px) {
+            .chats-panel {
+                position: fixed;
+                left: -280px;
+                top: 0;
+                height: 100%;
+                width: 260px;
+            }
+            
+            .chats-panel.open {
+                left: 0;
+                box-shadow: 5px 0 30px rgba(0, 0, 0, 0.5);
+            }
         }
 
         .chats-header {
-            padding: 20px;
-            border-bottom: 1px solid var(--border);
-            flex-shrink: 0;
-        }
-
-        .chats-header > div {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
+            padding: 20px 16px;
+            border-bottom: 1px solid rgba(224, 224, 224, 0.1);
         }
 
         .chats-title {
-            font-size: 20px;
-            font-weight: 700;
-            background: linear-gradient(135deg, #fff, #ff6b3b);
+            font-size: 24px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
             -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
             background-clip: text;
-        }
-
-        .new-chat-btn {
-            width: 36px;
-            height: 36px;
-            padding: 0;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            color: white;
-            cursor: pointer;
+            color: transparent;
         }
 
         .chats-search {
             padding: 12px 16px;
-            flex-shrink: 0;
         }
 
         .chats-search input {
             width: 100%;
             padding: 10px 16px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
+            background: rgba(224, 224, 224, 0.05);
+            border: 1px solid rgba(224, 224, 224, 0.2);
             border-radius: 30px;
-            color: white;
+            color: var(--text-primary);
             font-size: 14px;
-            outline: none;
-        }
-
-        .chats-search input:focus {
-            border-color: #ff6b3b;
         }
 
         .chats-list {
             flex: 1;
             overflow-y: auto;
-            overflow-x: hidden;
-            padding: 8px 0;
+            padding: 8px;
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: rgba(224, 224, 224, 0.1);
+            margin: 12px 16px;
+        }
+
+        .menu-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            padding: 8px 20px;
+            text-transform: uppercase;
         }
 
         .chat-item {
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 12px 16px;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 16px;
             cursor: pointer;
             transition: all 0.2s;
+            gap: 12px;
+            border: 1px solid transparent;
             min-height: 44px;
         }
 
         .chat-item:hover {
-            background: rgba(255,255,255,0.05);
+            background: rgba(224, 224, 224, 0.08);
+            border-color: rgba(224, 224, 224, 0.2);
         }
 
         .chat-item.active {
-            background: rgba(255,107,59,0.15);
-            border-left: 3px solid #ff6b3b;
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.1), rgba(192, 192, 192, 0.05));
+            border-color: rgba(224, 224, 224, 0.3);
         }
 
         .chat-avatar {
-            width: 40px;
-            height: 40px;
-            background: rgba(255,255,255,0.05);
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
-            flex-shrink: 0;
+            font-size: 22px;
+            position: relative;
+        }
+
+        .chat-avatar::after {
+            content: '';
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            width: 10px;
+            height: 10px;
+            background: var(--success);
+            border-radius: 50%;
+            border: 2px solid var(--black-obsidian);
         }
 
         .chat-info {
             flex: 1;
-            min-width: 0;
         }
 
         .chat-name {
@@ -175,138 +231,114 @@
         }
 
         .chat-preview {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-secondary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
 
         .chat-time {
             font-size: 10px;
             color: var(--text-secondary);
-            flex-shrink: 0;
-        }
-
-        .menu-divider {
-            height: 1px;
-            background: var(--border);
-            margin: 12px 16px;
-            flex-shrink: 0;
-        }
-
-        .menu-section-title {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            padding: 8px 16px;
-            letter-spacing: 1px;
-            flex-shrink: 0;
         }
 
         .chats-footer {
-            padding: 16px;
-            border-top: 1px solid var(--border);
-            flex-shrink: 0;
+            padding: 12px 16px;
+            border-top: 1px solid rgba(224, 224, 224, 0.1);
         }
 
         .user-mini-profile {
             display: flex;
             align-items: center;
             gap: 12px;
+            padding: 10px;
+            border-radius: 16px;
+            background: rgba(224, 224, 224, 0.05);
+            cursor: pointer;
         }
 
         .user-mini-avatar {
             width: 40px;
             height: 40px;
-            background: #ff6b3b;
             border-radius: 50%;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
             display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 18px;
             font-weight: 600;
-            flex-shrink: 0;
-        }
-
-        .user-mini-info {
-            flex: 1;
-            min-width: 0;
+            color: var(--black-obsidian);
         }
 
         .user-mini-name {
+            font-weight: 600;
             font-size: 14px;
-            font-weight: 500;
         }
 
         .user-mini-status {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-secondary);
         }
 
-        /* Chat Panel */
+        /* Правая панель */
         .chat-panel {
             flex: 1;
             display: flex;
             flex-direction: column;
-            height: 100%;
-            position: relative;
-            min-width: 0;
             overflow: hidden;
+            background: rgba(10, 10, 10, 0.5);
+            height: 100%;
         }
 
         .chat-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-            background: rgba(10,10,10,0.95);
-            flex-shrink: 0;
-            gap: 16px;
+            padding: 12px 16px;
+            background: rgba(10, 10, 10, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(224, 224, 224, 0.1);
         }
 
         .chat-header-left {
             display: flex;
             align-items: center;
             gap: 12px;
-            flex: 1;
-            min-width: 0;
         }
 
         .mobile-menu-btn {
             display: none;
-            background: none;
+            background: rgba(224, 224, 224, 0.1);
             border: none;
-            color: white;
-            font-size: 24px;
+            font-size: 22px;
+            color: var(--chrome);
             cursor: pointer;
-            width: 44px;
-            height: 44px;
-            flex-shrink: 0;
-            align-items: center;
-            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            min-height: 44px;
+        }
+
+        @media (max-width: 768px) {
+            .mobile-menu-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
         }
 
         .chat-header-avatar {
-            width: 40px;
-            height: 40px;
-            background: rgba(255,255,255,0.05);
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
-            flex-shrink: 0;
-        }
-
-        .chat-header-info {
-            flex: 1;
-            min-width: 0;
+            font-size: 24px;
         }
 
         .chat-header-name {
-            font-weight: 600;
-            font-size: 16px;
+            font-weight: 700;
+            font-size: 18px;
         }
 
         .chat-header-status {
@@ -321,165 +353,136 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
+            animation: pulseMode 2s infinite;
             background: #ff6b3b;
-            transition: background 0.3s ease;
         }
 
-        .mode-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 30px;
-            padding: 8px 16px;
-            color: white;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 14px;
-            min-height: 44px;
-            touch-action: manipulation;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .mode-btn:hover {
-            background: rgba(255,255,255,0.1);
-            transform: translateY(-1px);
-        }
-
-        .mode-btn.active {
-            background: #ff6b3b;
-            border-color: #ff6b3b;
-        }
-
-        .mode-btn.coach.active {
-            background: #3b82ff;
-            border-color: #3b82ff;
-        }
-
-        .mode-btn.trainer.active {
-            background: #ff3b3b;
-            border-color: #ff3b3b;
+        @keyframes pulseMode {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
         }
 
         .screen-container {
             flex: 1;
             overflow-y: auto;
-            overflow-x: hidden;
-            position: relative;
-            min-height: 0;
+            padding: 20px;
+            -webkit-overflow-scrolling: touch;
         }
 
         /* Dashboard Styles */
         .dashboard-container {
-            padding: 20px;
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
-            width: 100%;
         }
 
         .hero-section {
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.05), rgba(192, 192, 192, 0.02));
+            border-radius: 28px;
+            padding: 24px;
             margin-bottom: 24px;
+            border: 1px solid rgba(224, 224, 224, 0.15);
         }
 
         .user-greeting {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
             gap: 16px;
-        }
-
-        .greeting-text {
-            flex: 1;
         }
 
         .greeting-text h2 {
             font-size: 24px;
-            margin-bottom: 4px;
+            font-weight: 600;
+            margin-bottom: 6px;
         }
 
         .greeting-text p {
             color: var(--text-secondary);
-            font-size: 14px;
+            font-size: 13px;
         }
 
         .profile-badge {
+            background: rgba(224, 224, 224, 0.08);
+            border-radius: 30px;
+            padding: 6px 16px;
             text-align: center;
-            flex-shrink: 0;
+            border: 1px solid rgba(224, 224, 224, 0.2);
         }
 
         .profile-code {
-            font-size: 32px;
-            font-weight: 700;
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
         }
 
         .mode-selector {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             margin-bottom: 24px;
+            background: rgba(10, 10, 10, 0.5);
+            backdrop-filter: blur(20px);
+            border-radius: 50px;
+            padding: 4px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
         }
 
-        .mode-selector .mode-btn {
+        .mode-btn {
             flex: 1;
-            padding: 12px;
+            padding: 10px 16px;
+            border-radius: 40px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
             justify-content: center;
+            gap: 6px;
+            min-height: 44px;
+        }
+
+        .mode-btn.active {
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.2), rgba(192, 192, 192, 0.1));
+            color: var(--text-primary);
         }
 
         .voice-section {
-            margin-bottom: 24px;
+            margin-bottom: 32px;
         }
 
         .voice-card {
-            background: linear-gradient(135deg, rgba(255,107,59,0.15), rgba(255,107,59,0.05));
-            border-radius: 20px;
-            padding: 4px;
-            text-align: center;
-            border: 1px solid rgba(255,107,59,0.2);
-            transition: all 0.2s;
+            background: linear-gradient(135deg, rgba(10, 10, 10, 0.7), rgba(26, 26, 26, 0.6));
+            backdrop-filter: blur(20px);
+            border-radius: 60px;
+            padding: 6px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            cursor: pointer;
         }
 
         .voice-record-btn-premium {
             width: 100%;
-            background: transparent;
+            padding: 20px 24px;
+            border-radius: 54px;
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.1), rgba(192, 192, 192, 0.05));
             border: none;
-            border-radius: 20px;
-            padding: 20px;
+            color: var(--text-primary);
             cursor: pointer;
-            transition: all 0.2s;
             display: flex;
-            flex-direction: column;
             align-items: center;
-            gap: 8px;
-        }
-
-        .voice-record-btn-premium:hover {
-            transform: translateY(-2px);
-        }
-
-        .voice-record-btn-premium.recording {
-            background: rgba(255,59,59,0.2);
-            animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(255,59,59,0.4); }
-            50% { box-shadow: 0 0 0 20px rgba(255,59,59,0); }
-        }
-
-        .voice-icon {
-            font-size: 32px;
-        }
-
-        .voice-text {
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        .voice-hint {
-            text-align: center;
-            font-size: 11px;
-            color: var(--text-secondary);
-            margin-top: 8px;
+            justify-content: center;
+            gap: 12px;
+            transition: all 0.2s;
+            font-size: 16px;
+            font-weight: 500;
         }
 
         .modules-grid {
@@ -490,13 +493,12 @@
         }
 
         .module-card {
-            background: var(--bg-card);
+            background: rgba(224, 224, 224, 0.05);
             border-radius: 16px;
             padding: 16px;
             cursor: pointer;
             transition: all 0.2s;
             border: 1px solid transparent;
-            text-align: center;
         }
 
         .module-card:hover {
@@ -533,26 +535,24 @@
         }
 
         .quick-action {
-            background: var(--bg-card);
+            background: rgba(224, 224, 224, 0.05);
             border-radius: 12px;
             padding: 12px;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
+            border: 1px solid transparent;
         }
 
         .quick-action:hover {
             background: rgba(255,107,59,0.15);
             transform: translateY(-2px);
+            border-color: rgba(255,107,59,0.3);
         }
 
         .action-icon {
             font-size: 24px;
+            margin-bottom: 4px;
         }
 
         .action-name {
@@ -560,362 +560,96 @@
             color: var(--text-secondary);
         }
 
-        /* Chat Messages */
-        .chat-messages {
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .message {
-            max-width: 80%;
-            padding: 12px 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .message.user {
-            background: #ff6b3b;
-            align-self: flex-end;
-            border-bottom-right-radius: 4px;
-        }
-
-        .message.bot {
-            background: rgba(255,255,255,0.1);
-            align-self: flex-start;
-            border-bottom-left-radius: 4px;
-        }
-
-        .message.system {
-            background: rgba(255,107,59,0.2);
-            align-self: center;
-            font-size: 12px;
-            font-style: italic;
-        }
-
         /* Content Pages */
         .full-content-page {
-            padding: 20px;
-            min-height: 100%;
-            animation: fadeIn 0.3s ease;
+            max-width: 800px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, rgba(10, 10, 10, 0.95), rgba(26, 26, 26, 0.85));
+            backdrop-filter: blur(20px);
+            border-radius: 28px;
+            padding: 24px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            animation: contentAppear 0.3s ease-out;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes contentAppear {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .back-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 30px;
+            background: rgba(224, 224, 224, 0.1);
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            border-radius: 40px;
             padding: 10px 20px;
-            color: white;
-            margin-bottom: 20px;
+            color: var(--chrome);
             cursor: pointer;
-            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 20px;
             transition: all 0.2s;
+            font-size: 14px;
             min-height: 44px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
         }
 
         .back-btn:hover {
-            background: rgba(255,255,255,0.1);
+            background: rgba(224, 224, 224, 0.2);
         }
 
         .content-header {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(224, 224, 224, 0.2);
         }
 
         .content-emoji {
             font-size: 48px;
+            margin-bottom: 12px;
         }
 
-        .content-title {
+        .content-header h1 {
             font-size: 24px;
-            margin-top: 10px;
-            background: linear-gradient(135deg, #fff, #ff6b3b);
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
             -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
             background-clip: text;
+            color: transparent;
         }
 
         .content-body {
-            background: var(--bg-card);
-            border-radius: 20px;
-            padding: 20px;
-            line-height: 1.6;
             font-size: 15px;
-        }
-
-        .section-header {
-            margin: 16px 0 8px 0;
-            font-size: 18px;
-        }
-
-        .section-emoji {
-            margin-right: 8px;
-        }
-
-        .section-title {
-            color: #ff6b3b;
-        }
-
-        .styled-list {
-            margin: 8px 0 8px 20px;
-        }
-
-        .styled-list li {
-            margin: 4px 0;
-        }
-
-        /* Confinement Elements */
-        .elements-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 12px;
-            margin: 16px 0;
-        }
-
-        .confinement-element {
-            background: var(--bg-card);
-            border-radius: 12px;
-            padding: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 1px solid transparent;
-        }
-
-        .confinement-element:hover {
-            border-color: #ff6b3b;
-            transform: translateY(-2px);
-        }
-
-        .element-number {
-            font-size: 20px;
-            font-weight: bold;
-            color: #ff6b3b;
-        }
-
-        .element-name {
-            font-weight: 600;
-            margin: 4px 0;
-        }
-
-        .element-desc {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .element-meta {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-            font-size: 11px;
-        }
-
-        .loop-card {
-            background: var(--bg-card);
-            border-radius: 12px;
-            padding: 12px;
-            margin: 12px 0;
-        }
-
-        .loop-type {
-            font-weight: 600;
-            color: #ff6b3b;
-        }
-
-        .loop-strength {
-            font-size: 11px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }
-
-        .key-confinement {
-            background: linear-gradient(135deg, rgba(255,107,59,0.15), rgba(255,107,59,0.05));
-            border-radius: 16px;
-            padding: 16px;
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .key-title {
-            font-weight: 700;
-            font-size: 14px;
-            margin-bottom: 8px;
-            letter-spacing: 1px;
-        }
-
-        .key-desc {
-            font-size: 14px;
-        }
-
-        .intervention-card {
-            background: var(--bg-card);
-            border-radius: 16px;
-            padding: 16px;
-            margin: 16px 0;
-        }
-
-        .intervention-text {
             line-height: 1.6;
-        }
-
-        .daily-practice {
-            background: var(--bg-card);
-            border-radius: 16px;
-            padding: 16px;
-            margin: 16px 0;
-        }
-
-        .quote-card {
-            background: linear-gradient(135deg, rgba(255,107,59,0.1), rgba(255,107,59,0.02));
-            border-radius: 16px;
-            padding: 16px;
-            text-align: center;
-            font-style: italic;
-            margin: 16px 0;
-        }
-
-        .practice-card {
-            background: var(--bg-card);
-            border-radius: 16px;
-            padding: 16px;
-            margin: 16px 0;
-        }
-
-        .practice-card h3 {
-            margin-bottom: 12px;
-            font-size: 16px;
-        }
-
-        .action-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 30px;
-            padding: 10px 20px;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-            margin: 4px;
-        }
-
-        .action-btn:hover {
-            background: rgba(255,255,255,0.1);
-        }
-
-        .action-btn.primary-btn {
-            background: #ff6b3b;
-            border-color: #ff6b3b;
-        }
-
-        .action-btn.primary-btn:hover {
-            background: #ff5722;
-        }
-
-        .hypno-topics {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 16px;
-        }
-
-        .topic-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 30px;
-            padding: 8px 16px;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-
-        .topic-btn:hover {
-            background: rgba(255,107,59,0.3);
-            border-color: #ff6b3b;
-        }
-
-        .hypno-input {
-            width: 100%;
-            padding: 12px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            color: white;
-            font-size: 14px;
-            font-family: inherit;
-            resize: vertical;
-        }
-
-        .hypno-input:focus {
-            outline: none;
-            border-color: #ff6b3b;
-        }
-
-        .anchor-card {
-            background: var(--bg-card);
-            border-radius: 12px;
-            padding: 12px;
-            margin: 12px 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .anchor-phrase {
-            font-size: 13px;
             color: var(--text-secondary);
-            margin: 4px 0;
         }
 
-        .tale-card {
-            background: var(--bg-card);
-            border-radius: 12px;
-            padding: 12px;
-            margin: 12px 0;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .tale-card:hover {
-            border-color: #ff6b3b;
-            transform: translateX(4px);
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            margin: 16px 0;
-        }
-
-        .stat-card {
-            background: var(--bg-card);
-            border-radius: 12px;
-            padding: 16px;
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 28px;
+        .profile-section-title {
+            font-size: 18px;
             font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
             color: #ff6b3b;
         }
 
-        .stat-label {
-            font-size: 11px;
-            color: var(--text-secondary);
-            margin-top: 4px;
+        .profile-section-title:first-of-type {
+            margin-top: 0;
+        }
+
+        .thoughts-section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
+            color: #ff6b3b;
         }
 
         .loading-screen {
@@ -923,7 +657,6 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 300px;
             height: 100%;
             gap: 20px;
         }
@@ -944,86 +677,46 @@
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 10000;
-            animation: slideUp 0.3s ease;
-            width: auto;
-            max-width: 90%;
-            min-width: 200px;
+            z-index: 1000;
+            animation: slideUp 0.2s ease;
         }
 
         @keyframes slideUp {
-            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
-            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
         }
 
         .floating-message-content {
-            background: rgba(0,0,0,0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 12px 16px;
+            background: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 50px;
+            padding: 10px 20px;
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            border: 1px solid rgba(255,107,59,0.3);
+            gap: 10px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
         }
 
         .floating-message-text {
-            flex: 1;
-            font-size: 14px;
-            text-align: center;
+            font-size: 13px;
         }
 
         .floating-message-close {
-            width: 28px;
-            height: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255,255,255,0.05);
-            border-radius: 50%;
             cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        .floating-message.success .floating-message-content {
-            border-color: #4caf50;
-        }
-
-        .floating-message.error .floating-message-content {
-            border-color: #f44336;
-        }
-
-        /* Swipe Indicator */
-        .swipe-indicator {
-            text-align: center;
-            font-size: 12px;
-            color: var(--text-secondary);
-            padding: 8px;
-            margin-bottom: 8px;
+            opacity: 0.7;
+            font-size: 16px;
         }
 
         /* Mobile Responsive */
         @media (max-width: 768px) {
-            .chats-panel {
-                position: fixed;
-                left: 0;
-                top: 0;
-                height: 100%;
-                transform: translateX(-100%);
-                z-index: 1000;
-                width: 280px;
-            }
-
-            .chats-panel.open {
-                transform: translateX(0);
-            }
-
-            .mobile-menu-btn {
-                display: flex;
-            }
-
             .quick-actions-grid {
+                grid-template-columns: repeat(4, 1fr);
                 gap: 8px;
             }
             
@@ -1035,60 +728,16 @@
                 gap: 8px;
             }
             
-            .dashboard-container {
+            .hero-section {
                 padding: 16px;
-            }
-            
-            .mode-selector {
-                gap: 8px;
-            }
-            
-            .message {
-                max-width: 90%;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .quick-actions-grid {
-                gap: 6px;
-            }
-            
-            .modules-grid {
-                gap: 6px;
-            }
-            
-            .module-card {
-                padding: 12px;
             }
             
             .greeting-text h2 {
                 font-size: 20px;
             }
             
-            .mode-btn {
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Utility Classes */
-        input, select, textarea {
-            font-size: 16px !important;
-        }
-        
-        button {
-            cursor: pointer;
-            touch-action: manipulation;
-        }
-        
-        @supports (height: 100dvh) {
-            .app, .chat-panel, .screen-container {
-                height: 100dvh !important;
-                min-height: 100dvh !important;
+            .full-content-page {
+                padding: 16px;
             }
         }
     </style>
@@ -1097,9 +746,9 @@
     <div class="app" id="appRoot">
         <div class="chats-panel" id="chatsPanel">
             <div class="chats-header">
-                <div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div class="chats-title">FREDI</div>
-                    <button class="new-chat-btn" id="newChatBtn">✎</button>
+                    <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; border-radius: 50%;">✎</button>
                 </div>
             </div>
             
@@ -1201,7 +850,7 @@
                 <div class="chat-header-left">
                     <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
                     <div class="chat-header-avatar">⭐</div>
-                    <div class="chat-header-info">
+                    <div>
                         <div class="chat-header-name">Фреди</div>
                         <div class="chat-header-status" id="botStatus">
                             <span class="mode-indicator" id="modeIndicator"></span>
@@ -1230,1103 +879,419 @@
         </div>
     </div>
 
-    <script>
-    // ============================================
-    // VoiceManager Class - Полноценный голосовой менеджер
-    // ============================================
+    <script src="/test.js"></script>
+    <script src="/voice.js"></script>
+    <script src="/app.js"></script>
     
-    class VoiceManager {
-        constructor(userId, options = {}) {
-            this.userId = userId;
-            this.apiBaseUrl = options.apiBaseUrl || 'https://fredi-backend-flz2.onrender.com';
-            this.useWebSocket = options.useWebSocket || false;
-            this.currentMode = 'psychologist';
-            this.mediaRecorder = null;
-            this.audioChunks = [];
-            this.isRecording = false;
-            this.isPlaying = false;
-            this.audioContext = null;
-            this.source = null;
-            this.volumeInterval = null;
+    <script>
+    (function() {
+        // ============================================
+        // КОНФИГУРАЦИЯ
+        // ============================================
+        const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+
+        function getUserId() {
+            let userId = localStorage.getItem('fredi_user_id');
+            if (!userId) {
+                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('fredi_user_id', userId);
+            }
+            return userId;
+        }
+
+        const USER_ID = getUserId();
+        console.log('👤 User ID:', USER_ID);
+
+        // ============================================
+        // ФУНКЦИИ ФОРМАТИРОВАНИЯ
+        // ============================================
+        
+        function formatProfileText(text) {
+            if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
             
-            // Колбэки
-            this.onTranscript = null;
-            this.onAIResponse = null;
-            this.onError = null;
-            this.onStatusChange = null;
-            this.onVolumeChange = null;
-            this.onRecordingStart = null;
-            this.onRecordingStop = null;
+            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+            text = text.replace(/\*(.*?)\*/g, '$1');
+            
+            const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
+            const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
+            
+            headers.forEach((header, i) => {
+                const regex = new RegExp(header, 'gi');
+                text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
+            });
+            
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            
+            return text;
         }
         
-        setMode(mode) {
-            this.currentMode = mode;
-            console.log(`VoiceManager: mode set to ${mode}`);
+        function formatThoughtText(text) {
+            if (!text) return '💭 Мысли психолога появятся после завершения теста.';
+            
+            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+            text = text.replace(/\*(.*?)\*/g, '$1');
+            
+            const headers = ['КЛЮЧЕВОЙ ЭЛЕМЕНТ', 'ПЕТЛЯ', 'ТОЧКА ВХОДА', 'ПРОГНОЗ', 'РЕКОМЕНДАЦИИ'];
+            const emojis = ['🔐', '🔄', '🚪', '📊', '💡'];
+            
+            headers.forEach((header, i) => {
+                const regex = new RegExp(header, 'gi');
+                text = text.replace(regex, `<div class="thoughts-section-title">${emojis[i]} ${header}</div>`);
+            });
+            
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            
+            return text;
         }
-        
-        isRecordingActive() {
-            return this.isRecording;
+
+        // ============================================
+        // API ВЫЗОВЫ
+        // ============================================
+
+        async function apiCall(endpoint, options = {}) {
+            const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers: { 'Content-Type': 'application/json', ...options.headers }
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                return data;
+            } catch (error) {
+                console.error(`API Error: ${endpoint}`, error);
+                throw error;
+            }
         }
-        
-        async startRecording() {
-            if (this.isRecording) {
-                console.log('Already recording');
+
+        async function isTestCompleted() {
+            try {
+                const data = await apiCall(`/api/user-status?user_id=${USER_ID}`);
+                if (data.has_profile) return true;
+                const stored = localStorage.getItem(`test_results_${USER_ID}`);
+                if (stored) {
+                    const results = JSON.parse(stored);
+                    if (results.profile || results.aiProfile) return true;
+                }
+                return false;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        async function getAIGeneratedProfile() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/generated-profile/${USER_ID}`);
+                const data = await response.json();
+                if (data.success && data.ai_profile) return data.ai_profile;
+                if (data.status === 'generating') {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    return getAIGeneratedProfile();
+                }
+                return null;
+            } catch (error) {
+                console.error('Error fetching AI profile:', error);
+                return null;
+            }
+        }
+
+        async function getPsychologistThought() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/psychologist-thought/${USER_ID}`);
+                const data = await response.json();
+                return data.success ? data.thought : null;
+            } catch (error) {
+                console.error('Error fetching thought:', error);
+                return null;
+            }
+        }
+
+        async function getWeekendIdeas() {
+            try {
+                const data = await apiCall(`/api/ideas?user_id=${USER_ID}`);
+                return data.ideas || [];
+            } catch (error) {
+                return [];
+            }
+        }
+
+        // ============================================
+        // UI ФУНКЦИИ
+        // ============================================
+
+        function showToast(message) {
+            const toast = document.getElementById('toastMessage');
+            const textEl = document.getElementById('toastText');
+            if (!toast || !textEl) return;
+            textEl.innerHTML = message;
+            toast.style.display = 'flex';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+            document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
+        }
+
+        function showLoading(message) {
+            const container = document.getElementById('screenContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="loading-screen">
+                        <div class="loading-spinner">🧠</div>
+                        <div class="loading-text">${message}</div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderDashboard() {
+            const container = document.getElementById('screenContainer');
+            const userName = localStorage.getItem('fredi_user_name') || 'друг';
+            
+            container.innerHTML = `
+                <div class="dashboard-container">
+                    <div class="hero-section">
+                        <div class="user-greeting">
+                            <div class="greeting-text">
+                                <h2>🧠 Привет, ${userName}!</h2>
+                                <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
+                            </div>
+                            <div class="profile-badge">
+                                <div class="profile-code" id="profileCode">🎭</div>
+                                <div style="font-size: 10px;">ваш психотип</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mode-selector">
+                        <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                    </div>
+                    
+                    <div class="voice-section">
+                        <div class="voice-card">
+                            <div class="voice-record-btn-premium" id="voiceBtn">
+                                <span class="voice-icon">🎤</span>
+                                <span class="voice-text">Расскажите, что вас беспокоит</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="modules-grid">
+                        <div class="module-card"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
+                        <div class="module-card"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
+                        <div class="module-card"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
+                        <div class="module-card"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
+                    </div>
+                    
+                    <div class="quick-actions">
+                        <div class="quick-actions-title">⚡ Быстрые действия</div>
+                        <div class="quick-actions-grid">
+                            <div class="quick-action" data-action="profile">
+                                <div class="action-icon">🧠</div>
+                                <div class="action-name">Мой портрет</div>
+                            </div>
+                            <div class="quick-action" data-action="thoughts">
+                                <div class="action-icon">💭</div>
+                                <div class="action-name">Мысли психолога</div>
+                            </div>
+                            <div class="quick-action" data-action="weekend">
+                                <div class="action-icon">🎨</div>
+                                <div class="action-name">Идеи на выходные</div>
+                            </div>
+                            <div class="quick-action" data-action="test">
+                                <div class="action-icon">📊</div>
+                                <div class="action-name">Пройти тест</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Обработчики быстрых действий
+            document.querySelectorAll('.quick-action').forEach(el => {
+                el.addEventListener('click', async () => {
+                    const action = el.dataset.action;
+                    if (action === 'profile') await handleProfileClick();
+                    else if (action === 'thoughts') await handleThoughtsClick();
+                    else if (action === 'weekend') await handleWeekendClick();
+                    else if (action === 'test') startTest();
+                });
+            });
+            
+            // Обработчики модулей
+            document.querySelectorAll('.module-card').forEach(el => {
+                el.addEventListener('click', () => showToast('Модуль скоро будет доступен'));
+            });
+            
+            // Обработчик голосовой кнопки
+            document.getElementById('voiceBtn')?.addEventListener('click', () => {
+                showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
+            });
+            
+            // Загружаем статус профиля
+            isTestCompleted().then(completed => {
+                const codeEl = document.getElementById('profileCode');
+                if (completed && codeEl) {
+                    codeEl.textContent = '✨';
+                }
+            });
+        }
+
+        function showFullContentScreen(title, content, contentType) {
+            const container = document.getElementById('screenContainer');
+            
+            let formattedContent = content;
+            if (contentType === 'profile') formattedContent = formatProfileText(content);
+            else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
+            else formattedContent = (content || '').replace(/\n/g, '<br>');
+            
+            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
+            
+            container.innerHTML = `
+                <div class="full-content-page">
+                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                    <div class="content-header">
+                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
+                        <h1>${title}</h1>
+                    </div>
+                    <div class="content-body">
+                        ${formattedContent || 'Данные не найдены'}
+                    </div>
+                </div>
+            `;
+            
+            const backBtn = document.getElementById('backBtn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => {
+                    renderDashboard();
+                });
+            }
+        }
+
+        function startTest() {
+            if (window.Test && window.Test.start) {
+                window.Test.init(USER_ID);
+                window.Test.start();
+            } else {
+                showToast('Тест загружается...');
+            }
+        }
+
+        // ============================================
+        // ОСНОВНЫЕ ОБРАБОТЧИКИ
+        // ============================================
+
+        async function handleProfileClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
                 return;
             }
             
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                this.mediaRecorder = new MediaRecorder(stream);
-                this.audioChunks = [];
-                
-                this.mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        this.audioChunks.push(event.data);
-                    }
-                };
-                
-                this.mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-                    this.audioChunks = [];
-                    stream.getTracks().forEach(track => track.stop());
-                    
-                    if (this.onRecordingStop) this.onRecordingStop(audioBlob);
-                    await this.sendAudioToAPI(audioBlob);
-                };
-                
-                this.mediaRecorder.start(100);
-                this.isRecording = true;
-                
-                // Начинаем отслеживать громкость
-                this.startVolumeMonitoring(stream);
-                
-                if (this.onStatusChange) this.onStatusChange('recording');
-                if (this.onRecordingStart) this.onRecordingStart();
-                console.log('Recording started');
-                
-            } catch (error) {
-                console.error('Error starting recording:', error);
-                if (this.onError) this.onError('Не удалось получить доступ к микрофону');
-                if (this.onStatusChange) this.onStatusChange('error');
-            }
-        }
-        
-        startVolumeMonitoring(stream) {
-            if (this.audioContext) {
-                this.audioContext.close();
-            }
+            showLoading('Загружаю психологический портрет...');
+            const profile = await getAIGeneratedProfile();
             
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = this.audioContext.createMediaStreamSource(stream);
-            const analyser = this.audioContext.createAnalyser();
-            analyser.fftSize = 256;
-            source.connect(analyser);
-            
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            
-            this.volumeInterval = setInterval(() => {
-                if (!this.isRecording) return;
-                analyser.getByteFrequencyData(dataArray);
-                let sum = 0;
-                for (let i = 0; i < dataArray.length; i++) {
-                    sum += dataArray[i];
-                }
-                let avg = sum / dataArray.length;
-                let volume = Math.min(100, Math.round((avg / 255) * 100));
-                
-                if (this.onVolumeChange) this.onVolumeChange(volume);
-            }, 100);
-        }
-        
-        stopVolumeMonitoring() {
-            if (this.volumeInterval) {
-                clearInterval(this.volumeInterval);
-                this.volumeInterval = null;
-            }
-            if (this.audioContext) {
-                this.audioContext.close();
-                this.audioContext = null;
-            }
-        }
-        
-        stopRecording() {
-            if (this.mediaRecorder && this.isRecording) {
-                this.mediaRecorder.stop();
-                this.isRecording = false;
-                this.stopVolumeMonitoring();
-                if (this.onStatusChange) this.onStatusChange('processing');
-                console.log('Recording stopped');
-            }
-        }
-        
-        async sendAudioToAPI(audioBlob) {
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.webm');
-            formData.append('user_id', this.userId);
-            formData.append('mode', this.currentMode);
-            
-            try {
-                const response = await fetch(`${this.apiBaseUrl}/api/voice/process`, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.transcript && this.onTranscript) {
-                    this.onTranscript(data.transcript);
-                }
-                
-                if (data.response && this.onAIResponse) {
-                    this.onAIResponse(data.response);
-                }
-                
-                if (data.audio_url) {
-                    await this.playAudio(data.audio_url);
-                } else if (data.response && this.onAIResponse) {
-                    await this.textToSpeech(data.response, this.currentMode);
-                }
-                
-                if (this.onStatusChange) this.onStatusChange('idle');
-                
-            } catch (error) {
-                console.error('Error sending audio:', error);
-                if (this.onError) this.onError('Ошибка обработки голоса');
-                if (this.onStatusChange) this.onStatusChange('idle');
-            }
-        }
-        
-        async textToSpeech(text, mode) {
-            if (!text || text.length === 0) return;
-            
-            if (this.isPlaying) {
-                this.stopAudio();
-            }
-            
-            try {
-                const response = await fetch(`${this.apiBaseUrl}/api/voice/synthesize`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        text: text,
-                        mode: mode,
-                        user_id: this.userId
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`TTS API error: ${response.status}`);
-                }
-                
-                const audioBlob = await response.blob();
-                const audioUrl = URL.createObjectURL(audioBlob);
-                await this.playAudio(audioUrl);
-                URL.revokeObjectURL(audioUrl);
-                
-            } catch (error) {
-                console.error('Text-to-speech error:', error);
-                if (this.onError) this.onError('Не удалось озвучить ответ');
-            }
-        }
-        
-        async playAudio(audioUrl) {
-            return new Promise((resolve, reject) => {
-                const audio = new Audio(audioUrl);
-                this.isPlaying = true;
-                
-                if (this.onStatusChange) this.onStatusChange('ai_speaking');
-                
-                audio.onended = () => {
-                    this.isPlaying = false;
-                    if (this.onStatusChange) this.onStatusChange('idle');
-                    resolve();
-                };
-                
-                audio.onerror = (error) => {
-                    this.isPlaying = false;
-                    if (this.onStatusChange) this.onStatusChange('idle');
-                    reject(error);
-                };
-                
-                audio.play().catch(reject);
-            });
-        }
-        
-        stopAudio() {
-            if (this.isPlaying) {
-                // Остановка через Audio element не триггерит onended
-                this.isPlaying = false;
-                if (this.onStatusChange) this.onStatusChange('idle');
-            }
-        }
-    }
-    
-    // ============================================
-    // ДИНАМИЧЕСКАЯ КОНФИГУРАЦИЯ ПОЛЬЗОВАТЕЛЯ
-    // ============================================
-    
-    function generateUserId() {
-        return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
-    
-    function getOrCreateUserId() {
-        let userId = localStorage.getItem('fredi_user_id');
-        if (!userId) {
-            userId = generateUserId();
-            localStorage.setItem('fredi_user_id', userId);
-            console.log('🆕 New user created with ID:', userId);
-        }
-        return userId;
-    }
-    
-    function getUserName() {
-        return localStorage.getItem('fredi_user_name') || null;
-    }
-    
-    function setUserName(name) {
-        if (name && name.trim()) {
-            localStorage.setItem('fredi_user_name', name.trim());
-        }
-    }
-    
-    const CONFIG = {
-        API_BASE_URL: 'https://fredi-backend-flz2.onrender.com',
-        get USER_ID() { return getOrCreateUserId(); },
-        get USER_NAME() { return getUserName() || 'друг'; },
-        PROFILE_CODE: null
-    };
-    
-    const MODES = {
-        coach: {
-            id: 'coach',
-            name: 'КОУЧ',
-            emoji: '🔮',
-            color: '#3b82ff',
-            greeting: 'Я твой коуч. Давай найдём ответы внутри тебя.',
-            voicePrompt: 'Задай вопрос — я помогу найти решение'
-        },
-        psychologist: {
-            id: 'psychologist',
-            name: 'ПСИХОЛОГ',
-            emoji: '🧠',
-            color: '#ff6b3b',
-            greeting: 'Я здесь, чтобы помочь разобраться в глубинных паттернах.',
-            voicePrompt: 'Расскажите, что вас беспокоит'
-        },
-        trainer: {
-            id: 'trainer',
-            name: 'ТРЕНЕР',
-            emoji: '⚡',
-            color: '#ff3b3b',
-            greeting: 'Давай достигать целей вместе!',
-            voicePrompt: 'Сформулируй задачу — получишь чёткий план'
-        }
-    };
-    
-    const MODULES = {
-        coach: [
-            { id: 'goals', name: 'Цели', icon: '🎯', desc: 'Постановка и достижение' },
-            { id: 'strategy', name: 'Стратегия', icon: '📊', desc: 'План действий' },
-            { id: 'motivation', name: 'Мотивация', icon: '⚡', desc: 'Энергия для движения' },
-            { id: 'habits', name: 'Привычки', icon: '🔄', desc: 'Формирование привычек' }
-        ],
-        psychologist: [
-            { id: 'analysis', name: 'Анализ', icon: '🧠', desc: 'Глубинные паттерны' },
-            { id: 'emotions', name: 'Эмоции', icon: '💭', desc: 'Работа с чувствами' },
-            { id: 'trauma', name: 'Исцеление', icon: '🕊️', desc: 'Проработка опыта' },
-            { id: 'relations', name: 'Отношения', icon: '💕', desc: 'Коммуникация' }
-        ],
-        trainer: [
-            { id: 'workout', name: 'Тренировки', icon: '💪', desc: 'Физическая активность' },
-            { id: 'discipline', name: 'Дисциплина', icon: '⏰', desc: 'Режим и порядок' },
-            { id: 'results', name: 'Результаты', icon: '🏆', desc: 'Достижения' },
-            { id: 'challenges', name: 'Челленджи', icon: '🔥', desc: 'Испытания' }
-        ]
-    };
-    
-    let currentMode = 'psychologist';
-    let navigationHistory = [];
-    let voiceManager = null;
-    
-    // ============================================
-    // API ВЫЗОВЫ
-    // ============================================
-    
-    async function apiCall(endpoint, options = {}) {
-        const url = endpoint.startsWith('http') ? endpoint : `${CONFIG.API_BASE_URL}${endpoint}`;
-        try {
-            const response = await fetch(url, {
-                ...options,
-                headers: { 'Content-Type': 'application/json', ...options.headers }
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-            return data;
-        } catch (error) {
-            console.error(`API Error: ${endpoint}`, error);
-            throw error;
-        }
-    }
-    
-    async function getUserStatus() {
-        try {
-            return await apiCall(`/api/user-status?user_id=${CONFIG.USER_ID}`);
-        } catch (error) {
-            return { has_profile: false, test_completed: false, profile_code: null };
-        }
-    }
-    
-    async function getUserProfile() {
-        try {
-            const data = await apiCall(`/api/get-profile?user_id=${CONFIG.USER_ID}`);
-            return data.ai_generated_profile || 'Психологический портрет формируется.';
-        } catch (error) {
-            return 'Профиль временно недоступен.';
-        }
-    }
-    
-    async function getPsychologistThought() {
-        try {
-            const data = await apiCall(`/api/thought?user_id=${CONFIG.USER_ID}`);
-            return data.thought;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function generateNewThought() {
-        try {
-            const data = await apiCall('/api/psychologist-thoughts/generate', {
-                method: 'POST',
-                body: JSON.stringify({ user_id: CONFIG.USER_ID })
-            });
-            return data.thought;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function getWeekendIdeas() {
-        try {
-            const data = await apiCall(`/api/ideas?user_id=${CONFIG.USER_ID}`);
-            return data.ideas || [];
-        } catch (error) {
-            return [];
-        }
-    }
-    
-    async function getUserGoals() {
-        try {
-            const data = await apiCall(`/api/goals/with-confinement?user_id=${CONFIG.USER_ID}&mode=${currentMode}`);
-            return data.goals || [];
-        } catch (error) {
-            return [];
-        }
-    }
-    
-    async function getSmartQuestions() {
-        try {
-            const data = await apiCall(`/api/smart-questions?user_id=${CONFIG.USER_ID}`);
-            return data.questions || [];
-        } catch (error) {
-            return [];
-        }
-    }
-    
-    async function getChallenges() {
-        try {
-            const data = await apiCall(`/api/challenges?user_id=${CONFIG.USER_ID}`);
-            return data.challenges || [];
-        } catch (error) {
-            return [];
-        }
-    }
-    
-    async function findPsychometricDoubles() {
-        try {
-            const data = await apiCall(`/api/psychometric/find-doubles?user_id=${CONFIG.USER_ID}&limit=5`);
-            return data.doubles || [];
-        } catch (error) {
-            return [];
-        }
-    }
-    
-    async function getConfinementModel() {
-        try {
-            const data = await apiCall(`/api/confinement-model?user_id=${CONFIG.USER_ID}`);
-            return data;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function getConfinementLoops() {
-        try {
-            const data = await apiCall(`/api/confinement/model/${CONFIG.USER_ID}/loops`);
-            return data;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function getIntervention(elementId) {
-        try {
-            const data = await apiCall(`/api/intervention/${elementId}?user_id=${CONFIG.USER_ID}`);
-            return data;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function rebuildConfinementModel() {
-        try {
-            const data = await apiCall(`/api/confinement/model/${CONFIG.USER_ID}/rebuild`, { method: 'POST' });
-            return data;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function getMorningPractice() {
-        try {
-            const data = await apiCall('/api/practice/morning');
-            return data.practice;
-        } catch (error) {
-            return 'Утренняя практика: начните день с намерения. Сделайте 3 глубоких вдоха.';
-        }
-    }
-    
-    async function getEveningPractice() {
-        try {
-            const data = await apiCall('/api/practice/evening');
-            return data.practice;
-        } catch (error) {
-            return 'Вечерняя практика: вспомните три хороших события сегодня. За что вы благодарны?';
-        }
-    }
-    
-    async function getRandomExercise() {
-        try {
-            const data = await apiCall('/api/practice/random-exercise');
-            return data.exercise;
-        } catch (error) {
-            return 'Сделайте паузу. Обратите внимание на своё дыхание. Вдох... выдох...';
-        }
-    }
-    
-    async function getRandomQuote() {
-        try {
-            const data = await apiCall('/api/practice/random-quote');
-            return data.quote;
-        } catch (error) {
-            return '«Не в силе, а в правде. Не в деньгах, а в душевном покое.»';
-        }
-    }
-    
-    async function processHypno(text) {
-        try {
-            const data = await apiCall('/api/hypno/process', {
-                method: 'POST',
-                body: JSON.stringify({ user_id: CONFIG.USER_ID, text: text, mode: currentMode })
-            });
-            return data.response;
-        } catch (error) {
-            return 'Сделайте глубокий вдох... Представьте, что с каждым выдохом вы отпускаете напряжение...';
-        }
-    }
-    
-    async function getHypnoSupport() {
-        try {
-            const data = await apiCall('/api/hypno/support', { method: 'POST', body: JSON.stringify({}) });
-            return data.response;
-        } catch (error) {
-            return 'Я здесь. Ты справляешься. Дыши спокойно.';
-        }
-    }
-    
-    async function getTales() {
-        try {
-            const data = await apiCall('/api/tale');
-            return data;
-        } catch (error) {
-            return { success: false, available_tales: [] };
-        }
-    }
-    
-    async function getTaleById(taleId) {
-        try {
-            const data = await apiCall(`/api/tale/${taleId}`);
-            return data.tale;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function getUserAnchors() {
-        try {
-            const data = await apiCall(`/api/anchor/user/${CONFIG.USER_ID}`);
-            return data.anchors;
-        } catch (error) {
-            return [];
-        }
-    }
-    
-    async function setAnchor(anchorName, state, phrase) {
-        try {
-            const data = await apiCall('/api/anchor/set', {
-                method: 'POST',
-                body: JSON.stringify({ user_id: CONFIG.USER_ID, anchor_name: anchorName, state: state, phrase: phrase })
-            });
-            return data;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function fireAnchor(anchorName) {
-        try {
-            const data = await apiCall('/api/anchor/fire', {
-                method: 'POST',
-                body: JSON.stringify({ user_id: CONFIG.USER_ID, anchor_name: anchorName })
-            });
-            return data.phrase;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    async function getAnchor(state) {
-        try {
-            const data = await apiCall(`/api/anchor/${state}`);
-            return data.phrase;
-        } catch (error) {
-            return `Я спокоен. Я дышу. Я здесь и сейчас.`;
-        }
-    }
-    
-    async function getConfinementStatistics() {
-        try {
-            const data = await apiCall(`/api/confinement/statistics/${CONFIG.USER_ID}`);
-            return data.statistics;
-        } catch (error) {
-            return { total_elements: 0, active_elements: 0, total_loops: 0, is_system_closed: false, closure_score: 0 };
-        }
-    }
-    
-    // ============================================
-    // UI ФУНКЦИИ
-    // ============================================
-    
-    function showToast(message, type = 'info') {
-        const toast = document.getElementById('toastMessage');
-        const textEl = document.getElementById('toastText');
-        if (!toast || !textEl) return;
-        textEl.textContent = message;
-        toast.className = `floating-message ${type}`;
-        toast.style.display = 'block';
-        setTimeout(() => { toast.style.display = 'none'; }, 3000);
-        document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
-    }
-    
-    function addMessage(text, sender = 'bot') {
-        const container = document.getElementById('screenContainer');
-        if (!container) return;
-        if (container.querySelector('.loading-screen')) container.innerHTML = '';
-        let messagesContainer = container.querySelector('.chat-messages');
-        if (!messagesContainer) {
-            messagesContainer = document.createElement('div');
-            messagesContainer.className = 'chat-messages';
-            container.appendChild(messagesContainer);
-        }
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender}`;
-        messageDiv.textContent = text;
-        messagesContainer.appendChild(messageDiv);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-    
-    function showLoading(message) {
-        const container = document.getElementById('screenContainer');
-        if (container) {
-            container.innerHTML = `<div class="loading-screen"><div class="loading-spinner">🧠</div><div class="loading-text">${message}</div></div>`;
-        }
-    }
-    
-    function navigateBack() {
-        if (navigationHistory.length > 0) {
-            navigationHistory.pop();
-        }
-        renderDashboard();
-    }
-    
-    function navigateTo(screen, params = {}) {
-        navigationHistory.push({ screen, params });
-        switch(screen) {
-            case 'confinement-model': showConfinementModel(); break;
-            case 'confinement-loops': showConfinementLoops(params); break;
-            case 'intervention': showIntervention(params); break;
-            case 'practices': showPractices(); break;
-            case 'hypnosis': showHypnosis(); break;
-            case 'tales': showTales(); break;
-            case 'anchors': showAnchors(); break;
-            case 'statistics': showStatistics(); break;
-            default: showFullContentScreen(screen, params.content, params.contentType);
-        }
-    }
-    
-    function showFullContentScreen(title, content, contentType) {
-        const container = document.getElementById('screenContainer');
-        const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯', questions: '❓', challenges: '🏆', doubles: '👥', weekend: '🎨' };
-        
-        let formattedContent = content;
-        if (typeof content === 'string') {
-            formattedContent = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
-        }
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">${emojiMap[contentType] || '📄'}</div><h1 class="content-title">${title}</h1></div>
-                <div class="content-body">${formattedContent || 'Данные не найдены'}</div>
-                <button class="action-btn primary-btn" id="speakContentBtn" style="margin-top: 20px;">🔊 Озвучить</button>
-            </div>
-        `;
-        document.getElementById('backBtn').onclick = () => navigateBack();
-        document.getElementById('speakContentBtn').onclick = async () => {
-            const textToSpeak = typeof content === 'string' ? content.replace(/<[^>]*>/g, '') : '';
-            if (voiceManager) await voiceManager.textToSpeech(textToSpeak, currentMode);
-        };
-    }
-    
-    async function showConfinementModel() {
-        const container = document.getElementById('screenContainer');
-        showToast('Загружаю модель ограничений...', 'info');
-        const model = await getConfinementModel();
-        
-        let elementsHtml = '';
-        if (model && model.elements) {
-            for (let i = 1; i <= 9; i++) {
-                const elem = model.elements[i];
-                if (elem) {
-                    elementsHtml += `<div class="confinement-element" data-element="${i}"><div class="element-number">${i}</div><div class="element-name">${elem.name || `Элемент ${i}`}</div><div class="element-desc">${(elem.description || '').substring(0, 60)}...</div><div class="element-meta"><span>💪 ${Math.round((elem.strength || 0.5) * 100)}%</span><span>🎭 ${elem.vak || 'digital'}</span></div></div>`;
-                }
-            }
-        }
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">🔐</div><h1 class="content-title">Модель ограничений</h1></div>
-                <div class="content-body">
-                    <div class="key-confinement"><div class="key-title">📊 СТЕПЕНЬ ЗАМЫКАНИЯ</div><div style="font-size: 32px; font-weight: bold;">${Math.round((model?.closure_score || 0) * 100)}%</div></div>
-                    <h3>📊 ЭЛЕМЕНТЫ МОДЕЛИ</h3>
-                    <div class="elements-grid">${elementsHtml || '<p>Нет данных</p>'}</div>
-                    <button class="action-btn" id="loopsBtn">🔄 Все петли</button>
-                    <button class="action-btn" id="rebuildModelBtn">🔄 Перестроить модель</button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('backBtn').onclick = () => navigateBack();
-        document.getElementById('loopsBtn')?.addEventListener('click', () => navigateTo('confinement-loops', { model }));
-        document.getElementById('rebuildModelBtn')?.addEventListener('click', async () => {
-            await rebuildConfinementModel();
-            showToast('Модель перестроена', 'success');
-            navigateTo('confinement-model');
-        });
-        document.querySelectorAll('.confinement-element').forEach(el => {
-            el.addEventListener('click', () => navigateTo('intervention', { elementId: parseInt(el.dataset.element) }));
-        });
-    }
-    
-    async function showConfinementLoops(params) {
-        const container = document.getElementById('screenContainer');
-        const loopsData = await getConfinementLoops();
-        let loopsHtml = '';
-        if (loopsData?.loops?.length) {
-            loopsData.loops.forEach((loop, idx) => {
-                loopsHtml += `<div class="loop-card"><div class="loop-type">🔄 ПЕТЛЯ ${idx + 1}: ${loop.type || 'Цикл'}</div><div class="loop-desc">${loop.description || 'Нет описания'}</div><div class="loop-strength">Сила: ${Math.round((loop.strength || 0.5) * 100)}%</div></div>`;
-            });
-        }
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">🔄</div><h1 class="content-title">Петли системы</h1></div>
-                <div class="content-body">${loopsHtml || '<p>Петли не обнаружены</p>'}</div>
-            </div>
-        `;
-        document.getElementById('backBtn').onclick = () => navigateBack();
-    }
-    
-    async function showIntervention(params) {
-        const container = document.getElementById('screenContainer');
-        const intervention = await getIntervention(params.elementId);
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">💡</div><h1 class="content-title">Интервенция</h1></div>
-                <div class="content-body">
-                    ${intervention?.intervention?.description ? `<div class="intervention-card"><h3>💡 ЧТО ДЕЛАТЬ</h3><div class="intervention-text">${intervention.intervention.description}</div></div>` : ''}
-                    ${intervention?.daily_practice ? `<div class="daily-practice"><h3>📝 ЕЖЕДНЕВНАЯ ПРАКТИКА</h3><div class="intervention-text">${intervention.daily_practice}</div></div>` : ''}
-                    <button class="action-btn primary-btn" id="speakInterventionBtn">🔊 Озвучить</button>
-                </div>
-            </div>
-        `;
-        document.getElementById('backBtn').onclick = () => navigateBack();
-        document.getElementById('speakInterventionBtn')?.addEventListener('click', async () => {
-            const text = (intervention?.intervention?.description || '') + ' ' + (intervention?.daily_practice || '');
-            if (voiceManager) await voiceManager.textToSpeech(text, currentMode);
-        });
-    }
-    
-    async function showPractices() {
-        const container = document.getElementById('screenContainer');
-        const [morning, evening, exercise, quote] = await Promise.all([getMorningPractice(), getEveningPractice(), getRandomExercise(), getRandomQuote()]);
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">🧘</div><h1 class="content-title">Практики</h1></div>
-                <div class="content-body">
-                    <div class="practice-card"><h3>🌅 УТРЕННЯЯ ПРАКТИКА</h3><div class="intervention-text">${morning}</div><button class="action-btn speak-practice" data-text="${morning.replace(/"/g, '&quot;')}">🔊 Озвучить</button></div>
-                    <div class="practice-card"><h3>🌙 ВЕЧЕРНЯЯ ПРАКТИКА</h3><div class="intervention-text">${evening}</div><button class="action-btn speak-practice" data-text="${evening.replace(/"/g, '&quot;')}">🔊 Озвучить</button></div>
-                    <div class="practice-card"><h3>🎲 СЛУЧАЙНОЕ УПРАЖНЕНИЕ</h3><div class="intervention-text" id="exerciseText">${exercise}</div><button class="action-btn" id="newExerciseBtn">🔄 Другое упражнение</button><button class="action-btn speak-practice" data-text="${exercise.replace(/"/g, '&quot;')}">🔊 Озвучить</button></div>
-                    <div class="quote-card"><h3>📖 ЦИТАТА ДНЯ</h3><div class="intervention-text" id="quoteText">${quote}</div><button class="action-btn" id="newQuoteBtn">🔄 Другая цитата</button><button class="action-btn speak-practice" data-text="${quote.replace(/"/g, '&quot;')}">🔊 Озвучить</button></div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('backBtn').onclick = () => navigateBack();
-        document.querySelectorAll('.speak-practice').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const text = btn.dataset.text;
-                if (voiceManager && text) await voiceManager.textToSpeech(text, currentMode);
-            });
-        });
-        document.getElementById('newExerciseBtn')?.addEventListener('click', async () => {
-            const newExercise = await getRandomExercise();
-            document.getElementById('exerciseText').textContent = newExercise;
-        });
-        document.getElementById('newQuoteBtn')?.addEventListener('click', async () => {
-            const newQuote = await getRandomQuote();
-            document.getElementById('quoteText').textContent = newQuote;
-        });
-    }
-    
-    async function showHypnosis() {
-        const container = document.getElementById('screenContainer');
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">🌙</div><h1 class="content-title">Гипноз</h1></div>
-                <div class="content-body">
-                    <div class="hypno-topics"><button class="topic-btn" data-topic="тревога">Тревога</button><button class="topic-btn" data-topic="уверенность">Уверенность</button><button class="topic-btn" data-topic="спокойствие">Спокойствие</button><button class="topic-btn" data-topic="сон">Сон</button></div>
-                    <textarea class="hypno-input" id="hypnoInput" rows="3" placeholder="Напишите, что вас беспокоит..."></textarea>
-                    <button class="action-btn primary-btn" id="processHypnoBtn">🌙 Получить гипнотический ответ</button>
-                    <div id="hypnoResponse" style="margin-top: 20px;"></div>
-                    <div class="practice-card"><h3>🎧 ПОДДЕРЖКА</h3><button class="action-btn" id="supportBtn">Получить поддерживающий ответ</button><div id="supportResponse" style="margin-top: 12px;"></div></div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('backBtn').onclick = () => navigateBack();
-        document.querySelectorAll('.topic-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                document.getElementById('hypnoInput').value = `Я чувствую ${btn.dataset.topic}`;
-                const response = await processHypno(document.getElementById('hypnoInput').value);
-                document.getElementById('hypnoResponse').innerHTML = `<div class="intervention-card"><div class="intervention-text">${response}</div><button class="action-btn speak-response">🔊 Озвучить</button></div>`;
-                document.querySelector('.speak-response')?.addEventListener('click', async () => {
-                    if (voiceManager) await voiceManager.textToSpeech(response, currentMode);
-                });
-            });
-        });
-        document.getElementById('processHypnoBtn')?.addEventListener('click', async () => {
-            const input = document.getElementById('hypnoInput').value;
-            if (!input.trim()) { showToast('Напишите, что вас беспокоит', 'info'); return; }
-            const response = await processHypno(input);
-            document.getElementById('hypnoResponse').innerHTML = `<div class="intervention-card"><div class="intervention-text">${response}</div><button class="action-btn speak-response">🔊 Озвучить</button></div>`;
-            document.querySelector('.speak-response')?.addEventListener('click', async () => {
-                if (voiceManager) await voiceManager.textToSpeech(response, currentMode);
-            });
-        });
-        document.getElementById('supportBtn')?.addEventListener('click', async () => {
-            const support = await getHypnoSupport();
-            document.getElementById('supportResponse').innerHTML = `<div class="intervention-card"><div class="intervention-text">${support}</div><button class="action-btn speak-support">🔊 Озвучить</button></div>`;
-            document.querySelector('.speak-support')?.addEventListener('click', async () => {
-                if (voiceManager) await voiceManager.textToSpeech(support, currentMode);
-            });
-        });
-    }
-    
-    async function showTales() {
-        const container = document.getElementById('screenContainer');
-        const talesData = await getTales();
-        const talesList = talesData.available_tales || [];
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">📚</div><h1 class="content-title">Терапевтические сказки</h1></div>
-                <div class="content-body">
-                    <div class="hypno-topics"><button class="topic-btn" data-issue="страх">Страх</button><button class="topic-btn" data-issue="одиночество">Одиночество</button><button class="topic-btn" data-issue="уверенность">Уверенность</button></div>
-                    <div id="taleContent"></div>
-                    <h3>📚 БИБЛИОТЕКА СКАЗОК</h3>
-                    <div id="talesList">${talesList.map(tale => `<div class="tale-card" data-tale-id="${tale}"><div class="loop-type">📖 ${tale}</div></div>`).join('') || '<p>Сказки загружаются...</p>'}</div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('backBtn').onclick = () => navigateBack();
-        document.querySelectorAll('.topic-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const data = await apiCall(`/api/tale?issue=${btn.dataset.issue}`);
-                if (data.tale) {
-                    document.getElementById('taleContent').innerHTML = `<div class="intervention-card"><h3>📖 Сказка</h3><div class="intervention-text">${data.tale}</div><button class="action-btn speak-tale">🔊 Озвучить</button></div>`;
-                    document.querySelector('.speak-tale')?.addEventListener('click', async () => {
-                        if (voiceManager) await voiceManager.textToSpeech(data.tale, currentMode);
-                    });
-                }
-            });
-        });
-        document.querySelectorAll('.tale-card').forEach(card => {
-            card.addEventListener('click', async () => {
-                const tale = await getTaleById(card.dataset.taleId);
-                if (tale) {
-                    document.getElementById('taleContent').innerHTML = `<div class="intervention-card"><h3>📖 ${card.dataset.taleId}</h3><div class="intervention-text">${tale}</div><button class="action-btn speak-tale">🔊 Озвучить</button></div>`;
-                    document.querySelector('.speak-tale')?.addEventListener('click', async () => {
-                        if (voiceManager) await voiceManager.textToSpeech(tale, currentMode);
-                    });
-                }
-            });
-        });
-    }
-    
-    async function showAnchors() {
-        const container = document.getElementById('screenContainer');
-        const anchors = await getUserAnchors();
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">⚓</div><h1 class="content-title">Мои якоря</h1></div>
-                <div class="content-body">
-                    <h3>📋 АКТИВНЫЕ ЯКОРЯ</h3>
-                    <div id="anchorsList">${anchors.length ? anchors.map(anchor => `<div class="anchor-card"><div><div class="loop-type">${anchor.name}</div><div class="anchor-phrase">${anchor.phrase}</div><div>Состояние: ${anchor.state}</div></div><button class="action-btn fire-anchor" data-name="${anchor.name}">🔥 Активировать</button></div>`).join('') : '<p>У вас пока нет якорей</p>'}</div>
-                    <div class="practice-card"><h3>➕ СОЗДАТЬ НОВЫЙ ЯКОРЬ</h3><input type="text" id="anchorName" placeholder="Название" style="width:100%;padding:10px;margin:8px 0;background:rgba(255,255,255,0.05);border-radius:30px;color:white;"><input type="text" id="anchorState" placeholder="Состояние" style="width:100%;padding:10px;margin:8px 0;background:rgba(255,255,255,0.05);border-radius:30px;color:white;"><textarea id="anchorPhrase" placeholder="Фраза-якорь" rows="2" style="width:100%;padding:10px;margin:8px 0;background:rgba(255,255,255,0.05);border-radius:20px;color:white;"></textarea><button class="action-btn primary-btn" id="createAnchorBtn">✨ СОЗДАТЬ</button></div>
-                    <div class="practice-card"><h3>💡 ПРЕДЛОЖЕННЫЕ ЯКОРЯ</h3><button class="action-btn" id="anchorCalmBtn">😌 Спокойствие</button><button class="action-btn" id="anchorConfidenceBtn">💪 Уверенность</button></div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('backBtn').onclick = () => navigateBack();
-        document.querySelectorAll('.fire-anchor').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const phrase = await fireAnchor(btn.dataset.name);
-                if (phrase && voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
-            });
-        });
-        document.getElementById('createAnchorBtn')?.addEventListener('click', async () => {
-            const name = document.getElementById('anchorName').value;
-            const state = document.getElementById('anchorState').value;
-            const phrase = document.getElementById('anchorPhrase').value;
-            if (!name || !state || !phrase) { showToast('Заполните все поля', 'error'); return; }
-            await setAnchor(name, state, phrase);
-            showToast('Якорь создан!', 'success');
-            showAnchors();
-        });
-        document.getElementById('anchorCalmBtn')?.addEventListener('click', async () => {
-            const phrase = await getAnchor('calm');
-            if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
-        });
-        document.getElementById('anchorConfidenceBtn')?.addEventListener('click', async () => {
-            const phrase = await getAnchor('confidence');
-            if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
-        });
-    }
-    
-    async function showStatistics() {
-        const container = document.getElementById('screenContainer');
-        const stats = await getConfinementStatistics();
-        const status = await getUserStatus();
-        
-        container.innerHTML = `
-            <div class="full-content-page">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <div class="content-header"><div class="content-emoji">📊</div><h1 class="content-title">Статистика</h1></div>
-                <div class="content-body">
-                    <div class="stats-grid"><div class="stat-card"><div class="stat-value">${stats.total_elements || 0}</div><div class="stat-label">Элементов</div></div><div class="stat-card"><div class="stat-value">${stats.total_loops || 0}</div><div class="stat-label">Петель</div></div><div class="stat-card"><div class="stat-value">${Math.round((stats.closure_score || 0) * 100)}%</div><div class="stat-label">Замыкание</div></div></div>
-                    <div class="practice-card"><h3>🧠 ПРОФИЛЬ</h3><div>Код: ${status.profile_code || 'Не определен'}</div><div>Тест: ${status.test_completed ? '✅ Пройден' : '⏳ Не пройден'}</div></div>
-                </div>
-            </div>
-        `;
-        document.getElementById('backBtn').onclick = () => navigateBack();
-    }
-    
-    // ============================================
-    // ДАШБОРД И УПРАВЛЕНИЕ РЕЖИМАМИ
-    // ============================================
-    
-    function updateModeUI() {
-        const config = MODES[currentMode];
-        document.getElementById('modeLabel').textContent = config.name;
-        document.getElementById('modeIndicator').style.background = config.color;
-    }
-    
-    async function switchMode(mode) {
-        if (mode === currentMode) return;
-        currentMode = mode;
-        showToast(`Режим "${MODES[mode].name}" активирован`, 'success');
-        await apiCall('/api/save-mode', { method: 'POST', body: JSON.stringify({ user_id: CONFIG.USER_ID, mode }) });
-        updateModeUI();
-        if (voiceManager) voiceManager.setMode(mode);
-        renderDashboard();
-    }
-    
-    function setupVoiceButton(buttonElement) {
-        if (!buttonElement || !voiceManager) return;
-        let pressTimer = null;
-        
-        const onPressStart = (e) => {
-            e.preventDefault();
-            pressTimer = setTimeout(() => voiceManager.startRecording(), 150);
-        };
-        const onPressEnd = (e) => {
-            e.preventDefault();
-            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-            if (voiceManager.isRecordingActive()) voiceManager.stopRecording();
-        };
-        
-        buttonElement.addEventListener('mousedown', onPressStart);
-        buttonElement.addEventListener('mouseup', onPressEnd);
-        buttonElement.addEventListener('mouseleave', onPressEnd);
-        buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
-        buttonElement.addEventListener('touchend', onPressEnd, { passive: false });
-        buttonElement.addEventListener('touchcancel', onPressEnd, { passive: false });
-        
-        voiceManager.onStatusChange = (status) => {
-            const iconSpan = buttonElement.querySelector('.voice-icon');
-            const textSpan = buttonElement.querySelector('.voice-text');
-            if (status === 'recording') {
-                buttonElement.classList.add('recording');
-                if (iconSpan) iconSpan.textContent = '⏹️';
-                if (textSpan) textSpan.textContent = 'Отпустите для отправки';
+            if (profile) {
+                showFullContentScreen('Мой портрет', profile, 'profile');
             } else {
-                buttonElement.classList.remove('recording');
-                if (iconSpan) iconSpan.textContent = '🎤';
-                if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
+                showFullContentScreen('Мой портрет', '🧠 Психологический портрет формируется. Подождите немного.', 'profile');
             }
-        };
-        
-        voiceManager.onTranscript = (text) => addMessage(`🎤 "${text}"`, 'system');
-        voiceManager.onAIResponse = (answer) => addMessage(answer, 'bot');
-        voiceManager.onError = (error) => showToast(`❌ ${error}`, 'error');
-    }
-    
-    function initMobileMenu() {
-        const mobileBtn = document.getElementById('mobileMenuBtn');
-        const panel = document.getElementById('chatsPanel');
-        if (mobileBtn && panel) {
-            mobileBtn.addEventListener('click', () => panel.classList.toggle('open'));
-            document.addEventListener('click', (e) => {
-                if (panel.classList.contains('open') && !panel.contains(e.target) && !mobileBtn.contains(e.target)) {
-                    panel.classList.remove('open');
-                }
+        }
+
+        async function handleThoughtsClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            
+            showLoading('Загружаю мысли психолога...');
+            const thought = await getPsychologistThought();
+            
+            if (thought) {
+                showFullContentScreen('Мысли психолога', thought, 'thoughts');
+            } else {
+                showFullContentScreen('Мысли психолога', '💭 Мысли психолога появятся после завершения теста.', 'thoughts');
+            }
+        }
+
+        async function handleWeekendClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            
+            showLoading('Подбираю идеи...');
+            const ideas = await getWeekendIdeas();
+            
+            if (ideas && ideas.length > 0) {
+                const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
+                showFullContentScreen('Идеи на выходные', ideasText, 'goals');
+            } else {
+                showFullContentScreen('Идеи на выходные', '🎨 Идеи появятся после завершения теста.', 'goals');
+            }
+        }
+
+        // ============================================
+        // ИНИЦИАЛИЗАЦИЯ
+        // ============================================
+
+        function initMobileMenu() {
+            const mobileBtn = document.getElementById('mobileMenuBtn');
+            const panel = document.getElementById('chatsPanel');
+            if (mobileBtn && panel) {
+                mobileBtn.addEventListener('click', () => {
+                    panel.classList.toggle('open');
+                });
+                document.addEventListener('click', (e) => {
+                    if (panel.classList.contains('open') && !panel.contains(e.target) && !mobileBtn.contains(e.target)) {
+                        panel.classList.remove('open');
+                    }
+                });
+            }
+        }
+
+        function setupMenuHandlers() {
+            document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
+            
+            document.getElementById('chatSearchInput')?.addEventListener('input', (e) => {
+                const search = e.target.value.toLowerCase();
+                document.querySelectorAll('.chat-item').forEach(item => {
+                    const name = item.querySelector('.chat-name')?.textContent.toLowerCase();
+                    item.style.display = name?.includes(search) ? 'flex' : 'none';
+                });
             });
         }
-    }
-    
-    async function renderDashboard() {
-        const container = document.getElementById('screenContainer');
-        const modeConfig = MODES[currentMode];
-        const modules = MODULES[currentMode];
-        
-        container.innerHTML = `
-            <div class="dashboard-container">
-                <div class="hero-section"><div class="user-greeting"><div class="greeting-text"><h2>${modeConfig.emoji} ${modeConfig.greeting}</h2><p>${CONFIG.USER_NAME}, я здесь, чтобы помочь</p></div><div class="profile-badge"><div class="profile-code" id="profileCode">🎭</div><div style="font-size: 10px;">ваш психотип</div></div></div></div>
-                <div class="mode-selector"><button class="mode-btn ${currentMode === 'coach' ? 'active coach' : ''}" data-mode="coach">🔮 КОУЧ</button><button class="mode-btn ${currentMode === 'psychologist' ? 'active psychologist' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button><button class="mode-btn ${currentMode === 'trainer' ? 'active trainer' : ''}" data-mode="trainer">⚡ ТРЕНЕР</button></div>
-                <div class="voice-section"><div class="voice-card"><button class="voice-record-btn-premium" id="mainVoiceBtn"><span class="voice-icon">🎤</span><span class="voice-text">${modeConfig.voicePrompt}</span></button><div class="voice-hint">🎙️ Нажмите и удерживайте для записи (до 60 сек)</div></div></div>
-                <div class="modules-grid">${modules.map(module => `<div class="module-card" data-module="${module.id}"><div class="module-icon">${module.icon}</div><div class="module-name">${module.name}</div><div class="module-desc">${module.desc}</div></div>`).join('')}</div>
-                <div class="quick-actions"><div class="quick-actions-title">⚡ Быстрые действия</div><div class="quick-actions-grid"><div class="quick-action" data-action="profile"><div class="action-icon">🧠</div><div class="action-name">Мой портрет</div></div><div class="quick-action" data-action="thoughts"><div class="action-icon">💭</div><div class="action-name">Мысли психолога</div></div><div class="quick-action" data-action="newThought"><div class="action-icon">✨</div><div class="action-name">Свежая мысль</div></div><div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div><div class="quick-action" data-action="goals"><div class="action-icon">🎯</div><div class="action-name">Цели</div></div><div class="quick-action" data-action="questions"><div class="action-icon">❓</div><div class="action-name">Вопросы</div></div><div class="quick-action" data-action="challenges"><div class="action-icon">🏆</div><div class="action-name">Челленджи</div></div><div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div></div></div>
-            </div>
-        `;
-        
-        const voiceBtn = document.getElementById('mainVoiceBtn');
-        if (voiceBtn && voiceManager) setupVoiceButton(voiceBtn);
-        
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.addEventListener('click', () => { const mode = btn.dataset.mode; if (mode) switchMode(mode); });
-        });
-        document.querySelectorAll('.module-card').forEach(card => {
-            card.addEventListener('click', () => showToast('Модуль скоро будет доступен', 'info'));
-        });
-        document.querySelectorAll('.quick-action').forEach(action => {
-            action.addEventListener('click', async () => {
-                const actionType = action.dataset.action;
-                if (actionType === 'profile') { const profile = await getUserProfile(); showFullContentScreen('Мой портрет', profile, 'profile'); }
-                else if (actionType === 'thoughts') { const thought = await getPsychologistThought(); if (thought) showFullContentScreen('Мысли психолога', thought, 'thoughts'); else showToast('Мысли появятся после теста', 'info'); }
-                else if (actionType === 'newThought') { const thought = await generateNewThought(); if (thought) showFullContentScreen('Свежая мысль', thought, 'thoughts'); }
-                else if (actionType === 'weekend') { const ideas = await getWeekendIdeas(); showFullContentScreen('Идеи на выходные', ideas.join('\n\n'), 'weekend'); }
-                else if (actionType === 'goals') { const goals = await getUserGoals(); showFullContentScreen('Ваши цели', goals.map(g => `**${g.name}**\n⏱ ${g.time || '?'}`).join('\n\n'), 'goals'); }
-                else if (actionType === 'questions') { const questions = await getSmartQuestions(); showFullContentScreen('Вопросы для размышления', questions.map((q, i) => `${i+1}. ${q}`).join('\n\n'), 'questions'); }
-                else if (actionType === 'challenges') { const challenges = await getChallenges(); showFullContentScreen('Челленджи', challenges.map(c => `**${c.name}**\n${c.description}`).join('\n\n'), 'challenges'); }
-                else if (actionType === 'doubles') { const doubles = await findPsychometricDoubles(); showFullContentScreen('Психометрические двойники', doubles.map(d => `**${d.name}**\nСхожесть: ${Math.round(d.similarity * 100)}%`).join('\n\n'), 'doubles'); }
-            });
-        });
-        
-        setTimeout(async () => {
-            try {
-                const status = await getUserStatus();
-                const profileCodeEl = document.getElementById('profileCode');
-                if (profileCodeEl && status.profile_code) profileCodeEl.textContent = status.profile_code;
-                if (!localStorage.getItem('fredi_user_name') && !status.has_profile) {
+
+        function init() {
+            console.log('🚀 FREDI запущен');
+            initMobileMenu();
+            setupMenuHandlers();
+            renderDashboard();
+            
+            const userName = localStorage.getItem('fredi_user_name');
+            if (!userName) {
+                setTimeout(() => {
                     const name = prompt('Как мне к вам обращаться?', '');
                     if (name && name.trim()) {
-                        setUserName(name);
+                        localStorage.setItem('fredi_user_name', name.trim());
                         document.getElementById('userName').textContent = name;
                         document.getElementById('userMiniAvatar').textContent = name.charAt(0).toUpperCase();
                         renderDashboard();
                     }
-                }
-            } catch(e) {}
-        }, 500);
-    }
-    
-    async function init() {
-        console.log('🚀 FREDI PREMIUM — полная версия с голосом и 3 режимами');
-        initMobileMenu();
-        
-        voiceManager = new VoiceManager(CONFIG.USER_ID, { apiBaseUrl: CONFIG.API_BASE_URL });
-        voiceManager.setMode(currentMode);
-        
-        renderDashboard();
-        
-        document.getElementById('userName').textContent = CONFIG.USER_NAME;
-        document.getElementById('userMiniAvatar').textContent = CONFIG.USER_NAME.charAt(0).toUpperCase();
-        
-        document.querySelectorAll('.chat-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const chat = item.dataset.chat;
-                if (chat === 'fredi') renderDashboard();
-                else if (chat === 'test') showToast('Тест будет доступен в следующем обновлении', 'info');
-                else if (chat === 'confinement') navigateTo('confinement-model');
-                else if (chat === 'practices') navigateTo('practices');
-                else if (chat === 'hypnosis') navigateTo('hypnosis');
-                else if (chat === 'tales') navigateTo('tales');
-                else if (chat === 'anchors') navigateTo('anchors');
-                else if (chat === 'statistics') navigateTo('statistics');
-                document.querySelectorAll('.chat-item').forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
-                if (window.innerWidth <= 768) document.getElementById('chatsPanel')?.classList.remove('open');
-            });
-        });
-        
-        document.getElementById('newChatBtn')?.addEventListener('click', () => showToast('Новый чат скоро будет доступен', 'info'));
-        document.getElementById('menuBtn')?.addEventListener('click', () => showToast('Меню настроек скоро будет доступно', 'info'));
-    }
-    
-    document.addEventListener('DOMContentLoaded', init);
+                }, 500);
+            } else {
+                document.getElementById('userName').textContent = userName;
+                document.getElementById('userMiniAvatar').textContent = userName.charAt(0).toUpperCase();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    })();
     </script>
 </body>
 </html>
