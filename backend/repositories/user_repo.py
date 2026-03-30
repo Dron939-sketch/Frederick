@@ -70,6 +70,56 @@ class UserRepository:
             logger.error(f"Error getting profile for user {user_id}: {e}")
             return None
     
+    # ============================================
+    # НОВЫЙ МЕТОД: ОБНОВЛЕНИЕ ОДНОГО ПОЛЯ ПРОФИЛЯ
+    # ============================================
+    
+    async def update_profile_field(self, user_id: int, field: str, value: Any) -> bool:
+        """
+        Обновляет одно поле в профиле пользователя
+        
+        Args:
+            user_id: ID пользователя
+            field: имя поля (например, 'ai_generated_profile', 'profile_generating')
+            value: значение (строка, число, словарь, список)
+        
+        Returns:
+            True если успешно, False если ошибка
+        """
+        try:
+            # Преобразуем значение в JSON если это словарь или список
+            if isinstance(value, (dict, list)):
+                value_json = json.dumps(value, ensure_ascii=False)
+                await self.db.execute(f"""
+                    UPDATE users 
+                    SET profile = profile || jsonb_build_object('{field}', $2::jsonb),
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                """, user_id, value_json)
+            else:
+                # Для простых типов (строка, число, bool)
+                await self.db.execute(f"""
+                    UPDATE users 
+                    SET profile = profile || jsonb_build_object('{field}', $2),
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                """, user_id, value)
+            
+            # Очищаем кэш
+            if self.cache:
+                await self.cache.delete(f"profile:{user_id}")
+            
+            logger.info(f"✅ Profile field '{field}' updated for user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating profile field '{field}' for user {user_id}: {e}")
+            return False
+    
+    # ============================================
+    # ОСТАЛЬНЫЕ МЕТОДЫ
+    # ============================================
+    
     async def save_test_results(
         self, 
         user_id: int, 
