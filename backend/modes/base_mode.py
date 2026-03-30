@@ -109,7 +109,6 @@ class BaseMode(ABC):
             return 6
 
     # ====================== АБСТРАКТНЫЕ МЕТОДЫ ======================
-
     @abstractmethod
     def get_system_prompt(self) -> str:
         """Возвращает системный промпт для режима"""
@@ -136,7 +135,6 @@ class BaseMode(ABC):
         }
 
     # ====================== ПОТОКОВАЯ ОБРАБОТКА ======================
-
     async def process_question_streaming(
         self,
         question: str
@@ -159,13 +157,14 @@ class BaseMode(ABC):
 
         self.save_to_history(question, full_response)
 
+        # Разбиваем на предложения и отправляем по одному
         sentences = self._split_into_sentences(full_response)
-
         for sentence in sentences:
             if sentence.strip():
                 yield sentence.strip()
                 await asyncio.sleep(0.05)
 
+        # Добавляем follow-up, если нужно
         if result.get("follow_up"):
             follow_up_text = self._get_follow_up_suggestion(result)
             for sentence in self._split_into_sentences(follow_up_text):
@@ -173,24 +172,27 @@ class BaseMode(ABC):
                     yield sentence.strip()
                     await asyncio.sleep(0.05)
 
-        def _split_into_sentences(self, text: str) -> List[str]:
+    def _split_into_sentences(self, text: str) -> List[str]:
+        """Разбивает текст на предложения аккуратно"""
         if not text:
             return []
         
-        # Более аккуратное разбиение
+        # Более точное разбиение по предложениям
         sentences = re.split(r'(?<=[.!?])\s+', text)
+        
         result = []
         for s in sentences:
             cleaned = s.strip()
             if cleaned:
                 result.append(cleaned)
+        
         return result
 
     def _get_follow_up_suggestion(self, result: Dict[str, Any]) -> str:
         suggestions = result.get("suggestions", [])
         if suggestions:
             return f"Кстати, вы можете спросить меня: {suggestions[0]}"
-
+        
         default_suggestions = {
             "PsychologistMode": "Расскажите подробнее о том, что вас беспокоит?",
             "CoachMode": "Как вы видите следующий шаг к этой цели?",
@@ -200,7 +202,6 @@ class BaseMode(ABC):
         return default_suggestions.get(self.name, "Что вы думаете об этом?")
 
     # ====================== АНАЛИЗ ПРОФИЛЯ ======================
-
     def analyze_profile_for_response(self) -> Dict[str, Any]:
         analysis = {
             "attention_focus": self._get_attention_focus(),
@@ -263,14 +264,12 @@ class BaseMode(ABC):
             pain_costs = self.weakest_profile.get('pain_costs', [])
             if pain_costs:
                 points.extend(pain_costs)
-
         if self.deep_patterns:
             fears = self.deep_patterns.get('fears', [])
             points.extend(fears[:2])
             defenses = self.deep_patterns.get('defenses', [])
             if defenses:
                 points.append(f"защита: {defenses[0]}")
-
         return [p for p in points if p][:3]
 
     def _get_growth_area(self) -> str:
@@ -281,7 +280,6 @@ class BaseMode(ABC):
         return "Поведение"
 
     # ====================== КОНТЕКСТ И ИСТОРИЯ ======================
-
     def get_context_string(self) -> str:
         lines = []
         if self.context:
@@ -317,25 +315,21 @@ class BaseMode(ABC):
             "mode": self.name,
             "tools_used": self.last_tools_used.copy()
         })
-
         # Ограничиваем историю
         if len(self.history) > 50:
             self.history = self.history[-50:]
         self.user_data["history"] = self.history
 
     # ====================== ГИПНО, СКАЗКИ, ЯКОРЯ ======================
-
     def suggest_tale(self, issue: str = None) -> Optional[Dict]:
         if not issue:
             vector_names = {"СБ": "страх", "ТФ": "деньги", "УБ": "понимание", "ЧВ": "отношения"}
             issue = vector_names.get(self.weakest_vector, "рост")
-
         if self.tales:
             try:
                 return self.tales.get_tale_for_issue(issue)
             except Exception as e:
                 logger.error(f"Ошибка при получении сказки: {e}")
-
         return {
             'title': 'Сказка о переменах',
             'text': 'Жил-был человек. Однажды он понял, что может меняться. И мир изменился вместе с ним.',
@@ -364,21 +358,17 @@ class BaseMode(ABC):
             profile_code = self.profile.get('display_name', '')
             if profile_code:
                 context_parts.append(f"Профиль пользователя: {profile_code}")
-
         if self.weakest_profile:
             quote = self.weakest_profile.get('quote', '')
             if quote:
                 context_parts.append(f"Ключевая характеристика: {quote[:100]}")
-
         key_conf = self._get_key_confinement_info()
         if key_conf and key_conf.get('description'):
             context_parts.append(f"Ключевое ограничение: {key_conf['description'][:100]}")
-
         loops = self._get_loops_info()
         if loops:
             strongest = max(loops, key=lambda x: x.get('strength', 0))
             context_parts.append(f"Главная петля: {strongest.get('description', '')[:100]}")
-
         return "\n".join(context_parts)
 
     def __repr__(self) -> str:
