@@ -1402,7 +1402,7 @@ async def process_voice(
                 response_chunks.append(chunk.strip())
 
         # Склеиваем + нормализуем
-        response_text = " ".join(response_chunks)
+        response_text = "".join(response_chunks)
         response_text = normalize_tts_text(response_text)
 
         # Защита от пустого ответа
