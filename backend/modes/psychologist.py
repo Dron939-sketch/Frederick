@@ -3,7 +3,7 @@
 """
 МОДУЛЬ: РЕЖИМ ПСИХОЛОГ (psychologist.py)
 Глубинная аналитическая работа с использованием конфайнтмент-модели и анализа петель.
-ВЕРСИЯ 3.0 — с полным анализом структуры личности
+ВЕРСИЯ 3.1 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА
 """
 
 from typing import Dict, Any, List, Optional
@@ -16,6 +16,7 @@ from profiles import VECTORS, LEVEL_PROFILES
 from confinement.confinement_model import ConfinementModel9, ConfinementElement
 from confinement.loop_analyzer import LoopAnalyzer
 from hypno import HypnoOrchestrator, TherapeuticTales
+from services.ai_service import AIService  # ДОБАВЛЕН ИМПОРТ
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,9 @@ class PsychologistMode(BaseMode):
     
     def __init__(self, user_id: int, user_data: Dict[str, Any], context=None):
         super().__init__(user_id, user_data, context)
+        
+        # ДОБАВЛЕН AI-СЕРВИС
+        self.ai_service = AIService()
         
         # Инициализируем конфайнтмент-модель
         self.confinement_model = None
@@ -352,9 +356,49 @@ class PsychologistMode(BaseMode):
         ]
         return random.choice(greetings)
     
+    # ========== ДОБАВЛЕН НОВЫЙ МЕТОД ДЛЯ AI ==========
+    async def process_question_streaming(self, question: str):
+        """Потоковая обработка вопроса через AI с учётом профиля"""
+        
+        # Собираем данные профиля для AI
+        profile = {
+            'profile_data': self.profile_data,
+            'perception_type': self.perception_type,
+            'thinking_level': self.thinking_level,
+            'behavioral_levels': self.behavioral_levels,
+            'deep_patterns': self.deep_patterns,
+            'weakest_vector': getattr(self, 'weakest_vector', None),
+            'weakest_level': getattr(self, 'weakest_level', None),
+            'attachment_type': self.attachment_type
+        }
+        
+        context_data = {
+            'name': self.context.name if self.context else None,
+            'city': self.context.city if self.context else None,
+            'age': self.context.age if self.context else None
+        }
+        
+        full_response = ""
+        async for chunk in self.ai_service.generate_response_streaming(
+            message=question,
+            context=context_data,
+            profile=profile,
+            mode='psychologist'
+        ):
+            if chunk:
+                full_response += chunk
+                yield chunk
+        
+        if not full_response:
+            # Fallback на глубинный вопрос
+            yield self._depth_inquiry_with_analysis(question)
+        
+        self.save_to_history(question, full_response)
+    # =================================================
+    
     def process_question(self, question: str) -> Dict[str, Any]:
         """
-        Обрабатывает вопрос с использованием глубинного анализа
+        Обрабатывает вопрос с использованием глубинного анализа (синхронная версия)
         """
         question_lower = question.lower()
         self.last_tools_used = []
