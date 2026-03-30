@@ -33,7 +33,7 @@ async def call_deepseek_streaming(prompt: str, max_tokens: int = 500, temperatur
     """
     service = AIService()
     async for chunk in service._simple_call_streaming(prompt, max_tokens, temperature):
-        if chunk and chunk.strip():   # исправлено: не пропускаем пустые чанки
+        if chunk and chunk.strip():
             yield chunk
 
 
@@ -158,7 +158,67 @@ class AIService:
             yield ""
 
     # ============================================
-    # ТВОИ ОСТАЛЬНЫЕ МЕТОДЫ (оставлены без сокращений)
+    # НОВЫЙ МЕТОД: ГЕНЕРАЦИЯ AI-ПРОФИЛЯ
+    # ============================================
+
+    async def generate_ai_profile(self, user_id: int, profile: Dict) -> Optional[str]:
+        """
+        Генерация AI-профиля (психологический портрет)
+        Вызывается из generate_profile_background в main.py
+        """
+        if not self.api_key:
+            logger.warning("DEEPSEEK_API_KEY not set, using fallback")
+            return self._get_profile_fallback(profile)
+        
+        system_prompt = """Ты — психолог Фреди. Напиши подробный психологический портрет пользователя.
+Структура портрета:
+1. КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА — основная черта (2-3 предложения)
+2. СИЛЬНЫЕ СТОРОНЫ — что работает (3 пункта)
+3. ЗОНЫ РОСТА — что можно развить (3 пункта)
+4. КАК ЭТО СФОРМИРОВАЛОСЬ — откуда паттерны (1-2 предложения)
+5. ГЛАВНАЯ ЛОВУШКА — что мешает (1-2 предложения)
+
+Используй теплый, поддерживающий тон. Обращайся к пользователю на "ты". НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
+        
+        # Получаем данные профиля
+        profile_data = profile.get('profile_data', {})
+        perception_type = profile.get('perception_type', 'не определен')
+        thinking_level = profile.get('thinking_level', 5)
+        behavioral_levels = profile.get('behavioral_levels', {})
+        deep_patterns = profile.get('deep_patterns', {})
+        
+        # Вычисляем средние значения векторов
+        scores = {}
+        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+            levels = behavioral_levels.get(k, [])
+            scores[k] = sum(levels) / len(levels) if levels else 3.0
+        
+        user_prompt = f"""
+Данные теста пользователя:
+- Тип восприятия: {perception_type}
+- Уровень мышления: {thinking_level}/9
+- Профиль: {profile_data.get('display_name', 'не определен')}
+
+Поведенческие уровни:
+- СБ (реакция на давление): {scores.get('СБ', 3):.1f}/6
+- ТФ (деньги и ресурсы): {scores.get('ТФ', 3):.1f}/6
+- УБ (понимание мира): {scores.get('УБ', 3):.1f}/6
+- ЧВ (отношения): {scores.get('ЧВ', 3):.1f}/6
+
+Глубинные паттерны:
+{self._format_deep_patterns(deep_patterns)}
+
+Напиши психологический портрет пользователя. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
+"""
+        
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1500)
+        if response:
+            response = self._clean_for_voice(response)
+            return response
+        return self._get_profile_fallback(profile)
+
+    # ============================================
+    # ОСТАЛЬНЫЕ МЕТОДЫ (без изменений)
     # ============================================
 
     async def generate_response(
@@ -543,7 +603,7 @@ class AIService:
                     "temperature": temperature,
                     "max_tokens": max_tokens
                 },
-                timeout=aiohttp.ClientTimeout(total=35)   # увеличил таймаут
+                timeout=aiohttp.ClientTimeout(total=35)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
