@@ -5,7 +5,7 @@
 Адаптирован для API из бота
 Поддержка базового режима для пользователей без теста
 
-ВЕРСИЯ 3.0 — улучшенные промпты для каждого режима:
+ВЕРСИЯ 3.1 — ПОЛНАЯ ВЕРСИЯ С ГЕНЕРАЦИЕЙ AI-ПРОФИЛЯ
 - КОУЧ: образ Бертрана Рассела (философский, мудрый)
 - ПСИХОЛОГ: глубинный анализ с конфайнтмент-моделью
 - ТРЕНЕР: образ Тони Робинсона (мотивирующий, энергичный)
@@ -261,6 +261,240 @@ class AIService:
             response = self._clean_for_voice(response)
             return response
         return self._get_profile_fallback(profile)
+
+    # ============================================
+    # МЕТОДЫ ДЛЯ ГЕНЕРАЦИИ AI-ПРОФИЛЯ И МЫСЛЕЙ ПСИХОЛОГА
+    # ============================================
+
+    async def _call_deepseek(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 1000,
+        temperature: float = 0.7
+    ) -> Optional[str]:
+        """Вызов DeepSeek API с системным промптом"""
+        if not self.api_key:
+            return None
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                },
+                timeout=aiohttp.ClientTimeout(total=35)
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data['choices'][0]['message']['content']
+                else:
+                    logger.error(f"DeepSeek error in _call_deepseek: {response.status}")
+                    return None
+        except asyncio.TimeoutError:
+            logger.error("DeepSeek timeout in _call_deepseek")
+            return None
+        except Exception as e:
+            logger.error(f"DeepSeek call error in _call_deepseek: {e}")
+            return None
+
+    async def generate_psychologist_thought(self, user_id: int, profile: Dict) -> str:
+        """
+        Генерация краткой мысли психолога (1-2 абзаца)
+        """
+        if not self.api_key:
+            return self._get_thought_fallback(profile)
+        
+        system_prompt = """Ты психолог. Напиши одну глубокую, инсайтную мысль о клиенте на основе его профиля.
+Мысль должна:
+- Быть короткой (2-3 предложения)
+- Содержать наблюдение о паттерне
+- Завершаться вопросом или приглашением к размышлению
+- НЕ ИСПОЛЬЗОВАТЬ ЭМОДЗИ
+Пример: Тебе важно, чтобы тебя принимали. Но за этим может стоять страх отвержения. Что будет, если перестать угождать другим?"""
+        
+        profile_data = profile.get('profile_data', {})
+        scores = profile.get('behavioral_levels', {})
+        weakest = self._find_weakest_vector(scores)
+        
+        user_prompt = f"""
+Профиль: {profile_data.get('display_name', 'не определен')}
+Тип восприятия: {profile.get('perception_type', 'не определен')}
+Уровень мышления: {profile.get('thinking_level', 5)}/9
+Самая слабая зона: {weakest.get('name', 'не определена')} (уровень {weakest.get('level', 3)})
+Напиши одну мысль психолога (2-3 предложения). НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
+"""
+        
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=300)
+        if response:
+            response = self._clean_for_voice(response)
+            return response
+        return self._get_thought_fallback(profile)
+
+    async def generate_profile_interpretation(self, user_id: int, profile: Dict) -> str:
+        """
+        Генерация интерпретации профиля (мысли психолога) — алиас для generate_psychologist_thought
+        """
+        return await self.generate_psychologist_thought(user_id, profile)
+
+    async def generate_questions(self, user_id: int, profile: Dict) -> List[str]:
+        """
+        Генерация умных вопросов для размышления
+        """
+        if not self.api_key:
+            return self._get_questions_fallback()
+
+        system_prompt = """Ты психолог. Сформулируй 5 глубоких вопросов для саморефлексии.
+Вопросы должны:
+- Быть открытыми (начинаться с как, почему, что)
+- Помогать человеку заглянуть внутрь себя
+- Учитывать профиль пользователя
+Формат ответа: просто список из 5 вопросов, каждый с новой строки. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
+
+        profile_data = profile.get('profile_data', {})
+        scores = profile.get('behavioral_levels', {})
+        weakest = self._find_weakest_vector(scores)
+
+        user_prompt = f"""
+Профиль: {profile_data.get('display_name', 'не определен')}
+Тип восприятия: {profile.get('perception_type', 'не определен')}
+Уровень мышления: {profile.get('thinking_level', 5)}/9
+Зона роста: {weakest.get('name', 'не определена')}
+Сформулируй 5 вопросов для размышления. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
+"""
+
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
+        if response:
+            questions = [q.strip() for q in response.split('\n') if q.strip() and '?' in q]
+            return questions[:5] if questions else self._get_questions_fallback()
+        return self._get_questions_fallback()
+
+    async def generate_goals(
+        self,
+        user_id: int,
+        profile: Dict,
+        mode: str = "coach"
+    ) -> List[Dict]:
+        """
+        Генерация персональных целей
+        """
+        if not self.api_key:
+            return self._get_goals_fallback(profile, mode)
+
+        mode_names = {
+            "coach": "коуч",
+            "psychologist": "психолог",
+            "trainer": "тренер"
+        }
+
+        system_prompt = f"""Ты {mode_names.get(mode, 'коуч')}. Предложи 5 целей для клиента, подходящих его профилю.
+Цели должны:
+- Быть конкретными и измеримыми
+- Учитывать сильные стороны клиента
+- Помогать прорабатывать зоны роста
+Формат ответа: JSON массив, каждый объект содержит поля:
+- id: уникальный идентификатор (например, goal_1)
+- name: название цели (до 50 символов)
+- time: предполагаемое время (например, 3-4 недели)
+- difficulty: сложность (easy, medium, hard)
+Пример:
+[{"id": "fear_work", "name": "Проработать страхи", "time": "3-4 недели", "difficulty": "medium"}]
+НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
+
+        scores = {}
+        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+            levels = profile.get('behavioral_levels', {}).get(k, [])
+            scores[k] = sum(levels) / len(levels) if levels else 3
+
+        profile_data = profile.get('profile_data', {})
+        user_prompt = f"""
+Профиль: {profile_data.get('display_name', 'не определен')}
+Баллы:
+- СБ (реакция на давление): {scores.get('СБ', 3):.1f}
+- ТФ (деньги): {scores.get('ТФ', 3):.1f}
+- УБ (понимание мира): {scores.get('УБ', 3):.1f}
+- ЧВ (отношения): {scores.get('ЧВ', 3):.1f}
+Тип восприятия: {profile.get('perception_type', 'не определен')}
+Уровень мышления: {profile.get('thinking_level', 5)}/9
+Режим: {mode_names.get(mode, 'коуч')}
+Предложи 5 целей в формате JSON. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
+"""
+
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1000)
+        if response:
+            try:
+                json_match = re.search(r'\[.*\]', response, re.DOTALL)
+                if json_match:
+                    goals = json.loads(json_match.group())
+                    return goals[:6] if isinstance(goals, list) else self._get_goals_fallback(profile, mode)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse goals JSON")
+        return self._get_goals_fallback(profile, mode)
+
+    async def generate_weekend_ideas(
+        self,
+        user_id: int,
+        profile: Dict,
+        context: Dict,
+        scores: Dict = None
+    ) -> List[str]:
+        """
+        Генерация идей на выходные
+        """
+        if not self.api_key:
+            return self._get_ideas_fallback(profile)
+
+        system_prompt = """Ты психолог и lifestyle-эксперт. Предложи 5 идей на выходные, которые подходят психотипу человека.
+Каждая идея должна быть:
+- Конкретной и выполнимой
+- Учитывать сильные стороны человека
+- Помогать прорабатывать зоны роста
+Формат ответа: просто список из 5 пунктов, каждый с новой строки. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
+
+        if scores is None:
+            scores = {}
+            for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+                levels = profile.get('behavioral_levels', {}).get(k, [])
+                scores[k] = sum(levels) / len(levels) if levels else 3
+
+        profile_data = profile.get('profile_data', {})
+        city = context.get('city', 'ваш город') if context else 'ваш город'
+        age = context.get('age', 'не указан') if context else 'не указан'
+
+        user_prompt = f"""
+Профиль пользователя: {profile_data.get('display_name', 'не определен')}
+Баллы по векторам:
+- СБ (реакция на давление): {scores.get('СБ', 3):.1f}
+- ТФ (деньги): {scores.get('ТФ', 3):.1f}
+- УБ (понимание мира): {scores.get('УБ', 3):.1f}
+- ЧВ (отношения): {scores.get('ЧВ', 3):.1f}
+Город: {city}
+Возраст: {age}
+Предложи 5 идей на выходные. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
+"""
+
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
+        if response:
+            ideas = []
+            for line in response.strip().split('\n'):
+                line = line.strip()
+                line = re.sub(r'^[\d\-\*•]\s*', '', line)
+                if line and len(line) > 10:
+                    ideas.append(line)
+            return ideas[:5] if ideas else self._get_ideas_fallback(profile)
+
+        return self._get_ideas_fallback(profile)
 
     # ============================================
     # ОСНОВНЫЕ МЕТОДЫ С УЛУЧШЕННЫМИ ПРОМПТАМИ
