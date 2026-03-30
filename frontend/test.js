@@ -1689,6 +1689,13 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
     addBotMessage(text, isHtml = true) {
         const messagesContainer = document.getElementById('testChatMessages');
         if (!messagesContainer) return;
+
+        // ========== ОДНА СТРОКА ДЛЯ ВСЕХ ЗВЁЗДОЧЕК ==========
+        let processedText = text;
+        if (isHtml && typeof text === 'string') {
+        processedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        }
+        // ===================================================
         
         const msgDiv = document.createElement('div');
         msgDiv.className = 'test-message test-message-bot';
@@ -1699,7 +1706,7 @@ ${this.context.weather ? `${this.context.weather.icon} Погода: ${this.cont
         const textDiv = document.createElement('div');
         textDiv.className = 'test-message-text';
         if (isHtml) {
-            textDiv.innerHTML = text.replace(/\n/g, '<br>');
+            textDiv.innerHTML = processedText.replace(/\n/g, '<br>');
         } else {
             textDiv.textContent = text;
         }
