@@ -1,7 +1,12 @@
 // ============================================
 // ПОЛНЫЙ ТЕСТ ИЗ 5 ЭТАПОВ
-// Версия 4.3 - ИСПРАВЛЕННЫЙ ДИЗАЙН + УТОЧНЯЮЩИЕ ВОПРОСЫ + ЖИРНЫЙ ТЕКСТ + ФОРМАТИРОВАНИЕ ПРОФИЛЯ
+// Версия 4.4 - ИСПРАВЛЕННЫЕ API ВЫЗОВЫ + ПОЛНЫЙ URL
 // ============================================
+
+// ============================================
+// КОНСТАНТЫ API
+// ============================================
+const TEST_API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
 
 const Test = {
     // ============================================
@@ -42,6 +47,10 @@ const Test = {
     clarifyingAnswers: [],
     clarifyingQuestions: [],
     clarifyingCurrent: 0,
+    
+    // Кэш для AI-профиля
+    aiGeneratedProfile: null,
+    psychologistThought: null,
     
     // ============================================
     // СТРУКТУРА ЭТАПОВ (разделено на краткое и детальное описание)
@@ -1228,6 +1237,8 @@ const Test = {
         this.clarifyingAnswers = [];
         this.clarifyingQuestions = [];
         this.clarifyingCurrent = 0;
+        this.aiGeneratedProfile = null;
+        this.psychologistThought = null;
         this.context = {
             city: null,
             gender: null,
@@ -1538,11 +1549,11 @@ ${this.context.weather ? `🌡️ Погода: ${this.context.weather.icon} ${t
         if (!this.userId) return;
         
         try {
-            await fetch('/api/save-context', {
+            await fetch(`${TEST_API_BASE_URL}/api/save-context`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    user_id: this.userId,
+                    user_id: parseInt(this.userId),
                     context: {
                         city: this.context.city,
                         gender: this.context.gender,
@@ -1559,7 +1570,7 @@ ${this.context.weather ? `🌡️ Погода: ${this.context.weather.icon} ${t
         if (!this.userId || !this.context.city) return null;
         
         try {
-            const response = await fetch(`/api/weather/${this.userId}`);
+            const response = await fetch(`${TEST_API_BASE_URL}/api/weather/${this.userId}`);
             const data = await response.json();
             
             if (data.success && data.weather) {
@@ -2476,7 +2487,7 @@ ${interpretation}
         console.log('📤 Отправка результатов на сервер...', { userId: parseInt(this.userId) });
         
         try {
-            const response = await fetch('/api/save-test-results', {
+            const response = await fetch(`${TEST_API_BASE_URL}/api/save-test-results`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(results)
@@ -2492,11 +2503,39 @@ ${interpretation}
             
             if (data.success) {
                 console.log('✅ Результаты теста успешно отправлены на сервер');
+                
+                // Получаем AI-сгенерированный профиль
+                await this.fetchAIGeneratedProfile();
+                
             } else {
                 console.error('❌ Ошибка при отправке:', data.error);
+                this.showFinalProfileButtons();
             }
         } catch (error) {
             console.error('❌ Ошибка сети:', error);
+            this.showFinalProfileButtons();
+        }
+    },
+    
+    async fetchAIGeneratedProfile() {
+        if (!this.userId) return;
+        
+        try {
+            console.log('📥 Запрос AI-профиля...');
+            const response = await fetch(`${TEST_API_BASE_URL}/api/generated-profile/${this.userId}`);
+            const data = await response.json();
+            
+            if (data.success && data.ai_profile) {
+                this.aiGeneratedProfile = data.ai_profile;
+                console.log('✅ AI-профиль получен');
+            } else if (data.status === 'generating') {
+                console.log('⏳ AI-профиль генерируется, ждём...');
+                // Повторяем запрос через 3 секунды
+                setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
+                return;
+            }
+        } catch (error) {
+            console.error('Ошибка получения AI-профиля:', error);
         }
         
         this.showFinalProfileButtons();
@@ -2526,7 +2565,7 @@ ${interpretation}
             4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
         }[profile.chvLevel] || "Информация уточняется";
         
-        const text = `
+        let profileText = `
 🧠 ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
 
 Профиль: ${profile.displayName}
@@ -2544,11 +2583,15 @@ ${interpretation}
 • Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
 
 🧠 Глубинный паттерн: ${deep.attachment}
-
-👇 Что дальше?
 `;
         
-        this.addMessageWithButtons(text, [
+        if (this.aiGeneratedProfile) {
+            profileText += `\n\n🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:\n\n${this.aiGeneratedProfile}`;
+        }
+        
+        this.addBotMessage(profileText, true);
+        
+        this.addMessageWithButtons("👇 ЧТО ДАЛЬШЕ?", [
             { text: "🧠 МЫСЛИ ПСИХОЛОГА", callback: () => this.showPsychologistThought() },
             { text: "🎯 ВЫБРАТЬ ЦЕЛЬ", callback: () => this.showGoals() },
             { text: "⚙️ ВЫБРАТЬ РЕЖИМ", callback: () => this.showModes() }
@@ -2560,7 +2603,8 @@ ${interpretation}
                 deepPatterns: deep,
                 perceptionType: this.perceptionType,
                 thinkingLevel: this.thinkingLevel,
-                context: this.context
+                context: this.context,
+                aiProfile: this.aiGeneratedProfile
             }));
         }
     },
@@ -2575,7 +2619,7 @@ ${interpretation}
         this.showFinalProfileButtons();
     },
     
-    showPsychologistThought() {
+    async showPsychologistThought() {
         if (this.psychologistThought) {
             const formattedThought = this.formatProfileText(this.psychologistThought);
             this.addBotMessage(`
@@ -2588,25 +2632,25 @@ ${formattedThought}
         
         this.addBotMessage("🧠 Генерирую мысли психолога...", true);
         
-        fetch(`/api/psychologist-thought/${this.userId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.success && data.thought) {
-                    this.psychologistThought = data.thought;
-                    const formattedThought = this.formatProfileText(data.thought);
-                    this.addBotMessage(`
+        try {
+            const response = await fetch(`${TEST_API_BASE_URL}/api/psychologist-thought/${this.userId}`);
+            const data = await response.json();
+            
+            if (data.success && data.thought) {
+                this.psychologistThought = data.thought;
+                const formattedThought = this.formatProfileText(data.thought);
+                this.addBotMessage(`
 🧠 МЫСЛИ ПСИХОЛОГА
 
 ${formattedThought}
 `, true);
-                } else {
-                    this.addBotMessage("🧠 Мысли психолога будут доступны через несколько секунд.", true);
-                }
-            })
-            .catch(error => {
-                console.error('Ошибка:', error);
-                this.addBotMessage("🧠 Мысли психолога временно недоступны. Попробуйте позже.", true);
-            });
+            } else {
+                this.addBotMessage("🧠 Мысли психолога будут доступны через несколько секунд.", true);
+            }
+        } catch (error) {
+            console.error('Ошибка:', error);
+            this.addBotMessage("🧠 Мысли психолога временно недоступны. Попробуйте позже.", true);
+        }
         
         this.addMessageWithButtons("", [
             { text: "🎯 ВЫБРАТЬ ЦЕЛЬ", callback: () => this.showGoals() },
@@ -2702,21 +2746,25 @@ ${formattedThought}
         ]);
     },
     
-    setMode(mode) {
+    async setMode(mode) {
         const modeTexts = {
             "coach": "Отлично! Теперь я буду работать в режиме КОУЧА. Буду задавать вопросы, помогать тебе самому находить ответы.",
             "psychologist": "Хорошо! Режим ПСИХОЛОГА активирован. Будем исследовать глубинные паттерны и причины.",
             "trainer": "Принято! Режим ТРЕНЕРА включён. Получишь чёткие инструкции и упражнения."
         };
         
-        fetch('/api/save-mode', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: this.userId,
-                mode: mode
-            })
-        }).catch(console.error);
+        try {
+            await fetch(`${TEST_API_BASE_URL}/api/save-mode`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: parseInt(this.userId),
+                    mode: mode
+                })
+            });
+        } catch (error) {
+            console.error('Ошибка сохранения режима:', error);
+        }
         
         if (this.userId) {
             localStorage.setItem(`mode_${this.userId}`, mode);
@@ -2734,4 +2782,4 @@ ${formattedThought}
 // Глобальный экспорт
 window.Test = Test;
 
-console.log('✅ Модуль теста загружен (версия 4.3 - исправленный дизайн, уточняющие вопросы, жирный текст, форматирование профиля)');
+console.log('✅ Модуль теста загружен (версия 4.4 - исправленные API вызовы, полный URL)');
