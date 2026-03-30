@@ -340,13 +340,12 @@
         }
         
         // ============================================
-        // ФУНКЦИЯ ФОРМАТИРОВАНИЯ ТЕКСТА
+        // ФУНКЦИИ ФОРМАТИРОВАНИЯ
         // ============================================
         
         function formatProfileText(text) {
             if (!text) return text;
             
-            // Заменяем заголовки на стилизованные
             const headerMap = {
                 'КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
                 'СИЛЬНЫЕ СТОРОНЫ': '💪 СИЛЬНЫЕ СТОРОНЫ',
@@ -360,11 +359,8 @@
                 text = text.replace(regex, `<div class="profile-section-title">${newHeader}</div>`);
             }
             
-            // Форматируем списки
             text = text.replace(/•\s*/g, '<br>• ');
             text = text.replace(/-\s*/g, '<br>• ');
-            
-            // Добавляем отступы
             text = text.replace(/\n\n/g, '<br><br>');
             text = text.replace(/\n/g, '<br>');
             
@@ -374,11 +370,25 @@
         function formatThoughtText(text) {
             if (!text) return text;
             
+            // 1. Убираем звёздочки (маркдаун)
+            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+            text = text.replace(/\*(.*?)\*/g, '$1');
+            
+            // 2. Убираем возможное обрезание в конце
+            if (text.endsWith('по') || text.endsWith('на') || text.endsWith('в')) {
+                text = text.slice(0, -2) + '...';
+            }
+            
+            // 3. Заменяем заголовки на стилизованные
             const headerMap = {
                 'КЛЮЧЕВОЙ ЭЛЕМЕНТ': '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ',
+                'КЛЮЧЕВОЙ ЭЛЕМЕНТ:': '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ',
                 'ПЕТЛЯ': '🔄 ПЕТЛЯ',
+                'ПЕТЛЯ:': '🔄 ПЕТЛЯ',
                 'ТОЧКА ВХОДА': '🚪 ТОЧКА ВХОДА',
-                'ПРОГНОЗ': '📊 ПРОГНОЗ'
+                'ТОЧКА ВХОДА:': '🚪 ТОЧКА ВХОДА',
+                'ПРОГНОЗ': '📊 ПРОГНОЗ',
+                'ПРОГНОЗ:': '📊 ПРОГНОЗ'
             };
             
             for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
@@ -386,8 +396,25 @@
                 text = text.replace(regex, `<div class="profile-section-title">${newHeader}</div>`);
             }
             
+            // 4. Убираем лишние пробелы и переносы
+            text = text.replace(/\r\n/g, '\n');
+            text = text.replace(/\n{3,}/g, '\n\n');
+            
+            // 5. Заменяем переносы строк на <br>
             text = text.replace(/\n\n/g, '<br><br>');
             text = text.replace(/\n/g, '<br>');
+            
+            // 6. Убираем лишние пробелы
+            text = text.replace(/\s+/g, ' ');
+            text = text.replace(/\s+<br>/g, '<br>');
+            text = text.replace(/<br>\s+/g, '<br>');
+            
+            // 7. Добавляем отступ для списков
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            
+            // 8. Убираем двойные <br><br> там где не нужно
+            text = text.replace(/<br><br><br>/g, '<br><br>');
             
             return text;
         }
