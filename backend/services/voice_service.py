@@ -92,85 +92,52 @@ VOICE_SETTINGS = {
 def restore_punctuation(text: str) -> str:
     """
     Восстанавливает знаки препинания в тексте для TTS.
+    Работает аккуратно, не добавляет лишние знаки.
     """
     if not text:
         return text
     
     original = text
     
-    # 1. Добавляем точку в конце, если её нет
-    if text and not text[-1] in '.!?':
+    # 1. Добавляем точку в конце, если её нет И если текст не заканчивается на знак
+    if text and text[-1] not in '.!?':
         text += '.'
     
     # 2. Добавляем пробел после знаков препинания, если его нет
-    text = re.sub(r'([.!?])([А-ЯЁA-Zа-яёa-z])', r'\1 \2', text)
+    text = re.sub(r'([.!?])([А-ЯЁA-Zа-яёa-z0-9])', r'\1 \2', text)
     
-    # 3. Добавляем запятые в простых случаях
-    # После вводных слов
-    intro_words = ['но', 'однако', 'поэтому', 'потому что', 'так как', 'если', 'когда', 'где', 'который', 'что', 'чтобы']
-    for word in intro_words:
-        # Добавляем запятую после слова, если её нет
-        pattern = rf'\b{word}\s+(?![,;:])'
-        text = re.sub(pattern, rf'{word}, ', text, flags=re.IGNORECASE)
+    # 3. Убираем дублирующиеся знаки препинания
+    text = re.sub(r'([.!?])\1+', r'\1', text)
+    text = re.sub(r'([,;:])\1+', r'\1', text)
     
-    # 4. Разбиваем длинные предложения на части (если нет знаков препинания)
-    # Ищем места, где после строчной буквы идёт заглавная
-    text = re.sub(r'([а-яё])\s+([А-ЯЁ])', r'\1. \2', text)
+    # 4. Убираем лишние запятые
+    text = re.sub(r',\s*,', ',', text)
+    text = re.sub(r'\,\s*\)', ')', text)
     
-    # 5. Восстанавливаем вопросительные знаки
-    question_words = ['как', 'что', 'где', 'когда', 'почему', 'зачем', 'кто', 'чей', 'сколько']
-    for word in question_words:
-        # Если предложение начинается с вопросительного слова, добавляем "?"
-        if re.match(rf'^{word}\s', text, re.IGNORECASE):
-            if not text.endswith('?'):
-                text = text.rstrip('.') + '?'
-            break
+    # 5. Исправляем тире (не должно быть " -, ")
+    text = re.sub(r'\s*-\s*,?\s*', ' — ', text)
+    text = re.sub(r'—\s*—', '—', text)
     
-    # 6. Восстанавливаем восклицательные знаки
-    exclamation_words = ['как', 'какой', 'что за', 'вот', 'ну', 'да', 'нет', 'ой', 'ах']
-    for word in exclamation_words:
-        if re.match(rf'^{word}\s', text, re.IGNORECASE):
-            if not text.endswith('!'):
-                text = text.rstrip('.?') + '!'
-            break
+    # 6. Убираем запятые перед союзами в начале предложения
+    text = re.sub(r',\s*(и|а|но|или|да)\s+', r' \1 ', text)
     
-    # 7. Добавляем запятые в перечислениях (простые случаи)
-    # Между словами, разделёнными пробелом, где нет союза
-    # Ищем последовательности из 3+ слов без запятых
-    parts = text.split('.')
-    new_parts = []
-    for part in parts:
-        words = part.strip().split()
-        if len(words) >= 4:
-            # Простая эвристика: вставляем запятые после каждого второго слова
-            # Но не после союзов
-            result = []
-            count = 0
-            for i, word in enumerate(words):
-                result.append(word)
-                # Не добавляем запятую после союзов
-                if word.lower() not in ['и', 'или', 'а', 'но', 'да'] and count >= 1 and i < len(words) - 1:
-                    result.append(',')
-                    count = 0
-                else:
-                    count += 1
-            new_parts.append(' '.join(result))
-        else:
-            new_parts.append(part)
-    text = '.'.join(new_parts)
+    # 7. Исправляем "Не," → "Не" (запятая после частицы "не")
+    text = re.sub(r'\b(не|ни)\s*,', r'\1', text, flags=re.IGNORECASE)
     
     # 8. Убираем лишние пробелы
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'\s*([.,!?:;])\s*', r'\1 ', text)
     text = re.sub(r'\s+([.,!?:;])', r'\1', text)
-    text = re.sub(r'([.,!?:;])\s+([.,!?:;])', r'\1 \2', text)
     
-    # 9. Убираем двойные знаки препинания
-    text = re.sub(r'([.!?])\1+', r'\1', text)
-    text = re.sub(r'([,;:])\1+', r'\1', text)
+    # 9. Убираем двойные пробелы
+    text = re.sub(r'\s{2,}', ' ', text)
     
-    # 10. Добавляем пробел после каждого знака препинания
-    text = re.sub(r'([.!?])([А-ЯЁ])', r'\1 \2', text)
+    # 10. Убираем знаки препинания в конце, если их несколько
+    text = re.sub(r'[.!?]{2,}$', r'\1', text)
+    
+    # 11. Проверка: если текст стал короче 3 символов, возвращаем оригинал
+    if len(text) < 3:
+        return original
     
     if text != original:
         logger.debug(f"🔄 Восстановлена пунктуация: '{original[:100]}...' → '{text[:100]}...'")
