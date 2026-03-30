@@ -206,9 +206,8 @@ class BasicMode(BaseMode):
             )
             
             if response and response.strip():
-                # Простая очистка (без склеивания букв)
-                clean_response = self._simple_clean(response)
-                yield clean_response
+                # Возвращаем ВЕСЬ ответ одним чанком
+                yield response  # ← без _simple_clean!
             else:
                 address = self._get_address()
                 yield f"{address}, интересный вопрос. Расскажи подробнее."
