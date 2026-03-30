@@ -1035,23 +1035,34 @@ body::after {
     border-bottom-right-radius: 4px;
 }
 
-/* Текст сообщения */
+/* ========== ЖИРНЫЙ ТЕКСТ ========== */
 .test-message-text {
     font-size: 15px;
     line-height: 1.5;
 }
 
+.test-message-text b,
 .test-message-text strong {
-    color: var(--chrome);
-    font-weight: 600;
+    font-weight: 700;
+    color: var(--amg-orange);
 }
 
-.test-message-bubble-user .test-message-text {
-    color: var(--black-obsidian);
-}
-
+.test-message-bubble-user .test-message-text b,
 .test-message-bubble-user .test-message-text strong {
     color: var(--black-obsidian);
+    font-weight: 700;
+}
+
+/* ========== ЗАГОЛОВКИ В СООБЩЕНИЯХ ========== */
+.test-message-text > b:first-child {
+    font-size: 16px;
+    display: inline-block;
+    margin-bottom: 6px;
+}
+
+.test-message-text br + b {
+    margin-top: 8px;
+    display: inline-block;
 }
 
 /* Время сообщения */
@@ -1093,6 +1104,60 @@ body::after {
     transform: scale(0.98);
 }
 
+/* Поле ввода текста */
+.test-message-input {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 12px;
+    background: rgba(10, 10, 10, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 30px;
+    border: 1px solid rgba(224, 224, 224, 0.15);
+}
+
+.test-message-input input {
+    flex: 1;
+    padding: 12px 16px;
+    background: rgba(224, 224, 224, 0.05);
+    border: 1px solid rgba(224, 224, 224, 0.2);
+    border-radius: 30px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+}
+
+.test-message-input input:focus {
+    border-color: var(--amg-orange);
+    background: rgba(224, 224, 224, 0.1);
+}
+
+.test-message-input input::placeholder {
+    color: rgba(224, 224, 224, 0.5);
+}
+
+.test-message-input button {
+    padding: 12px 20px;
+    background: rgba(255, 107, 59, 0.2);
+    border: 1px solid rgba(255, 107, 59, 0.4);
+    border-radius: 30px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.test-message-input button:hover {
+    background: rgba(255, 107, 59, 0.35);
+    transform: scale(1.02);
+}
+
+.test-message-input button:active {
+    transform: scale(0.98);
+}
+
 /* Стили для скролла в тесте */
 .test-chat-messages::-webkit-scrollbar {
     width: 4px;
@@ -1121,6 +1186,19 @@ body::after {
     
     .test-chat-messages {
         padding: 12px;
+    }
+    
+    .test-message-input {
+        padding: 10px;
+    }
+    
+    .test-message-input input {
+        padding: 10px 14px;
+        font-size: 13px;
+    }
+    
+    .test-message-input button {
+        padding: 10px 16px;
     }
 }
 
@@ -1273,6 +1351,14 @@ body::after {
         padding: 12px 20px;
         font-size: 16px;
         margin-bottom: 16px;
+    }
+    
+    .test-message-text {
+        font-size: 14px;
+    }
+    
+    .test-message-bubble {
+        padding: 10px 14px;
     }
 }
 
