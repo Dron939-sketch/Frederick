@@ -1,34 +1,20 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-МОДУЛЬ: БАЗОВЫЙ РЕЖИМ (basic.py) - Великий Комбинатор
-Режим для пользователей, которые еще не прошли тест.
-Фреди в образе Остапа Бендера с использованием DeepSeek.
-Многоуровневый анализ: правило → закономерность → тенденция → мейнстрим → судьба → рок
-"""
-
+# modes/basic.py
 import re
 import logging
-from typing import Dict, Any, Optional, List
-from collections import deque
-
+import random
+import asyncio
+from typing import Dict, Any, AsyncGenerator
 from modes.base_mode import BaseMode
-from services.ai_service import call_deepseek, call_deepseek_streaming
+from services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
 
-
 class BasicMode(BaseMode):
     """
-    Базовый режим для пользователей без теста.
-    Фреди в образе Великого Комбинатора (Остап Бендер 2.0)
-    Многоуровневый анализ: каждые 2 сообщения → правило,
-    каждые 2 правила → закономерность,
-    каждые 2 закономерности → тенденция,
-    каждые 2 тенденции → мейнстрим,
-    каждые 2 мейнстрима → судьба,
-    каждые 2 судьбы → рок.
+    Великий Комбинатор — Остап Бендер 2.0
+    Работает строго по системному промпту.
     """
+
     
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
         super().__init__(user_id, user_data, context)
