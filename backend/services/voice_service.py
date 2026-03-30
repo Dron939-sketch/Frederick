@@ -105,6 +105,33 @@ BENDER_SUFFIXES = [
     " 💪"
 ]
 
+def normalize_tts_text(text: str) -> str:
+    """
+    Надёжная нормализация текста перед Yandex TTS.
+    Убирает артефакты разбиения по буквам/слогам.
+    """
+    if not text:
+        return ""
+
+    # 1. Убираем все виды лишних пробелов
+    text = re.sub(r'\s+', ' ', text)
+
+    # 2. Склеиваем буквы, которые были разделены пробелом (самое важное!)
+    #    "В е ч е р" → "Вечер", "д р у г м о й" → "другмой" и т.д.
+    text = re.sub(r'([а-яёА-ЯЁa-zA-Z])\s+([а-яёА-ЯЁa-zA-Z])', r'\1\2', text)
+
+    # 3. Исправляем пробелы после знаков препинания
+    text = re.sub(r'([.!?])\s*([А-ЯЁA-Z])', r'\1 \2', text)      # после точки — пробел
+    text = re.sub(r'([,;:—–])\s*', r'\1 ', text)                 # после запятой и тире — один пробел
+
+    # 4. Убираем пробелы перед знаками препинания
+    text = re.sub(r'\s+([,.:;!?—–])', r'\1', text)
+
+    # 5. Финальная чистка
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    return text
+
 def add_bender_flavor(text: str) -> str:
     """
     Минимальная бендеровская обработка — только вкус, без ломания текста
@@ -343,34 +370,21 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
 async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
     logger.info(f"🎤 Синтез речи (Yandex TTS), режим: {mode}, текст: {text[:150]}...")
 
-    if not YANDEX_API_KEY:
-        logger.error("❌ YANDEX_API_KEY не настроен")
-        return None
-
     if not text or not text.strip():
         logger.warning("⚠️ Пустой текст для TTS")
         return None
 
+    # === ГЛАВНАЯ НОРМАЛИЗАЦИЯ — сюда весь грязный текст попадает ===
+    text = normalize_tts_text(text)
+
     settings = VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"])
     voice = VOICES.get(mode, VOICES["default"])
 
-    # === ОБРАБОТКА ДЛЯ БЕНДЕРА ===
+    # Бендер только после нормализации
     if mode == "basic":
         text = add_bender_flavor(text)
-    else:
-        # Для остальных режимов просто убираем эмодзи
-        text = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF]+', '', text)
 
-        # === ФИНАЛЬНАЯ ОЧИСТКА ПЕРЕД YANDEX TTS (простая и надёжная) ===
-    if mode == "basic":
-        text = add_bender_flavor(text)
-    else:
-        text = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF]+', '', text)
-
-    # Минимальная, но эффективная очистка
-    text = re.sub(r'([.,!?;:-—])(\S)', r'\1 \2', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-
+    # Финальная защита
     if len(text) > 4500:
         text = text[:4500] + "..."
 
