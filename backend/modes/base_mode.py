@@ -173,12 +173,18 @@ class BaseMode(ABC):
                     yield sentence.strip()
                     await asyncio.sleep(0.05)
 
-    def _split_into_sentences(self, text: str) -> List[str]:
+        def _split_into_sentences(self, text: str) -> List[str]:
         if not text:
             return []
-        # Более точное разбиение
+        
+        # Более аккуратное разбиение
         sentences = re.split(r'(?<=[.!?])\s+', text)
-        return [s.strip() for s in sentences if s.strip()]
+        result = []
+        for s in sentences:
+            cleaned = s.strip()
+            if cleaned:
+                result.append(cleaned)
+        return result
 
     def _get_follow_up_suggestion(self, result: Dict[str, Any]) -> str:
         suggestions = result.get("suggestions", [])
