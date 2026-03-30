@@ -4,7 +4,7 @@
 МОДУЛЬ: РЕЖИМ ТРЕНЕР (trainer.py)
 Режим мотивирующего тренера — энергичный, вдохновляющий, ориентированный на действие.
 Образ: Тони Робинсон (Tony Robbins) — вера в потенциал человека, энергия, поддержка.
-ВЕРСИЯ 3.0 — мотивирующий тренер
+ВЕРСИЯ 3.1 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА
 """
 
 from typing import Dict, Any, List, Optional
@@ -14,6 +14,7 @@ import logging
 
 from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
+from services.ai_service import AIService  # ДОБАВЛЕН ИМПОРТ
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ class TrainerMode(BaseMode):
     
     def __init__(self, user_id: int, user_data: Dict[str, Any], context=None):
         super().__init__(user_id, user_data, context)
+        
+        # ДОБАВЛЕН AI-СЕРВИС
+        self.ai_service = AIService()
         
         # Определяем слабый вектор из профиля
         self.weakest_vector = self._get_weakest_vector()
@@ -259,9 +263,48 @@ class TrainerMode(BaseMode):
         ]
         return random.choice(greetings)
     
+    # ========== ДОБАВЛЕН НОВЫЙ МЕТОД ДЛЯ AI ==========
+    async def process_question_streaming(self, question: str):
+        """Потоковая обработка вопроса через AI с учётом профиля"""
+        
+        # Собираем данные профиля для AI
+        profile = {
+            'profile_data': self.profile_data,
+            'perception_type': self.perception_type,
+            'thinking_level': self.thinking_level,
+            'behavioral_levels': self.behavioral_levels,
+            'deep_patterns': self.deep_patterns,
+            'weakest_vector': self.weakest_vector,
+            'weakest_level': self.weakest_level
+        }
+        
+        context_data = {
+            'name': self.context.name if self.context else None,
+            'city': self.context.city if self.context else None,
+            'age': self.context.age if self.context else None
+        }
+        
+        full_response = ""
+        async for chunk in self.ai_service.generate_response_streaming(
+            message=question,
+            context=context_data,
+            profile=profile,
+            mode='trainer'
+        ):
+            if chunk:
+                full_response += chunk
+                yield chunk
+        
+        if not full_response:
+            # Fallback на мотивирующую задачу
+            yield self._set_specific_task(question)
+        
+        self.save_to_history(question, full_response)
+    # =================================================
+    
     def process_question(self, question: str) -> Dict[str, Any]:
         """
-        Обрабатывает вопрос в режиме тренера — мотивирующе и структурно
+        Обрабатывает вопрос в режиме тренера — мотивирующе и структурно (синхронная версия)
         """
         question_lower = question.lower()
         self.last_tools_used = []
