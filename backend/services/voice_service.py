@@ -107,41 +107,32 @@ BENDER_SUFFIXES = [
 
 def add_bender_flavor(text: str) -> str:
     """
-    Максимально безопасная и чистая бендеровская обработка
+    Максимально безопасная обработка для Бендера
     """
     if not text or not text.strip():
         return text
 
     original = text.strip()
 
-    # 1. Добавляем префикс только если его нет
+    # Добавляем префикс только если его нет
     if not any(p.strip().lower() in original.lower()[:50] for p in BENDER_PREFIXES):
         prefix = random.choice(BENDER_PREFIXES)
         text = prefix + original
     else:
         text = original
 
-    # 2. Убираем абсолютно все эмодзи и странные символы
+    # Убираем эмодзи и теги
     text = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251]', '', text)
-
-    # 3. Убираем возможные SSML и теги
     text = re.sub(r'<[^>]+>', ' ', text)
 
-    # 4. САМАЯ ВАЖНАЯ ЧАСТЬ — принудительная очистка "буква за буквой"
-    # Убираем пробелы между отдельными буквами (типа "П р и в е т")
-    text = re.sub(r'(\b\w)\s+(\w\b)', r'\1\2', text)   # убираем пробел между одиночными буквами
-    text = re.sub(r'(\w)\s+(\w)', r'\1 \2', text)      # оставляем нормальные пробелы между словами
-
-    # 5. Принудительно вставляем пробел после знаков препинания
+    # === ФИНАЛЬНАЯ СУПЕР-ОЧИСТКА ПЕРЕД YANDEX TTS ===
+    text = re.sub(r'(\b\w)\s+(\w\b)', r'\1\2', text)      # убираем "П р и в е т"
     text = re.sub(r'([.,!?;:-—])(\S)', r'\1 \2', text)
     text = re.sub(r'([.,!?;:-—])\s*', r'\1 ', text)
-
-    # 6. Финальная нормализация
     text = re.sub(r'\s+', ' ', text).strip()
 
     logger.debug(f"✨ Бендер flavor: '{original[:70]}...' → '{text[:100]}...'")
     return text
-
 
 # ============================================
 # ГЛОБАЛЬНЫЙ HTTP КЛИЕНТ (улучшенный)
