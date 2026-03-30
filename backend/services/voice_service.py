@@ -5,7 +5,8 @@ Voice Service - сервис для работы с голосом
 Поддержка живого голосового диалога (WebSocket + VAD + Barge-in)
 Адаптирован из рабочего кода Telegram-бота MAX
 
-ВЕРСИЯ 2.3 — МАКСИМАЛЬНО УПРОЩЁННАЯ НОРМАЛИЗАЦИЯ
+ВЕРСИЯ 3.0 — С ПОДДЕРЖКОЙ КОНВЕРТАЦИИ АУДИО
+- Автоматическая конвертация любого аудио в webm/opus для DeepGram
 - Убирает только эмодзи и спецсимволы
 - НЕ трогает пробелы
 - НЕ склеивает слова
@@ -19,7 +20,9 @@ import time
 import traceback
 import random
 import re
-from typing import Optional, Dict, Any, AsyncGenerator, Callable
+import subprocess
+import tempfile
+from typing import Optional, Dict, Any, AsyncGenerator, Callable, Tuple
 
 import httpx
 import numpy as np
@@ -71,8 +74,8 @@ VOICE_SETTINGS = {
     "basic": {
         "speed": 1.18,
         "emotion": "good",
-        "description": "Бендер — дерзкий, быстрый, с юмором",
-        "add_flavor": True
+        "description": "Быстрый, бодрый голос",
+        "add_flavor": False  # Отключаем Бендер-фразы
     },
     "default": {
         "speed": 1.0,
@@ -82,26 +85,7 @@ VOICE_SETTINGS = {
 }
 
 # ============================================
-# ФИРМЕННЫЕ ФРАЗЫ БЕНДЕРА
-# ============================================
-BENDER_PREFIXES = [
-    "О да, детка! ",
-    "Слушай, братец, ",
-    "Ну, сударь, ",
-    "Великий комбинатор говорит: ",
-    "Клянусь бананом, ",
-    "А вот это, я тебе скажу, ",
-    "Так-так-так, ",
-    "О, я вижу, ",
-    "Бендер в деле: "
-]
-
-BENDER_SUFFIXES = [
-    " 🦾", " 🤖", " 😎", " 🎭", " 🔥", " 💪"
-]
-
-# ============================================
-# НОРМАЛИЗАЦИЯ ТЕКСТА ДЛЯ YANDEX TTS (УПРОЩЁННАЯ)
+# НОРМАЛИЗАЦИЯ ТЕКСТА ДЛЯ YANDEX TTS
 # ============================================
 def normalize_tts_text(text: str) -> str:
     """
@@ -129,32 +113,89 @@ def normalize_tts_text(text: str) -> str:
     return text
 
 
-def add_bender_flavor(text: str) -> str:
+# ============================================
+# КОНВЕРТАЦИЯ АУДИО ДЛЯ DEEPGRAM
+# ============================================
+async def convert_to_webm(audio_bytes: bytes, source_format: str) -> Optional[bytes]:
     """
-    Добавляет фирменный стиль Бендера (префикс), но не ломает текст.
-    Вызывается только для режима "basic".
+    Конвертирует любой аудиоформат в webm/opus для DeepGram.
+    DeepGram лучше всего работает с webm/opus.
     """
-    if not text or not text.strip():
-        return text
+    if source_format == "webm":
+        return audio_bytes
+    
+    logger.info(f"🔄 Конвертируем {source_format} → webm/opus")
+    
+    try:
+        # Создаём временные файлы
+        with tempfile.NamedTemporaryFile(suffix=f'.{source_format}', delete=False) as f_in:
+            f_in.write(audio_bytes)
+            input_path = f_in.name
+        
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as f_out:
+            output_path = f_out.name
+        
+        # Конвертация через ffmpeg
+        cmd = [
+            'ffmpeg', '-i', input_path,
+            '-c:a', 'libopus',
+            '-b:a', '48k',
+            '-ar', '16000',
+            '-ac', '1',
+            '-f', 'webm',
+            '-y',  # перезаписывать без подтверждения
+            output_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg ошибка: {result.stderr.decode()[:200]}")
+            return None
+        
+        # Читаем сконвертированный файл
+        with open(output_path, 'rb') as f:
+            converted = f.read()
+        
+        # Удаляем временные файлы
+        try:
+            os.unlink(input_path)
+            os.unlink(output_path)
+        except:
+            pass
+        
+        logger.info(f"✅ Конвертация успешна: {len(audio_bytes)} → {len(converted)} байт")
+        return converted
+        
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg timeout")
+        return None
+    except FileNotFoundError:
+        logger.error("FFmpeg не установлен! Установите ffmpeg: apt-get install ffmpeg")
+        return None
+    except Exception as e:
+        logger.error(f"Ошибка конвертации: {e}")
+        return None
 
-    original = text.strip()
 
-    # Добавляем префикс только если его ещё нет в начале
-    if not any(p.strip().lower() in original.lower()[:50] for p in BENDER_PREFIXES):
-        prefix = random.choice(BENDER_PREFIXES)
-        text = prefix + original
-    else:
-        text = original
-
-    # Безопасная очистка эмодзи и HTML-тегов
-    text = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF]+', '', text)
-    text = re.sub(r'<[^>]+>', ' ', text)
-
-    # Нормализация пробелов
-    text = re.sub(r'\s+', ' ', text).strip()
-
-    logger.debug(f"✨ Бендер flavor применён: '{original[:60]}...' → '{text[:90]}...'")
-    return text
+async def check_audio_quality(audio_bytes: bytes, audio_format: str) -> Dict[str, Any]:
+    """Проверяет качество аудио и возвращает параметры"""
+    try:
+        if audio_format == "wav" and len(audio_bytes) > 44:
+            sample_rate = int.from_bytes(audio_bytes[24:28], 'little')
+            bits = int.from_bytes(audio_bytes[34:36], 'little')
+            channels = int.from_bytes(audio_bytes[22:24], 'little')
+            return {
+                "format": "wav",
+                "sample_rate": sample_rate,
+                "bits": bits,
+                "channels": channels,
+                "size": len(audio_bytes)
+            }
+        return {"format": audio_format, "size": len(audio_bytes)}
+    except Exception as e:
+        logger.warning(f"Ошибка проверки аудио: {e}")
+        return {"error": str(e)}
 
 
 # ============================================
@@ -289,10 +330,12 @@ class VADDetector:
 
 
 # ============================================
-# STT - Speech-to-Text (DeepGram)
+# STT - Speech-to-Text (DeepGram) с конвертацией
 # ============================================
 async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Optional[str]:
-    """Распознавание речи через DeepGram"""
+    """
+    Распознавание речи через DeepGram с авто-конвертацией в webm.
+    """
     logger.info(f"🎤 Распознавание речи, формат: {audio_format}, размер: {len(audio_bytes)} байт")
 
     if not DEEPGRAM_API_KEY:
@@ -303,6 +346,21 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         logger.warning(f"⚠️ Аудио слишком короткое: {len(audio_bytes)} байт")
         return None
 
+    # Диагностика качества аудио
+    audio_info = await check_audio_quality(audio_bytes, audio_format)
+    logger.info(f"📊 Аудио параметры: {audio_info}")
+
+    # КОНВЕРТАЦИЯ: приводим всё к webm для DeepGram
+    if audio_format != "webm":
+        converted = await convert_to_webm(audio_bytes, audio_format)
+        if converted:
+            audio_bytes = converted
+            audio_format = "webm"
+            logger.info(f"✅ Аудио сконвертировано в webm")
+        else:
+            logger.warning(f"⚠️ Не удалось конвертировать {audio_format}, пробуем оригинал")
+
+    # MIME-тип для DeepGram
     mime_types = {
         "webm": "audio/webm",
         "ogg": "audio/ogg",
@@ -353,7 +411,7 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
 
 
 # ============================================
-# TTS - Text-to-Speech (Yandex) — ОСНОВНАЯ ФУНКЦИЯ
+# TTS - Text-to-Speech (Yandex)
 # ============================================
 async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
     """
@@ -372,9 +430,9 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
     settings = VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"])
     voice = VOICES.get(mode, VOICES["default"])
 
-    # Применяем стиль Бендера только в basic-режиме
-    if mode == "basic":
-        text = add_bender_flavor(text)
+    # Отключаем Бендер-фразы (они больше не нужны)
+    # if mode == "basic" and settings.get("add_flavor"):
+    #     text = add_bender_flavor(text)
 
     # Ограничение длины
     if len(text) > 4500:
@@ -504,7 +562,7 @@ async def text_to_speech_streaming(
             chunk = audio_bytes[i:i + chunk_size]
             yield chunk
             total_sent += len(chunk)
-            await asyncio.sleep(0.012)  # плавность воспроизведения
+            await asyncio.sleep(0.012)
         logger.info(f"✅ Потоковый синтез завершен, отправлено {total_sent} байт")
     else:
         logger.error("❌ Не удалось синтезировать речь")
@@ -526,7 +584,7 @@ class VoiceService:
         self._vad_cache: Dict[str, VADDetector] = {}
 
         logger.info("=" * 70)
-        logger.info("🎤 VoiceService v2.3 успешно инициализирован")
+        logger.info("🎤 VoiceService v3.0 успешно инициализирован")
         logger.info(f" DeepGram STT : {'✅' if self.deepgram_key else '❌'}")
         logger.info(f" Yandex TTS   : {'✅' if self.yandex_key else '❌'}")
         logger.info(f" VAD Mode     : {VAD_MODE}")
