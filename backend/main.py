@@ -1335,31 +1335,31 @@ async def process_voice(
     voice: UploadFile = File(...),
     mode: str = Form("psychologist")
 ):
-    """Обработка голосового сообщения (STT + AI + TTS) — исправленная версия для Бендера"""
+    """Обработка голосового сообщения (STT + AI + TTS)"""
     try:
         audio_bytes = await voice.read()
-      
+     
         if len(audio_bytes) < 1000:
             return {"success": False, "error": "Аудио файл слишком короткий"}
-
+        
         # STT — распознавание речи
         recognized_text = await voice_service.speech_to_text(audio_bytes, "wav")
-      
+     
         if not recognized_text or not recognized_text.strip():
             return {"success": False, "error": "Не удалось распознать речь"}
-
+        
         logger.info(f"🎤 Распознано: «{recognized_text}»")
 
         # Загрузка данных пользователя
         context_obj = await context_repo.get(user_id) or {}
         profile = await user_repo.get_profile(user_id) or {}
-
+        
         # === ОПРЕДЕЛЕНИЕ РЕЖИМА ===
         has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
-      
+     
         if not has_profile:
             mode_name = "basic"
-            logger.info(f"🎭 User {user_id} has no profile → BENADER (BasicMode)")
+            logger.info(f"🎭 User {user_id} has no profile → BASIC mode")
         else:
             mode_name = context_obj.get("communication_mode", mode)
 
@@ -1385,30 +1385,26 @@ async def process_voice(
                 self.communication_mode = data.get("communication_mode", "psychologist")
 
         simple_context = SimpleContext(context_obj)
-       
-        # Получаем режим (BasicMode для Бендера)
+      
         mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
 
-               # === СБОР ОТВЕТА ИЗ СТРИМИНГА С ПРАВИЛЬНОЙ СКЛЕЙКОЙ ===
+        # === ИСПРАВЛЕННЫЙ СБОР ОТВЕТА ИЗ СТРИМИНГА ===
         response_chunks = []
         async for chunk in mode_instance.process_question_streaming(recognized_text):
             if chunk and chunk.strip():
                 response_chunks.append(chunk.strip())
-                # Отправляем чанк пользователю для субтитров (опционально)
-                # await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
-        
-        # Правильная склейка предложений
+
         response_text = " ".join(response_chunks)
-        
-        # Финальная нормализация (дополнительная защита)
-        response_text = normalize_tts_text(response_text)   # ← добавь эту строку!
-        
-        logger.info(f"💬 AI response collected: {len(response_text)} chars")
+
+        # === САМАЯ ВАЖНАЯ СТРОКА — финальная нормализация ===
+        response_text = normalize_tts_text(response_text)
+
+        logger.info(f"💬 AI response collected: {len(response_text)} символов")
+        logger.debug(f"Final cleaned text: {response_text[:300]}...")
 
         # Защита от пустого ответа
         if not response_text.strip():
-            address = getattr(mode_instance, '_get_address', lambda: lambda: "Друг мой")()
-            response_text = f"{address()}, вопрос интересный. Расскажи подробнее."
+            response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
 
         # === TTS (синтез речи) ===
         audio_base64 = await voice_service.text_to_speech(response_text, mode_name)
