@@ -5,8 +5,9 @@ Voice Service - сервис для работы с голосом
 Поддержка живого голосового диалога (WebSocket + VAD + Barge-in)
 Адаптирован из рабочего кода Telegram-бота MAX
 
-ВЕРСИЯ 3.0 — С ПОДДЕРЖКОЙ КОНВЕРТАЦИИ АУДИО
+ВЕРСИЯ 3.1 — С ПОДДЕРЖКОЙ ВОССТАНОВЛЕНИЯ ПУНКТУАЦИИ
 - Автоматическая конвертация любого аудио в webm/opus для DeepGram
+- Восстанавливает знаки препинания в тексте
 - Убирает только эмодзи и спецсимволы
 - НЕ трогает пробелы
 - НЕ склеивает слова
@@ -75,7 +76,7 @@ VOICE_SETTINGS = {
         "speed": 1.18,
         "emotion": "good",
         "description": "Быстрый, бодрый голос",
-        "add_flavor": False  # Отключаем Бендер-фразы
+        "add_flavor": False
     },
     "default": {
         "speed": 1.0,
@@ -85,13 +86,105 @@ VOICE_SETTINGS = {
 }
 
 # ============================================
+# ВОССТАНОВЛЕНИЕ ПУНКТУАЦИИ
+# ============================================
+
+def restore_punctuation(text: str) -> str:
+    """
+    Восстанавливает знаки препинания в тексте для TTS.
+    """
+    if not text:
+        return text
+    
+    original = text
+    
+    # 1. Добавляем точку в конце, если её нет
+    if text and not text[-1] in '.!?':
+        text += '.'
+    
+    # 2. Добавляем пробел после знаков препинания, если его нет
+    text = re.sub(r'([.!?])([А-ЯЁA-Zа-яёa-z])', r'\1 \2', text)
+    
+    # 3. Добавляем запятые в простых случаях
+    # После вводных слов
+    intro_words = ['но', 'однако', 'поэтому', 'потому что', 'так как', 'если', 'когда', 'где', 'который', 'что', 'чтобы']
+    for word in intro_words:
+        # Добавляем запятую после слова, если её нет
+        pattern = rf'\b{word}\s+(?![,;:])'
+        text = re.sub(pattern, rf'{word}, ', text, flags=re.IGNORECASE)
+    
+    # 4. Разбиваем длинные предложения на части (если нет знаков препинания)
+    # Ищем места, где после строчной буквы идёт заглавная
+    text = re.sub(r'([а-яё])\s+([А-ЯЁ])', r'\1. \2', text)
+    
+    # 5. Восстанавливаем вопросительные знаки
+    question_words = ['как', 'что', 'где', 'когда', 'почему', 'зачем', 'кто', 'чей', 'сколько']
+    for word in question_words:
+        # Если предложение начинается с вопросительного слова, добавляем "?"
+        if re.match(rf'^{word}\s', text, re.IGNORECASE):
+            if not text.endswith('?'):
+                text = text.rstrip('.') + '?'
+            break
+    
+    # 6. Восстанавливаем восклицательные знаки
+    exclamation_words = ['как', 'какой', 'что за', 'вот', 'ну', 'да', 'нет', 'ой', 'ах']
+    for word in exclamation_words:
+        if re.match(rf'^{word}\s', text, re.IGNORECASE):
+            if not text.endswith('!'):
+                text = text.rstrip('.?') + '!'
+            break
+    
+    # 7. Добавляем запятые в перечислениях (простые случаи)
+    # Между словами, разделёнными пробелом, где нет союза
+    # Ищем последовательности из 3+ слов без запятых
+    parts = text.split('.')
+    new_parts = []
+    for part in parts:
+        words = part.strip().split()
+        if len(words) >= 4:
+            # Простая эвристика: вставляем запятые после каждого второго слова
+            # Но не после союзов
+            result = []
+            count = 0
+            for i, word in enumerate(words):
+                result.append(word)
+                # Не добавляем запятую после союзов
+                if word.lower() not in ['и', 'или', 'а', 'но', 'да'] and count >= 1 and i < len(words) - 1:
+                    result.append(',')
+                    count = 0
+                else:
+                    count += 1
+            new_parts.append(' '.join(result))
+        else:
+            new_parts.append(part)
+    text = '.'.join(new_parts)
+    
+    # 8. Убираем лишние пробелы
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\s*([.,!?:;])\s*', r'\1 ', text)
+    text = re.sub(r'\s+([.,!?:;])', r'\1', text)
+    text = re.sub(r'([.,!?:;])\s+([.,!?:;])', r'\1 \2', text)
+    
+    # 9. Убираем двойные знаки препинания
+    text = re.sub(r'([.!?])\1+', r'\1', text)
+    text = re.sub(r'([,;:])\1+', r'\1', text)
+    
+    # 10. Добавляем пробел после каждого знака препинания
+    text = re.sub(r'([.!?])([А-ЯЁ])', r'\1 \2', text)
+    
+    if text != original:
+        logger.debug(f"🔄 Восстановлена пунктуация: '{original[:100]}...' → '{text[:100]}...'")
+    
+    return text
+
+
+# ============================================
 # НОРМАЛИЗАЦИЯ ТЕКСТА ДЛЯ YANDEX TTS
 # ============================================
 def normalize_tts_text(text: str) -> str:
     """
     Минимальная нормализация текста для Yandex TTS.
-    Только удаляет эмодзи и спецсимволы.
-    НЕ трогает пробелы, НЕ склеивает слова.
+    Сохраняет знаки препинания, убирает эмодзи и спецсимволы.
     """
     if not text:
         return ""
@@ -107,9 +200,12 @@ def normalize_tts_text(text: str) -> str:
     )
     text = emoji_pattern.sub('', text)
 
-    # Убираем спецсимволы
-    text = re.sub(r'[#*_`~<>|@$%^&(){}\[\]]', '', text)
-
+    # Убираем спецсимволы, НО СОХРАНЯЕМ знаки препинания
+    text = re.sub(r'[#*_`~<>|@$%^&+={}\[\]\\]', '', text)
+    
+    # Восстанавливаем знаки препинания
+    text = restore_punctuation(text)
+    
     return text
 
 
@@ -119,7 +215,6 @@ def normalize_tts_text(text: str) -> str:
 async def convert_to_webm(audio_bytes: bytes, source_format: str) -> Optional[bytes]:
     """
     Конвертирует любой аудиоформат в webm/opus для DeepGram.
-    DeepGram лучше всего работает с webm/opus.
     """
     if source_format == "webm":
         return audio_bytes
@@ -127,7 +222,6 @@ async def convert_to_webm(audio_bytes: bytes, source_format: str) -> Optional[by
     logger.info(f"🔄 Конвертируем {source_format} → webm/opus")
     
     try:
-        # Создаём временные файлы
         with tempfile.NamedTemporaryFile(suffix=f'.{source_format}', delete=False) as f_in:
             f_in.write(audio_bytes)
             input_path = f_in.name
@@ -135,7 +229,6 @@ async def convert_to_webm(audio_bytes: bytes, source_format: str) -> Optional[by
         with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as f_out:
             output_path = f_out.name
         
-        # Конвертация через ffmpeg
         cmd = [
             'ffmpeg', '-i', input_path,
             '-c:a', 'libopus',
@@ -143,7 +236,7 @@ async def convert_to_webm(audio_bytes: bytes, source_format: str) -> Optional[by
             '-ar', '16000',
             '-ac', '1',
             '-f', 'webm',
-            '-y',  # перезаписывать без подтверждения
+            '-y',
             output_path
         ]
         
@@ -153,11 +246,9 @@ async def convert_to_webm(audio_bytes: bytes, source_format: str) -> Optional[by
             logger.error(f"FFmpeg ошибка: {result.stderr.decode()[:200]}")
             return None
         
-        # Читаем сконвертированный файл
         with open(output_path, 'rb') as f:
             converted = f.read()
         
-        # Удаляем временные файлы
         try:
             os.unlink(input_path)
             os.unlink(output_path)
@@ -241,11 +332,8 @@ async def close_http_client():
 # VAD - Voice Activity Detection
 # ============================================
 class VADDetector:
-    """
-    Детектор речевой активности.
-    Поддерживает WebRTC VAD и fallback на энергетический анализ.
-    """
-
+    """Детектор речевой активности."""
+    
     def __init__(self, sample_rate: int = 16000, mode: int = 3):
         self.sample_rate = sample_rate
         self.mode = mode
@@ -269,7 +357,6 @@ class VADDetector:
             logger.info("ℹ️ WebRTC VAD не установлен → используется энергетический VAD")
 
     def reset(self):
-        """Сброс состояния детектора"""
         self.speech_frames = 0
         self.silence_frames = 0
         self.is_speaking = False
@@ -294,7 +381,6 @@ class VADDetector:
             return self._is_speech_energy(audio_chunk)
 
     def process_chunk(self, audio_chunk: bytes) -> Dict[str, Any]:
-        """Обработка одного аудио-чанка"""
         result = {
             "is_speech": False,
             "speech_started": False,
@@ -333,9 +419,7 @@ class VADDetector:
 # STT - Speech-to-Text (DeepGram) с конвертацией
 # ============================================
 async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Optional[str]:
-    """
-    Распознавание речи через DeepGram с авто-конвертацией в webm.
-    """
+    """Распознавание речи через DeepGram с авто-конвертацией в webm."""
     logger.info(f"🎤 Распознавание речи, формат: {audio_format}, размер: {len(audio_bytes)} байт")
 
     if not DEEPGRAM_API_KEY:
@@ -346,11 +430,9 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         logger.warning(f"⚠️ Аудио слишком короткое: {len(audio_bytes)} байт")
         return None
 
-    # Диагностика качества аудио
     audio_info = await check_audio_quality(audio_bytes, audio_format)
     logger.info(f"📊 Аудио параметры: {audio_info}")
 
-    # КОНВЕРТАЦИЯ: приводим всё к webm для DeepGram
     if audio_format != "webm":
         converted = await convert_to_webm(audio_bytes, audio_format)
         if converted:
@@ -360,7 +442,6 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         else:
             logger.warning(f"⚠️ Не удалось конвертировать {audio_format}, пробуем оригинал")
 
-    # MIME-тип для DeepGram
     mime_types = {
         "webm": "audio/webm",
         "ogg": "audio/ogg",
@@ -414,27 +495,20 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
 # TTS - Text-to-Speech (Yandex)
 # ============================================
 async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
-    """
-    Синтез речи через Yandex TTS с обязательной нормализацией текста.
-    """
+    """Синтез речи через Yandex TTS с нормализацией и восстановлением пунктуации."""
     logger.info(f"🎤 Синтез речи (Yandex TTS), режим: {mode}, текст: {text[:150]}...")
 
     if not text or not text.strip():
         logger.warning("⚠️ Пустой текст для TTS")
         return None
 
-    # === ГЛАВНАЯ НОРМАЛИЗАЦИЯ ===
+    # Нормализация и восстановление пунктуации
     text = normalize_tts_text(text)
     logger.debug(f"Normalized TTS text ({mode}): {text[:220]}{'...' if len(text) > 220 else ''}")
 
     settings = VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"])
     voice = VOICES.get(mode, VOICES["default"])
 
-    # Отключаем Бендер-фразы (они больше не нужны)
-    # if mode == "basic" and settings.get("add_flavor"):
-    #     text = add_bender_flavor(text)
-
-    # Ограничение длины
     if len(text) > 4500:
         text = text[:4500] + "..."
 
@@ -573,10 +647,7 @@ async def text_to_speech_streaming(
 # ОСНОВНОЙ КЛАСС VoiceService
 # ============================================
 class VoiceService:
-    """
-    Основной класс сервиса голосового взаимодействия.
-    Предоставляет удобные методы для STT и TTS.
-    """
+    """Основной класс сервиса голосового взаимодействия."""
 
     def __init__(self):
         self.deepgram_key = DEEPGRAM_API_KEY
@@ -584,7 +655,7 @@ class VoiceService:
         self._vad_cache: Dict[str, VADDetector] = {}
 
         logger.info("=" * 70)
-        logger.info("🎤 VoiceService v3.0 успешно инициализирован")
+        logger.info("🎤 VoiceService v3.1 успешно инициализирован")
         logger.info(f" DeepGram STT : {'✅' if self.deepgram_key else '❌'}")
         logger.info(f" Yandex TTS   : {'✅' if self.yandex_key else '❌'}")
         logger.info(f" VAD Mode     : {VAD_MODE}")
@@ -595,12 +666,10 @@ class VoiceService:
         if not self.yandex_key:
             logger.warning("⚠️ YANDEX_API_KEY не настроен!")
 
-    # ====================== Основные методы ======================
     async def speech_to_text(self, audio_bytes: bytes, audio_format: str = "webm") -> Optional[str]:
         return await speech_to_text(audio_bytes, audio_format)
 
     async def text_to_speech(self, text: str, mode: str = "psychologist") -> Optional[str]:
-        """Возвращает аудио в base64 (для JSON-ответов)"""
         audio_bytes = await text_to_speech(text, mode)
         if audio_bytes:
             return base64.b64encode(audio_bytes).decode('utf-8')
@@ -631,7 +700,6 @@ class VoiceService:
         async for chunk in text_to_speech_streaming(text, mode, chunk_size):
             yield chunk
 
-    # ====================== VAD управление ======================
     def create_vad(self, user_id: Optional[int] = None, sample_rate: int = 16000, mode: int = 3) -> VADDetector:
         if user_id is not None:
             cache_key = f"{user_id}:{sample_rate}:{mode}"
@@ -663,25 +731,16 @@ class VoiceService:
         }
 
     async def close(self):
-        """Закрытие всех ресурсов"""
         await close_http_client()
         self.clear_vad_cache()
         logger.info("🔒 VoiceService полностью закрыт")
 
 
-# ============================================
-# ФАБРИКА ДЛЯ СОЗДАНИЯ СЕРВИСА
-# ============================================
 def create_voice_service() -> VoiceService:
-    """Фабрика для создания экземпляра VoiceService"""
     return VoiceService()
 
 
-# ============================================
-# ФУНКЦИЯ ДЛЯ ОТЛАДКИ
-# ============================================
 async def save_audio_debug(audio_bytes: bytes, prefix: str = "audio") -> Optional[str]:
-    """Сохраняет аудио в /tmp для отладки"""
     try:
         timestamp = int(time.time())
         filename = f"/tmp/{prefix}_{timestamp}.webm"
