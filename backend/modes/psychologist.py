@@ -3,7 +3,7 @@
 """
 МОДУЛЬ: РЕЖИМ ПСИХОЛОГ (psychologist.py)
 Глубинная аналитическая работа с использованием конфайнтмент-модели и анализа петель.
-ВЕРСИЯ 3.1 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА
+ВЕРСИЯ 3.2 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА И МЕТОДОМ process_question_full
 """
 
 from typing import Dict, Any, List, Optional
@@ -16,7 +16,7 @@ from profiles import VECTORS, LEVEL_PROFILES
 from confinement.confinement_model import ConfinementModel9, ConfinementElement
 from confinement.loop_analyzer import LoopAnalyzer
 from hypno import HypnoOrchestrator, TherapeuticTales
-from services.ai_service import AIService  # ДОБАВЛЕН ИМПОРТ
+from services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
 
@@ -356,9 +356,9 @@ class PsychologistMode(BaseMode):
         ]
         return random.choice(greetings)
     
-    # ========== ДОБАВЛЕН НОВЫЙ МЕТОД ДЛЯ AI ==========
+    # ========== МЕТОД ДЛЯ ПОТОКОВОЙ ОБРАБОТКИ (WebSocket) ==========
     async def process_question_streaming(self, question: str):
-        """Потоковая обработка вопроса через AI с учётом профиля"""
+        """Потоковая обработка вопроса через AI с учётом профиля (для WebSocket)"""
         
         # Собираем данные профиля для AI
         profile = {
@@ -394,6 +394,48 @@ class PsychologistMode(BaseMode):
             yield self._depth_inquiry_with_analysis(question)
         
         self.save_to_history(question, full_response)
+    
+    # ========== НОВЫЙ МЕТОД ДЛЯ ПОЛНОГО ОТВЕТА (HTTP) ==========
+    async def process_question_full(self, question: str) -> str:
+        """
+        Возвращает ответ целиком (без разбиения на чанки).
+        Используется в HTTP эндпоинтах (голосовой ввод).
+        """
+        logger.info(f"🎙️ process_question_full в режиме PsychologistMode")
+        
+        # Собираем данные профиля для AI
+        profile = {
+            'profile_data': self.profile_data,
+            'perception_type': self.perception_type,
+            'thinking_level': self.thinking_level,
+            'behavioral_levels': self.behavioral_levels,
+            'deep_patterns': self.deep_patterns,
+            'weakest_vector': getattr(self, 'weakest_vector', None),
+            'weakest_level': getattr(self, 'weakest_level', None),
+            'attachment_type': self.attachment_type
+        }
+        
+        context_data = {
+            'name': self.context.name if self.context else None,
+            'city': self.context.city if self.context else None,
+            'age': self.context.age if self.context else None
+        }
+        
+        # Используем НЕ streaming версию (generate_response)
+        response = await self.ai_service.generate_response(
+            user_id=self.user_id,
+            message=question,
+            context=context_data,
+            profile=profile,
+            mode='psychologist'
+        )
+        
+        if not response or not response.strip():
+            # Fallback на глубинный вопрос
+            response = self._depth_inquiry_with_analysis(question)
+        
+        self.save_to_history(question, response)
+        return response
     # =================================================
     
     def process_question(self, question: str) -> Dict[str, Any]:
