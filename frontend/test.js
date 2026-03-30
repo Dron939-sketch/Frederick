@@ -1,6 +1,6 @@
 // ============================================
 // ПОЛНЫЙ ТЕСТ ИЗ 5 ЭТАПОВ
-// Версия 4.3 - ИСПРАВЛЕННЫЙ ДИЗАЙН + УТОЧНЯЮЩИЕ ВОПРОСЫ + ЖИРНЫЙ ТЕКСТ
+// Версия 4.3 - ИСПРАВЛЕННЫЙ ДИЗАЙН + УТОЧНЯЮЩИЕ ВОПРОСЫ + ЖИРНЫЙ ТЕКСТ + ФОРМАТИРОВАНИЕ ПРОФИЛЯ
 // ============================================
 
 const Test = {
@@ -131,64 +131,227 @@ const Test = {
     ],
     
     // ============================================
-    // УТОЧНЯЮЩИЕ ВОПРОСЫ (из Python)
+    // РАСШИРЕННЫЕ УТОЧНЯЮЩИЕ ВОПРОСЫ
     // ============================================
     clarifyingQuestionsDB: {
         "СБ": [
-            {
-                level: 2,
-                text: "Ты сказал, что избегаешь конфликтов. А что именно происходит в момент ссоры?",
-                options: {
-                    "1": "Просто ухожу, не хочу скандала",
-                    "2": "Замираю и не могу слова сказать",
-                    "3": "Внешне спокоен, внутри всё кипит",
-                    "4": "Пытаюсь перевести в шутку"
+            { 
+                level: 1, 
+                text: "Ты сказал, что замираешь под давлением. Что происходит в этот момент?",
+                options: { 
+                    "1": "Пустота в голове, слова не идут",
+                    "2": "Хочется убежать, спрятаться",
+                    "3": "Внутри всё кипит, но не могу сказать",
+                    "4": "Просто жду, когда всё закончится"
                 }
             },
-            {
-                level: 4,
+            { 
+                level: 2, 
+                text: "Ты избегаешь конфликтов. А что было в последний раз?",
+                options: { 
+                    "1": "Просто ушёл, не стал спорить",
+                    "2": "Согласился, хотя не хотел",
+                    "3": "Промолчал, сделал вид, что всё нормально",
+                    "4": "Нашёл предлог, чтобы уйти"
+                }
+            },
+            { 
+                level: 3, 
+                text: "Ты соглашаешься внешне, но внутри кипишь. Как часто это происходит?",
+                options: { 
+                    "1": "Постоянно, каждый день",
+                    "2": "Часто, несколько раз в неделю",
+                    "3": "Иногда, когда сильно давят",
+                    "4": "Редко, стараюсь говорить прямо"
+                }
+            },
+            { 
+                level: 4, 
                 text: "Ты внешне спокоен в конфликтах. А что ты чувствуешь внутри?",
-                options: {
+                options: { 
                     "1": "Пустоту и отстранённость",
                     "2": "Злость и раздражение",
                     "3": "Страх и тревогу",
-                    "4": "Ничего особенного"
+                    "4": "Ничего особенного, просто жду"
+                }
+            },
+            { 
+                level: 5, 
+                text: "Ты пытаешься сгладить конфликт шуткой. Как люди реагируют?",
+                options: { 
+                    "1": "Смеются, напряжение уходит",
+                    "2": "Не всегда понимают юмор",
+                    "3": "Иногда обижаются",
+                    "4": "Продолжают давить"
+                }
+            },
+            { 
+                level: 6, 
+                text: "Ты умеешь защищать себя. Что помогает тебе сохранять спокойствие?",
+                options: { 
+                    "1": "Понимание, что конфликт не про меня",
+                    "2": "Чёткое знание своих границ",
+                    "3": "Уверенность в своей правоте",
+                    "4": "Дыхательные техники"
                 }
             }
         ],
+        
         "ТФ": [
-            {
-                level: 2,
+            { 
+                level: 1, 
+                text: "Ты зависишь от других в финансовых вопросах. Что мешает зарабатывать самому?",
+                options: { 
+                    "1": "Страх неудачи",
+                    "2": "Не знаю, что умею",
+                    "3": "Нет возможностей",
+                    "4": "Лень и прокрастинация"
+                }
+            },
+            { 
+                level: 2, 
                 text: "С деньгами 'как повезёт' — это про удачу или про отсутствие плана?",
-                options: {
+                options: { 
                     "1": "Про удачу — верю в случай",
                     "2": "Про отсутствие плана — не умею планировать",
                     "3": "Про лень — не хочу заморачиваться",
                     "4": "Про страх — боюсь ошибиться"
                 }
+            },
+            { 
+                level: 3, 
+                text: "Ты зарабатываешь трудом. Что тебя останавливает от увеличения дохода?",
+                options: { 
+                    "1": "Нет времени",
+                    "2": "Нет энергии",
+                    "3": "Не знаю, с чего начать",
+                    "4": "Боюсь рисковать"
+                }
+            },
+            { 
+                level: 4, 
+                text: "Ты хорошо зарабатываешь. Куда уходят деньги?",
+                options: { 
+                    "1": "На жизнь и базовые нужды",
+                    "2": "На развлечения и удовольствия",
+                    "3": "Откладываю, но медленно",
+                    "4": "Инвестирую в развитие"
+                }
+            },
+            { 
+                level: 5, 
+                text: "Ты создаёшь системы дохода. Что было самым сложным?",
+                options: { 
+                    "1": "Начать",
+                    "2": "Найти команду",
+                    "3": "Доверять другим",
+                    "4": "Масштабировать"
+                }
             }
         ],
+        
         "УБ": [
-            {
-                level: 2,
+            { 
+                level: 1, 
+                text: "Ты стараешься не думать о сложном. Что происходит, когда всё же думаешь?",
+                options: { 
+                    "1": "Тревога нарастает",
+                    "2": "Голова идёт кругом",
+                    "3": "Ничего не понимаю",
+                    "4": "Становится ещё хуже"
+                }
+            },
+            { 
+                level: 2, 
                 text: "Ты веришь в знаки и судьбу. А бывало, что твои предсказания не сбывались?",
-                options: {
+                options: { 
                     "1": "Да, часто",
                     "2": "Иногда",
                     "3": "Редко",
                     "4": "Всегда сбываются"
                 }
+            },
+            { 
+                level: 3, 
+                text: "Ты доверяешь экспертам. Что для тебя авторитет?",
+                options: { 
+                    "1": "Дипломы и регалии",
+                    "2": "Опыт и практика",
+                    "3": "Популярность и известность",
+                    "4": "Своя интуиция"
+                }
+            },
+            { 
+                level: 4, 
+                text: "Ты ищешь заговоры. Что даёт тебе это чувство?",
+                options: { 
+                    "1": "Ощущение контроля",
+                    "2": "Объяснение хаоса",
+                    "3": "Оправдание бездействия",
+                    "4": "Чувство превосходства"
+                }
+            },
+            { 
+                level: 5, 
+                text: "Ты анализируешь факты. Как проверяешь информацию?",
+                options: { 
+                    "1": "Сравниваю с другими источниками",
+                    "2": "Проверяю на практике",
+                    "3": "Спрашиваю у экспертов",
+                    "4": "Доверяю своей логике"
+                }
             }
         ],
+        
         "ЧВ": [
-            {
-                level: 2,
-                text: "Ты подстраиваешься под других. А помнишь, когда в последний раз ты делал то, что хотел именно ты?",
-                options: {
+            { 
+                level: 1, 
+                text: "Ты сильно привязываешься к людям. Что происходит, когда человек уходит?",
+                options: { 
+                    "1": "Мир рушится",
+                    "2": "Долго переживаю",
+                    "3": "Ищу замену сразу",
+                    "4": "Закрываюсь от всех"
+                }
+            },
+            { 
+                level: 2, 
+                text: "Ты подстраиваешься под других. А помнишь, когда в последний раз делал то, что хотел именно ты?",
+                options: { 
                     "1": "Недавно",
                     "2": "Давно",
                     "3": "Очень давно",
                     "4": "Не помню такого"
+                }
+            },
+            { 
+                level: 3, 
+                text: "Ты хочешь нравиться. Что для тебя важнее: быть собой или быть принятым?",
+                options: { 
+                    "1": "Быть принятым любой ценой",
+                    "2": "Искать компромисс",
+                    "3": "Быть собой, но мягко",
+                    "4": "Быть собой, несмотря ни на что"
+                }
+            },
+            { 
+                level: 4, 
+                text: "Ты умеешь влиять на людей. Как ты это делаешь?",
+                options: { 
+                    "1": "Убеждением",
+                    "2": "Примером",
+                    "3": "Манипуляцией",
+                    "4": "Поддержкой и помощью"
+                }
+            },
+            { 
+                level: 5, 
+                text: "Ты строишь равные отношения. Что для тебя важно в партнёре?",
+                options: { 
+                    "1": "Честность",
+                    "2": "Взаимность",
+                    "3": "Уважение",
+                    "4": "Поддержка"
                 }
             }
         ]
@@ -867,40 +1030,139 @@ const Test = {
     },
     
     // ============================================
+    // ФУНКЦИИ ФОРМАТИРОВАНИЯ ПРОФИЛЯ
+    // ============================================
+    
+    cleanTextForDisplay(text) {
+        if (!text) return text;
+        
+        // Удаляем Markdown
+        text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+        text = text.replace(/__(.*?)__/g, '$1');
+        text = text.replace(/\*(.*?)\*/g, '$1');
+        text = text.replace(/_(.*?)_/g, '$1');
+        text = text.replace(/`(.*?)`/g, '$1');
+        text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1');
+        text = text.replace(/#{1,6}\s+/g, '');
+        
+        // Удаляем HTML теги
+        text = text.replace(/<[^>]+>/g, '');
+        
+        // Убираем лишние пробелы
+        text = text.replace(/\s+/g, ' ').trim();
+        text = text.replace(/\n\s*\n/g, '\n\n');
+        
+        return text;
+    },
+    
+    formatProfileText(text) {
+        if (!text) return text;
+        
+        // Убираем Markdown
+        text = this.cleanTextForDisplay(text);
+        
+        const headerMap = {
+            'БЛОК 1:': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
+            'БЛОК 2:': '💪 СИЛЬНЫЕ СТОРОНЫ',
+            'БЛОК 3:': '🎯 ЗОНЫ РОСТА',
+            'БЛОК 4:': '🌱 КАК ЭТО СФОРМИРОВАЛОСЬ',
+            'БЛОК 5:': '⚠️ ГЛАВНАЯ ЛОВУШКА',
+            'БЛОК1:': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
+            'БЛОК2:': '💪 СИЛЬНЫЕ СТОРОНЫ',
+            'БЛОК3:': '🎯 ЗОНЫ РОСТА',
+            'БЛОК4:': '🌱 КАК ЭТО СФОРМИРОВАЛОСЬ',
+            'БЛОК5:': '⚠️ ГЛАВНАЯ ЛОВУШКА'
+        };
+        
+        // Заменяем заголовки на жирные с эмодзи
+        for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
+            const regex = new RegExp(oldHeader, 'gi');
+            text = text.replace(regex, `<b>${newHeader}</b>`);
+        }
+        
+        // Убираем дублирование заголовков
+        const headers = Object.values(headerMap);
+        for (const header of headers) {
+            const pattern = new RegExp(`<b>${header}</b>\\s*\\n\\s*<b>${header}</b>`, 'gi');
+            text = text.replace(pattern, `<b>${header}</b>`);
+        }
+        
+        // Форматируем списки
+        text = text.replace(/•\s*/g, '<br>• ');
+        text = text.replace(/-\s*/g, '<br>• ');
+        
+        // Добавляем отступы
+        text = text.replace(/\n\n/g, '<br><br>');
+        text = text.replace(/\n/g, '<br>');
+        
+        return text;
+    },
+    
+    // ============================================
     // ФУНКЦИИ ДЛЯ УТОЧНЯЮЩИХ ВОПРОСОВ
     // ============================================
     
     getClarifyingQuestions(discrepancies, currentLevels) {
         const questions = [];
         
-        for (const item of discrepancies) {
-            if (["people", "money", "signs", "relations"].includes(item)) {
-                const qData = this.discrepancyQuestions[item];
-                if (qData) {
+        // Векторные расхождения (СБ, ТФ, УБ, ЧВ)
+        for (const vector of ["СБ", "ТФ", "УБ", "ЧВ"]) {
+            if (discrepancies.includes(vector)) {
+                const level = Math.round(currentLevels[vector] || 3);
+                const vectorQuestions = this.clarifyingQuestionsDB[vector] || [];
+                
+                // Ищем вопрос для конкретного уровня
+                const matchingQuestion = vectorQuestions.find(q => q.level === level);
+                if (matchingQuestion) {
                     questions.push({
-                        type: "discrepancy",
-                        target: item,
-                        text: qData.text,
-                        options: qData.options
+                        type: "vector",
+                        vector: vector,
+                        text: matchingQuestion.text,
+                        options: matchingQuestion.options
                     });
-                }
-            } else if (this.clarifyingQuestionsDB[item]) {
-                const level = currentLevels[item] || 3;
-                for (const q of this.clarifyingQuestionsDB[item]) {
-                    if (q.level === Math.round(level)) {
+                } else {
+                    // Если нет точного совпадения, берём ближайший
+                    const nearest = vectorQuestions.reduce((prev, curr) => {
+                        return Math.abs(curr.level - level) < Math.abs(prev.level - level) ? curr : prev;
+                    }, vectorQuestions[0]);
+                    
+                    if (nearest) {
                         questions.push({
                             type: "vector",
-                            vector: item,
-                            text: q.text,
-                            options: q.options
+                            vector: vector,
+                            text: nearest.text,
+                            options: nearest.options
                         });
-                        break;
                     }
                 }
             }
         }
         
-        return questions.slice(0, 5);
+        // Общие расхождения (people, money, signs, relations)
+        const generalDiscrepancies = ["people", "money", "signs", "relations"];
+        for (const disc of discrepancies) {
+            if (generalDiscrepancies.includes(disc) && this.discrepancyQuestions[disc]) {
+                questions.push({
+                    type: "discrepancy",
+                    target: disc,
+                    text: this.discrepancyQuestions[disc].text,
+                    options: this.discrepancyQuestions[disc].options
+                });
+            }
+        }
+        
+        // Убираем дубликаты по тексту вопроса
+        const uniqueQuestions = [];
+        const questionTexts = new Set();
+        
+        for (const q of questions) {
+            if (!questionTexts.has(q.text)) {
+                questionTexts.add(q.text);
+                uniqueQuestions.push(q);
+            }
+        }
+        
+        return uniqueQuestions.slice(0, 5);
     },
     
     // ============================================
@@ -2093,11 +2355,20 @@ ${q.text}
         const options = Object.entries(q.options).map(([key, value]) => ({
             text: value,
             callback: () => {
-                this.clarifyingAnswers.push({ question: q.text, answer: value, key: key });
+                this.clarifyingAnswers.push({ question: q.text, answer: value, key: key, vector: q.vector, type: q.type });
                 this.clarifyingCurrent++;
                 this.askClarifyingQuestion();
             }
         }));
+        
+        // Добавляем кнопку "Пропустить"
+        options.push({
+            text: "⏭ ПРОПУСТИТЬ",
+            callback: () => {
+                this.clarifyingCurrent++;
+                this.askClarifyingQuestion();
+            }
+        });
         
         this.addMessageWithButtons(text, options);
     },
@@ -2211,9 +2482,6 @@ ${interpretation}
                 body: JSON.stringify(results)
             });
             
-            // ======================================================
-            // ИСПРАВЛЕНИЕ 2: защита от пустого / невалидного JSON
-            // ======================================================
             let data;
             try {
                 data = await response.json();
@@ -2307,42 +2575,163 @@ ${interpretation}
         this.showFinalProfileButtons();
     },
     
-    // ======================================================
-    // ИСПРАВЛЕНИЕ 1: App → window.App во всех трёх методах
-    // ======================================================
-    
     showPsychologistThought() {
-        if (window.dashboard && window.dashboard.renderPsychologistThoughtScreen) {
-            window.dashboard.renderPsychologistThoughtScreen();
-        } else if (window.App && window.App.showPsychologistThought) {
-            window.App.showPsychologistThought();
-        } else {
-            this.addBotMessage("🧠 Мысли психолога будут доступны в личном кабинете.", true);
+        if (this.psychologistThought) {
+            const formattedThought = this.formatProfileText(this.psychologistThought);
+            this.addBotMessage(`
+🧠 МЫСЛИ ПСИХОЛОГА
+
+${formattedThought}
+`, true);
+            return;
         }
+        
+        this.addBotMessage("🧠 Генерирую мысли психолога...", true);
+        
+        fetch(`/api/psychologist-thought/${this.userId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.thought) {
+                    this.psychologistThought = data.thought;
+                    const formattedThought = this.formatProfileText(data.thought);
+                    this.addBotMessage(`
+🧠 МЫСЛИ ПСИХОЛОГА
+
+${formattedThought}
+`, true);
+                } else {
+                    this.addBotMessage("🧠 Мысли психолога будут доступны через несколько секунд.", true);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                this.addBotMessage("🧠 Мысли психолога временно недоступны. Попробуйте позже.", true);
+            });
+        
+        this.addMessageWithButtons("", [
+            { text: "🎯 ВЫБРАТЬ ЦЕЛЬ", callback: () => this.showGoals() },
+            { text: "⚙️ ВЫБРАТЬ РЕЖИМ", callback: () => this.showModes() }
+        ]);
     },
     
     showGoals() {
-        if (window.dashboard && window.dashboard.renderGoalsScreen) {
-            window.dashboard.renderGoalsScreen();
-        } else if (window.App && window.App.showDynamicDestinations) {
-            window.App.showDynamicDestinations();
-        } else {
-            this.addBotMessage("🎯 Выбор целей будет доступен в личном кабинете.", true);
-        }
+        const text = `
+🎯 ВЫБОР ЦЕЛЕЙ
+
+На основе вашего профиля я подготовил рекомендации:
+
+🔮 ПОДХОДЯЩИЕ НАПРАВЛЕНИЯ:
+
+1️⃣ Работа с реакцией на давление
+   • Научиться говорить "нет"
+   • Защищать свои границы
+   • Сохранять спокойствие в конфликтах
+
+2️⃣ Развитие отношений
+   • Строить здоровые партнёрства
+   • Создавать поддерживающее окружение
+   • Углублять существующие связи
+
+3️⃣ Финансовая стратегия
+   • Создать финансовую подушку
+   • Найти дополнительные источники дохода
+   • Освоить инвестиционные инструменты
+
+👇 Выберите направление или напишите свою цель:
+`;
+        
+        this.addMessageWithButtons(text, [
+            { text: "🛡 ДАВЛЕНИЕ", callback: () => this.selectGoal("pressure") },
+            { text: "🤝 ОТНОШЕНИЯ", callback: () => this.selectGoal("relations") },
+            { text: "💰 ФИНАНСЫ", callback: () => this.selectGoal("money") },
+            { text: "✏️ СВОЯ ЦЕЛЬ", callback: () => this.customGoal() },
+            { text: "◀️ НАЗАД", callback: () => this.showFinalProfileButtons() }
+        ]);
+    },
+    
+    selectGoal(goalType) {
+        const goalTexts = {
+            "pressure": "Отлично! Работа с давлением — это важный шаг. \n\n📝 Задание на неделю: отслеживайте моменты, когда вы чувствуете давление, и пробуйте не реагировать сразу, а делать паузу на 3 секунды.\n\nЗаписывайте свои наблюдения и возвращайтесь, чтобы обсудить прогресс.",
+            "relations": "Отношения — это зеркало. Чтобы улучшить их, начните с себя.\n\n📝 Задание на неделю: уделите внимание своим потребностям в общении. Задайте себе вопрос: 'Что я действительно хочу от этих отношений?'\n\nЗапишите ответы.",
+            "money": "Финансы любят порядок.\n\n📝 Задание на неделю: запишите все свои доходы и расходы. Это первый шаг к осознанному управлению.\n\nПопробуйте найти одну статью расходов, которую можно оптимизировать."
+        };
+        
+        this.addBotMessage(goalTexts[goalType], true);
+        
+        this.addMessageWithButtons("", [
+            { text: "🎯 ДРУГАЯ ЦЕЛЬ", callback: () => this.showGoals() },
+            { text: "🧠 К ПРОФИЛЮ", callback: () => this.showFinalProfileButtons() }
+        ]);
+    },
+    
+    customGoal() {
+        this.addBotMessage("✏️ Напишите свою цель текстом или отправьте голосовое сообщение.\n\nЯ помогу разбить её на шаги.", true);
+        this.showTextInput("custom_goal", "Напишите вашу цель...", false);
+        
+        const handleGoal = (value) => {
+            this.addUserMessage(value);
+            this.addBotMessage(`Отличная цель! 🎯\n\nДавайте разберём её на шаги:\n\n1️⃣ Сформулируйте конкретный результат\n2️⃣ Разбейте на микро-шаги\n3️⃣ Определите первый шаг на сегодня\n\nЧто скажете?`, true);
+        };
+        
+        window._tempGoalHandler = handleGoal;
     },
     
     showModes() {
-        if (window.dashboard && window.dashboard.renderModeSelectionScreen) {
-            window.dashboard.renderModeSelectionScreen();
-        } else if (window.App && window.App.showModeSelection) {
-            window.App.showModeSelection();
-        } else {
-            this.addBotMessage("⚙️ Выбор режима будет доступен в личном кабинете.", true);
+        const text = `
+⚙️ ВЫБОР РЕЖИМА
+
+Я могу общаться в разных стилях:
+
+🔮 КОУЧ
+Помогаю самому найти решения. Задаю вопросы, отражаю мысли, направляю.
+
+🧠 ПСИХОЛОГ
+Копаю вглубь, исследую паттерны, работаю с причинами.
+
+⚡ ТРЕНЕР
+Даю чёткие инструменты, упражнения, ставлю задачи.
+
+👇 Какой режим выбрать?
+`;
+        
+        this.addMessageWithButtons(text, [
+            { text: "🔮 КОУЧ", callback: () => this.setMode("coach") },
+            { text: "🧠 ПСИХОЛОГ", callback: () => this.setMode("psychologist") },
+            { text: "⚡ ТРЕНЕР", callback: () => this.setMode("trainer") },
+            { text: "◀️ НАЗАД", callback: () => this.showFinalProfileButtons() }
+        ]);
+    },
+    
+    setMode(mode) {
+        const modeTexts = {
+            "coach": "Отлично! Теперь я буду работать в режиме КОУЧА. Буду задавать вопросы, помогать тебе самому находить ответы.",
+            "psychologist": "Хорошо! Режим ПСИХОЛОГА активирован. Будем исследовать глубинные паттерны и причины.",
+            "trainer": "Принято! Режим ТРЕНЕРА включён. Получишь чёткие инструкции и упражнения."
+        };
+        
+        fetch('/api/save-mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: this.userId,
+                mode: mode
+            })
+        }).catch(console.error);
+        
+        if (this.userId) {
+            localStorage.setItem(`mode_${this.userId}`, mode);
         }
+        
+        this.addBotMessage(modeTexts[mode], true);
+        
+        this.addMessageWithButtons("", [
+            { text: "🎯 ВЫБРАТЬ ЦЕЛЬ", callback: () => this.showGoals() },
+            { text: "🧠 К ПРОФИЛЮ", callback: () => this.showFinalProfileButtons() }
+        ]);
     }
 };
 
 // Глобальный экспорт
 window.Test = Test;
 
-console.log('✅ Модуль теста загружен (версия 4.3 - исправленный дизайн, уточняющие вопросы, жирный текст)');
+console.log('✅ Модуль теста загружен (версия 4.3 - исправленный дизайн, уточняющие вопросы, жирный текст, форматирование профиля)');
