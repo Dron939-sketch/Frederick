@@ -689,17 +689,20 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     "data": f"🎤 Вы: {recognized_text}"
                 })
                 
-                                                # Генерируем ответ через ИИ (исправленная версия)
-                response_chunks = []
+                                                                # Генерируем ответ через ИИ (исправленная версия)
+                response_text = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk:
-                        response_chunks.append(chunk)
+                        response_text = chunk
                         await websocket.send_json({
                             "type": "text",
                             "data": f"🧠 Фреди: {chunk}"
                         })
+                        break
 
-                response_text = "".join(response_chunks)
+                if not response_text:
+                    response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+
                 response_text = normalize_tts_text(response_text)
 
                 logger.info(f"💬 AI response collected in WS: {len(response_text)} символов")
@@ -1394,19 +1397,18 @@ async def process_voice(
       
         mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
 
-                        # === ИСПРАВЛЕННЫЙ СБОР ОТВЕТА ИЗ СТРИМИНГА ===
-        response_chunks = []
+                                                # === УПРОЩЁННЫЙ СБОР ОТВЕТА (один чанк) ===
+        response_text = ""
         async for chunk in mode_instance.process_question_streaming(recognized_text):
             if chunk:
-                response_chunks.append(chunk)
-
-        # Склеиваем + нормализуем
-        response_text = "".join(response_chunks)
-        response_text = normalize_tts_text(response_text)
+                response_text = chunk  # ← берём первый чанк (он один)
+                break  # ← выходим, дальше чанков нет
 
         # Защита от пустого ответа
         if not response_text or not response_text.strip():
             response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+
+        response_text = normalize_tts_text(response_text)
 
         logger.info(f"💬 AI response collected: {len(response_text)} символов")
         logger.debug(f"Final cleaned text for TTS: {response_text[:350]}...")
