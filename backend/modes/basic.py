@@ -417,126 +417,83 @@ class BasicMode(BaseMode):
 Слышь между строк настоящую эмоцию или проблему.
 Обязательно заканчивай вопросом."""
 
-    # ====================== ОЧИСТКА ДЛЯ TTS ======================
-    
-    def _clean_for_tts(self, text: str) -> str:
-        """
-        Чистка текста для Yandex TTS — добавляем пробелы, чтобы слова не сливались
-        """
-        if not text:
-            return ""
-        
-        # Удаляем эмодзи
-        emoji_pattern = re.compile(
-            "["
-            "\U0001F600-\U0001F64F"
-            "\U0001F300-\U0001F5FF"
-            "\U0001F680-\U0001F6FF"
-            "]+",
-            flags=re.UNICODE
-        )
-        text = emoji_pattern.sub(' ', text)
-        
-        # Удаляем спецсимволы
-        text = re.sub(r'[#*_`~<>|@$%^&(){}\[\]]', ' ', text)
-        
-        # 1. Сначала убираем лишние пробелы
-        text = re.sub(r'\s+', ' ', text)
-        
-        # 2. ВСТАВЛЯЕМ пробел после знаков препинания (если его нет)
-        text = re.sub(r'([.,!?;:-])(\S)', r'\1 \2', text)
-        
-        # 3. Убираем пробелы перед знаками препинания
-        text = re.sub(r'\s+([.,!?;:-])', r'\1', text)
-        
-        # 4. Ещё раз нормализуем
-        text = re.sub(r'\s+', ' ', text)
-        
-        # 5. Убираем пробелы в начале и конце
-        text = text.strip()
-        
-        # 6. Заменяем длинное тире на обычное
-        text = text.replace('—', '-')
-        
-        return text
-
     # ====================== ОСНОВНОЙ МЕТОД ======================
     
-   async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
-    """Главный метод — анализирует, запоминает, отвечает"""
-    self.message_counter += 1
-    self.conversation_history.append(f"Пользователь: {question}")
+    async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
+        """Главный метод — анализирует, запоминает, отвечает"""
+        self.message_counter += 1
+        self.conversation_history.append(f"Пользователь: {question}")
 
-    # 1. Глубинный контекст
-    self.last_question_context = await self._extract_deep_context(question)
-    logger.info(f"📊 Контекст: {self.last_question_context['implicit'][:50]} | эмоция: {self.last_question_context['emotional_tone']}")
-    
-    # 2. Извлечение правила
-    rule = await self._extract_rule(question)
-    if rule:
-        self.rules.append(rule)
-        logger.info(f"📝 Правило {len(self.rules)}: {rule}")
+        # 1. Глубинный контекст
+        self.last_question_context = await self._extract_deep_context(question)
+        logger.info(f"📊 Контекст: {self.last_question_context['implicit'][:50]} | эмоция: {self.last_question_context['emotional_tone']}")
         
-        # Проверка противоречий
-        contradiction = await self._find_contradiction(rule)
-        if contradiction:
-            logger.info(f"⚠️ Противоречие: {contradiction}")
+        # 2. Извлечение правила
+        rule = await self._extract_rule(question)
+        if rule:
+            self.rules.append(rule)
+            logger.info(f"📝 Правило {len(self.rules)}: {rule}")
+            
+            # Проверка противоречий
+            contradiction = await self._find_contradiction(rule)
+            if contradiction:
+                logger.info(f"⚠️ Противоречие: {contradiction}")
+            
+            # Обновление уровней анализа
+            await self._update_analysis_levels()
+            if self.current_insight:
+                logger.info(f"🎯 Инсайт ур.{self.current_insight_level}: {self.current_insight}")
         
-        # Обновление уровней анализа
-        await self._update_analysis_levels()
-        if self.current_insight:
-            logger.info(f"🎯 Инсайт ур.{self.current_insight_level}: {self.current_insight}")
-    
-    # 3. Золотая фраза
-    golden = await self._extract_golden_phrase(question)
-    if golden:
-        self.golden_phrases.append(golden)
-        logger.info(f"✨ Золотая фраза: {golden}")
-    
-    # 4. Обновляем интерес
-    if self.last_question_context.get("urgency", 0) > 7:
-        self.user_interest_level = min(100, self.user_interest_level + 15)
-    
-    # 5. Предложение теста
-    if self.message_counter >= 4 and not self.test_offered and self.user_resistance < self.max_resistance:
-        self.test_offered = True
-        yield f"{self._get_address()}, слушай... У меня есть один интересный тест минут на 10–12. Хочешь узнать свой настоящий код личности?"
-        await asyncio.sleep(0.02)
-        return
-    
-    # 6. Согласие на тест
-    if re.search(r'(да|хочу|давай|погнали|рискну|ок|тест)', question.lower()) and self.test_offered:
-        yield "Отлично! Тогда первый вопрос..."
-        return
-    
-    # 7. Отказ
-    if re.search(r'(нет|не хочу|потом|отстань|не надо)', question.lower()):
-        self.user_resistance += 1
-        self.test_offered = False
-        address = self._get_address()
-        yield f"{address}, не хочешь — не надо. Дверь открыта. А пока о чём ещё поговорим?"
-        return
-    
-    # 8. Формируем промпт
-    full_prompt = self._build_prompt(question)
-    
-    # 9. Вызываем DeepSeek — чистка убрана, только минимальное форматирование
-    try:
-        async for chunk in self.ai_service._simple_call_streaming(
-            prompt=full_prompt,
-            max_tokens=130,
-            temperature=0.90
-        ):
-            if chunk and chunk.strip():
-                # Убираем только лишние пробелы, НЕ трогаем структуру
-                clean_chunk = re.sub(r'\s+', ' ', chunk.strip())
-                if clean_chunk:
-                    yield clean_chunk
-                    await asyncio.sleep(0.010)
-    except Exception as e:
-        logger.error(f"BasicMode streaming error: {e}")
-        address = self._get_address()
-        yield f"{address}, интересный вопрос. Расскажи подробнее."
+        # 3. Золотая фраза
+        golden = await self._extract_golden_phrase(question)
+        if golden:
+            self.golden_phrases.append(golden)
+            logger.info(f"✨ Золотая фраза: {golden}")
+        
+        # 4. Обновляем интерес
+        if self.last_question_context.get("urgency", 0) > 7:
+            self.user_interest_level = min(100, self.user_interest_level + 15)
+        
+        # 5. Предложение теста
+        if self.message_counter >= 4 and not self.test_offered and self.user_resistance < self.max_resistance:
+            self.test_offered = True
+            yield f"{self._get_address()}, слушай... У меня есть один интересный тест минут на 10–12. Хочешь узнать свой настоящий код личности?"
+            await asyncio.sleep(0.02)
+            return
+        
+        # 6. Согласие на тест
+        if re.search(r'(да|хочу|давай|погнали|рискну|ок|тест)', question.lower()) and self.test_offered:
+            yield "Отлично! Тогда первый вопрос..."
+            return
+        
+        # 7. Отказ
+        if re.search(r'(нет|не хочу|потом|отстань|не надо)', question.lower()):
+            self.user_resistance += 1
+            self.test_offered = False
+            address = self._get_address()
+            yield f"{address}, не хочешь — не надо. Дверь открыта. А пока о чём ещё поговорим?"
+            return
+        
+        # 8. Формируем промпт
+        full_prompt = self._build_prompt(question)
+        
+        # 9. Вызываем DeepSeek
+        try:
+            async for chunk in self.ai_service._simple_call_streaming(
+                prompt=full_prompt,
+                max_tokens=130,
+                temperature=0.90
+            ):
+                if chunk and chunk.strip():
+                    # Только нормализация пробелов, без разрыва слов
+                    clean_chunk = re.sub(r'\s+', ' ', chunk.strip())
+                    if clean_chunk:
+                        yield clean_chunk
+                        await asyncio.sleep(0.010)
+        except Exception as e:
+            logger.error(f"BasicMode streaming error: {e}")
+            address = self._get_address()
+            yield f"{address}, интересный вопрос. Расскажи подробнее."
 
     # ====================== ЗАГЛУШКА ======================
     
