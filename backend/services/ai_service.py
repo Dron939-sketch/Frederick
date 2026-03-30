@@ -112,7 +112,7 @@ class AIService:
                     logger.info(repr(result[:300]))
                     logger.info("=" * 80)
                     
-                    # Очистка текста
+                    # Только нормализация пробелов — НЕ склеиваем слова!
                     result = re.sub(r'\s+', ' ', result).strip()
                     
                     logger.info(f"💬 Ответ ИИ после очистки: {len(result)} символов")
@@ -706,10 +706,12 @@ class AIService:
     def _clean_for_voice(self, text: str) -> str:
         """
         Улучшенная очистка текста для голосового вывода
+        СОХРАНЯЕТ знаки препинания!
         """
         if not text:
             return text
 
+        # Убираем маркдаун
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'__(.*?)__', r'\1', text)
         text = re.sub(r'\*(.*?)\*', r'\1', text)
@@ -720,6 +722,7 @@ class AIService:
         text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
         text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
 
+        # Убираем эмодзи
         emoji_pattern = re.compile(
             "[" "\U0001F600-\U0001F64F" "\U0001F300-\U0001F5FF" "\U0001F680-\U0001F6FF"
             "\U0001F700-\U0001F77F" "\U0001F780-\U0001F7FF" "\U0001F800-\U0001F8FF"
@@ -729,10 +732,48 @@ class AIService:
         )
         text = emoji_pattern.sub('', text)
 
-        text = re.sub(r'[#*_`~<>|@$%^&+={}[\]\\|]', '', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        text = re.sub(r'!+', '!', text)
-        return text
+        # Убираем спецсимволы, НО НЕ трогаем знаки препинания
+        text = re.sub(r'[#*_`~<>|@$%^&+={}\[\]\\]', '', text)
+        
+        # ========== ИСПРАВЛЯЕМ ЛИШНИЕ ЗНАКИ ПРЕПИНАНИЯ ==========
+        
+        # 1. Убираем запятые после частицы "не"
+        text = re.sub(r'\b(не|ни)\s*,', r'\1', text, flags=re.IGNORECASE)
+        
+        # 2. Исправляем тире (убираем лишние пробелы и запятые)
+        text = re.sub(r'\s*-\s*,?\s*', ' — ', text)
+        text = re.sub(r'—\s*—', '—', text)
+        
+        # 3. Убираем дублирующиеся знаки препинания
+        text = re.sub(r'([.!?])\1+', r'\1', text)
+        text = re.sub(r'([,;:])\1+', r'\1', text)
+        
+        # 4. Убираем запятые перед союзами в начале предложения
+        text = re.sub(r',\s*(и|а|но|или|да)\s+', r' \1 ', text, flags=re.IGNORECASE)
+        
+        # 5. Убираем лишние запятые подряд
+        text = re.sub(r',\s*,', ',', text)
+        text = re.sub(r'\,\s*\)', ')', text)
+        
+        # 6. Убираем запятую после двоеточия
+        text = re.sub(r':\s*,', ':', text)
+        
+        # 7. Убираем запятую перед точкой
+        text = re.sub(r',\s*\.', '.', text)
+        
+        # 8. Исправляем " -," на просто тире
+        text = re.sub(r'\s*-\s*,', ' — ', text)
+        
+        # 9. Нормализуем пробелы
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'\s*([.,!?:;])\s*', r'\1 ', text)
+        text = re.sub(r'\s+([.,!?:;])', r'\1', text)
+        text = re.sub(r'\s{2,}', ' ', text)
+        
+        # 10. Убираем знаки препинания в конце, если их несколько
+        text = re.sub(r'[.!?]{2,}$', r'\1', text)
+        
+        return text.strip()
 
     def _get_fallback_response(self, mode: str) -> str:
         """Ответ при ошибке (без эмодзи)"""
