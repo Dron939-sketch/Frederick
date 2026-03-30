@@ -2,7 +2,6 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <!-- УЛУЧШЕННЫЙ viewport для мобильных -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,13 +12,9 @@
     
     <title>Фреди | Премиум виртуальный психолог</title>
     
-    <!-- Шрифт -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
-    
-    <!-- Основные стили -->
     <link rel="stylesheet" href="/styles.css">
     
-    <!-- ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ДЛЯ МОБИЛЬНЫХ -->
     <style>
         @supports (height: 100dvh) {
             .app, .chat-panel, .screen-container, .test-chat-container {
@@ -29,260 +24,144 @@
         }
         
         @supports (padding: max(0px)) {
-            .test-chat-messages {
-                padding-bottom: max(20px, env(safe-area-inset-bottom));
-            }
-            .test-message-input {
-                padding-bottom: max(12px, env(safe-area-inset-bottom));
-            }
-            .chats-list {
-                padding-bottom: max(80px, env(safe-area-inset-bottom));
-            }
+            .test-chat-messages { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+            .test-message-input { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+            .chats-list { padding-bottom: max(80px, env(safe-area-inset-bottom)); }
         }
         
-        input, select, textarea {
-            font-size: 16px !important;
-        }
+        input, select, textarea { font-size: 16px !important; }
+        .test-message-button, .mode-btn, .chat-item, button { min-height: 44px; touch-action: manipulation; }
         
-        .test-message-button, .mode-btn, .chat-item, button {
-            min-height: 44px;
-            touch-action: manipulation;
-        }
-        
-        .test-message {
-            animation: fadeInUp 0.2s ease-out;
-        }
-        
+        .test-message { animation: fadeInUp 0.2s ease-out; }
         @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .test-chat-messages::-webkit-scrollbar {
-            width: 4px;
-        }
-        .test-chat-messages::-webkit-scrollbar-track {
-            background: rgba(255,255,255,0.05);
-        }
-        .test-chat-messages::-webkit-scrollbar-thumb {
-            background: rgba(255,107,59,0.5);
-            border-radius: 4px;
-        }
-        
-        body.test-active {
-            overflow: hidden;
-            position: fixed;
-            width: 100%;
-            height: 100%;
-        }
-        
-        .loading-indicator {
-            opacity: 0.9;
-            animation: fadeIn 0.3s ease;
-        }
-        
-        .loading-text {
-            font-size: 14px;
-            color: rgba(255, 255, 255, 0.8);
-        }
-        
-        .loading-dots {
-            font-size: 14px;
-            color: rgba(255, 107, 59, 0.8);
-            min-width: 30px;
-            display: inline-block;
-            text-align: left;
-            animation: pulse 1.5s ease infinite;
-        }
-        
-        @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 0.9; transform: translateY(0); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
-        @keyframes pulse {
-            0%, 100% { opacity: 0.5; }
-            50% { opacity: 1; }
-        }
+        .test-chat-messages::-webkit-scrollbar { width: 4px; }
+        .test-chat-messages::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+        .test-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,107,59,0.5); border-radius: 4px; }
         
-        .voice-btn.thinking {
-            background: linear-gradient(135deg, #3b82ff, #6c47ff);
-            animation: thinkPulse 1.5s ease infinite;
-        }
+        body.test-active { overflow: hidden; position: fixed; width: 100%; height: 100%; }
         
-        .voice-btn.speaking {
-            background: linear-gradient(135deg, #ff6b3b, #ff9f3b);
-            animation: soundWave 0.5s ease infinite;
-        }
+        .loading-indicator { opacity: 0.9; animation: fadeIn 0.3s ease; }
+        .loading-text { font-size: 14px; color: rgba(255, 255, 255, 0.8); }
+        .loading-dots { font-size: 14px; color: rgba(255, 107, 59, 0.8); min-width: 30px; display: inline-block; text-align: left; animation: pulse 1.5s ease infinite; }
         
-        @keyframes thinkPulse {
-            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-            70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 0.9; transform: translateY(0); } }
+        @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
         
-        @keyframes soundWave {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
+        .voice-btn.thinking { background: linear-gradient(135deg, #3b82ff, #6c47ff); animation: thinkPulse 1.5s ease infinite; }
+        .voice-btn.speaking { background: linear-gradient(135deg, #ff6b3b, #ff9f3b); animation: soundWave 0.5s ease infinite; }
         
-        .voice-btn .voice-icon {
-            transition: transform 0.2s;
-        }
+        @keyframes thinkPulse { 0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); } 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); } }
+        @keyframes soundWave { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        .voice-btn .voice-icon { transition: transform 0.2s; }
+        .voice-btn.speaking .voice-icon { animation: iconPulse 0.5s ease infinite; }
+        @keyframes iconPulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
         
-        .voice-btn.speaking .voice-icon {
-            animation: iconPulse 0.5s ease infinite;
-        }
+        .test-chat-container { width: 100%; height: 100%; display: flex; flex-direction: column; background: rgba(0,0,0,0.3); position: relative; }
+        .test-chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+        .test-message { display: flex; animation: fadeInUp 0.2s ease-out; }
+        .test-message-bot { justify-content: flex-start; }
+        .test-message-user { justify-content: flex-end; }
+        .test-message-bubble { max-width: 85%; padding: 12px 16px; border-radius: 20px; position: relative; }
+        .test-message-bubble-bot { background: rgba(255,255,255,0.1); border-bottom-left-radius: 4px; }
+        .test-message-bubble-user { background: rgba(255,107,59,0.2); border-bottom-right-radius: 4px; }
+        .test-message-text { font-size: 15px; line-height: 1.4; word-wrap: break-word; }
+        .test-message-time { font-size: 10px; opacity: 0.6; margin-top: 4px; }
+        .test-message-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .test-message-button { background: rgba(255, 107, 59, 0.15); border: 1px solid rgba(255, 107, 59, 0.3); border-radius: 30px; padding: 10px 20px; font-size: 14px; color: white; cursor: pointer; transition: all 0.2s; font-family: inherit; }
+        .test-message-button:hover { background: rgba(255, 107, 59, 0.3); transform: scale(1.02); }
+        .test-message-button:disabled { opacity: 0.5; cursor: default; }
+        .test-message-input { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+        .test-message-input input { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid rgba(255,107,59,0.3); background: rgba(255,255,255,0.1); color: white; font-size: 16px; }
+        .test-message-input input::placeholder { color: rgba(255,255,255,0.5); }
         
-        @keyframes iconPulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); }
-        }
-        
-        .test-chat-container {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            background: rgba(0,0,0,0.3);
-            position: relative;
-        }
-        
-        .test-chat-messages {
-            flex: 1;
-            overflow-y: auto;
+        /* Стили для страницы профиля */
+        .full-content-page {
             padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
+            height: 100%;
+            overflow-y: auto;
         }
         
-        .test-message {
-            display: flex;
-            animation: fadeInUp 0.2s ease-out;
-        }
-        
-        .test-message-bot {
-            justify-content: flex-start;
-        }
-        
-        .test-message-user {
-            justify-content: flex-end;
-        }
-        
-        .test-message-bubble {
-            max-width: 85%;
-            padding: 12px 16px;
-            border-radius: 20px;
-            position: relative;
-        }
-        
-        .test-message-bubble-bot {
-            background: rgba(255,255,255,0.1);
-            border-bottom-left-radius: 4px;
-        }
-        
-        .test-message-bubble-user {
-            background: rgba(255,107,59,0.2);
-            border-bottom-right-radius: 4px;
-        }
-        
-        .test-message-text {
-            font-size: 15px;
-            line-height: 1.4;
-            word-wrap: break-word;
-        }
-        
-        .test-message-time {
-            font-size: 10px;
-            opacity: 0.6;
-            margin-top: 4px;
-        }
-        
-        .test-message-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 12px;
-        }
-        
-        .test-message-button {
-            background: rgba(255, 107, 59, 0.15);
-            border: 1px solid rgba(255, 107, 59, 0.3);
-            border-radius: 30px;
-            padding: 10px 20px;
-            font-size: 14px;
-            color: white;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: inherit;
-        }
-        
-        .test-message-button:hover {
-            background: rgba(255, 107, 59, 0.3);
-            transform: scale(1.02);
-        }
-        
-        .test-message-button:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        
-        .test-message-input {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-            flex-wrap: wrap;
-        }
-        
-        .test-message-input input {
-            flex: 1;
-            padding: 10px;
-            border-radius: 20px;
-            border: 1px solid rgba(255,107,59,0.3);
-            background: rgba(255,255,255,0.1);
-            color: white;
-            font-size: 16px;
-        }
-        
-        .test-message-input input::placeholder {
-            color: rgba(255,255,255,0.5);
-        }
-        
-        .test-start-btn {
-            background: linear-gradient(135deg, #ff6b3b, #ff9f3b);
+        .back-btn {
+            background: rgba(224,224,224,0.1);
             border: none;
             border-radius: 30px;
-            padding: 12px 24px;
-            font-size: 16px;
-            font-weight: 600;
+            padding: 10px 20px;
             color: white;
+            margin-bottom: 20px;
             cursor: pointer;
+            font-size: 14px;
             transition: all 0.2s;
-            margin-top: 20px;
         }
         
-        .test-start-btn:hover {
+        .back-btn:hover {
+            background: rgba(224,224,224,0.2);
             transform: scale(1.02);
-            box-shadow: 0 4px 15px rgba(255,107,59,0.3);
+        }
+        
+        .content-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .content-emoji {
+            font-size: 48px;
+        }
+        
+        .content-header h1 {
+            font-size: 24px;
+            margin-top: 10px;
+        }
+        
+        .content-body {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .profile-section {
+            margin-bottom: 24px;
+        }
+        
+        .profile-section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
+        }
+        
+        .profile-section-content {
+            padding-left: 12px;
+        }
+        
+        .profile-list {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        
+        .profile-list li {
+            margin: 6px 0;
+        }
+        
+        .profile-code {
+            background: rgba(255,107,59,0.15);
+            padding: 8px 16px;
+            border-radius: 30px;
+            display: inline-block;
+            margin-bottom: 16px;
         }
     </style>
     
-    <!-- Favicon -->
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
     <div class="app" id="appRoot">
-        <!-- Левая панель чатов -->
         <div class="chats-panel" id="chatsPanel">
             <div class="chats-header">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -310,6 +189,37 @@
                     <div class="chat-info">
                         <div class="chat-name">Психологический тест</div>
                         <div class="chat-preview">15 минут, 5 этапов</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+                
+                <div class="menu-divider"></div>
+                
+                <div class="menu-section-title">ПСИХОЛОГИЧЕСКИЕ ИНСТРУМЕНТЫ</div>
+                
+                <div class="chat-item" data-chat="profile" id="profileChatItem">
+                    <div class="chat-avatar">🧠</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Мой портрет</div>
+                        <div class="chat-preview">Ваш психологический профиль</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+                
+                <div class="chat-item" data-chat="thoughts" id="thoughtsChatItem">
+                    <div class="chat-avatar">💭</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Мысли психолога</div>
+                        <div class="chat-preview">Глубинный анализ</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+                
+                <div class="chat-item" data-chat="goals" id="goalsChatItem">
+                    <div class="chat-avatar">🎯</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Идеи на выходные</div>
+                        <div class="chat-preview">Персональные рекомендации</div>
                     </div>
                     <div class="chat-time"></div>
                 </div>
@@ -384,7 +294,6 @@
             </div>
         </div>
 
-        <!-- Основная панель чата -->
         <div class="chat-panel" id="chatPanel">
             <div class="chat-header">
                 <div class="chat-header-left">
@@ -421,18 +330,20 @@
         </div>
     </div>
 
-    <!-- ============================================ -->
-    <!-- ОДИН ФАЙЛ ТЕСТА (вместо 7 модулей) -->
-    <!-- ============================================ -->
     <script src="/test.js"></script>
-    
-    <!-- Основные скрипты -->
     <script src="/voice.js"></script>
     <script src="/app.js"></script>
     
-    <!-- ДОПОЛНИТЕЛЬНЫЙ СКРИПТ ДЛЯ МОБИЛЬНЫХ И ИНТЕГРАЦИИ ТЕСТА -->
     <script>
     (function() {
+        // ============================================
+        // КОНФИГУРАЦИЯ
+        // ============================================
+        const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+        
+        // ============================================
+        // МОБИЛЬНАЯ ОПТИМИЗАЦИЯ
+        // ============================================
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         
         if (isMobile) {
@@ -453,10 +364,7 @@
             window.addEventListener('resize', updateHeight);
             window.addEventListener('orientationchange', () => setTimeout(updateHeight, 50));
             
-            setTimeout(() => {
-                window.scrollTo(0, 1);
-                updateHeight();
-            }, 100);
+            setTimeout(() => { window.scrollTo(0, 1); updateHeight(); }, 100);
             
             const observer = new MutationObserver((mutations) => {
                 mutations.forEach((mutation) => {
@@ -472,32 +380,300 @@
                 });
             });
             
-            observer.observe(document.getElementById('screenContainer') || document.body, {
-                childList: true,
-                subtree: true
-            });
-            
+            observer.observe(document.getElementById('screenContainer') || document.body, { childList: true, subtree: true });
             console.log('📱 Мобильная оптимизация активирована');
         }
         
+        // ============================================
+        // ФУНКЦИЯ ФОРМАТИРОВАНИЯ ТЕКСТА ПРОФИЛЯ
+        // ============================================
+        
+        function formatProfileText(text) {
+            if (!text) return text;
+            
+            // Заменяем заголовки на стилизованные
+            const headerMap = {
+                'КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА': '🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА',
+                'СИЛЬНЫЕ СТОРОНЫ': '💪 СИЛЬНЫЕ СТОРОНЫ',
+                'ЗОНЫ РОСТА': '🎯 ЗОНЫ РОСТА',
+                'КАК ЭТО СФОРМИРОВАЛОСЬ': '🌱 КАК ЭТО СФОРМИРОВАЛОСЬ',
+                'ГЛАВНАЯ ЛОВУШКА': '⚠️ ГЛАВНАЯ ЛОВУШКА'
+            };
+            
+            for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
+                const regex = new RegExp(oldHeader, 'gi');
+                text = text.replace(regex, `<div class="profile-section-title">${newHeader}</div>`);
+            }
+            
+            // Форматируем списки
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            
+            // Добавляем отступы
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            
+            return text;
+        }
+        
+        function formatThoughtText(text) {
+            if (!text) return text;
+            
+            // Заменяем заголовки
+            const headerMap = {
+                'КЛЮЧЕВОЙ ЭЛЕМЕНТ': '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ',
+                'ПЕТЛЯ': '🔄 ПЕТЛЯ',
+                'ТОЧКА ВХОДА': '🚪 ТОЧКА ВХОДА',
+                'ПРОГНОЗ': '📊 ПРОГНОЗ'
+            };
+            
+            for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
+                const regex = new RegExp(oldHeader, 'gi');
+                text = text.replace(regex, `<div class="profile-section-title">${newHeader}</div>`);
+            }
+            
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            
+            return text;
+        }
+        
+        // ============================================
+        // ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА
+        // ============================================
+        
+        async function isTestCompleted() {
+            try {
+                const userId = localStorage.getItem('fredi_user_id');
+                if (!userId) return false;
+                
+                const response = await fetch(`${API_BASE_URL}/api/user-status?user_id=${userId}`);
+                const data = await response.json();
+                
+                if (data.success && data.has_profile) {
+                    return true;
+                }
+                
+                const testResults = localStorage.getItem(`test_results_${userId}`);
+                if (testResults) {
+                    try {
+                        const results = JSON.parse(testResults);
+                        if (results.profile || results.aiProfile) return true;
+                    } catch(e) {}
+                }
+                
+                return false;
+            } catch (error) {
+                console.warn('Error checking test status:', error);
+                return false;
+            }
+        }
+        
+        function showRequiresTestMessage() {
+            const toast = document.getElementById('toastMessage');
+            const toastText = document.getElementById('toastText');
+            if (toast && toastText) {
+                toastText.innerHTML = '📊 Сначала пройдите психологический тест, чтобы получить доступ к этому разделу';
+                toast.style.display = 'flex';
+                setTimeout(() => { toast.style.display = 'none'; }, 4000);
+            }
+        }
+        
+        function showLoading(message) {
+            const container = document.getElementById('screenContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 20px;">
+                        <div class="loading-spinner" style="font-size: 48px; animation: pulse 1s ease infinite;">🧠</div>
+                        <div style="font-size: 16px; color: rgba(255,255,255,0.7);">${message}</div>
+                    </div>
+                `;
+            }
+        }
+        
+        // ============================================
+        // ПОЛУЧЕНИЕ AI-ПРОФИЛЯ ИЗ БД
+        // ============================================
+        
+        async function getAIGeneratedProfile() {
+            const userId = localStorage.getItem('fredi_user_id');
+            if (!userId) return null;
+            
+            try {
+                showLoading('Загружаю ваш психологический портрет...');
+                
+                const response = await fetch(`${API_BASE_URL}/api/generated-profile/${userId}`);
+                const data = await response.json();
+                
+                if (data.success && data.ai_profile) {
+                    return data.ai_profile;
+                }
+                
+                if (data.status === 'generating') {
+                    // Ждём 3 секунды и пробуем снова
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    return getAIGeneratedProfile();
+                }
+                
+                return null;
+            } catch (error) {
+                console.error('Error fetching AI profile:', error);
+                return null;
+            }
+        }
+        
+        async function getPsychologistThought() {
+            const userId = localStorage.getItem('fredi_user_id');
+            if (!userId) return null;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/psychologist-thought/${userId}`);
+                const data = await response.json();
+                return data.success ? data.thought : null;
+            } catch (error) {
+                console.error('Error fetching psychologist thought:', error);
+                return null;
+            }
+        }
+        
+        async function getWeekendIdeas() {
+            const userId = localStorage.getItem('fredi_user_id');
+            if (!userId) return null;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/ideas?user_id=${userId}`);
+                const data = await response.json();
+                return data.ideas || [];
+            } catch (error) {
+                console.error('Error fetching ideas:', error);
+                return null;
+            }
+        }
+        
+        // ============================================
+        // ОТОБРАЖЕНИЕ РАЗДЕЛОВ
+        // ============================================
+        
+        function showFullContentScreen(title, content, contentType, rawText = null) {
+            const container = document.getElementById('screenContainer');
+            if (!container) return;
+            
+            let formattedContent = content;
+            
+            if (contentType === 'profile') {
+                formattedContent = formatProfileText(content);
+            } else if (contentType === 'thoughts') {
+                formattedContent = formatThoughtText(content);
+            } else {
+                formattedContent = content.replace(/\n/g, '<br>');
+            }
+            
+            const emojiMap = {
+                'profile': '🧠',
+                'thoughts': '💭',
+                'goals': '🎯'
+            };
+            
+            container.innerHTML = `
+                <div class="full-content-page">
+                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                    <div class="content-header">
+                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
+                        <h1>${title}</h1>
+                    </div>
+                    <div class="content-body" id="contentBody">
+                        ${formattedContent}
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('backBtn').onclick = () => {
+                if (window.dashboard && window.dashboard.renderDashboard) {
+                    window.dashboard.renderDashboard();
+                } else if (window.renderDashboard) {
+                    window.renderDashboard();
+                }
+            };
+        }
+        
+        // ============================================
+        // ОСНОВНЫЕ ОБРАБОТЧИКИ
+        // ============================================
+        
+        async function handleProfileClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showRequiresTestMessage();
+                return;
+            }
+            
+            showLoading('Загружаю ваш психологический портрет...');
+            
+            const aiProfile = await getAIGeneratedProfile();
+            
+            if (aiProfile) {
+                showFullContentScreen('Мой портрет', aiProfile, 'profile');
+            } else {
+                showFullContentScreen('Мой портрет', 
+                    '🧠 Психологический портрет формируется.\n\nПожалуйста, подождите несколько секунд и попробуйте снова.', 
+                    'profile');
+            }
+        }
+        
+        async function handleThoughtsClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showRequiresTestMessage();
+                return;
+            }
+            
+            showLoading('Загружаю мысли психолога...');
+            
+            const thought = await getPsychologistThought();
+            
+            if (thought) {
+                showFullContentScreen('Мысли психолога', thought, 'thoughts');
+            } else {
+                showFullContentScreen('Мысли психолога', 
+                    '💭 Мысли психолога появятся после завершения теста.', 
+                    'thoughts');
+            }
+        }
+        
+        async function handleGoalsClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showRequiresTestMessage();
+                return;
+            }
+            
+            showLoading('Подбираю идеи для вас...');
+            
+            const ideas = await getWeekendIdeas();
+            
+            if (ideas && ideas.length > 0) {
+                const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
+                showFullContentScreen('Идеи на выходные', ideasText, 'goals');
+            } else {
+                showFullContentScreen('Идеи на выходные', 
+                    '🎨 Идеи появятся после завершения теста.', 
+                    'goals');
+            }
+        }
+        
+        // ============================================
         // ИНИЦИАЛИЗАЦИЯ ТЕСТА
+        // ============================================
+        
         let testInitialized = false;
         
         function initTest() {
             if (testInitialized) return;
-            
             console.log('🔍 Инициализация теста...');
-            console.log('window.Test:', window.Test);
             
             if (window.Test) {
                 try {
-                    let userId = null;
-                    if (window.CONFIG && window.CONFIG.USER_ID) {
-                        userId = window.CONFIG.USER_ID;
-                    } else {
-                        userId = localStorage.getItem('fredi_user_id');
-                    }
-                    
+                    let userId = localStorage.getItem('fredi_user_id');
                     window.Test.init(userId);
                     testInitialized = true;
                     console.log('✅ Test initialized with userId:', userId);
@@ -510,7 +686,6 @@
             }
         }
         
-        // ЗАПУСК ТЕСТА ПРИ КЛИКЕ
         function setupTestLauncher() {
             const testChatItem = document.getElementById('testChatItem');
             if (!testChatItem) return;
@@ -520,9 +695,7 @@
                 e.stopPropagation();
                 console.log('🎯 Запуск теста по клику');
                 
-                if (!testInitialized) {
-                    initTest();
-                }
+                if (!testInitialized) initTest();
                 
                 setTimeout(() => {
                     if (window.Test && window.Test.start) {
@@ -534,9 +707,7 @@
                         if (toast && toastText) {
                             toastText.textContent = 'Тест загружается, попробуйте еще раз через секунду';
                             toast.style.display = 'flex';
-                            setTimeout(() => {
-                                toast.style.display = 'none';
-                            }, 3000);
+                            setTimeout(() => { toast.style.display = 'none'; }, 3000);
                         }
                     }
                 }, 100);
@@ -545,22 +716,52 @@
             console.log('✅ Test launcher setup complete');
         }
         
-        setTimeout(() => {
-            if (window.voiceManager) {
-                console.log('🎤 VoiceManager ready');
-            } else {
-                console.log('⚠️ VoiceManager not initialized yet');
+        function setupMenuHandlers() {
+            const profileItem = document.getElementById('profileChatItem');
+            const thoughtsItem = document.getElementById('thoughtsChatItem');
+            const goalsItem = document.getElementById('goalsChatItem');
+            
+            if (profileItem) {
+                profileItem.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleProfileClick();
+                });
             }
-        }, 2000);
+            
+            if (thoughtsItem) {
+                thoughtsItem.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleThoughtsClick();
+                });
+            }
+            
+            if (goalsItem) {
+                goalsItem.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleGoalsClick();
+                });
+            }
+            
+            console.log('✅ Menu handlers setup complete');
+        }
+        
+        // ============================================
+        // СТАРТ
+        // ============================================
         
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 initTest();
                 setupTestLauncher();
+                setupMenuHandlers();
             });
         } else {
             initTest();
             setupTestLauncher();
+            setupMenuHandlers();
         }
         
         setTimeout(() => {
@@ -568,6 +769,7 @@
                 console.log('🔄 Fallback initialization');
                 initTest();
                 setupTestLauncher();
+                setupMenuHandlers();
             }
         }, 3000);
         
