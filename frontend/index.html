@@ -2,98 +2,76 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Фреди">
-    <meta name="theme-color" content="#0a0a0a">
-    <meta name="format-detection" content="telephone=no">
-    <meta name="mobile-web-app-capable" content="yes">
-    
-    <title>Фреди | Премиум виртуальный психолог</title>
-    
-    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Фреди | Психологический профиль</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
             background: #0a0a0a;
-            color: #fff;
+            color: #ffffff;
             overflow: hidden;
+            height: 100vh;
             position: fixed;
             width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
         }
 
-        /* App Layout */
         .app {
             display: flex;
-            width: 100%;
             height: 100%;
+            width: 100%;
             position: relative;
-            overflow: hidden;
         }
 
-        /* Chats Panel (Sidebar) */
+        /* Левое меню */
         .chats-panel {
             width: 280px;
-            flex-shrink: 0;
-            background: rgba(10,10,10,0.95);
+            background: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(20px);
             border-right: 1px solid rgba(255,255,255,0.1);
             display: flex;
             flex-direction: column;
-            transition: transform 0.3s ease;
+            flex-shrink: 0;
             z-index: 100;
-            height: 100%;
-            overflow-y: auto;
-            overflow-x: hidden;
+            transition: transform 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            .chats-panel {
+                position: fixed;
+                left: 0;
+                top: 0;
+                height: 100%;
+                transform: translateX(-100%);
+                box-shadow: none;
+            }
+            
+            .chats-panel.open {
+                transform: translateX(0);
+                box-shadow: 5px 0 30px rgba(0,0,0,0.5);
+            }
         }
 
         .chats-header {
             padding: 20px;
             border-bottom: 1px solid rgba(255,255,255,0.1);
-            flex-shrink: 0;
-        }
-
-        .chats-header > div {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
         }
 
         .chats-title {
-            font-size: 20px;
+            font-size: 24px;
             font-weight: 700;
-            background: linear-gradient(135deg, #fff, #ff6b3b);
+            background: linear-gradient(135deg, #e0e0e0, #b0b0b0);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .new-chat-btn {
-            width: 36px;
-            height: 36px;
-            padding: 0;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
         }
 
         .chats-search {
             padding: 12px 16px;
-            flex-shrink: 0;
         }
 
         .chats-search input {
@@ -104,28 +82,36 @@
             border-radius: 30px;
             color: white;
             font-size: 14px;
-            outline: none;
-        }
-
-        .chats-search input:focus {
-            border-color: #ff6b3b;
         }
 
         .chats-list {
             flex: 1;
             overflow-y: auto;
-            overflow-x: hidden;
-            padding: 8px 0;
+            padding: 8px;
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: rgba(255,255,255,0.1);
+            margin: 12px 16px;
+        }
+
+        .menu-section-title {
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+            padding: 8px 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .chat-item {
             display: flex;
             align-items: center;
+            padding: 12px;
             gap: 12px;
-            padding: 12px 16px;
+            border-radius: 16px;
             cursor: pointer;
             transition: all 0.2s;
-            min-height: 44px;
         }
 
         .chat-item:hover {
@@ -134,13 +120,12 @@
 
         .chat-item.active {
             background: rgba(255,107,59,0.15);
-            border-left: 3px solid #ff6b3b;
         }
 
         .chat-avatar {
-            width: 40px;
-            height: 40px;
-            background: rgba(255,255,255,0.05);
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, #e0e0e0, #b0b0b0);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -151,7 +136,6 @@
 
         .chat-info {
             flex: 1;
-            min-width: 0;
         }
 
         .chat-name {
@@ -160,82 +144,45 @@
         }
 
         .chat-preview {
-            font-size: 12px;
-            color: rgba(255,255,255,0.7);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .chat-time {
-            font-size: 10px;
-            color: rgba(255,255,255,0.7);
-            flex-shrink: 0;
-        }
-
-        .menu-divider {
-            height: 1px;
-            background: rgba(255,255,255,0.1);
-            margin: 12px 16px;
-            flex-shrink: 0;
-        }
-
-        .menu-section-title {
             font-size: 11px;
-            font-weight: 600;
-            color: rgba(255,255,255,0.7);
-            padding: 8px 16px;
-            letter-spacing: 1px;
-            flex-shrink: 0;
+            color: rgba(255,255,255,0.5);
         }
 
         .chats-footer {
             padding: 16px;
             border-top: 1px solid rgba(255,255,255,0.1);
-            flex-shrink: 0;
         }
 
         .user-mini-profile {
             display: flex;
             align-items: center;
             gap: 12px;
+            padding: 10px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            cursor: pointer;
         }
 
         .user-mini-avatar {
             width: 40px;
             height: 40px;
-            background: #ff6b3b;
+            background: linear-gradient(135deg, #e0e0e0, #b0b0b0);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 600;
+            color: #0a0a0a;
             flex-shrink: 0;
         }
 
-        .user-mini-info {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .user-mini-name {
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .user-mini-status {
-            font-size: 11px;
-            color: rgba(255,255,255,0.7);
-        }
-
-        /* Chat Panel */
+        /* Правая панель */
         .chat-panel {
             flex: 1;
             display: flex;
             flex-direction: column;
-            height: 100%;
-            position: relative;
-            min-width: 0;
+            background: rgba(10,10,10,0.5);
+            width: 100%;
             overflow: hidden;
         }
 
@@ -245,113 +192,194 @@
             align-items: center;
             padding: 16px 20px;
             border-bottom: 1px solid rgba(255,255,255,0.1);
-            background: rgba(10,10,10,0.95);
-            flex-shrink: 0;
-            gap: 16px;
+            background: rgba(10,10,10,0.8);
+            backdrop-filter: blur(20px);
         }
 
         .chat-header-left {
             display: flex;
             align-items: center;
             gap: 12px;
-            flex: 1;
-            min-width: 0;
         }
 
         .mobile-menu-btn {
             display: none;
-            background: none;
+            background: rgba(255,255,255,0.1);
             border: none;
             color: white;
             font-size: 24px;
             cursor: pointer;
             width: 44px;
             height: 44px;
-            flex-shrink: 0;
+            border-radius: 50%;
             align-items: center;
             justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .mobile-menu-btn:active {
+            background: rgba(255,255,255,0.2);
+            transform: scale(0.95);
+        }
+
+        @media (max-width: 768px) {
+            .mobile-menu-btn {
+                display: flex;
+            }
         }
 
         .chat-header-avatar {
-            width: 40px;
-            height: 40px;
-            background: rgba(255,255,255,0.05);
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, #e0e0e0, #b0b0b0);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
-            flex-shrink: 0;
-        }
-
-        .chat-header-info {
-            flex: 1;
-            min-width: 0;
+            font-size: 24px;
         }
 
         .chat-header-name {
-            font-weight: 600;
-            font-size: 16px;
-        }
-
-        .chat-header-status {
-            font-size: 11px;
-            color: rgba(255,255,255,0.7);
-            display: flex;
-            align-items: center;
-            gap: 6px;
+            font-weight: 700;
+            font-size: 18px;
         }
 
         .mode-indicator {
             width: 8px;
             height: 8px;
-            border-radius: 50%;
             background: #ff6b3b;
+            border-radius: 50%;
         }
 
-        .mode-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 30px;
-            padding: 8px 16px;
-            color: white;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 14px;
-            min-height: 44px;
-            touch-action: manipulation;
-            display: inline-flex;
+        .chat-header-status {
+            display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .mode-btn:hover {
-            background: rgba(255,255,255,0.1);
-            transform: translateY(-1px);
-        }
-
-        .mode-btn:active {
-            transform: translateY(0);
+            gap: 6px;
+            font-size: 12px;
+            color: rgba(255,255,255,0.7);
         }
 
         .screen-container {
             flex: 1;
             overflow-y: auto;
-            overflow-x: hidden;
-            position: relative;
-            min-height: 0;
+            padding: 20px;
+            -webkit-overflow-scrolling: touch;
         }
 
-        /* Dashboard Styles */
+        /* Контент страницы */
+        .full-content-page {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.05);
+            border-radius: 28px;
+            padding: 24px;
+        }
+
+        .back-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 30px;
+            padding: 12px 24px;
+            color: white;
+            cursor: pointer;
+            margin-bottom: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            width: auto;
+            display: inline-block;
+        }
+
+        .back-btn:active {
+            transform: scale(0.98);
+            background: rgba(255,255,255,0.15);
+        }
+
+        .content-header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .content-emoji {
+            font-size: 48px;
+        }
+
+        .content-header h1 {
+            font-size: 24px;
+            margin-top: 10px;
+            background: linear-gradient(135deg, #e0e0e0, #b0b0b0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .content-body {
+            line-height: 1.6;
+            font-size: 15px;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .profile-section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
+            color: #ff6b3b;
+        }
+
+        .profile-section-title:first-of-type {
+            margin-top: 0;
+        }
+
+        .loading-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: 20px;
+            text-align: center;
+        }
+
+        .loading-spinner {
+            font-size: 48px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .floating-message {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            padding: 12px 24px;
+            z-index: 1000;
+            border: 1px solid rgba(255,107,59,0.3);
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        /* Главный экран */
         .dashboard-container {
-            padding: 20px;
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
             width: 100%;
         }
 
         .hero-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 28px;
+            padding: 24px;
             margin-bottom: 24px;
         }
 
@@ -359,16 +387,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
             gap: 16px;
-        }
-
-        .greeting-text {
-            flex: 1;
         }
 
         .greeting-text h2 {
             font-size: 24px;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
         }
 
         .greeting-text p {
@@ -377,35 +402,48 @@
         }
 
         .profile-badge {
+            background: rgba(255,255,255,0.08);
+            border-radius: 30px;
+            padding: 6px 16px;
             text-align: center;
-            flex-shrink: 0;
         }
 
         .profile-code {
-            font-size: 32px;
-            font-weight: 700;
+            font-size: 12px;
+            font-weight: 600;
         }
 
         .mode-selector {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             margin-bottom: 24px;
+            background: rgba(10,10,10,0.5);
+            border-radius: 50px;
+            padding: 4px;
+            border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .mode-selector .mode-btn {
+        .mode-btn {
             flex: 1;
             padding: 12px;
-            justify-content: center;
+            border-radius: 40px;
+            border: none;
+            background: transparent;
+            color: rgba(255,255,255,0.5);
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
         }
 
-        .mode-selector .mode-btn.active {
-            background: #ff6b3b;
-            border-color: #ff6b3b;
+        .mode-btn.active {
+            background: rgba(255,255,255,0.1);
+            color: white;
         }
 
         .voice-card {
             background: linear-gradient(135deg, rgba(255,107,59,0.15), rgba(255,107,59,0.05));
-            border-radius: 20px;
+            border-radius: 60px;
             padding: 20px;
             text-align: center;
             margin-bottom: 24px;
@@ -414,9 +452,8 @@
             transition: all 0.2s;
         }
 
-        .voice-card:hover {
-            transform: translateY(-2px);
-            border-color: #ff6b3b;
+        .voice-card:active {
+            transform: scale(0.98);
         }
 
         .voice-icon {
@@ -440,37 +477,40 @@
             background: rgba(255,255,255,0.05);
             border-radius: 16px;
             padding: 16px;
+            text-align: center;
             cursor: pointer;
             transition: all 0.2s;
-            border: 1px solid transparent;
-            text-align: center;
         }
 
-        .module-card:hover {
-            border-color: #ff6b3b;
-            transform: translateY(-2px);
+        .module-card:active {
+            transform: scale(0.98);
         }
 
         .module-icon {
-            font-size: 28px;
+            font-size: 32px;
             margin-bottom: 8px;
         }
 
         .module-name {
             font-weight: 600;
             font-size: 14px;
-            margin-bottom: 4px;
         }
 
         .module-desc {
             font-size: 11px;
-            color: rgba(255,255,255,0.7);
+            color: rgba(255,255,255,0.5);
+        }
+
+        .quick-actions {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 20px;
         }
 
         .quick-actions-title {
-            font-size: 14px;
             font-weight: 600;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
+            font-size: 16px;
         }
 
         .quick-actions-grid {
@@ -486,199 +526,35 @@
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
         }
 
-        .quick-action:hover {
+        .quick-action:active {
+            transform: scale(0.96);
             background: rgba(255,107,59,0.15);
-            transform: translateY(-2px);
         }
 
         .action-icon {
             font-size: 24px;
+            margin-bottom: 6px;
         }
 
         .action-name {
             font-size: 11px;
-            color: rgba(255,255,255,0.7);
+            font-weight: 500;
         }
 
-        /* Content Pages */
-        .full-content-page {
-            padding: 20px;
-            min-height: 100%;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .back-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 30px;
-            padding: 10px 20px;
-            color: white;
-            margin-bottom: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-            min-height: 44px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .back-btn:hover {
-            background: rgba(255,255,255,0.1);
-        }
-
-        .content-header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .content-emoji {
-            font-size: 48px;
-        }
-
-        .content-header h1 {
-            font-size: 24px;
-            margin-top: 10px;
-            background: linear-gradient(135deg, #fff, #ff6b3b);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .content-body {
-            background: rgba(255,255,255,0.05);
-            border-radius: 20px;
-            padding: 20px;
-            line-height: 1.6;
-            font-size: 15px;
-        }
-
-        .profile-section-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
-        }
-
-        .profile-section-title:first-of-type {
-            margin-top: 0;
-        }
-
-        .thoughts-section-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
-        }
-
-        .loading-screen {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 300px;
-            height: 100%;
-            gap: 20px;
-        }
-
-        .loading-spinner {
-            font-size: 48px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        /* Floating Toast */
-        .floating-message {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 10000;
-            animation: slideUp 0.3s ease;
-            width: auto;
-            max-width: 90%;
-            min-width: 200px;
-        }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
-            to { opacity: 1; transform: translateX(-50%) translateY(0); }
-        }
-
-        .floating-message-content {
-            background: rgba(0,0,0,0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 12px 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            border: 1px solid rgba(255,107,59,0.3);
-        }
-
-        .floating-message-text {
-            flex: 1;
-            font-size: 14px;
-            text-align: center;
-        }
-
-        .floating-message-close {
-            width: 28px;
-            height: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255,255,255,0.05);
-            border-radius: 50%;
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        /* Mobile Responsive */
+        /* Мобильные стили */
         @media (max-width: 768px) {
-            .chats-panel {
-                position: fixed;
-                left: 0;
-                top: 0;
-                height: 100%;
-                transform: translateX(-100%);
-                z-index: 1000;
-                width: 280px;
+            .screen-container {
+                padding: 16px;
             }
-
-            .chats-panel.open {
-                transform: translateX(0);
+            
+            .dashboard-container {
+                padding-bottom: 20px;
             }
-
-            .mobile-menu-btn {
-                display: flex;
-            }
-
+            
             .quick-actions-grid {
+                grid-template-columns: repeat(4, 1fr);
                 gap: 8px;
             }
             
@@ -686,16 +562,55 @@
                 font-size: 10px;
             }
             
-            .modules-grid {
-                gap: 8px;
+            .action-icon {
+                font-size: 22px;
             }
             
-            .dashboard-container {
+            .quick-action {
+                padding: 10px 6px;
+            }
+            
+            .module-card {
+                padding: 12px;
+            }
+            
+            .module-icon {
+                font-size: 28px;
+            }
+            
+            .module-name {
+                font-size: 12px;
+            }
+            
+            .hero-section {
                 padding: 16px;
             }
             
-            .mode-selector {
-                gap: 8px;
+            .greeting-text h2 {
+                font-size: 20px;
+            }
+            
+            .full-content-page {
+                padding: 16px;
+            }
+            
+            .back-btn {
+                padding: 10px 20px;
+                font-size: 13px;
+            }
+            
+            .content-header h1 {
+                font-size: 20px;
+            }
+            
+            .content-emoji {
+                font-size: 40px;
+            }
+            
+            .floating-message {
+                white-space: normal;
+                text-align: center;
+                max-width: 90%;
             }
         }
 
@@ -704,38 +619,12 @@
                 gap: 6px;
             }
             
-            .modules-grid {
-                gap: 6px;
+            .action-name {
+                font-size: 9px;
             }
             
-            .module-card {
-                padding: 12px;
-            }
-            
-            .greeting-text h2 {
+            .action-icon {
                 font-size: 20px;
-            }
-            
-            .mode-btn {
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-        }
-
-        /* Utility Classes */
-        input, select, textarea {
-            font-size: 16px !important;
-        }
-        
-        button {
-            cursor: pointer;
-            touch-action: manipulation;
-        }
-        
-        @supports (height: 100dvh) {
-            .app, .chat-panel, .screen-container {
-                height: 100dvh !important;
-                min-height: 100dvh !important;
             }
         }
     </style>
@@ -744,100 +633,42 @@
     <div class="app" id="appRoot">
         <div class="chats-panel" id="chatsPanel">
             <div class="chats-header">
-                <div>
-                    <div class="chats-title">FREDI</div>
-                    <button class="mode-btn new-chat-btn" id="newChatBtn">✎</button>
-                </div>
+                <div class="chats-title">FREDI</div>
             </div>
-            
             <div class="chats-search">
                 <input type="text" placeholder="Поиск" id="chatSearchInput">
             </div>
-            
             <div class="chats-list" id="chatsList">
                 <div class="chat-item active" data-chat="fredi">
                     <div class="chat-avatar">⭐</div>
                     <div class="chat-info">
                         <div class="chat-name">Фреди</div>
-                        <div class="chat-preview" id="chatPreview">Чем могу помочь?</div>
+                        <div class="chat-preview">Чем могу помочь?</div>
                     </div>
-                    <div class="chat-time">сейчас</div>
                 </div>
-                
                 <div class="chat-item" data-chat="test" id="testChatItem">
                     <div class="chat-avatar">📊</div>
                     <div class="chat-info">
                         <div class="chat-name">Психологический тест</div>
                         <div class="chat-preview">15 минут, 5 этапов</div>
                     </div>
-                    <div class="chat-time"></div>
                 </div>
-                
                 <div class="menu-divider"></div>
-                
                 <div class="menu-section-title">РАСШИРЕННЫЕ ФУНКЦИИ</div>
-                
                 <div class="chat-item" data-chat="confinement">
                     <div class="chat-avatar">🔐</div>
                     <div class="chat-info">
                         <div class="chat-name">Модель ограничений</div>
-                        <div class="chat-preview">Анализ паттернов поведения</div>
+                        <div class="chat-preview">Анализ паттернов</div>
                     </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="chat-item" data-chat="practices">
-                    <div class="chat-avatar">🧘</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Практики</div>
-                        <div class="chat-preview">Утренние и вечерние практики</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="chat-item" data-chat="hypnosis">
-                    <div class="chat-avatar">🌙</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Гипноз</div>
-                        <div class="chat-preview">Гипнотические техники</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="chat-item" data-chat="tales">
-                    <div class="chat-avatar">📚</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Сказки</div>
-                        <div class="chat-preview">Терапевтические сказки</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="chat-item" data-chat="anchors">
-                    <div class="chat-avatar">⚓</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Якоря</div>
-                        <div class="chat-preview">Эмоциональные якоря</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-                
-                <div class="chat-item" data-chat="statistics">
-                    <div class="chat-avatar">📊</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Статистика</div>
-                        <div class="chat-preview">Ваша активность</div>
-                    </div>
-                    <div class="chat-time"></div>
                 </div>
             </div>
-            
             <div class="chats-footer">
                 <div class="user-mini-profile" id="userMiniProfile">
                     <div class="user-mini-avatar" id="userMiniAvatar">А</div>
                     <div class="user-mini-info">
                         <div class="user-mini-name" id="userName">Пользователь</div>
-                        <div class="user-mini-status" id="userStatus">⚡ активен</div>
+                        <div class="user-mini-status">активен</div>
                     </div>
                 </div>
             </div>
@@ -848,525 +679,341 @@
                 <div class="chat-header-left">
                     <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
                     <div class="chat-header-avatar">⭐</div>
-                    <div class="chat-header-info">
+                    <div>
                         <div class="chat-header-name">Фреди</div>
-                        <div class="chat-header-status" id="botStatus">
-                            <span class="mode-indicator" id="modeIndicator"></span>
-                            <span id="modeLabel">Психолог</span>
+                        <div class="chat-header-status">
+                            <span class="mode-indicator"></span>
+                            <span>Психолог</span>
                         </div>
                     </div>
                 </div>
-                <div class="chat-header-right">
-                    <button class="mode-btn" id="menuBtn">⋮</button>
-                </div>
             </div>
-            
             <div id="screenContainer" class="screen-container">
                 <div class="loading-screen">
                     <div class="loading-spinner">⭐</div>
-                    <div class="loading-text">Инициализация Фреди...</div>
+                    <div>Инициализация...</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div id="toastMessage" class="floating-message" style="display: none;">
-        <div class="floating-message-content">
-            <div class="floating-message-text" id="toastText"></div>
-            <div class="floating-message-close" id="toastClose">✕</div>
-        </div>
-    </div>
+    <div id="toastMessage" class="floating-message" style="display: none;"></div>
 
     <script>
-    (function() {
-        // ============================================
-        // КОНФИГУРАЦИЯ
-        // ============================================
-        const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+    // ============================================
+    // КОНФИГУРАЦИЯ
+    // ============================================
+    const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
 
-        function getUserId() {
-            let userId = localStorage.getItem('fredi_user_id');
-            if (!userId) {
-                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('fredi_user_id', userId);
-            }
-            return userId;
+    function getUserId() {
+        let userId = localStorage.getItem('fredi_user_id');
+        if (!userId) {
+            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('fredi_user_id', userId);
         }
+        return userId;
+    }
 
-        const USER_ID = getUserId();
-        let currentMode = 'psychologist';
+    const USER_ID = getUserId();
+    console.log('👤 User ID:', USER_ID);
 
-        // ============================================
-        // ФУНКЦИИ ФОРМАТИРОВАНИЯ
-        // ============================================
+    // ============================================
+    // ФУНКЦИИ ФОРМАТИРОВАНИЯ
+    // ============================================
+    
+    function formatProfileText(text) {
+        if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
         
-        function formatProfileText(text) {
-            if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
-            
-            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
-            text = text.replace(/\*(.*?)\*/g, '$1');
-            
-            const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
-            const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
-            
-            headers.forEach((header, i) => {
-                const regex = new RegExp(header, 'gi');
-                text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
-            });
-            
-            text = text.replace(/•\s*/g, '<br>• ');
-            text = text.replace(/-\s*/g, '<br>• ');
-            text = text.replace(/\n\n/g, '<br><br>');
-            text = text.replace(/\n/g, '<br>');
-            
-            return text;
-        }
+        text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+        text = text.replace(/\*(.*?)\*/g, '$1');
         
-        function formatThoughtText(text) {
-            if (!text) return '💭 Мысли психолога появятся после завершения теста.';
+        const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
+        const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
+        
+        headers.forEach((header, i) => {
+            const regex = new RegExp(header, 'gi');
+            text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
+        });
+        
+        text = text.replace(/•\s*/g, '<br>• ');
+        text = text.replace(/-\s*/g, '<br>• ');
+        text = text.replace(/\n\n/g, '<br><br>');
+        text = text.replace(/\n/g, '<br>');
+        
+        return text;
+    }
+
+    // ============================================
+    // API ВЫЗОВЫ
+    // ============================================
+
+    async function isTestCompleted() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/user-status?user_id=${USER_ID}`);
+            const data = await response.json();
+            console.log('📊 Test status:', data);
+            if (data.has_profile) return true;
             
-            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
-            text = text.replace(/\*(.*?)\*/g, '$1');
+            const stored = localStorage.getItem(`test_results_${USER_ID}`);
+            if (stored) {
+                const results = JSON.parse(stored);
+                if (results.profile || results.aiProfile) return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Error checking test status:', error);
+            return false;
+        }
+    }
+
+    async function getAIGeneratedProfile() {
+        console.log('📥 Запрос AI-профиля для:', USER_ID);
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/generated-profile/${USER_ID}`);
+            const data = await response.json();
+            console.log('📥 Ответ API:', data);
             
-            const headers = ['КЛЮЧЕВОЙ ЭЛЕМЕНТ', 'ПЕТЛЯ', 'ТОЧКА ВХОДА', 'ПРОГНОЗ', 'РЕКОМЕНДАЦИИ'];
-            const emojis = ['🔐', '🔄', '🚪', '📊', '💡'];
-            
-            headers.forEach((header, i) => {
-                const regex = new RegExp(header, 'gi');
-                text = text.replace(regex, `<div class="thoughts-section-title">${emojis[i]} ${header}</div>`);
-            });
-            
-            text = text.replace(/•\s*/g, '<br>• ');
-            text = text.replace(/-\s*/g, '<br>• ');
-            text = text.replace(/\n\n/g, '<br><br>');
-            text = text.replace(/\n/g, '<br>');
-            
-            return text;
-        }
-
-        // ============================================
-        // API ВЫЗОВЫ
-        // ============================================
-
-        async function apiCall(endpoint, options = {}) {
-            const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
-            try {
-                const response = await fetch(url, {
-                    ...options,
-                    headers: { 'Content-Type': 'application/json', ...options.headers }
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-                return data;
-            } catch (error) {
-                console.error(`API Error: ${endpoint}`, error);
-                throw error;
+            if (data.success && data.ai_profile) {
+                console.log('✅ AI-профиль получен');
+                return data.ai_profile;
             }
-        }
-
-        async function isTestCompleted() {
-            try {
-                const data = await apiCall(`/api/user-status?user_id=${USER_ID}`);
-                if (data.has_profile) return true;
-                const stored = localStorage.getItem(`test_results_${USER_ID}`);
-                if (stored) {
-                    const results = JSON.parse(stored);
-                    if (results.profile || results.aiProfile) return true;
-                }
-                return false;
-            } catch (error) {
-                return false;
+            if (data.status === 'generating') {
+                console.log('⏳ Профиль генерируется, ждём...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                return getAIGeneratedProfile();
             }
+            return null;
+        } catch (error) {
+            console.error('❌ Error:', error);
+            return null;
         }
+    }
 
-        async function getAIGeneratedProfile() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/generated-profile/${USER_ID}`);
-                const data = await response.json();
-                if (data.success && data.ai_profile) return data.ai_profile;
-                if (data.status === 'generating') {
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    return getAIGeneratedProfile();
-                }
-                return null;
-            } catch (error) {
-                console.error('Error fetching AI profile:', error);
-                return null;
-            }
-        }
+    // ============================================
+    // UI ФУНКЦИИ
+    // ============================================
 
-        async function getPsychologistThought() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/psychologist-thought/${USER_ID}`);
-                const data = await response.json();
-                return data.success ? data.thought : null;
-            } catch (error) {
-                console.error('Error fetching thought:', error);
-                return null;
-            }
-        }
+    function showToast(message) {
+        const toast = document.getElementById('toastMessage');
+        toast.textContent = message;
+        toast.style.display = 'block';
+        setTimeout(() => {
+            toast.style.display = 'none';
+        }, 3000);
+    }
 
-        async function getWeekendIdeas() {
-            try {
-                const data = await apiCall(`/api/ideas?user_id=${USER_ID}`);
-                return data.ideas || [];
-            } catch (error) {
-                return [];
-            }
-        }
+    function showLoading(message) {
+        const container = document.getElementById('screenContainer');
+        container.innerHTML = `
+            <div class="loading-screen">
+                <div class="loading-spinner">🧠</div>
+                <div>${message}</div>
+            </div>
+        `;
+    }
 
-        // ============================================
-        // UI ФУНКЦИИ
-        // ============================================
-
-        function showToast(message) {
-            const toast = document.getElementById('toastMessage');
-            const textEl = document.getElementById('toastText');
-            if (!toast || !textEl) return;
-            textEl.innerHTML = message;
-            toast.style.display = 'block';
-            setTimeout(() => { 
-                if (toast) toast.style.display = 'none'; 
-            }, 3000);
-            const closeBtn = document.getElementById('toastClose');
-            if (closeBtn) {
-                closeBtn.onclick = () => {
-                    if (toast) toast.style.display = 'none';
-                };
-            }
-        }
-
-        function showLoading(message) {
-            const container = document.getElementById('screenContainer');
-            if (container) {
-                container.innerHTML = `
-                    <div class="loading-screen">
-                        <div class="loading-spinner">🧠</div>
-                        <div class="loading-text">${message}</div>
-                    </div>
-                `;
-            }
-        }
-
-        function fixLayout() {
-            const app = document.getElementById('appRoot');
-            const chatPanel = document.getElementById('chatPanel');
-            
-            if (app && chatPanel) {
-                const height = window.innerHeight;
-                app.style.height = height + 'px';
-                chatPanel.style.height = height + 'px';
-            }
-        }
-
-        function renderDashboard() {
-            const container = document.getElementById('screenContainer');
-            const userName = localStorage.getItem('fredi_user_name') || 'друг';
-            
-            if (!container) return;
-            
-            container.innerHTML = `
-                <div class="dashboard-container">
-                    <div class="hero-section">
-                        <div class="user-greeting">
-                            <div class="greeting-text">
-                                <h2>🧠 Привет, ${userName}!</h2>
-                                <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
-                            </div>
-                            <div class="profile-badge">
-                                <div class="profile-code" id="profileCode">🎭</div>
-                                <div style="font-size: 10px;">ваш психотип</div>
-                            </div>
+    function renderDashboard() {
+        const container = document.getElementById('screenContainer');
+        const userName = localStorage.getItem('fredi_user_name') || 'друг';
+        
+        container.innerHTML = `
+            <div class="dashboard-container">
+                <div class="hero-section">
+                    <div class="user-greeting">
+                        <div class="greeting-text">
+                            <h2>🧠 Привет, ${userName}!</h2>
+                            <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
                         </div>
-                    </div>
-                    
-                    <div class="mode-selector">
-                        <button class="mode-btn ${currentMode === 'psychologist' ? 'active' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
-                    </div>
-                    
-                    <div class="voice-card" id="voiceCard">
-                        <div class="voice-icon">🎤</div>
-                        <div class="voice-text">Расскажите, что вас беспокоит</div>
-                    </div>
-                    
-                    <div class="modules-grid">
-                        <div class="module-card" data-module="analysis">
-                            <div class="module-icon">🧠</div>
-                            <div class="module-name">Анализ</div>
-                            <div class="module-desc">Глубинные паттерны</div>
-                        </div>
-                        <div class="module-card" data-module="emotions">
-                            <div class="module-icon">💭</div>
-                            <div class="module-name">Эмоции</div>
-                            <div class="module-desc">Работа с чувствами</div>
-                        </div>
-                        <div class="module-card" data-module="trauma">
-                            <div class="module-icon">🕊️</div>
-                            <div class="module-name">Исцеление</div>
-                            <div class="module-desc">Проработка опыта</div>
-                        </div>
-                        <div class="module-card" data-module="relations">
-                            <div class="module-icon">💕</div>
-                            <div class="module-name">Отношения</div>
-                            <div class="module-desc">Коммуникация</div>
-                        </div>
-                    </div>
-                    
-                    <div class="quick-actions">
-                        <div class="quick-actions-title">⚡ Быстрые действия</div>
-                        <div class="quick-actions-grid">
-                            <div class="quick-action" data-action="profile">
-                                <div class="action-icon">🧠</div>
-                                <div class="action-name">Мой портрет</div>
-                            </div>
-                            <div class="quick-action" data-action="thoughts">
-                                <div class="action-icon">💭</div>
-                                <div class="action-name">Мысли психолога</div>
-                            </div>
-                            <div class="quick-action" data-action="weekend">
-                                <div class="action-icon">🎨</div>
-                                <div class="action-name">Идеи на выходные</div>
-                            </div>
-                            <div class="quick-action" data-action="test">
-                                <div class="action-icon">📊</div>
-                                <div class="action-name">Пройти тест</div>
-                            </div>
+                        <div class="profile-badge">
+                            <div class="profile-code" id="profileCode">🎭</div>
+                            <div>ваш психотип</div>
                         </div>
                     </div>
                 </div>
-            `;
-            
-            // Обработчики быстрых действий
-            document.querySelectorAll('.quick-action').forEach(el => {
-                el.addEventListener('click', async () => {
-                    const action = el.dataset.action;
-                    if (action === 'profile') await handleProfileClick();
-                    else if (action === 'thoughts') await handleThoughtsClick();
-                    else if (action === 'weekend') await handleWeekendClick();
-                    else if (action === 'test') startTest();
-                });
+                
+                <div class="mode-selector">
+                    <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                </div>
+                
+                <div class="voice-card" id="voiceCard">
+                    <div class="voice-icon">🎤</div>
+                    <div class="voice-text">Расскажите, что вас беспокоит</div>
+                </div>
+                
+                <div class="modules-grid">
+                    <div class="module-card"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
+                    <div class="module-card"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
+                    <div class="module-card"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
+                    <div class="module-card"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
+                </div>
+                
+                <div class="quick-actions">
+                    <div class="quick-actions-title">⚡ Быстрые действия</div>
+                    <div class="quick-actions-grid">
+                        <div class="quick-action" data-action="profile">
+                            <div class="action-icon">🧠</div>
+                            <div class="action-name">Мой портрет</div>
+                        </div>
+                        <div class="quick-action" data-action="test">
+                            <div class="action-icon">📊</div>
+                            <div class="action-name">Пройти тест</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.querySelectorAll('.quick-action').forEach(el => {
+            el.addEventListener('click', async () => {
+                const action = el.dataset.action;
+                if (action === 'profile') await handleProfileClick();
+                if (action === 'test') startTest();
             });
-            
-            // Обработчики модулей
-            document.querySelectorAll('.module-card').forEach(el => {
-                el.addEventListener('click', () => showToast('Модуль скоро будет доступен'));
-            });
-            
-            // Обработчик голосовой карточки
-            const voiceCard = document.getElementById('voiceCard');
-            if (voiceCard) {
-                voiceCard.addEventListener('click', () => {
-                    showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
-                });
+        });
+        
+        document.querySelectorAll('.module-card').forEach(el => {
+            el.addEventListener('click', () => showToast('Модуль скоро будет доступен'));
+        });
+        
+        document.getElementById('voiceCard')?.addEventListener('click', () => {
+            showToast('Голосовой ввод будет доступен в следующем обновлении');
+        });
+        
+        isTestCompleted().then(completed => {
+            const codeEl = document.getElementById('profileCode');
+            if (completed && codeEl) {
+                codeEl.textContent = '✨';
             }
-            
-            // Обработчик смены режима
-            document.querySelectorAll('.mode-selector .mode-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    currentMode = btn.dataset.mode;
-                    renderDashboard();
-                });
+        });
+    }
+
+    function showFullContentScreen(title, content) {
+        const container = document.getElementById('screenContainer');
+        const formattedContent = formatProfileText(content);
+        
+        container.innerHTML = `
+            <div class="full-content-page">
+                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                <div class="content-header">
+                    <div class="content-emoji">🧠</div>
+                    <h1>${title}</h1>
+                </div>
+                <div class="content-body">
+                    ${formattedContent || 'Контент не найден'}
+                </div>
+            </div>
+        `;
+        
+        const backBtn = document.getElementById('backBtn');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                renderDashboard();
+            });
+        }
+    }
+
+    async function handleProfileClick() {
+        console.log('🖱️ Клик по "Мой портрет"');
+        
+        const completed = await isTestCompleted();
+        
+        if (!completed) {
+            showToast('📊 Сначала пройдите психологический тест');
+            return;
+        }
+        
+        showLoading('Загружаю психологический портрет...');
+        
+        const profile = await getAIGeneratedProfile();
+        
+        if (profile) {
+            showFullContentScreen('Мой портрет', profile);
+        } else {
+            showFullContentScreen('Мой портрет', '🧠 Психологический портрет формируется. Подождите немного и попробуйте снова.\n\nЭто может занять до 30 секунд после завершения теста.');
+        }
+    }
+
+    function startTest() {
+        console.log('🖱️ Запуск теста');
+        if (window.Test && window.Test.start) {
+            window.Test.init(USER_ID);
+            window.Test.start();
+        } else {
+            showToast('Тест загружается...');
+            setTimeout(() => {
+                if (window.Test && window.Test.start) {
+                    window.Test.init(USER_ID);
+                    window.Test.start();
+                } else {
+                    showToast('Ошибка загрузки теста, обновите страницу');
+                }
+            }, 2000);
+        }
+    }
+
+    // ============================================
+    // ИНИЦИАЛИЗАЦИЯ
+    // ============================================
+
+    function initMobileMenu() {
+        const mobileBtn = document.getElementById('mobileMenuBtn');
+        const panel = document.getElementById('chatsPanel');
+        
+        if (mobileBtn && panel) {
+            // Открытие/закрытие по кнопке
+            mobileBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                panel.classList.toggle('open');
             });
             
-            // Загружаем статус профиля
-            isTestCompleted().then(completed => {
-                const codeEl = document.getElementById('profileCode');
-                if (completed && codeEl) {
-                    codeEl.textContent = '✨';
+            // Закрытие при клике вне меню
+            document.addEventListener('click', (e) => {
+                if (panel.classList.contains('open')) {
+                    if (!panel.contains(e.target) && !mobileBtn.contains(e.target)) {
+                        panel.classList.remove('open');
+                    }
                 }
             });
             
-            setTimeout(fixLayout, 50);
-        }
-
-        function showFullContentScreen(title, content, contentType) {
-            const container = document.getElementById('screenContainer');
-            if (!container) return;
-            
-            let formattedContent = content;
-            if (contentType === 'profile') formattedContent = formatProfileText(content);
-            else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
-            else formattedContent = (content || '').replace(/\n/g, '<br>');
-            
-            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
-            
-            container.innerHTML = `
-                <div class="full-content-page">
-                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                    <div class="content-header">
-                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
-                        <h1>${title}</h1>
-                    </div>
-                    <div class="content-body">
-                        ${formattedContent || 'Данные не найдены'}
-                    </div>
-                </div>
-            `;
-            
-            const backBtn = document.getElementById('backBtn');
-            if (backBtn) {
-                backBtn.addEventListener('click', () => {
-                    renderDashboard();
-                });
-            }
-            
-            setTimeout(fixLayout, 50);
-        }
-
-        function startTest() {
-            if (window.Test && window.Test.start) {
-                if (window.Test.init) window.Test.init(USER_ID);
-                window.Test.start();
-            } else {
-                showToast('📊 Тест загружается...');
-            }
-        }
-
-        // ============================================
-        // ОСНОВНЫЕ ОБРАБОТЧИКИ
-        // ============================================
-
-        async function handleProfileClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            
-            showLoading('Загружаю психологический портрет...');
-            const profile = await getAIGeneratedProfile();
-            
-            if (profile) {
-                showFullContentScreen('Мой портрет', profile, 'profile');
-            } else {
-                showFullContentScreen('Мой портрет', '🧠 Психологический портрет формируется. Подождите немного.', 'profile');
-            }
-        }
-
-        async function handleThoughtsClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            
-            showLoading('Загружаю мысли психолога...');
-            const thought = await getPsychologistThought();
-            
-            if (thought) {
-                showFullContentScreen('Мысли психолога', thought, 'thoughts');
-            } else {
-                showFullContentScreen('Мысли психолога', '💭 Мысли психолога появятся после завершения теста.', 'thoughts');
-            }
-        }
-
-        async function handleWeekendClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            
-            showLoading('Подбираю идеи...');
-            const ideas = await getWeekendIdeas();
-            
-            if (ideas && ideas.length > 0) {
-                const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
-                showFullContentScreen('Идеи на выходные', ideasText, 'goals');
-            } else {
-                showFullContentScreen('Идеи на выходные', '🎨 Идеи появятся после завершения теста.', 'goals');
-            }
-        }
-
-        // ============================================
-        // ИНИЦИАЛИЗАЦИЯ
-        // ============================================
-
-        function initMobileMenu() {
-            const mobileBtn = document.getElementById('mobileMenuBtn');
-            const panel = document.getElementById('chatsPanel');
-            if (mobileBtn && panel) {
-                mobileBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    panel.classList.toggle('open');
-                });
-                document.addEventListener('click', (e) => {
-                    if (panel.classList.contains('open') && !panel.contains(e.target) && !mobileBtn.contains(e.target)) {
+            // Закрытие при выборе пункта меню
+            const menuItems = panel.querySelectorAll('.chat-item');
+            menuItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    if (window.innerWidth <= 768) {
                         panel.classList.remove('open');
                     }
                 });
-            }
-        }
-
-        function setupMenuHandlers() {
-            const testChatItem = document.getElementById('testChatItem');
-            if (testChatItem) {
-                testChatItem.addEventListener('click', () => startTest());
-            }
-            
-            const searchInput = document.getElementById('chatSearchInput');
-            if (searchInput) {
-                searchInput.addEventListener('input', (e) => {
-                    const search = e.target.value.toLowerCase();
-                    document.querySelectorAll('.chat-item').forEach(item => {
-                        const name = item.querySelector('.chat-name')?.textContent.toLowerCase();
-                        if (item.style) {
-                            item.style.display = name?.includes(search) ? 'flex' : 'none';
-                        }
-                    });
-                });
-            }
-            
-            const newChatBtn = document.getElementById('newChatBtn');
-            if (newChatBtn) {
-                newChatBtn.addEventListener('click', () => showToast('Новый чат скоро будет доступен'));
-            }
-            
-            const menuBtn = document.getElementById('menuBtn');
-            if (menuBtn) {
-                menuBtn.addEventListener('click', () => showToast('Меню настроек скоро будет доступно'));
-            }
-        }
-
-        function init() {
-            console.log('🚀 FREDI запущен');
-            initMobileMenu();
-            setupMenuHandlers();
-            renderDashboard();
-            
-            const userName = localStorage.getItem('fredi_user_name');
-            const userNameEl = document.getElementById('userName');
-            const userAvatarEl = document.getElementById('userMiniAvatar');
-            
-            if (!userName && userNameEl) {
-                setTimeout(() => {
-                    const name = prompt('Как мне к вам обращаться?', '');
-                    if (name && name.trim()) {
-                        localStorage.setItem('fredi_user_name', name.trim());
-                        if (userNameEl) userNameEl.textContent = name;
-                        if (userAvatarEl) userAvatarEl.textContent = name.charAt(0).toUpperCase();
-                        renderDashboard();
-                    }
-                }, 500);
-            } else if (userNameEl && userName) {
-                userNameEl.textContent = userName;
-                if (userAvatarEl) userAvatarEl.textContent = userName.charAt(0).toUpperCase();
-            }
-            
-            window.addEventListener('resize', () => {
-                setTimeout(fixLayout, 100);
             });
-            
-            fixLayout();
         }
+    }
 
-        // Запуск после полной загрузки DOM
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
+    function init() {
+        console.log('🚀 FREDI запущен');
+        initMobileMenu();
+        renderDashboard();
+        
+        const userName = localStorage.getItem('fredi_user_name');
+        if (!userName) {
+            setTimeout(() => {
+                const name = prompt('Как мне к вам обращаться?', '');
+                if (name && name.trim()) {
+                    localStorage.setItem('fredi_user_name', name.trim());
+                    document.getElementById('userName').textContent = name;
+                    document.getElementById('userMiniAvatar').textContent = name.charAt(0).toUpperCase();
+                    renderDashboard();
+                }
+            }, 500);
         } else {
-            init();
+            document.getElementById('userName').textContent = userName;
+            document.getElementById('userMiniAvatar').textContent = userName.charAt(0).toUpperCase();
         }
-    })();
+        
+        document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
     </script>
+    
+    <script src="/test.js"></script>
 </body>
 </html>
