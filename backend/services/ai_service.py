@@ -72,38 +72,58 @@ class AIService:
         return self.session
 
     async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
-        """Простой вызов DeepSeek (без истории)"""
-        if not self.api_key:
-            logger.warning("DEEPSEEK_API_KEY not set")
-            return None
-        try:
-            session = await self._get_session()
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens
-                },
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data['choices'][0]['message']['content']
-                else:
-                    logger.error(f"DeepSeek error: {response.status}")
-                    return None
-        except asyncio.TimeoutError:
-            logger.error("DeepSeek timeout")
-            return None
-        except Exception as e:
-            logger.error(f"DeepSeek error: {e}")
-            return None
+    """Простой вызов DeepSeek (без истории)"""
+    if not self.api_key:
+        logger.warning("DEEPSEEK_API_KEY not set")
+        return None
+    try:
+        session = await self._get_session()
+        async with session.post(
+            f"{self.base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            },
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as response:
+            if response.status == 200:
+                data = await response.json()
+                result = data['choices'][0]['message']['content']
+                
+                # ========== УСИЛЕННАЯ ОЧИСТКА ==========
+                # 1. Склеиваем разорванные буквы (3 прохода)
+                for _ in range(3):
+                    result = re.sub(r'([а-яёА-ЯЁa-zA-Z])\s+([а-яёА-ЯЁa-zA-Z])', r'\1\2', result)
+                
+                # 2. Нормализуем пробелы
+                result = re.sub(r'\s+', ' ', result)
+                
+                # 3. Добавляем пробелы после знаков препинания
+                result = re.sub(r'([.,!?])(\S)', r'\1 \2', result)
+                
+                # 4. Убираем пробелы перед знаками препинания
+                result = re.sub(r'\s+([.,!?])', r'\1', result)
+                
+                # 5. Финальная нормализация
+                result = re.sub(r'\s+', ' ', result).strip()
+                
+                logger.info(f"💬 Ответ ИИ: {len(result)} символов")
+                return result
+            else:
+                logger.error(f"DeepSeek error: {response.status}")
+                return None
+    except asyncio.TimeoutError:
+        logger.error("DeepSeek timeout")
+        return None
+    except Exception as e:
+        logger.error(f"DeepSeek error: {e}")
+        return None
 
     async def _simple_call_streaming(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> AsyncGenerator[str, None]:
         """Простой потоковый вызов DeepSeek — исправленная версия"""
