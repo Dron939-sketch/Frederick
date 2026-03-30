@@ -71,7 +71,7 @@ class UserRepository:
             return None
     
     # ============================================
-    # НОВЫЙ МЕТОД: ОБНОВЛЕНИЕ ОДНОГО ПОЛЯ ПРОФИЛЯ
+    # ОБНОВЛЕНИЕ ОДНОГО ПОЛЯ ПРОФИЛЯ (ДОБАВЛЯЕМ!)
     # ============================================
     
     async def update_profile_field(self, user_id: int, field: str, value: Any) -> bool:
@@ -87,37 +87,21 @@ class UserRepository:
             True если успешно, False если ошибка
         """
         try:
-            # Преобразуем значение в JSON если это словарь или список
-            if isinstance(value, (dict, list)):
-                value_json = json.dumps(value, ensure_ascii=False)
-                await self.db.execute(f"""
-                    UPDATE users 
-                    SET profile = profile || jsonb_build_object('{field}', $2::jsonb),
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                """, user_id, value_json)
-            else:
-                # Для простых типов (строка, число, bool)
-                await self.db.execute(f"""
-                    UPDATE users 
-                    SET profile = profile || jsonb_build_object('{field}', $2),
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                """, user_id, value)
+            # Получаем текущий профиль
+            current_profile = await self.get_profile(user_id) or {}
             
-            # Очищаем кэш
-            if self.cache:
-                await self.cache.delete(f"profile:{user_id}")
+            # Обновляем поле
+            current_profile[field] = value
             
-            logger.info(f"✅ Profile field '{field}' updated for user {user_id}")
-            return True
+            # Сохраняем обновлённый профиль
+            return await self.save_profile(user_id, current_profile)
             
         except Exception as e:
             logger.error(f"Error updating profile field '{field}' for user {user_id}: {e}")
             return False
     
     # ============================================
-    # ОСТАЛЬНЫЕ МЕТОДЫ
+    # СОХРАНЕНИЕ РЕЗУЛЬТАТОВ ТЕСТА
     # ============================================
     
     async def save_test_results(
@@ -215,6 +199,10 @@ class UserRepository:
             logger.error(f"Error getting test results: {e}")
             return []
     
+    # ============================================
+    # СООБЩЕНИЯ
+    # ============================================
+    
     async def save_message(self, user_id: int, role: str, content: str, metadata: Dict = None) -> bool:
         """Сохранение сообщения"""
         try:
@@ -233,6 +221,10 @@ class UserRepository:
         except Exception as e:
             logger.error(f"Error saving message: {e}")
             return False
+    
+    # ============================================
+    # МЫСЛИ ПСИХОЛОГА
+    # ============================================
     
     async def save_psychologist_thought(
         self, 
@@ -328,6 +320,10 @@ class UserRepository:
         except Exception as e:
             logger.error(f"Error getting psychologist thoughts: {e}")
             return []
+    
+    # ============================================
+    # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЕМ
+    # ============================================
     
     async def update_user_activity(self, user_id: int) -> bool:
         """Обновление времени последней активности"""
