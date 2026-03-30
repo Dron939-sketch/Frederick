@@ -47,7 +47,6 @@ from cache import RedisCache
 
 # Сервисы
 from services.ai_service import AIService
-from services.voice_service import VoiceService
 from services.weather_service import WeatherService
 from services.weekend_planner import WeekendPlanner
 
@@ -689,14 +688,21 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     "data": f"🎤 Вы: {recognized_text}"
                 })
                 
-                # Генерируем ответ через ИИ
-                response_text = ""
+                                # Генерируем ответ через ИИ (исправленная версия)
+                response_chunks = []
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
-                    response_text += chunk
-                    await websocket.send_json({
-                        "type": "text",
-                        "data": f"🧠 Фреди: {chunk}"
-                    })
+                    if chunk and chunk.strip():
+                        clean_chunk = chunk.strip()
+                        response_chunks.append(clean_chunk)
+                        await websocket.send_json({
+                            "type": "text",
+                            "data": f"🧠 Фреди: {clean_chunk}"
+                        })
+
+                response_text = " ".join(response_chunks)
+                response_text = normalize_tts_text(response_text)
+
+                logger.info(f"💬 AI response collected in WS: {len(response_text)} символов")
                 
                 logger.info(f"💬 AI response: {len(response_text)} chars")
                 await websocket.send_json({"type": "status", "status": "speaking"})
@@ -1388,19 +1394,22 @@ async def process_voice(
       
         mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
 
-        # === ИСПРАВЛЕННЫЙ СБОР ОТВЕТА ИЗ СТРИМИНГА ===
+                        # === ИСПРАВЛЕННЫЙ СБОР ОТВЕТА ИЗ СТРИМИНГА ===
         response_chunks = []
         async for chunk in mode_instance.process_question_streaming(recognized_text):
             if chunk and chunk.strip():
                 response_chunks.append(chunk.strip())
 
+        # Склеиваем + нормализуем
         response_text = " ".join(response_chunks)
-
-        # === САМАЯ ВАЖНАЯ СТРОКА — финальная нормализация ===
         response_text = normalize_tts_text(response_text)
 
+        # Защита от пустого ответа
+        if not response_text or not response_text.strip():
+            response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+
         logger.info(f"💬 AI response collected: {len(response_text)} символов")
-        logger.debug(f"Final cleaned text: {response_text[:300]}...")
+        logger.debug(f"Final cleaned text for TTS: {response_text[:350]}...")
 
         # Защита от пустого ответа
         if not response_text.strip():
