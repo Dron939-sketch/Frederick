@@ -2,10 +2,14 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- УЛУЧШЕННЫЙ viewport для мобильных -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Фреди">
     <meta name="theme-color" content="#0a0a0a">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="mobile-web-app-capable" content="yes">
     
     <title>Фреди | Премиум виртуальный психолог</title>
     
@@ -15,11 +19,83 @@
     <!-- Основные стили -->
     <link rel="stylesheet" href="/styles.css">
     
-    <!-- Favicon (рекомендую добавить) -->
+    <!-- ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ДЛЯ МОБИЛЬНЫХ (inline для быстрой загрузки) -->
+    <style>
+        /* Исправления для мобильных устройств */
+        @supports (height: 100dvh) {
+            .app, .chat-panel, .screen-container, .test-chat-container {
+                height: 100dvh !important;
+                min-height: 100dvh !important;
+            }
+        }
+        
+        /* iOS Safari specific */
+        @supports (padding: max(0px)) {
+            .test-chat-messages {
+                padding-bottom: max(20px, env(safe-area-inset-bottom));
+            }
+            .test-message-input {
+                padding-bottom: max(12px, env(safe-area-inset-bottom));
+            }
+            .chats-list {
+                padding-bottom: max(80px, env(safe-area-inset-bottom));
+            }
+        }
+        
+        /* Предотвращение zoom на input focus для iOS */
+        input, select, textarea {
+            font-size: 16px !important;
+        }
+        
+        /* Улучшенный touch-target */
+        .test-message-button, .mode-btn, .chat-item, button {
+            min-height: 44px;
+            touch-action: manipulation;
+        }
+        
+        /* Анимация для плавного появления */
+        .test-message {
+            animation: fadeInUp 0.2s ease-out;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Скрытие скроллбара для чистоты (опционально) */
+        .test-chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+        .test-chat-messages::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+        }
+        .test-chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(255,107,59,0.5);
+            border-radius: 4px;
+        }
+        
+        /* Фикс для body при открытом тесте */
+        body.test-active {
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    
+    <!-- Favicon -->
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
-    <div class="app">
+    <div class="app" id="appRoot">
         <!-- Левая панель чатов -->
         <div class="chats-panel" id="chatsPanel">
             <div class="chats-header">
@@ -167,5 +243,64 @@
     <script src="/voice.js"></script>
     <script src="/test.js"></script>
     <script src="/app.js"></script>
+    
+    <!-- ДОПОЛНИТЕЛЬНЫЙ СКРИПТ ДЛЯ МОБИЛЬНЫХ -->
+    <script>
+    (function() {
+        // Мобильная оптимизация
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (isMobile) {
+            // Функция обновления высоты
+            function updateHeight() {
+                const app = document.getElementById('appRoot');
+                const chatPanel = document.getElementById('chatPanel');
+                const screenContainer = document.getElementById('screenContainer');
+                
+                const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+                
+                if (app) app.style.height = vh + 'px';
+                if (chatPanel) chatPanel.style.height = vh + 'px';
+                if (screenContainer) screenContainer.style.height = vh + 'px';
+            }
+            
+            // Слушаем изменения visualViewport
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', updateHeight);
+                window.visualViewport.addEventListener('scroll', updateHeight);
+            }
+            window.addEventListener('resize', updateHeight);
+            window.addEventListener('orientationchange', () => setTimeout(updateHeight, 50));
+            
+            // Принудительный скролл для скрытия адресной строки
+            setTimeout(() => {
+                window.scrollTo(0, 1);
+                updateHeight();
+            }, 100);
+            
+            // Добавляем класс для body при открытии теста
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.type === 'childList') {
+                        const testContainer = document.querySelector('.test-chat-container');
+                        if (testContainer) {
+                            document.body.classList.add('test-active');
+                            updateHeight();
+                        } else {
+                            document.body.classList.remove('test-active');
+                        }
+                    }
+                });
+            });
+            
+            observer.observe(document.getElementById('screenContainer') || document.body, {
+                childList: true,
+                subtree: true
+            });
+            
+            console.log('📱 Мобильная оптимизация активирована');
+        }
+    })();
+    </script>
 </body>
 </html>
