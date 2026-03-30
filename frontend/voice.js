@@ -19,7 +19,6 @@ class AudioPlayer {
                 this.audio = new Audio();
                 let audioUrl = audioData;
                 
-                // Если это base64 данные
                 if (typeof audioData === 'string' && audioData.startsWith('data:audio/')) {
                     const matches = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/);
                     if (matches) {
@@ -36,11 +35,9 @@ class AudioPlayer {
                         audioUrl = URL.createObjectURL(blob);
                     }
                 } 
-                // Если это URL
                 else if (typeof audioData === 'string' && audioData.startsWith('http')) {
                     audioUrl = audioData;
                 }
-                // Если это Blob
                 else if (audioData instanceof Blob) {
                     audioUrl = URL.createObjectURL(audioData);
                 }
@@ -113,35 +110,142 @@ class AudioPlayer {
 }
 
 // ============================================
+// ИНДИКАТОР ЗАГРУЗКИ "ФРЕДИ ДУМАЕТ"
+// ============================================
+
+class LoadingIndicator {
+    constructor() {
+        this.container = null;
+        this.timeout = null;
+        this.isShowing = false;
+        this.animationInterval = null;
+        this.dotsCount = 0;
+        this.messageElement = null;
+        this.dotsElement = null;
+        this.warningTimeout = null;
+    }
+    
+    create() {
+        const messagesContainer = document.getElementById('testChatMessages');
+        if (!messagesContainer) return;
+        
+        this.remove();
+        
+        this.container = document.createElement('div');
+        this.container.className = 'test-message test-message-bot loading-indicator';
+        
+        const bubble = document.createElement('div');
+        bubble.className = 'test-message-bubble test-message-bubble-bot';
+        
+        this.messageElement = document.createElement('span');
+        this.messageElement.className = 'loading-text';
+        this.messageElement.textContent = 'Фреди думает';
+        
+        this.dotsElement = document.createElement('span');
+        this.dotsElement.className = 'loading-dots';
+        this.dotsElement.textContent = '...';
+        
+        bubble.appendChild(this.messageElement);
+        bubble.appendChild(this.dotsElement);
+        this.container.appendChild(bubble);
+        
+        messagesContainer.appendChild(this.container);
+        this.scrollToBottom();
+        
+        this.startAnimation();
+        this.isShowing = true;
+        
+        // Первый таймаут — через 5 секунд меняем текст
+        this.timeout = setTimeout(() => {
+            if (this.isShowing) {
+                this.messageElement.textContent = 'Всё ещё думаю';
+                this.dotsElement.style.color = '#ffaa44';
+            }
+        }, 5000);
+        
+        // Второй таймаут — через 10 секунд предупреждение
+        this.warningTimeout = setTimeout(() => {
+            if (this.isShowing) {
+                this.messageElement.textContent = 'Это займёт чуть больше времени';
+                this.dotsElement.style.color = '#ff6b6b';
+            }
+        }, 10000);
+    }
+    
+    startAnimation() {
+        this.animationInterval = setInterval(() => {
+            if (!this.isShowing) return;
+            this.dotsCount = (this.dotsCount + 1) % 4;
+            const dots = '.'.repeat(this.dotsCount) + ' '.repeat(3 - this.dotsCount);
+            if (this.dotsElement) {
+                this.dotsElement.textContent = dots;
+            }
+        }, 400);
+    }
+    
+    updateMessage(message) {
+        if (this.messageElement && this.isShowing) {
+            this.messageElement.textContent = message;
+        }
+    }
+    
+    remove() {
+        if (this.animationInterval) {
+            clearInterval(this.animationInterval);
+            this.animationInterval = null;
+        }
+        if (this.timeout) {
+            clearTimeout(this.timeout);
+            this.timeout = null;
+        }
+        if (this.warningTimeout) {
+            clearTimeout(this.warningTimeout);
+            this.warningTimeout = null;
+        }
+        if (this.container && this.container.remove) {
+            this.container.remove();
+        }
+        this.container = null;
+        this.messageElement = null;
+        this.dotsElement = null;
+        this.isShowing = false;
+        this.dotsCount = 0;
+    }
+    
+    scrollToBottom() {
+        setTimeout(() => {
+            const container = document.getElementById('testChatMessages');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }, 10);
+    }
+}
+
+// ============================================
 // КОНФИГУРАЦИЯ ГОЛОСА FREDI PREMIUM
 // ============================================
 
 const VoiceConfig = {
-    // Настройки API
     apiBaseUrl: 'https://fredi-backend-flz2.onrender.com',
-    
-    // Использовать WebSocket (если доступен)
     useWebSocket: true,
     
-    // Настройки записи
     recording: {
-        sampleRate: 16000,      // 16kHz - оптимально для распознавания
-        maxDuration: 60000,     // 60 секунд максимум
-        minDuration: 1000,      // Минимум 1 секунда (иначе игнорируем)
+        sampleRate: 16000,
+        maxDuration: 60000,
+        minDuration: 1000,
         chunkSize: 4096,
-        format: 'wav',          // Отправляем как WAV
+        format: 'wav',
         mimeType: 'audio/wav'
     },
     
-    // Настройки воспроизведения
     playback: {
-        format: 'mp3',          // Ожидаем MP3 от сервера
+        format: 'mp3',
         autoPlay: true,
         volume: 1.0,
         preload: true
     },
     
-    // Настройки голоса для разных режимов
     voices: {
         coach: {
             name: 'Филипп',
@@ -153,34 +257,32 @@ const VoiceConfig = {
         psychologist: {
             name: 'Эрмил',
             emoji: '🧠',
-            speed: 0.9,         // Медленнее для глубоких тем
+            speed: 0.9,
             pitch: 0.95,
             emotion: 'calm'
         },
         trainer: {
             name: 'Филипп (энергичный)',
             emoji: '⚡',
-            speed: 1.1,         // Быстрее для инструкций
+            speed: 1.1,
             pitch: 1.05,
             emotion: 'energetic'
         }
     },
     
-    // UI настройки
     ui: {
         showVolumeMeter: true,
         showRecordingTime: true,
         autoStopAfterSilence: true,
-        silenceTimeout: 5000,   // 2 секунды тишины = авто-стоп
-        minVolumeToConsiderSpeech: 5  // Минимальная громкость для речи
+        silenceTimeout: 5000,
+        minVolumeToConsiderSpeech: 5
     },
     
-    // Отладка
     debug: true
 };
 
 // ============================================
-// VoiceWebSocket С ПОДДЕРЖКОЙ WEBSOCKET И HTTP FALLBACK
+// VoiceWebSocket
 // ============================================
 
 class VoiceWebSocket {
@@ -193,24 +295,20 @@ class VoiceWebSocket {
         this.useWebSocket = false;
         this.ws = null;
         
-        // Колбэки
         this.onTranscript = null;
         this.onAIResponse = null;
         this.onStatusChange = null;
         this.onError = null;
         this.onThinking = null;
         this.onWeather = null;
+        this.onThinkingUpdate = null;
         
-        // HTTP клиент
         this.apiBaseUrl = this.config.apiBaseUrl;
-        
-        // Таймауты
         this.pendingRequest = null;
         this.lastRequestTime = 0;
     }
     
     async connect() {
-        // Пробуем WebSocket сначала
         if (this.config.useWebSocket && window.WebSocket) {
             try {
                 const wsUrl = `wss://${new URL(this.apiBaseUrl).host}/ws/voice/${this.userId}`;
@@ -218,7 +316,6 @@ class VoiceWebSocket {
                 
                 this.ws = new WebSocket(wsUrl);
                 
-                // Настройка таймаута
                 const connectionTimeout = setTimeout(() => {
                     if (!this.isConnected) {
                         console.warn('WebSocket connection timeout, falling back to HTTP');
@@ -234,7 +331,6 @@ class VoiceWebSocket {
                     this.useWebSocket = true;
                     this.updateStatus('connected');
                     
-                    // Отправляем приветствие
                     this.ws.send(JSON.stringify({
                         type: 'init',
                         mode: this.currentMode,
@@ -261,7 +357,6 @@ class VoiceWebSocket {
                     }
                 };
                 
-                // Ждём подключения
                 await new Promise((resolve, reject) => {
                     const timeout = setTimeout(() => reject(new Error('WebSocket timeout')), 5000);
                     this.ws.onopen = () => {
@@ -279,7 +374,6 @@ class VoiceWebSocket {
             }
         }
         
-        // Fallback на HTTP
         return this.initHTTP();
     }
     
@@ -297,7 +391,6 @@ class VoiceWebSocket {
             
             switch(message.type) {
                 case 'text':
-                    // Обработка текстовых сообщений
                     if (message.data) {
                         if (message.data.includes('Вы:') && this.onTranscript) {
                             const text = message.data.replace('🎤 Вы: ', '');
@@ -310,7 +403,6 @@ class VoiceWebSocket {
                     break;
                     
                 case 'audio':
-                    // Воспроизведение аудио
                     if (message.data) {
                         this.playAudioResponse(message.data);
                     }
@@ -320,6 +412,12 @@ class VoiceWebSocket {
                     this.updateStatus(message.status);
                     break;
                     
+                case 'thinking':
+                    if (this.onThinkingUpdate) {
+                        this.onThinkingUpdate(message.message || 'Фреди думает');
+                    }
+                    break;
+                    
                 case 'error':
                     if (this.onError) {
                         this.onError(message.error);
@@ -327,7 +425,6 @@ class VoiceWebSocket {
                     break;
                     
                 case 'ping':
-                    // Ответ на ping
                     if (this.ws && this.useWebSocket) {
                         this.ws.send(JSON.stringify({
                             type: 'pong',
@@ -364,9 +461,8 @@ class VoiceWebSocket {
         }
     }
     
-    // ========== ОТПРАВКА АУДИО ==========
-    async sendFullAudio(audioBlob) {
-        // Проверка минимальной длины
+    async sendFullAudio(audioBlob, retryCount = 0) {
+        const maxRetries = 3;
         const minBytes = this.config.recording.minDuration * 
                         (this.config.recording.sampleRate / 1000) * 2;
         
@@ -378,7 +474,6 @@ class VoiceWebSocket {
             return false;
         }
         
-        // Проверка максимальной длины
         const maxBytes = this.config.recording.maxDuration * 
                         (this.config.recording.sampleRate / 1000) * 2;
         
@@ -390,19 +485,16 @@ class VoiceWebSocket {
             return false;
         }
         
-        // Если используем WebSocket — отправляем через него
         if (this.useWebSocket && this.ws && this.ws.readyState === WebSocket.OPEN) {
             return this.sendAudioViaWebSocket(audioBlob);
         }
         
-        // Иначе через HTTP
-        return this.sendAudioViaHTTP(audioBlob);
+        return this.sendAudioViaHTTP(audioBlob, retryCount, maxRetries);
     }
     
     async sendAudioViaWebSocket(audioBlob) {
         return new Promise((resolve) => {
             try {
-                // Конвертируем Blob в base64
                 const reader = new FileReader();
                 reader.onloadend = () => {
                     const base64Data = reader.result.split(',')[1];
@@ -428,17 +520,14 @@ class VoiceWebSocket {
         });
     }
     
-    async sendAudioViaHTTP(audioBlob) {
-        // Создаем FormData
+    async sendAudioViaHTTP(audioBlob, retryCount = 0, maxRetries = 3) {
         const formData = new FormData();
         formData.append('user_id', this.userId);
         
-        // Отправляем в правильном формате (WAV)
         const audioFormat = this.config.recording.format;
         formData.append('voice', audioBlob, `audio.${audioFormat}`);
         formData.append('mode', this.currentMode || 'psychologist');
         
-        // Добавляем параметры голоса
         const voiceSettings = this.config.voices[this.currentMode];
         if (voiceSettings) {
             formData.append('voice_speed', voiceSettings.speed);
@@ -446,10 +535,8 @@ class VoiceWebSocket {
             formData.append('voice_emotion', voiceSettings.emotion);
         }
         
-        // Обновляем статус
         this.updateStatus('processing');
         
-        // Показываем "думает"
         if (this.onThinking) {
             this.onThinking(true);
         }
@@ -468,13 +555,18 @@ class VoiceWebSocket {
                 console.log(`📊 Request completed in ${elapsed}ms`);
             }
             
+            if (!response.ok && retryCount < maxRetries) {
+                console.log(`🔄 Повторная попытка ${retryCount + 1}/${maxRetries}`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+                return this.sendAudioViaHTTP(audioBlob, retryCount + 1, maxRetries);
+            }
+            
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             
             const result = await response.json();
             
-            // Скрываем "думает"
             if (this.onThinking) {
                 this.onThinking(false);
             }
@@ -484,17 +576,14 @@ class VoiceWebSocket {
                     console.log('✅ Распознано:', result.recognized_text);
                 }
                 
-                // Отображаем распознанный текст
                 if (this.onTranscript && result.recognized_text) {
                     this.onTranscript(result.recognized_text);
                 }
                 
-                // Отображаем ответ ИИ
                 if (this.onAIResponse && result.answer) {
                     this.onAIResponse(result.answer);
                 }
                 
-                // Воспроизводим аудио ответ
                 if (result.audio_base64) {
                     await this.playAudioResponse(result.audio_base64);
                 } else if (result.audio_url) {
@@ -510,9 +599,14 @@ class VoiceWebSocket {
         } catch (error) {
             console.error('HTTP error:', error);
             
-            // Скрываем "думает"
             if (this.onThinking) {
                 this.onThinking(false);
+            }
+            
+            if (retryCount < maxRetries) {
+                console.log(`🔄 Повторная попытка ${retryCount + 1}/${maxRetries}`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+                return this.sendAudioViaHTTP(audioBlob, retryCount + 1, maxRetries);
             }
             
             let errorMessage = 'Ошибка соединения';
@@ -532,7 +626,6 @@ class VoiceWebSocket {
         }
     }
     
-    // Воспроизведение аудио из base64
     async playAudioResponse(audioBase64) {
         return new Promise((resolve, reject) => {
             try {
@@ -590,8 +683,6 @@ class VoiceWebSocket {
         });
     }
     
-    // ========== ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ==========
-    
     async getWeather() {
         try {
             const response = await fetch(`${this.apiBaseUrl}/api/weather/${this.userId}`);
@@ -629,13 +720,8 @@ class VoiceWebSocket {
         try {
             const response = await fetch(`${this.apiBaseUrl}/api/weather/set-city`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    user_id: this.userId,
-                    city: city
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: this.userId, city: city })
             });
             
             const data = await response.json();
@@ -648,10 +734,7 @@ class VoiceWebSocket {
     
     interrupt() {
         if (this.ws && this.useWebSocket && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-                type: 'interrupt',
-                timestamp: Date.now()
-            }));
+            this.ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now() }));
         }
         
         const audioElements = document.querySelectorAll('audio');
@@ -675,7 +758,7 @@ class VoiceWebSocket {
 }
 
 // ============================================
-// VoiceRecorder С АВТО-СТОПОМ ПО ТИШИНЕ
+// VoiceRecorder (оставлен без изменений, т.к. уже полный)
 // ============================================
 
 class VoiceRecorder {
@@ -690,13 +773,10 @@ class VoiceRecorder {
         this.silenceTimer = null;
         this.visualizerAnimation = null;
         this.analyser = null;
-        
-        // Для отслеживания тишины
         this.silenceStartTime = null;
         this.speechDetected = false;
         this.lastVolume = 0;
         
-        // Колбэки
         this.onDataAvailable = null;
         this.onRecordingStart = null;
         this.onRecordingStop = null;
@@ -729,32 +809,23 @@ class VoiceRecorder {
             this.lastVolume = 0;
             this.isRecording = true;
             
-            // Инициализируем AudioContext
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
                 sampleRate: this.config.sampleRate
             });
             
             const source = this.audioContext.createMediaStreamSource(stream);
-            
-            // Создаём анализатор для визуализации
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 256;
             source.connect(this.analyser);
             
-            // Запускаем визуализацию
             this.startVisualizer();
             
-            // Создаём ScriptProcessorNode для захвата аудиоданных
-            this.processor = this.audioContext.createScriptProcessor(
-                this.config.chunkSize, 1, 1
-            );
+            this.processor = this.audioContext.createScriptProcessor(this.config.chunkSize, 1, 1);
             
             this.processor.onaudioprocess = (event) => {
                 if (!this.isRecording) return;
                 
                 const inputData = event.inputBuffer.getChannelData(0);
-                
-                // Конвертируем float32 (-1..1) в int16 (-32768..32767)
                 const int16Data = new Int16Array(inputData.length);
                 let sumAbs = 0;
                 
@@ -765,12 +836,9 @@ class VoiceRecorder {
                 }
                 
                 this.wavData.push(int16Data);
-                
-                // Вычисляем громкость
                 const volume = Math.min(100, (sumAbs / int16Data.length / 32768) * 100);
                 this.lastVolume = volume;
                 
-                // Детекция речи (громкость выше порога)
                 const isSpeech = volume > VoiceConfig.ui.minVolumeToConsiderSpeech;
                 
                 if (isSpeech) {
@@ -785,12 +853,10 @@ class VoiceRecorder {
                     this.silenceStartTime = Date.now();
                 }
                 
-                // Авто-стоп по тишине
                 if (VoiceConfig.ui.autoStopAfterSilence && 
                     this.speechDetected && 
                     this.silenceStartTime && 
                     (Date.now() - this.silenceStartTime) > VoiceConfig.ui.silenceTimeout) {
-                    
                     console.log('🔇 Silence detected, auto-stopping');
                     this.stopRecording();
                 }
@@ -803,12 +869,10 @@ class VoiceRecorder {
             source.connect(this.processor);
             this.processor.connect(this.audioContext.destination);
             
-            // Запускаем AudioContext
             if (this.audioContext.state === 'suspended') {
                 await this.audioContext.resume();
             }
             
-            // Таймаут на максимальную длительность записи
             this.recordingTimeout = setTimeout(() => {
                 if (this.isRecording) {
                     console.log('⏱️ Max recording duration reached');
@@ -842,13 +906,10 @@ class VoiceRecorder {
     }
     
     stopRecording() {
-        if (!this.isRecording) {
-            return null;
-        }
+        if (!this.isRecording) return null;
         
         this.isRecording = false;
         
-        // Очищаем таймауты
         if (this.recordingTimeout) {
             clearTimeout(this.recordingTimeout);
             this.recordingTimeout = null;
@@ -859,28 +920,23 @@ class VoiceRecorder {
             this.silenceTimer = null;
         }
         
-        // Останавливаем визуализацию
         this.stopVisualizer();
         
-        // Отключаем процессор
         if (this.processor) {
             this.processor.disconnect();
             this.processor = null;
         }
         
-        // Закрываем AudioContext
         if (this.audioContext) {
             this.audioContext.close().catch(console.warn);
             this.audioContext = null;
         }
         
-        // Создаём WAV файл из собранных данных
         let audioBlob = null;
         if (this.wavData && this.wavData.length > 0) {
             audioBlob = this.createWavBlob(this.wavData);
         }
         
-        // Закрываем медиа-поток
         if (this.mediaStream) {
             this.mediaStream.getTracks().forEach(track => track.stop());
             this.mediaStream = null;
@@ -895,15 +951,12 @@ class VoiceRecorder {
     }
     
     createWavBlob(audioData) {
-        // Объединяем все чанки
         let totalLength = 0;
         for (const chunk of audioData) {
             totalLength += chunk.length;
         }
         
-        // Ограничиваем максимальную длину
         const MAX_SAMPLES = this.config.maxDuration * this.config.sampleRate / 1000;
-        
         if (totalLength > MAX_SAMPLES) {
             console.warn(`Audio too long, truncating to ${MAX_SAMPLES} samples`);
             totalLength = MAX_SAMPLES;
@@ -930,12 +983,9 @@ class VoiceRecorder {
         const buffer = new ArrayBuffer(44 + combined.length * 2);
         const view = new DataView(buffer);
         
-        // RIFF chunk
         this.writeString(view, 0, 'RIFF');
         view.setUint32(4, 36 + combined.length * 2, true);
         this.writeString(view, 8, 'WAVE');
-        
-        // fmt subchunk
         this.writeString(view, 12, 'fmt ');
         view.setUint32(16, 16, true);
         view.setUint16(20, 1, true);
@@ -944,18 +994,14 @@ class VoiceRecorder {
         view.setUint32(28, byteRate, true);
         view.setUint16(32, blockAlign, true);
         view.setUint16(34, bitsPerSample, true);
-        
-        // data subchunk
         this.writeString(view, 36, 'data');
         view.setUint32(40, combined.length * 2, true);
         
-        // записываем данные
         for (let i = 0; i < combined.length; i++) {
             view.setInt16(44 + i * 2, combined[i], true);
         }
         
-        const mimeType = `audio/${this.config.format}`;
-        return new Blob([buffer], { type: mimeType });
+        return new Blob([buffer], { type: `audio/${this.config.format}` });
     }
     
     writeString(view, offset, string) {
@@ -972,7 +1018,6 @@ class VoiceRecorder {
             
             const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
             this.analyser.getByteFrequencyData(dataArray);
-            
             let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
             let volume = Math.min(100, (average / 255) * 100);
             
@@ -1014,13 +1059,12 @@ class VoiceManager {
         this.websocket = null;
         this.recorder = null;
         this.player = null;
+        this.loadingIndicator = null;
         
-        // Состояние
         this.isRecording = false;
         this.isAISpeaking = false;
         this.currentMode = 'psychologist';
         
-        // Колбэки
         this.onTranscript = null;
         this.onAIResponse = null;
         this.onStatusChange = null;
@@ -1032,12 +1076,12 @@ class VoiceManager {
         this.onSpeechDetected = null;
         this.onWeather = null;
         
-        // Инициализация
         this.init();
     }
     
     init() {
-        // Инициализируем плеер
+        this.loadingIndicator = new LoadingIndicator();
+        
         this.player = new AudioPlayer();
         this.player.onPlayStart = () => {
             this.isAISpeaking = true;
@@ -1054,7 +1098,6 @@ class VoiceManager {
             }
         };
         
-        // Инициализируем рекордер
         this.recorder = new VoiceRecorder(this.config.recording);
         
         this.recorder.onRecordingStart = () => {
@@ -1096,7 +1139,6 @@ class VoiceManager {
             }
         };
         
-        // Инициализируем WebSocket/HTTP клиент
         this.initWebSocket();
     }
     
@@ -1123,11 +1165,27 @@ class VoiceManager {
             }
         };
         
+        this.websocket.onThinkingUpdate = (message) => {
+            if (this.loadingIndicator && this.loadingIndicator.isShowing) {
+                this.loadingIndicator.updateMessage(message);
+            }
+        };
+        
         this.websocket.onStatusChange = (status) => {
             if (status === 'speaking') {
                 this.isAISpeaking = true;
+                if (this.loadingIndicator) {
+                    this.loadingIndicator.remove();
+                }
             } else if (status === 'idle') {
                 this.isAISpeaking = false;
+                if (this.loadingIndicator) {
+                    this.loadingIndicator.remove();
+                }
+            } else if (status === 'processing') {
+                if (this.loadingIndicator && this.loadingIndicator.isShowing) {
+                    this.loadingIndicator.updateMessage('Распознаю речь...');
+                }
             }
             this.updateStatus(status);
         };
@@ -1135,6 +1193,9 @@ class VoiceManager {
         this.websocket.onError = (error) => {
             if (this.onError) {
                 this.onError(error);
+            }
+            if (this.loadingIndicator) {
+                this.loadingIndicator.remove();
             }
         };
         
@@ -1148,6 +1209,9 @@ class VoiceManager {
     }
     
     async sendAudio(audioBlob) {
+        if (this.loadingIndicator) {
+            this.loadingIndicator.create();
+        }
         return this.websocket.sendFullAudio(audioBlob);
     }
     
@@ -1166,9 +1230,7 @@ class VoiceManager {
             
             const response = await fetch(`${this.config.apiBaseUrl}/api/voice/tts`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: formData
             });
             
@@ -1178,7 +1240,6 @@ class VoiceManager {
             
             const audioBlob = await response.blob();
             const audioUrl = URL.createObjectURL(audioBlob);
-            
             await this.player.play(audioUrl);
             
             return { audio_url: audioUrl };
@@ -1192,8 +1253,6 @@ class VoiceManager {
         }
     }
     
-    // ========== МЕТОДЫ ПОГОДЫ ==========
-    
     async getWeather() {
         return this.websocket.getWeather();
     }
@@ -1205,8 +1264,6 @@ class VoiceManager {
     async setUserCity(city) {
         return this.websocket.setUserCity(city);
     }
-    
-    // ========== УПРАВЛЕНИЕ ЗАПИСЬЮ ==========
     
     startRecording() {
         if (this.isAISpeaking) {
@@ -1231,6 +1288,9 @@ class VoiceManager {
             this.player.stop();
         }
         this.isAISpeaking = false;
+        if (this.loadingIndicator) {
+            this.loadingIndicator.remove();
+        }
     }
     
     updateStatus(status) {
@@ -1268,6 +1328,9 @@ class VoiceManager {
     }
     
     dispose() {
+        if (this.loadingIndicator) {
+            this.loadingIndicator.remove();
+        }
         if (this.recorder) {
             this.recorder.dispose();
         }
@@ -1281,11 +1344,12 @@ class VoiceManager {
 }
 
 // ============================================
-// ЭКСПОРТ ДЛЯ БРАУЗЕРА
+// ЭКСПОРТ
 // ============================================
 
 if (typeof window !== 'undefined') {
     window.AudioPlayer = AudioPlayer;
+    window.LoadingIndicator = LoadingIndicator;
     window.VoiceManager = VoiceManager;
     window.VoiceConfig = VoiceConfig;
     window.VoiceWebSocket = VoiceWebSocket;
