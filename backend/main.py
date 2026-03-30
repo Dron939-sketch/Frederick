@@ -693,12 +693,12 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                 response_text = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk:
-                        response_text = chunk
+                        response_text += chunk
                         await websocket.send_json({
                             "type": "text",
                             "data": f"🧠 Фреди: {chunk}"
                         })
-                        break
+                    
 
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
@@ -1398,11 +1398,7 @@ async def process_voice(
         mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
 
                                                 # === УПРОЩЁННЫЙ СБОР ОТВЕТА (один чанк) ===
-        response_text = ""
-        async for chunk in mode_instance.process_question_streaming(recognized_text):
-            if chunk:
-                response_text = chunk  # ← берём первый чанк (он один)
-                break  # ← выходим, дальше чанков нет
+        response_text = await mode_instance.process_question_full(recognized_text)
 
         # Защита от пустого ответа
         if not response_text or not response_text.strip():
