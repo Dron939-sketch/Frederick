@@ -1,6 +1,6 @@
 // ============================================
 // ПОЛНЫЙ ТЕСТ ИЗ 5 ЭТАПОВ
-// Версия 4.5 - МОБИЛЬНАЯ ОПТИМИЗАЦИЯ + ИСПРАВЛЕННЫЕ ПРОБЛЕМЫ С ВЫСОТОЙ
+// Версия 4.5 - МОБИЛЬНАЯ ОПТИМИЗАЦИЯ + ИСПРАВЛЕННЫЕ async/await
 // ============================================
 
 // ============================================
@@ -140,7 +140,7 @@ const Test = {
     ],
     
     // ============================================
-    // РАСШИРЕННЫЕ УТОЧНЯЮЩИЕ ВОПРОСЫ
+    // УТОЧНЯЮЩИЕ ВОПРОСЫ
     // ============================================
     clarifyingQuestionsDB: {
         "СБ": [
@@ -406,7 +406,7 @@ const Test = {
     },
     
     // ============================================
-    // ВОПРОСЫ ЭТАПА 1 (8 вопросов)
+    // ВОПРОСЫ ЭТАПА 1
     // ============================================
     perception_questions: [
         {
@@ -492,7 +492,7 @@ const Test = {
     ],
     
     // ============================================
-    // ВОПРОСЫ ЭТАПА 2 (4-5 вопросов)
+    // ВОПРОСЫ ЭТАПА 2
     // ============================================
     thinking_questions: {
         external: [
@@ -627,7 +627,7 @@ const Test = {
     },
     
     // ============================================
-    // ВОПРОСЫ ЭТАПА 3 (8 вопросов)
+    // ВОПРОСЫ ЭТАПА 3
     // ============================================
     behavior_questions: [
         {
@@ -721,7 +721,7 @@ const Test = {
     ],
     
     // ============================================
-    // ВОПРОСЫ ЭТАПА 4 (8 вопросов)
+    // ВОПРОСЫ ЭТАПА 4
     // ============================================
     growth_questions: [
         { text: 'Если что-то не получается, причина в:', options: [
@@ -783,7 +783,7 @@ const Test = {
     ],
     
     // ============================================
-    // ВОПРОСЫ ЭТАПА 5 (10 вопросов)
+    // ВОПРОСЫ ЭТАПА 5
     // ============================================
     deep_questions: [
         { text: 'В детстве, когда расстраивался, родители:', options: [
@@ -862,7 +862,6 @@ const Test = {
         const container = document.getElementById('testChatContainer');
         if (!container) return;
         
-        // 1. Добавляем meta viewport если нет
         let viewport = document.querySelector('meta[name="viewport"]');
         if (!viewport) {
             viewport = document.createElement('meta');
@@ -871,7 +870,6 @@ const Test = {
         }
         viewport.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no';
         
-        // 2. Фиксируем body для предотвращения скролла
         document.body.style.overflow = 'hidden';
         document.body.style.position = 'fixed';
         document.body.style.top = '0';
@@ -879,7 +877,6 @@ const Test = {
         document.body.style.right = '0';
         document.body.style.bottom = '0';
         
-        // 3. Используем visualViewport для динамической высоты
         const updateHeight = () => {
             const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
             container.style.height = `${height}px`;
@@ -888,22 +885,19 @@ const Test = {
         
         updateHeight();
         
-        // 4. Слушаем изменения видимой области
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', updateHeight);
             window.visualViewport.addEventListener('scroll', updateHeight);
         }
         
-        // 5. Принудительный скролл для Android
         setTimeout(() => {
             window.scrollTo(0, 1);
         }, 100);
         
-        // 6. Блокируем скролл body, разрешаем только внутри чата
         container.addEventListener('touchmove', (e) => {
             const messages = document.getElementById('testChatMessages');
             if (messages && messages.contains(e.target)) {
-                return; // разрешаем скролл внутри чата
+                return;
             }
             e.preventDefault();
         }, { passive: false });
@@ -1102,13 +1096,12 @@ const Test = {
     },
     
     // ============================================
-    // ФУНКЦИИ ФОРМАТИРОВАНИЯ ПРОФИЛЯ
+    // ФУНКЦИИ ФОРМАТИРОВАНИЯ
     // ============================================
     
     cleanTextForDisplay(text) {
         if (!text) return text;
         
-        // Удаляем Markdown
         text = text.replace(/\*\*(.*?)\*\*/g, '$1');
         text = text.replace(/__(.*?)__/g, '$1');
         text = text.replace(/\*(.*?)\*/g, '$1');
@@ -1116,11 +1109,7 @@ const Test = {
         text = text.replace(/`(.*?)`/g, '$1');
         text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1');
         text = text.replace(/#{1,6}\s+/g, '');
-        
-        // Удаляем HTML теги
         text = text.replace(/<[^>]+>/g, '');
-        
-        // Убираем лишние пробелы
         text = text.replace(/\s+/g, ' ').trim();
         text = text.replace(/\n\s*\n/g, '\n\n');
         
@@ -1130,7 +1119,6 @@ const Test = {
     formatProfileText(text) {
         if (!text) return text;
         
-        // Убираем Markdown
         text = this.cleanTextForDisplay(text);
         
         const headerMap = {
@@ -1146,44 +1134,33 @@ const Test = {
             'БЛОК5:': '⚠️ ГЛАВНАЯ ЛОВУШКА'
         };
         
-        // Заменяем заголовки на жирные с эмодзи
         for (const [oldHeader, newHeader] of Object.entries(headerMap)) {
             const regex = new RegExp(oldHeader, 'gi');
             text = text.replace(regex, `<b>${newHeader}</b>`);
         }
         
-        // Убираем дублирование заголовков
         const headers = Object.values(headerMap);
         for (const header of headers) {
             const pattern = new RegExp(`<b>${header}</b>\\s*\\n\\s*<b>${header}</b>`, 'gi');
             text = text.replace(pattern, `<b>${header}</b>`);
         }
         
-        // Форматируем списки
         text = text.replace(/•\s*/g, '<br>• ');
         text = text.replace(/-\s*/g, '<br>• ');
-        
-        // Добавляем отступы
         text = text.replace(/\n\n/g, '<br><br>');
         text = text.replace(/\n/g, '<br>');
         
         return text;
     },
     
-    // ============================================
-    // ФУНКЦИИ ДЛЯ УТОЧНЯЮЩИХ ВОПРОСОВ
-    // ============================================
-    
     getClarifyingQuestions(discrepancies, currentLevels) {
         const questions = [];
         
-        // Векторные расхождения (СБ, ТФ, УБ, ЧВ)
         for (const vector of ["СБ", "ТФ", "УБ", "ЧВ"]) {
             if (discrepancies.includes(vector)) {
                 const level = Math.round(currentLevels[vector] || 3);
                 const vectorQuestions = this.clarifyingQuestionsDB[vector] || [];
                 
-                // Ищем вопрос для конкретного уровня
                 const matchingQuestion = vectorQuestions.find(q => q.level === level);
                 if (matchingQuestion) {
                     questions.push({
@@ -1193,7 +1170,6 @@ const Test = {
                         options: matchingQuestion.options
                     });
                 } else {
-                    // Если нет точного совпадения, берём ближайший
                     const nearest = vectorQuestions.reduce((prev, curr) => {
                         return Math.abs(curr.level - level) < Math.abs(prev.level - level) ? curr : prev;
                     }, vectorQuestions[0]);
@@ -1210,7 +1186,6 @@ const Test = {
             }
         }
         
-        // Общие расхождения (people, money, signs, relations)
         const generalDiscrepancies = ["people", "money", "signs", "relations"];
         for (const disc of discrepancies) {
             if (generalDiscrepancies.includes(disc) && this.discrepancyQuestions[disc]) {
@@ -1223,7 +1198,6 @@ const Test = {
             }
         }
         
-        // Убираем дубликаты по тексту вопроса
         const uniqueQuestions = [];
         const questionTexts = new Set();
         
@@ -1395,6 +1369,7 @@ const Test = {
     showTestScreen() {
         const container = document.getElementById('screenContainer');
         if (!container) return;
+        
         container.innerHTML = `
             <div class="test-chat-container" id="testChatContainer">
                 <div class="test-chat-messages" id="testChatMessages">
@@ -1403,7 +1378,6 @@ const Test = {
             </div>
         `;
         
-        // Мобильная оптимизация
         setTimeout(() => {
             this.optimizeMobileView();
         }, 100);
@@ -1458,10 +1432,6 @@ const Test = {
         ]);
     },
     
-    // ============================================
-    // ИНФОРМАЦИЯ О БОТЕ
-    // ============================================
-    
     showBotInfo() {
         const text = `
 🎭 Ну, вопрос хороший. Давайте по существу.
@@ -1499,10 +1469,6 @@ const Test = {
         ]);
     },
     
-    // ============================================
-    // ЧТО ДАЕТ ТЕСТ
-    // ============================================
-    
     showTestBenefits() {
         const text = `
 🔍 ЧТО ВЫ УЗНАЕТЕ О СЕБЕ:
@@ -1526,8 +1492,7 @@ const Test = {
 
 ✅ Полный психологический портрет
 ✅ Глубинный анализ подсознательных паттернов
-✅ Выбор стиля общения: 🔮 КОУЧ | 🧠 ПСИХОЛОГ | ⚡ ТРЕНЕР
-✅ Индивидуальный навигатор по целям
+✅ Индивидуальные рекомендации
 
 ⏱ Всего 15 минут
 `;
@@ -2526,88 +2491,159 @@ ${interpretation}
     },
     
     async sendTestResultsToServer() {
-    if (!this.userId) {
-        console.warn('⚠️ Нет user_id, результаты сохранены локально');
-        this.showFinalProfileButtons();
-        return;
-    }
-    
-    const profile = this.calculateFinalProfile();
-    const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
-    
-    const results = {
-        user_id: parseInt(this.userId),
-        context: this.context,
-        results: {
-            perception_type: this.perceptionType,
-            thinking_level: this.thinkingLevel,
-            behavioral_levels: this.behavioralLevels,
-            dilts_counts: this.diltsCounts,
-            deep_patterns: deep,
-            profile_data: profile,
-            all_answers: this.answers,
-            test_completed: true,
-            test_completed_at: new Date().toISOString()
+        if (!this.userId) {
+            console.warn('⚠️ Нет user_id, результаты сохранены локально');
+            this.showFinalProfileButtons();
+            return;
         }
-    };
-    
-    console.log('📤 Отправка результатов на сервер...', { userId: parseInt(this.userId) });
-    
-    try {
-        const response = await fetch(`${TEST_API_BASE_URL}/api/save-test-results`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(results)
-        });
         
-        const data = await response.json();
+        const profile = this.calculateFinalProfile();
+        const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
         
-        if (data.success) {
-            console.log('✅ Результаты теста успешно отправлены на сервер');
+        const results = {
+            user_id: parseInt(this.userId),
+            context: this.context,
+            results: {
+                perception_type: this.perceptionType,
+                thinking_level: this.thinkingLevel,
+                behavioral_levels: this.behavioralLevels,
+                dilts_counts: this.diltsCounts,
+                deep_patterns: deep,
+                profile_data: profile,
+                all_answers: this.answers,
+                test_completed: true,
+                test_completed_at: new Date().toISOString()
+            }
+        };
+        
+        console.log('📤 Отправка результатов на сервер...', { userId: parseInt(this.userId) });
+        
+        try {
+            const response = await fetch(`${TEST_API_BASE_URL}/api/save-test-results`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(results)
+            });
             
-            // Сохраняем полученный AI-профиль
-            if (data.ai_profile) {
-                this.aiGeneratedProfile = data.ai_profile;
-                console.log('✅ AI-профиль получен сразу');
+            let data;
+            try {
+                data = await response.json();
+            } catch (jsonError) {
+                console.warn('⚠️ Сервер вернул не-JSON ответ, статус:', response.status);
+                data = { success: response.ok };
             }
             
-            if (data.psychologist_thought) {
-                this.psychologistThought = data.psychologist_thought;
-                console.log('✅ Мысль психолога получена сразу');
+            if (data.success) {
+                console.log('✅ Результаты теста успешно отправлены на сервер');
+                await this.fetchAIGeneratedProfile();
+            } else {
+                console.error('❌ Ошибка при отправке:', data.error);
+                this.showFinalProfileButtons();
             }
-            
-            // Показываем финальный экран
-            this.showFinalProfileButtons();
-            
-        } else {
-            console.error('❌ Ошибка при отправке:', data.error);
+        } catch (error) {
+            console.error('❌ Ошибка сети:', error);
             this.showFinalProfileButtons();
         }
-    } catch (error) {
-        console.error('❌ Ошибка сети:', error);
-        this.showFinalProfileButtons();
-    }
-}
+    },
     
     async fetchAIGeneratedProfile() {
-    // Этот метод больше не нужен, так как профиль приходит сразу
-    // Но оставим как fallback
-    if (!this.userId) return;
-    
-    try {
-        console.log('📥 Запрос AI-профиля (fallback)...');
-        const response = await fetch(`${TEST_API_BASE_URL}/api/generated-profile/${this.userId}`);
-        const data = await response.json();
+        if (!this.userId) return;
         
-        if (data.success && data.ai_profile) {
-            this.aiGeneratedProfile = data.ai_profile;
-            console.log('✅ AI-профиль получен');
-            this.showFinalProfileButtons();
+        try {
+            console.log('📥 Запрос AI-профиля...');
+            const response = await fetch(`${TEST_API_BASE_URL}/api/generated-profile/${this.userId}`);
+            const data = await response.json();
+            
+            if (data.success && data.ai_profile) {
+                this.aiGeneratedProfile = data.ai_profile;
+                console.log('✅ AI-профиль получен');
+            } else if (data.status === 'generating') {
+                console.log('⏳ AI-профиль генерируется, ждём...');
+                setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
+                return;
+            }
+        } catch (error) {
+            console.error('Ошибка получения AI-профиля:', error);
         }
-    } catch (error) {
-        console.error('Ошибка получения AI-профиля:', error);
-    }
-}
+        
+        this.showFinalProfileButtons();
+    },
+    
+    showFinalProfileButtons() {
+        const profile = this.calculateFinalProfile();
+        const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
+        
+        const sbDesc = {
+            1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
+            4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
+        }[profile.sbLevel] || "Информация уточняется";
+        
+        const tfDesc = {
+            1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
+            4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
+        }[profile.tfLevel] || "Информация уточняется";
+        
+        const ubDesc = {
+            1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
+            4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
+        }[profile.ubLevel] || "Информация уточняется";
+        
+        const chvDesc = {
+            1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
+            4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
+        }[profile.chvLevel] || "Информация уточняется";
+        
+        let profileText = `
+🧠 ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
+
+Профиль: ${profile.displayName}
+Тип восприятия: ${profile.perceptionType}
+Уровень мышления: ${profile.thinkingLevel}/9
+
+📊 ТВОИ ВЕКТОРЫ:
+
+• Реакция на давление (СБ ${profile.sbLevel}/6): ${sbDesc}
+
+• Отношение к деньгам (ТФ ${profile.tfLevel}/6): ${tfDesc}
+
+• Понимание мира (УБ ${profile.ubLevel}/6): ${ubDesc}
+
+• Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
+
+🧠 Глубинный паттерн: ${deep.attachment}
+`;
+        
+        if (this.aiGeneratedProfile) {
+            profileText += `\n\n🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:\n\n${this.aiGeneratedProfile}`;
+        }
+        
+        this.addBotMessage(profileText, true);
+        
+        this.addMessageWithButtons("👇 ЧТО ДАЛЬШЕ?", [
+            { text: "🧠 МЫСЛИ ПСИХОЛОГА", callback: () => this.showPsychologistThought() }
+        ]);
+        
+        if (this.userId) {
+            localStorage.setItem(`test_results_${this.userId}`, JSON.stringify({
+                profile,
+                deepPatterns: deep,
+                perceptionType: this.perceptionType,
+                thinkingLevel: this.thinkingLevel,
+                context: this.context,
+                aiProfile: this.aiGeneratedProfile
+            }));
+        }
+    },
+    
+    goToNextStage() {
+        this.currentStage++;
+        this.currentQuestionIndex = 0;
+        this.sendStageIntro();
+    },
+    
+    showFinalProfile() {
+        this.showFinalProfileButtons();
+    },
     
     async showPsychologistThought() {
         if (this.psychologistThought) {
@@ -2643,127 +2679,6 @@ ${formattedThought}
         }
         
         this.addMessageWithButtons("", [
-            { text: "🎯 ВЫБРАТЬ ЦЕЛЬ", callback: () => this.showGoals() },
-            { text: "⚙️ ВЫБРАТЬ РЕЖИМ", callback: () => this.showModes() }
-        ]);
-    },
-    
-    showGoals() {
-        const text = `
-🎯 ВЫБОР ЦЕЛЕЙ
-
-На основе вашего профиля я подготовил рекомендации:
-
-🔮 ПОДХОДЯЩИЕ НАПРАВЛЕНИЯ:
-
-1️⃣ Работа с реакцией на давление
-   • Научиться говорить "нет"
-   • Защищать свои границы
-   • Сохранять спокойствие в конфликтах
-
-2️⃣ Развитие отношений
-   • Строить здоровые партнёрства
-   • Создавать поддерживающее окружение
-   • Углублять существующие связи
-
-3️⃣ Финансовая стратегия
-   • Создать финансовую подушку
-   • Найти дополнительные источники дохода
-   • Освоить инвестиционные инструменты
-
-👇 Выберите направление или напишите свою цель:
-`;
-        
-        this.addMessageWithButtons(text, [
-            { text: "🛡 ДАВЛЕНИЕ", callback: () => this.selectGoal("pressure") },
-            { text: "🤝 ОТНОШЕНИЯ", callback: () => this.selectGoal("relations") },
-            { text: "💰 ФИНАНСЫ", callback: () => this.selectGoal("money") },
-            { text: "✏️ СВОЯ ЦЕЛЬ", callback: () => this.customGoal() },
-            { text: "◀️ НАЗАД", callback: () => this.showFinalProfileButtons() }
-        ]);
-    },
-    
-    selectGoal(goalType) {
-        const goalTexts = {
-            "pressure": "Отлично! Работа с давлением — это важный шаг. \n\n📝 Задание на неделю: отслеживайте моменты, когда вы чувствуете давление, и пробуйте не реагировать сразу, а делать паузу на 3 секунды.\n\nЗаписывайте свои наблюдения и возвращайтесь, чтобы обсудить прогресс.",
-            "relations": "Отношения — это зеркало. Чтобы улучшить их, начните с себя.\n\n📝 Задание на неделю: уделите внимание своим потребностям в общении. Задайте себе вопрос: 'Что я действительно хочу от этих отношений?'\n\nЗапишите ответы.",
-            "money": "Финансы любят порядок.\n\n📝 Задание на неделю: запишите все свои доходы и расходы. Это первый шаг к осознанному управлению.\n\nПопробуйте найти одну статью расходов, которую можно оптимизировать."
-        };
-        
-        this.addBotMessage(goalTexts[goalType], true);
-        
-        this.addMessageWithButtons("", [
-            { text: "🎯 ДРУГАЯ ЦЕЛЬ", callback: () => this.showGoals() },
-            { text: "🧠 К ПРОФИЛЮ", callback: () => this.showFinalProfileButtons() }
-        ]);
-    },
-    
-    customGoal() {
-        this.addBotMessage("✏️ Напишите свою цель текстом или отправьте голосовое сообщение.\n\nЯ помогу разбить её на шаги.", true);
-        this.showTextInput("custom_goal", "Напишите вашу цель...", false);
-        
-        const handleGoal = (value) => {
-            this.addUserMessage(value);
-            this.addBotMessage(`Отличная цель! 🎯\n\nДавайте разберём её на шаги:\n\n1️⃣ Сформулируйте конкретный результат\n2️⃣ Разбейте на микро-шаги\n3️⃣ Определите первый шаг на сегодня\n\nЧто скажете?`, true);
-        };
-        
-        window._tempGoalHandler = handleGoal;
-    },
-    
-    showModes() {
-        const text = `
-⚙️ ВЫБОР РЕЖИМА
-
-Я могу общаться в разных стилях:
-
-🔮 КОУЧ
-Помогаю самому найти решения. Задаю вопросы, отражаю мысли, направляю.
-
-🧠 ПСИХОЛОГ
-Копаю вглубь, исследую паттерны, работаю с причинами.
-
-⚡ ТРЕНЕР
-Даю чёткие инструменты, упражнения, ставлю задачи.
-
-👇 Какой режим выбрать?
-`;
-        
-        this.addMessageWithButtons(text, [
-            { text: "🔮 КОУЧ", callback: () => this.setMode("coach") },
-            { text: "🧠 ПСИХОЛОГ", callback: () => this.setMode("psychologist") },
-            { text: "⚡ ТРЕНЕР", callback: () => this.setMode("trainer") },
-            { text: "◀️ НАЗАД", callback: () => this.showFinalProfileButtons() }
-        ]);
-    },
-    
-    async setMode(mode) {
-        const modeTexts = {
-            "coach": "Отлично! Теперь я буду работать в режиме КОУЧА. Буду задавать вопросы, помогать тебе самому находить ответы.",
-            "psychologist": "Хорошо! Режим ПСИХОЛОГА активирован. Будем исследовать глубинные паттерны и причины.",
-            "trainer": "Принято! Режим ТРЕНЕРА включён. Получишь чёткие инструкции и упражнения."
-        };
-        
-        try {
-            await fetch(`${TEST_API_BASE_URL}/api/save-mode`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: parseInt(this.userId),
-                    mode: mode
-                })
-            });
-        } catch (error) {
-            console.error('Ошибка сохранения режима:', error);
-        }
-        
-        if (this.userId) {
-            localStorage.setItem(`mode_${this.userId}`, mode);
-        }
-        
-        this.addBotMessage(modeTexts[mode], true);
-        
-        this.addMessageWithButtons("", [
-            { text: "🎯 ВЫБРАТЬ ЦЕЛЬ", callback: () => this.showGoals() },
             { text: "🧠 К ПРОФИЛЮ", callback: () => this.showFinalProfileButtons() }
         ]);
     }
