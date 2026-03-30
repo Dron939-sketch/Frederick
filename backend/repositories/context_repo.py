@@ -19,15 +19,28 @@ class ContextRepository:
         self.db = db
         self.cache = cache
     
+    def _ensure_int(self, user_id) -> int:
+        """Преобразует user_id в int, если это возможно"""
+        if user_id is None:
+            raise ValueError("user_id cannot be None")
+        if isinstance(user_id, int):
+            return user_id
+        if isinstance(user_id, str) and user_id.isdigit():
+            return int(user_id)
+        raise ValueError(f"Cannot convert {user_id} (type: {type(user_id)}) to int")
+    
     async def save(self, user_id: int, context: Dict[str, Any]) -> bool:
         """Сохранение контекста"""
         try:
+            # Преобразуем user_id в int
+            user_id_int = self._ensure_int(user_id)
+            
             # Сначала создаем пользователя, если нет
             await self.db.execute("""
                 INSERT INTO users (user_id, created_at, updated_at)
                 VALUES ($1, NOW(), NOW())
                 ON CONFLICT (user_id) DO NOTHING
-            """, user_id)
+            """, user_id_int)
             
             # Сохраняем контекст
             await self.db.execute("""
@@ -36,11 +49,11 @@ class ContextRepository:
                 ON CONFLICT (user_id) DO UPDATE SET
                     context = $2,
                     updated_at = NOW()
-            """, user_id, json.dumps(context, default=str))
+            """, user_id_int, json.dumps(context, default=str))
             
             # Очищаем кэш
             if self.cache:
-                await self.cache.delete(f"context:{user_id}")
+                await self.cache.delete(f"context:{user_id_int}")
             
             return True
             
@@ -50,17 +63,20 @@ class ContextRepository:
     
     async def get(self, user_id: int) -> Optional[Dict[str, Any]]:
         """Получение контекста"""
-        # Проверяем кэш
-        cache_key = f"context:{user_id}"
-        if self.cache:
-            cached = await self.cache.get(cache_key)
-            if cached:
-                return cached
-        
         try:
+            # Преобразуем user_id в int
+            user_id_int = self._ensure_int(user_id)
+            
+            # Проверяем кэш
+            cache_key = f"context:{user_id_int}"
+            if self.cache:
+                cached = await self.cache.get(cache_key)
+                if cached:
+                    return cached
+            
             row = await self.db.fetchrow("""
                 SELECT context FROM user_contexts WHERE user_id = $1
-            """, user_id)
+            """, user_id_int)
             
             if row and row['context']:
                 context = row['context'] if isinstance(row['context'], dict) else json.loads(row['context'])
@@ -80,10 +96,11 @@ class ContextRepository:
     async def update_weather(self, user_id: int, weather: Dict[str, Any]) -> bool:
         """Обновление погоды в контексте"""
         try:
-            context = await self.get(user_id) or {}
+            user_id_int = self._ensure_int(user_id)
+            context = await self.get(user_id_int) or {}
             context['weather'] = weather
             
-            return await self.save(user_id, context)
+            return await self.save(user_id_int, context)
             
         except Exception as e:
             logger.error(f"Error updating weather: {e}")
