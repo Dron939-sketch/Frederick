@@ -117,6 +117,7 @@
                 top: 0;
                 height: 100%;
                 width: 260px;
+                z-index: 1000;
             }
             
             .chats-panel.open {
@@ -315,6 +316,7 @@
             height: 40px;
             border-radius: 50%;
             min-height: 44px;
+            touch-action: manipulation;
         }
 
         @media (max-width: 768px) {
@@ -322,6 +324,13 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                position: relative;
+                z-index: 10;
+                pointer-events: auto;
+            }
+            
+            .mobile-menu-btn:active {
+                transform: scale(0.95);
             }
         }
 
@@ -1243,16 +1252,41 @@
         function initMobileMenu() {
             const mobileBtn = document.getElementById('mobileMenuBtn');
             const panel = document.getElementById('chatsPanel');
-            if (mobileBtn && panel) {
-                mobileBtn.addEventListener('click', () => {
-                    panel.classList.toggle('open');
-                });
-                document.addEventListener('click', (e) => {
-                    if (panel.classList.contains('open') && !panel.contains(e.target) && !mobileBtn.contains(e.target)) {
+            
+            if (!mobileBtn || !panel) return;
+            
+            // Удаляем возможные старые обработчики
+            mobileBtn.onclick = null;
+            
+            // Добавляем новый обработчик
+            mobileBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                panel.classList.toggle('open');
+                console.log('Menu toggled, open:', panel.classList.contains('open'));
+            });
+            
+            // Закрытие при клике вне панели
+            document.addEventListener('click', function(e) {
+                if (panel.classList.contains('open')) {
+                    if (!panel.contains(e.target) && !mobileBtn.contains(e.target)) {
                         panel.classList.remove('open');
                     }
-                });
-            }
+                }
+            });
+            
+            // Закрытие при свайпе влево
+            let touchStartX = 0;
+            panel.addEventListener('touchstart', function(e) {
+                touchStartX = e.touches[0].clientX;
+            }, { passive: true });
+            
+            panel.addEventListener('touchend', function(e) {
+                const touchEndX = e.changedTouches[0].clientX;
+                if (touchEndX - touchStartX < -50) {
+                    panel.classList.remove('open');
+                }
+            });
         }
 
         function setupMenuHandlers() {
