@@ -4,6 +4,12 @@
 Сервис для работы с DeepSeek API
 Адаптирован для API из бота
 Поддержка базового режима для пользователей без теста
+
+ВЕРСИЯ 3.0 — улучшенные промпты для каждого режима:
+- КОУЧ: образ Бертрана Рассела (философский, мудрый)
+- ПСИХОЛОГ: глубинный анализ с конфайнтмент-моделью
+- ТРЕНЕР: образ Тони Робинсона (мотивирующий, энергичный)
+- БАЗОВЫЙ: дружелюбный помощник
 """
 
 import aiohttp
@@ -12,6 +18,7 @@ import json
 import logging
 import os
 import re
+import random
 from typing import Optional, Dict, Any, List, AsyncGenerator
 
 logger = logging.getLogger(__name__)
@@ -40,7 +47,6 @@ async def call_deepseek_streaming(prompt: str, max_tokens: int = 500, temperatur
 class AIService:
     """Сервис для работы с DeepSeek API"""
     
-    # Singleton pattern — исправленная и надёжная версия
     _instance = None
 
     def __new__(cls, cache=None):
@@ -58,13 +64,22 @@ class AIService:
         self.base_url = "https://api.deepseek.com/v1"
         self._initialized = True
         
+        # Цитаты Рассела для коуча
+        self.russell_quotes = [
+            "Три страсти, простые и непреодолимо сильные, управляли моей жизнью: жажда любви, поиск знания и невыносимое сострадание к страданиям человечества.",
+            "Любую проблему, которая не может быть решена, можно сделать меньше, научившись жить с ней.",
+            "Страх — вот источник того, что люди называют злом. Большая часть зла в мире происходит от страха.",
+            "Я никогда не позволял школе мешать моему образованию.",
+            "Вера в истину начинается с сомнения в том, во что верят другие.",
+            "Самый продуктивный способ думать — задавать правильные вопросы."
+        ]
+        
         if self.api_key:
             logger.info("✅ AIService инициализирован (singleton)")
         else:
             logger.warning("⚠️ DEEPSEEK_API_KEY not set")
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Получение HTTP сессии"""
         if not self.session or self.session.closed:
             self.session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=35)
@@ -193,14 +208,11 @@ class AIService:
             yield ""
 
     # ============================================
-    # НОВЫЙ МЕТОД: ГЕНЕРАЦИЯ AI-ПРОФИЛЯ
+    # ГЕНЕРАЦИЯ AI-ПРОФИЛЯ
     # ============================================
 
     async def generate_ai_profile(self, user_id: int, profile: Dict) -> Optional[str]:
-        """
-        Генерация AI-профиля (психологический портрет)
-        Вызывается из generate_profile_background в main.py
-        """
+        """Генерация AI-профиля (психологический портрет)"""
         if not self.api_key:
             logger.warning("DEEPSEEK_API_KEY not set, using fallback")
             return self._get_profile_fallback(profile)
@@ -215,14 +227,12 @@ class AIService:
 
 Используй теплый, поддерживающий тон. Обращайся к пользователю на "ты". НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
         
-        # Получаем данные профиля
         profile_data = profile.get('profile_data', {})
         perception_type = profile.get('perception_type', 'не определен')
         thinking_level = profile.get('thinking_level', 5)
         behavioral_levels = profile.get('behavioral_levels', {})
         deep_patterns = profile.get('deep_patterns', {})
         
-        # Вычисляем средние значения векторов
         scores = {}
         for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
             levels = behavioral_levels.get(k, [])
@@ -253,7 +263,7 @@ class AIService:
         return self._get_profile_fallback(profile)
 
     # ============================================
-    # ОСТАЛЬНЫЕ МЕТОДЫ
+    # ОСНОВНЫЕ МЕТОДЫ С УЛУЧШЕННЫМИ ПРОМПТАМИ
     # ============================================
 
     async def generate_response(
@@ -264,10 +274,8 @@ class AIService:
         profile: Dict = None,
         mode: str = 'psychologist'
     ) -> str:
-        """
-        Генерация ответа через DeepSeek с учётом контекста и профиля
-        """
-        # Проверяем кэш
+        """Генерация ответа через DeepSeek с учётом режима"""
+        
         cache_key = f"response:{user_id}:{hash(message)}:{mode}"
         if self.cache:
             cached = await self.cache.get(cache_key)
@@ -329,9 +337,7 @@ class AIService:
         profile: Dict = None,
         mode: str = 'psychologist'
     ) -> AsyncGenerator[str, None]:
-        """
-        Потоковая генерация ответа через DeepSeek для WebSocket
-        """
+        """Потоковая генерация ответа через DeepSeek для WebSocket"""
         if not self.api_key:
             yield self._get_fallback_response(mode)
             return
@@ -388,306 +394,162 @@ class AIService:
             logger.error(f"Streaming error: {e}")
             yield self._get_fallback_response(mode)
 
-    async def generate_profile_interpretation(self, user_id: int, profile: Dict) -> str:
-        """
-        Генерация интерпретации профиля (мысли психолога)
-        """
-        if not self.api_key:
-            return self._get_profile_fallback(profile)
-        system_prompt = """Ты психолог-аналитик. На основе данных теста создай глубокую интерпретацию личности.
-Структурируй ответ в формате:
-КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
-2-3 предложения о главной особенности
-СИЛЬНЫЕ СТОРОНЫ
-- сильная сторона 1
-- сильная сторона 2
-- сильная сторона 3
-ЗОНЫ РОСТА
-- зона роста 1
-- зона роста 2
-- зона роста 3
-ГЛАВНАЯ ЛОВУШКА
-1-2 предложения о том, что мешает
-Используй теплый, поддерживающий тон. Обращайся к пользователю на ты. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
-        profile_data = profile.get('profile_data', {})
-        scores = profile.get('behavioral_levels', {})
-        user_prompt = f"""
-Профиль пользователя:
-- Код профиля: {profile_data.get('display_name', 'не определен')}
-- Тип восприятия: {profile.get('perception_type', 'не определен')}
-- Уровень мышления: {profile.get('thinking_level', 5)}/9
-Поведенческие уровни:
-- СБ (реакция на давление): {self._get_avg_score(scores.get('СБ', []))}
-- ТФ (деньги и ресурсы): {self._get_avg_score(scores.get('ТФ', []))}
-- УБ (понимание мира): {self._get_avg_score(scores.get('УБ', []))}
-- ЧВ (отношения): {self._get_avg_score(scores.get('ЧВ', []))}
-Глубинные паттерны:
-{self._format_deep_patterns(profile.get('deep_patterns', {}))}
-Создай психологический портрет пользователя. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
-"""
-        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1500)
-        if response:
-            response = self._clean_for_voice(response)
-            return response
-        return self._get_profile_fallback(profile)
-
-    async def generate_psychologist_thought(self, user_id: int, profile: Dict) -> str:
-        """
-        Генерация краткой мысли психолога (1-2 абзаца)
-        """
-        if not self.api_key:
-            return self._get_thought_fallback(profile)
-        system_prompt = """Ты психолог. Напиши одну глубокую, инсайтную мысль о клиенте на основе его профиля.
-Мысль должна:
-- Быть короткой (2-3 предложения)
-- Содержать наблюдение о паттерне
-- Завершаться вопросом или приглашением к размышлению
-- НЕ ИСПОЛЬЗОВАТЬ ЭМОДЗИ
-Пример: Тебе важно, чтобы тебя принимали. Но за этим может стоять страх отвержения. Что будет, если перестать угождать другим?"""
-        profile_data = profile.get('profile_data', {})
-        scores = profile.get('behavioral_levels', {})
-        weakest = self._find_weakest_vector(scores)
-        user_prompt = f"""
-Профиль: {profile_data.get('display_name', 'не определен')}
-Тип восприятия: {profile.get('perception_type', 'не определен')}
-Уровень мышления: {profile.get('thinking_level', 5)}/9
-Самая слабая зона: {weakest.get('name', 'не определена')} (уровень {weakest.get('level', 3)})
-Напиши одну мысль психолога (2-3 предложения). НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
-"""
-        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=300)
-        if response:
-            response = self._clean_for_voice(response)
-            return response
-        return self._get_thought_fallback(profile)
-
-
-    async def generate_weekend_ideas(
-        self,
-        user_id: int,
-        profile: Dict,
-        context: Dict,
-        scores: Dict = None
-    ) -> List[str]:
-        """
-        Генерация идей на выходные
-        """
-        if not self.api_key:
-            return self._get_ideas_fallback(profile)
-
-        system_prompt = """Ты психолог и lifestyle-эксперт. Предложи 5 идей на выходные, которые подходят психотипу человека.
-Каждая идея должна быть:
-- Конкретной и выполнимой
-- Учитывать сильные стороны человека
-- Помогать прорабатывать зоны роста
-Формат ответа: просто список из 5 пунктов, каждый с новой строки. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
-
-        if scores is None:
-            scores = {}
-            for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
-                levels = profile.get('behavioral_levels', {}).get(k, [])
-                scores[k] = sum(levels) / len(levels) if levels else 3
-
-        profile_data = profile.get('profile_data', {})
-        city = context.get('city', 'ваш город') if context else 'ваш город'
-        age = context.get('age', 'не указан') if context else 'не указан'
-
-        user_prompt = f"""
-Профиль пользователя: {profile_data.get('display_name', 'не определен')}
-Баллы по векторам:
-- СБ (реакция на давление): {scores.get('СБ', 3):.1f}
-- ТФ (деньги): {scores.get('ТФ', 3):.1f}
-- УБ (понимание мира): {scores.get('УБ', 3):.1f}
-- ЧВ (отношения): {scores.get('ЧВ', 3):.1f}
-Город: {city}
-Возраст: {age}
-Предложи 5 идей на выходные. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
-"""
-
-        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
-        if response:
-            ideas = []
-            for line in response.strip().split('\n'):
-                line = line.strip()
-                line = re.sub(r'^[\d\-\*•]\s*', '', line)
-                if line and len(line) > 10:
-                    ideas.append(line)
-            return ideas[:5] if ideas else self._get_ideas_fallback(profile)
-
-        return self._get_ideas_fallback(profile)
-
-    async def generate_goals(
-        self,
-        user_id: int,
-        profile: Dict,
-        mode: str = "coach"
-    ) -> List[Dict]:
-        """
-        Генерация персональных целей
-        """
-        if not self.api_key:
-            return self._get_goals_fallback(profile, mode)
-
-        mode_names = {
-            "coach": "коуч",
-            "psychologist": "психолог",
-            "trainer": "тренер"
-        }
-
-        system_prompt = f"""Ты {mode_names.get(mode, 'коуч')}. Предложи 5 целей для клиента, подходящих его профилю.
-Цели должны:
-- Быть конкретными и измеримыми
-- Учитывать сильные стороны клиента
-- Помогать прорабатывать зоны роста
-Формат ответа: JSON массив, каждый объект содержит поля:
-- id: уникальный идентификатор (например, goal_1)
-- name: название цели (до 50 символов)
-- time: предполагаемое время (например, 3-4 недели)
-- difficulty: сложность (easy, medium, hard)
-Пример:
-[{"id": "fear_work", "name": "Проработать страхи", "time": "3-4 недели", "difficulty": "medium"}]
-НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
-
-        scores = {}
-        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
-            levels = profile.get('behavioral_levels', {}).get(k, [])
-            scores[k] = sum(levels) / len(levels) if levels else 3
-
-        profile_data = profile.get('profile_data', {})
-        user_prompt = f"""
-Профиль: {profile_data.get('display_name', 'не определен')}
-Баллы:
-- СБ (реакция на давление): {scores.get('СБ', 3):.1f}
-- ТФ (деньги): {scores.get('ТФ', 3):.1f}
-- УБ (понимание мира): {scores.get('УБ', 3):.1f}
-- ЧВ (отношения): {scores.get('ЧВ', 3):.1f}
-Тип восприятия: {profile.get('perception_type', 'не определен')}
-Уровень мышления: {profile.get('thinking_level', 5)}/9
-Режим: {mode_names.get(mode, 'коуч')}
-Предложи 5 целей в формате JSON. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
-"""
-
-        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1000)
-        if response:
-            try:
-                json_match = re.search(r'\[.*\]', response, re.DOTALL)
-                if json_match:
-                    goals = json.loads(json_match.group())
-                    return goals[:6] if isinstance(goals, list) else self._get_goals_fallback(profile, mode)
-            except json.JSONDecodeError:
-                logger.error("Failed to parse goals JSON")
-        return self._get_goals_fallback(profile, mode)
-
-    async def generate_questions(self, user_id: int, profile: Dict) -> List[str]:
-        """
-        Генерация умных вопросов для размышления
-        """
-        if not self.api_key:
-            return self._get_questions_fallback()
-
-        system_prompt = """Ты психолог. Сформулируй 5 глубоких вопросов для саморефлексии.
-Вопросы должны:
-- Быть открытыми (начинаться с как, почему, что)
-- Помогать человеку заглянуть внутрь себя
-- Учитывать профиль пользователя
-Формат ответа: просто список из 5 вопросов, каждый с новой строки. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
-
-        profile_data = profile.get('profile_data', {})
-        scores = profile.get('behavioral_levels', {})
-        weakest = self._find_weakest_vector(scores)
-
-        user_prompt = f"""
-Профиль: {profile_data.get('display_name', 'не определен')}
-Тип восприятия: {profile.get('perception_type', 'не определен')}
-Уровень мышления: {profile.get('thinking_level', 5)}/9
-Зона роста: {weakest.get('name', 'не определена')}
-Сформулируй 5 вопросов для размышления. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ.
-"""
-
-        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=500)
-        if response:
-            questions = [q.strip() for q in response.split('\n') if q.strip() and '?' in q]
-            return questions[:5] if questions else self._get_questions_fallback()
-
-        return self._get_questions_fallback()
-
-    async def _call_deepseek(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        max_tokens: int = 1000,
-        temperature: float = 0.7
-    ) -> Optional[str]:
-        """Вызов DeepSeek API с системным промптом — улучшенная версия"""
-        if not self.api_key:
-            return None
-
-        try:
-            session = await self._get_session()
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens
-                },
-                timeout=aiohttp.ClientTimeout(total=35)
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data['choices'][0]['message']['content']
-                else:
-                    logger.error(f"DeepSeek error: {response.status}")
-                    return None
-        except asyncio.TimeoutError:
-            logger.error("DeepSeek timeout in _call_deepseek")
-            return None
-        except Exception as e:
-            logger.error(f"DeepSeek call error: {e}")
-            return None
+    # ============================================
+    # УЛУЧШЕННЫЕ СИСТЕМНЫЕ ПРОМПТЫ
+    # ============================================
 
     def _get_system_prompt(self, mode: str, profile: Dict) -> str:
         """
-        Формирование системного промпта
-        БЕЗ ЭМОДЗИ для голосового вывода
+        Формирование системного промпта для каждого режима
         """
-        if mode == 'psychologist':
-            return """Ты Фреди, психолог. Исследуешь глубинные паттерны, защитные механизмы, прошлый опыт.
-Правила:
-- Используй мягкий, поддерживающий тон
-- Помогай разобраться в причинах
-- Не давай советов, а помогай увидеть
-- Говори короткими предложениями, готовыми для озвучивания
-- НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
         if mode == 'coach':
-            return """Ты Фреди, коуч. Помогаешь клиенту найти ответы внутри себя.
-Правила:
-- Задавай открытые вопросы
-- Направляй, но не давай готовых решений
-- Используй техники коучинга
-- Говори короткими предложениями, готовыми для озвучивания
-- НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
-        if mode == 'trainer':
-            return """Ты Фреди, тренер. Даёшь чёткие инструменты, алгоритмы, формируешь навыки.
-Правила:
-- Структурируй ответы
-- Давай конкретные шаги
-- Используй нумерацию для действий
-- Говори ясно и по делу
-- НЕ ИСПОЛЬЗУЙ ЭМОДЗИ и спецсимволы"""
-        return """Ты Фреди, виртуальный помощник. Будь вежливым и полезным. Говори короткими предложениями. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ."""
+            return self._get_coach_prompt(profile)
+        elif mode == 'psychologist':
+            return self._get_psychologist_prompt(profile)
+        elif mode == 'trainer':
+            return self._get_trainer_prompt(profile)
+        else:
+            return self._get_basic_prompt()
+
+    def _get_coach_prompt(self, profile: Dict) -> str:
+        """Промпт для КОУЧА — образ Бертрана Рассела"""
+        
+        quote = random.choice(self.russell_quotes)
+        
+        return f"""Ты — Фреди. Твой стиль вдохновлён философией Бертрана Рассела: ясность мысли, скептицизм к готовым ответам, глубокая человечность.
+
+✨ ЦИТАТА ДНЯ:
+«{quote}»
+
+🤝 ТВОЙ СТИЛЬ:
+- Ты говоришь спокойно, вдумчиво, как философ, размышляющий вслух
+- Ты задаёшь вопросы не для проверки, а из искреннего любопытства
+- Ты помогаешь человеку найти свои ответы, а не даёшь готовые
+- Ты мягко указываешь на противоречия, но без осуждения
+- Ты ценишь ясность мысли и свободу от догм
+
+💡 ПРИМЕРЫ ВОПРОСОВ:
+- "Интересно, что заставляет тебя так думать?"
+- "А если посмотреть на это с другой стороны?"
+- "Что для тебя действительно важно — и почему?"
+- "Какую роль играет страх в этом решении?"
+- "Что было бы, если бы ты позволил себе усомниться в этом убеждении?"
+
+❌ ЧЕГО НЕ ДЕЛАТЬ:
+- Не давай готовых решений
+- Не осуждай и не оценивай
+- Не навязывай свою точку зрения
+- Не игнорируй противоречия — исследуй их
+
+✨ ПОМНИ: ты здесь, чтобы помочь человеку найти ясность через вопросы, а не через ответы.
+
+Теперь начни диалог. Будь мудрым собеседником, помогающим через вопросы."""
+
+    def _get_psychologist_prompt(self, profile: Dict) -> str:
+        """Промпт для ПСИХОЛОГА — глубинный анализ с конфайнтмент-моделью"""
+        
+        # Извлекаем информацию о слабом векторе
+        weakest_vector = profile.get('weakest_vector', 'не определен')
+        weakest_level = profile.get('weakest_level', 3)
+        
+        return f"""Ты — Фреди, глубинный психолог. Ты видишь структуру личности и рекурсивные петли, которые держат человека в замкнутом круге.
+
+📊 **О ЧЕЛОВЕКЕ**:
+- Слабый вектор: {weakest_vector} (уровень {weakest_level}/6)
+
+🤝 **ТВОЙ СТИЛЬ**:
+- Ты говоришь спокойно, вдумчиво, с паузами
+- Ты очень проницателен, но не давишь
+- Ты называешь вещи своими именами, но бережно
+- Ты помогаешь увидеть то, что было скрыто
+
+💡 **ТЕХНИКИ**:
+- Отражение глубинных паттернов: "Я замечаю, что..."
+- Мягкое называние защит: "Похоже, ты используешь защиту..."
+- Указание на петли самоподдержания: "Здесь есть интересный цикл..."
+- Предложение точек разрыва: "Что, если попробовать иначе..."
+
+❌ **ЧЕГО НЕ ДЕЛАТЬ**:
+- Не дави и не критикуй
+- Не интерпретируй агрессивно
+- Не будь холодным или отстранённым
+
+✨ **ПОМНИ**: ты видишь структуру личности. Говори с позиции понимания, но без осуждения.
+
+Теперь начни диалог. Будь внимательным и проницательным собеседником."""
+
+    def _get_trainer_prompt(self, profile: Dict) -> str:
+        """Промпт для ТРЕНЕРА — образ Тони Робинсона (мотивирующий, энергичный)"""
+        
+        weakest_vector = profile.get('weakest_vector', 'не определен')
+        weakest_level = profile.get('weakest_level', 3)
+        
+        return f"""Ты — Фреди, энергичный и вдохновляющий персональный тренер. Твоя миссия — помочь человеку раскрыть его потенциал через действие.
+
+🌟 **О ЧЕЛОВЕКЕ**:
+- Зона роста: {weakest_vector} (уровень {weakest_level}/6)
+
+💪 **ТВОЙ СТИЛЬ**:
+- Энергичный, вдохновляющий, заряжающий
+- Говори с убеждением и верой в успех
+- Используй фразы: "Давай!", "Ты сможешь!", "Я верю в тебя!"
+- Конкретные шаги, чёткие планы
+
+💡 **КАК ОБЩАТЬСЯ**:
+- Начинай с позитивного заряда: "Эй, друг! Как настроение?"
+- Задавай вопросы, которые зажигают: "Что для тебя было бы победой сегодня?"
+- Дай конкретную задачу с верой в выполнение
+- Завершай словами поддержки: "Ты справишься! Держу за тебя кулаки!"
+
+❌ **ЧЕГО НЕ ДЕЛАТЬ**:
+- Не дави и не критикуй — только вдохновляй
+- Не будь холодным или безразличным
+- Не используй жёсткие формулировки
+
+🎯 **ПРИМЕРЫ ЗАДАЧ**:
+- "Твоя задача на сегодня: сделать один маленький шаг к цели. Какой?"
+- "Давай поставим дедлайн. Когда ты это сделаешь?"
+- "Что для тебя было бы победой сегодня? Давай это сделаем!"
+
+🔥 **ПОМНИ**: ты здесь, чтобы зажечь огонь внутри человека, дать ему энергию для действий и веру в себя.
+
+Теперь начни диалог. Будь заряжающим и вдохновляющим тренером!"""
+
+    def _get_basic_prompt(self) -> str:
+        """Промпт для БАЗОВОГО РЕЖИМА — дружелюбный помощник"""
+        
+        return """Ты — Фреди, внимательный друг и поддерживающий помощник.
+
+ВАЖНО: Пиши ТОЛЬКО с пробелами между словами. НЕ склеивай слова.
+ОБЯЗАТЕЛЬНО используй знаки препинания: точки, запятые, вопросительные знаки.
+
+Характер:
+- Ты внимательно слушаешь и слышишь человека
+- Ты поддерживаешь, даёшь надежду и веру в себя
+- Ты говоришь мягко, спокойно, бережно
+- Ты помогаешь найти решения, а не даёшь готовые ответы
+
+Правила ответа:
+- Отвечай коротко (1-2 предложения), но содержательно
+- Задавай открытые вопросы, помогающие человеку разобраться в себе
+- Проявляй эмпатию, показывай, что ты слышишь
+- НЕ ИСПОЛЬЗУЙ эмодзи, списки, нумерацию
+
+Тёплые обращения (используй иногда):
+- друг мой
+- дорогой друг
+- ты знаешь
+- послушай
+- поделись
+
+Теперь ответь на вопрос пользователя тепло и поддерживающе."""
+
+    # ============================================
+    # ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    # ============================================
 
     def _get_user_prompt(self, message: str, context: Dict, profile: Dict, mode: str) -> str:
-        """
-        Формирование пользовательского промпта
-        """
+        """Формирование пользовательского промпта"""
         prompt = message
         if context and mode != 'basic':
             context_parts = []
@@ -704,10 +566,7 @@ class AIService:
         return prompt
 
     def _clean_for_voice(self, text: str) -> str:
-        """
-        Улучшенная очистка текста для голосового вывода
-        СОХРАНЯЕТ знаки препинания!
-        """
+        """Очистка текста для голосового вывода — сохраняет знаки препинания"""
         if not text:
             return text
 
@@ -718,9 +577,6 @@ class AIService:
         text = re.sub(r'_(.*?)_', r'\1', text)
         text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
         text = re.sub(r'`(.*?)`', r'\1', text)
-        text = re.sub(r'#{1,6}\s+', '', text)
-        text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
 
         # Убираем эмодзи
         emoji_pattern = re.compile(
@@ -732,51 +588,20 @@ class AIService:
         )
         text = emoji_pattern.sub('', text)
 
-        # Убираем спецсимволы, НО НЕ трогаем знаки препинания
+        # Убираем спецсимволы
         text = re.sub(r'[#*_`~<>|@$%^&+={}\[\]\\]', '', text)
         
-        # ========== ИСПРАВЛЯЕМ ЛИШНИЕ ЗНАКИ ПРЕПИНАНИЯ ==========
-        
-        # 1. Убираем запятые после частицы "не"
-        text = re.sub(r'\b(не|ни)\s*,', r'\1', text, flags=re.IGNORECASE)
-        
-        # 2. Исправляем тире (убираем лишние пробелы и запятые)
-        text = re.sub(r'\s*-\s*,?\s*', ' — ', text)
-        text = re.sub(r'—\s*—', '—', text)
-        
-        # 3. Убираем дублирующиеся знаки препинания
-        text = re.sub(r'([.!?])\1+', r'\1', text)
-        text = re.sub(r'([,;:])\1+', r'\1', text)
-        
-        # 4. Убираем запятые перед союзами в начале предложения
-        text = re.sub(r',\s*(и|а|но|или|да)\s+', r' \1 ', text, flags=re.IGNORECASE)
-        
-        # 5. Убираем лишние запятые подряд
-        text = re.sub(r',\s*,', ',', text)
-        text = re.sub(r'\,\s*\)', ')', text)
-        
-        # 6. Убираем запятую после двоеточия
-        text = re.sub(r':\s*,', ':', text)
-        
-        # 7. Убираем запятую перед точкой
-        text = re.sub(r',\s*\.', '.', text)
-        
-        # 8. Исправляем " -," на просто тире
-        text = re.sub(r'\s*-\s*,', ' — ', text)
-        
-        # 9. Нормализуем пробелы
+        # Нормализуем пробелы
         text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'\s*([.,!?:;])\s*', r'\1 ', text)
-        text = re.sub(r'\s+([.,!?:;])', r'\1', text)
-        text = re.sub(r'\s{2,}', ' ', text)
-        
-        # 10. Убираем знаки препинания в конце, если их несколько
-        text = re.sub(r'[.!?]{2,}$', r'\1', text)
         
         return text.strip()
 
+    # ============================================
+    # ЗАПАСНЫЕ ОТВЕТЫ И ПРОФИЛИ
+    # ============================================
+
     def _get_fallback_response(self, mode: str) -> str:
-        """Ответ при ошибке (без эмодзи)"""
+        """Ответ при ошибке"""
         fallbacks = {
             'basic': "Ой, что-то пошло не так. Но не переживай, я все равно рад поболтать. Кстати, ты не думал пройти тест? Это интересно.",
             'coach': "Я здесь. Давайте вместе подумаем над этим. Что вы чувствуете?",
@@ -786,7 +611,7 @@ class AIService:
         return fallbacks.get(mode, fallbacks['psychologist'])
 
     def _get_profile_fallback(self, profile: Dict) -> str:
-        """Запасной профиль (без эмодзи)"""
+        """Запасной профиль"""
         profile_code = profile.get('profile_data', {}).get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4')
         return f"""
 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
@@ -806,7 +631,7 @@ class AIService:
 """
 
     def _get_thought_fallback(self, profile: Dict) -> str:
-        """Запасная мысль психолога (без эмодзи)"""
+        """Запасная мысль психолога"""
         return "Ты часто ставишь интересы других выше своих. Но где та грань, за которой забота о других превращается в забывание о себе? Что будет, если сегодня сделать что-то только для себя?"
 
     def _get_ideas_fallback(self, profile: Dict) -> List[str]:
@@ -838,13 +663,11 @@ class AIService:
         ]
 
     def _get_avg_score(self, levels: List) -> float:
-        """Среднее значение по списку уровней"""
         if not levels:
             return 3.0
         return sum(levels) / len(levels)
 
     def _find_weakest_vector(self, scores: Dict) -> Dict:
-        """Находит самый слабый вектор"""
         vectors = {
             "СБ": {"name": "Реакция на давление", "level": 3},
             "ТФ": {"name": "Деньги и ресурсы", "level": 3},
@@ -859,7 +682,6 @@ class AIService:
         return {"name": weakest[1]["name"], "level": weakest[1]["level"]}
 
     def _format_deep_patterns(self, patterns: Dict) -> str:
-        """Форматирование глубинных паттернов"""
         if not patterns:
             return "Данные отсутствуют"
         lines = []
@@ -872,6 +694,5 @@ class AIService:
         return "\n".join(lines) if lines else "Данные отсутствуют"
 
     async def close(self):
-        """Закрытие сессии"""
         if self.session and not self.session.closed:
             await self.session.close()
