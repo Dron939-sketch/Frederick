@@ -4,7 +4,7 @@
 МОДУЛЬ: РЕЖИМ КОУЧ (coach.py)
 Партнёрский стиль общения. Помогает находить ответы внутри себя через открытые вопросы.
 Образ: Бертран Рассел — мудрый философ, скептик, ценитель ясности мысли и свободы разума.
-ВЕРСИЯ 3.1 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА
+ВЕРСИЯ 3.2 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА И МЕТОДОМ process_question_full
 """
 
 from typing import Dict, Any, List, Optional
@@ -14,7 +14,7 @@ from datetime import datetime
 
 from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
-from services.ai_service import AIService  # ДОБАВЛЕН ИМПОРТ
+from services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +199,9 @@ class CoachMode(BaseMode):
         
         return random.choice(greetings)
     
-    # ========== ДОБАВЛЕН НОВЫЙ МЕТОД ДЛЯ AI ==========
+    # ========== МЕТОД ДЛЯ ПОТОКОВОЙ ОБРАБОТКИ (WebSocket) ==========
     async def process_question_streaming(self, question: str):
-        """Потоковая обработка вопроса через AI с учётом профиля"""
+        """Потоковая обработка вопроса через AI с учётом профиля (для WebSocket)"""
         
         # Собираем данные профиля для AI
         profile = {
@@ -236,6 +236,47 @@ class CoachMode(BaseMode):
             yield self._generate_philosophical_question(question)
         
         self.save_to_history(question, full_response)
+    
+    # ========== НОВЫЙ МЕТОД ДЛЯ ПОЛНОГО ОТВЕТА (HTTP) ==========
+    async def process_question_full(self, question: str) -> str:
+        """
+        Возвращает ответ целиком (без разбиения на чанки).
+        Используется в HTTP эндпоинтах (голосовой ввод).
+        """
+        logger.info(f"🎙️ process_question_full в режиме CoachMode")
+        
+        # Собираем данные профиля для AI
+        profile = {
+            'profile_data': self.profile_data,
+            'perception_type': self.perception_type,
+            'thinking_level': self.thinking_level,
+            'behavioral_levels': self.behavioral_levels,
+            'deep_patterns': self.deep_patterns,
+            'weakest_vector': getattr(self, 'weakest_vector', None),
+            'weakest_level': getattr(self, 'weakest_level', None)
+        }
+        
+        context_data = {
+            'name': self.context.name if self.context else None,
+            'city': self.context.city if self.context else None,
+            'age': self.context.age if self.context else None
+        }
+        
+        # Используем НЕ streaming версию (generate_response)
+        response = await self.ai_service.generate_response(
+            user_id=self.user_id,
+            message=question,
+            context=context_data,
+            profile=profile,
+            mode='coach'
+        )
+        
+        if not response or not response.strip():
+            # Fallback на философский вопрос
+            response = self._generate_philosophical_question(question)
+        
+        self.save_to_history(question, response)
+        return response
     # =================================================
     
     def process_question(self, question: str) -> Dict[str, Any]:
