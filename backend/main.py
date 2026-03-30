@@ -2496,7 +2496,7 @@ async def find_doubles(user_id: int, limit: int = 10):
 @app.post("/api/save-test-results")
 @limiter.limit("5/minute")
 async def save_test_results(request: Request):
-    """Сохраняет результаты теста в БД"""
+    """Сохраняет результаты теста и сразу генерирует AI-профиль"""
     try:
         data = await request.json()
         user_id = data.get('user_id')
@@ -2514,6 +2514,7 @@ async def save_test_results(request: Request):
         deep_patterns = results.get('deep_patterns', {})
         profile_code = profile_data.get('displayName')
         
+        # Сохраняем результаты теста
         test_result_id = await user_repo.save_test_results(
             user_id=user_id, test_type='full_test', results=results,
             profile_code=profile_code, perception_type=perception_type,
@@ -2522,30 +2523,61 @@ async def save_test_results(request: Request):
         )
         
         full_profile = {
-            'profile_data': profile_data, 'perception_type': perception_type,
-            'thinking_level': thinking_level, 'behavioral_levels': behavioral_levels,
-            'deep_patterns': deep_patterns, 'test_result_id': test_result_id,
-            'test_completed_at': datetime.now().isoformat(), 'display_name': profile_code
+            'profile_data': profile_data,
+            'perception_type': perception_type,
+            'thinking_level': thinking_level,
+            'behavioral_levels': behavioral_levels,
+            'deep_patterns': deep_patterns,
+            'test_result_id': test_result_id,
+            'test_completed_at': datetime.now().isoformat(),
+            'display_name': profile_code
         }
         
+        # Сохраняем профиль
         await user_repo.save_profile(user_id, full_profile)
         
+        # ========== АКТИВНАЯ ГЕНЕРАЦИЯ AI-ПРОФИЛЯ ==========
+        logger.info(f"🤖 Начинаем активную генерацию AI-профиля для {user_id}")
+        
+        ai_profile = None
+        thought = None
+        
         try:
+            # Генерируем AI-профиль
+            ai_profile = await ai_service.generate_ai_profile(user_id, full_profile)
+            if ai_profile:
+                await user_repo.update_profile_field(user_id, 'ai_generated_profile', ai_profile)
+                logger.info(f"✅ AI-профиль сгенерирован для {user_id} (длина: {len(ai_profile)})")
+            else:
+                logger.warning(f"⚠️ AI-профиль не сгенерирован для {user_id}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации AI-профиля: {e}")
+        
+        try:
+            # Генерируем мысль психолога
             thought = await ai_service.generate_psychologist_thought(user_id, full_profile)
             if thought:
                 await user_repo.save_psychologist_thought(user_id, thought, test_result_id)
-                logger.info(f"✅ Generated psychologist thought for user {user_id}")
+                logger.info(f"✅ Мысль психолога сгенерирована для {user_id}")
+            else:
+                logger.warning(f"⚠️ Мысль психолога не сгенерирована для {user_id}")
         except Exception as e:
-            logger.error(f"Error generating thought: {e}")
+            logger.error(f"❌ Ошибка генерации мысли психолога: {e}")
         
+        # ========== ВОЗВРАЩАЕМ РЕЗУЛЬТАТ СРАЗУ ==========
         await log_event(user_id, "test_completed", {"profile_code": profile_code})
         
-        return {"success": True, "test_result_id": test_result_id, "profile_code": profile_code}
+        return {
+            "success": True,
+            "test_result_id": test_result_id,
+            "profile_code": profile_code,
+            "ai_profile": ai_profile,
+            "psychologist_thought": thought
+        }
         
     except Exception as e:
         logger.error(f"Error saving test results: {e}")
         return {"success": False, "error": str(e)}
-
 
 @app.get("/api/test-results/{user_id}")
 @limiter.limit("30/minute")
@@ -2615,12 +2647,7 @@ async def tts_compat(
 @limiter.limit("30/minute")
 async def get_generated_profile(request: Request, user_id: int):
     """
-    Получить сгенерированный AI-профиль и мысли психолога после завершения теста
-    Возвращает:
-    - ai_profile: сгенерированный текстовый портрет
-    - psychologist_thought: мысли психолога
-    - profile_data: рассчитанные данные профиля
-    - deep_patterns: глубинные паттерны
+    Получить сгенерированный AI-профиль (с активной генерацией если нет)
     """
     try:
         profile = await user_repo.get_profile(user_id) or {}
@@ -2641,30 +2668,47 @@ async def get_generated_profile(request: Request, user_id: int):
             user_name = context.get('name', 'друг')
             psychologist_thought = format_psychologist_text(psychologist_thought, user_name)
         
-        # Проверяем, генерируется ли профиль
-        is_generating = profile.get('profile_generating', False)
+        # ЕСЛИ НЕТ AI-ПРОФИЛЯ — ГЕНЕРИРУЕМ СЕЙЧАС
+        if not ai_profile and profile_data:
+            logger.info(f"🤖 Активная генерация AI-профиля для {user_id} (по запросу)")
+            
+            try:
+                # Генерируем AI-профиль
+                ai_profile = await ai_service.generate_ai_profile(user_id, profile)
+                if ai_profile:
+                    await user_repo.update_profile_field(user_id, 'ai_generated_profile', ai_profile)
+                    logger.info(f"✅ AI-профиль сгенерирован для {user_id}")
+                else:
+                    logger.warning(f"⚠️ AI-профиль не сгенерирован для {user_id}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка генерации AI-профиля: {e}")
         
-        # Если профиль еще не сгенерирован, запускаем генерацию в фоне
-        if not ai_profile and not is_generating and profile_data:
-            # Помечаем, что генерация началась
-            await user_repo.update_profile_field(user_id, 'profile_generating', True)
+        # ЕСЛИ НЕТ МЫСЛИ ПСИХОЛОГА — ГЕНЕРИРУЕМ СЕЙЧАС
+        if not psychologist_thought and profile_data:
+            logger.info(f"💭 Активная генерация мысли психолога для {user_id}")
             
-            # Запускаем фоновую задачу
-            asyncio.create_task(generate_profile_background(user_id, profile_data))
-            
-            return {
-                "success": True,
-                "status": "generating",
-                "message": "Профиль генерируется, подождите несколько секунд",
-                "profile_data": profile_data,
-                "deep_patterns": deep_patterns,
-                "ai_profile": None,
-                "psychologist_thought": None
-            }
+            try:
+                thought = await ai_service.generate_psychologist_thought(user_id, profile)
+                if thought:
+                    # Получаем последний test_result_id
+                    async with db.get_connection() as conn:
+                        test_result = await conn.fetchrow("""
+                            SELECT id FROM test_results 
+                            WHERE user_id = $1 
+                            ORDER BY created_at DESC 
+                            LIMIT 1
+                        """, user_id)
+                        test_result_id = test_result['id'] if test_result else None
+                    
+                    await user_repo.save_psychologist_thought(user_id, thought, test_result_id)
+                    psychologist_thought = format_psychologist_text(thought, context.get('name', 'друг') if context else 'друг')
+                    logger.info(f"✅ Мысль психолога сгенерирована для {user_id}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка генерации мысли психолога: {e}")
         
         return {
             "success": True,
-            "status": "ready" if ai_profile else "pending",
+            "status": "ready",
             "profile_data": profile_data,
             "deep_patterns": deep_patterns,
             "ai_profile": ai_profile,
@@ -2674,53 +2718,7 @@ async def get_generated_profile(request: Request, user_id: int):
         
     except Exception as e:
         logger.error(f"Error getting generated profile for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================
-# ФОНОВАЯ ГЕНЕРАЦИЯ ПРОФИЛЯ
-# ============================================
-
-async def generate_profile_background(user_id: int, profile_data: dict):
-    """Фоновая генерация AI-профиля и мыслей психолога"""
-    try:
-        logger.info(f"🧠 Фоновая генерация профиля для пользователя {user_id}")
-        
-        # Получаем полные данные пользователя
-        profile = await user_repo.get_profile(user_id) or {}
-        
-        # Генерируем AI-профиль
-        if not profile.get('ai_generated_profile'):
-            ai_profile = await ai_service.generate_ai_profile(user_id, profile)
-            if ai_profile:
-                await user_repo.update_profile_field(user_id, 'ai_generated_profile', ai_profile)
-                logger.info(f"✅ AI-профиль сгенерирован для {user_id}")
-        
-        # Генерируем мысли психолога
-        if not await user_repo.get_psychologist_thought(user_id):
-            thought = await ai_service.generate_psychologist_thought(user_id, profile)
-            if thought:
-                # Получаем последний test_result_id
-                async with db.get_connection() as conn:
-                    test_result = await conn.fetchrow("""
-                        SELECT id FROM test_results 
-                        WHERE user_id = $1 
-                        ORDER BY created_at DESC 
-                        LIMIT 1
-                    """, user_id)
-                    test_result_id = test_result['id'] if test_result else None
-                
-                await user_repo.save_psychologist_thought(user_id, thought, test_result_id)
-                logger.info(f"✅ Мысли психолога сгенерированы для {user_id}")
-        
-        # Снимаем флаг генерации
-        await user_repo.update_profile_field(user_id, 'profile_generating', False)
-        
-    except Exception as e:
-        logger.error(f"Ошибка фоновой генерации для {user_id}: {e}")
-        # Снимаем флаг даже при ошибке
-        await user_repo.update_profile_field(user_id, 'profile_generating', False)
-
+        return {"success": False, "error": str(e)}
 
 # ============================================
 # ПРОВЕРКА РЕАЛЬНОСТИ ЭНДПОИНТЫ
