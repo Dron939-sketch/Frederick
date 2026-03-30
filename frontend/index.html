@@ -2,18 +2,25 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0a0a0a">
+    
     <title>Фреди | Премиум виртуальный психолог</title>
     
+    <!-- Шрифт -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    
+    <!-- Основные стили -->
     <link rel="stylesheet" href="/styles.css">
+    
+    <!-- Favicon (рекомендую добавить) -->
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
 </head>
 <body>
     <div class="app">
-        <!-- Левая панель -->
+        <!-- Левая панель чатов -->
         <div class="chats-panel" id="chatsPanel">
             <div class="chats-header">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -21,11 +28,13 @@
                     <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; background: rgba(224,224,224,0.1); border-radius: 50%;">✎</button>
                 </div>
             </div>
+            
             <div class="chats-search">
                 <input type="text" placeholder="Поиск" id="chatSearchInput">
             </div>
+            
             <div class="chats-list" id="chatsList">
-                <!-- Основные чаты -->
+                <!-- Основной чат с Фреди -->
                 <div class="chat-item active" data-chat="fredi">
                     <div class="chat-avatar">⭐</div>
                     <div class="chat-info">
@@ -44,10 +53,8 @@
                     <div class="chat-time"></div>
                 </div>
                 
-                <!-- Разделитель -->
                 <div class="menu-divider"></div>
                 
-                <!-- Расширенные функции -->
                 <div class="menu-section-title">РАСШИРЕННЫЕ ФУНКЦИИ</div>
                 
                 <div class="chat-item" data-chat="confinement">
@@ -104,18 +111,19 @@
                     <div class="chat-time"></div>
                 </div>
             </div>
+            
             <div class="chats-footer">
                 <div class="user-mini-profile" id="userMiniProfile">
                     <div class="user-mini-avatar" id="userMiniAvatar">А</div>
                     <div class="user-mini-info">
-                        <div class="user-mini-name" id="userName">Андрей</div>
+                        <div class="user-mini-name" id="userName">Пользователь</div>
                         <div class="user-mini-status" id="userStatus">⚡ активен</div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Правая панель -->
+        <!-- Основная панель чата -->
         <div class="chat-panel" id="chatPanel">
             <div class="chat-header">
                 <div class="chat-header-left">
@@ -125,24 +133,29 @@
                         <div class="chat-header-name">Фреди</div>
                         <div class="chat-header-status" id="botStatus">
                             <span class="mode-indicator" id="modeIndicator" style="background: #ff6b3b;"></span>
-                            <span id="modeLabel">Психолог</span>
+                            <span id="modeLabel">Бендер</span>
                         </div>
                     </div>
                 </div>
                 <div class="chat-header-right">
-                    <button class="mode-btn" style="width: 36px; height: 36px; padding: 0; background: rgba(224,224,224,0.1); border-radius: 50%;" id="menuBtn">⋮</button>
+                    <button class="mode-btn" id="menuBtn">⋮</button>
                 </div>
             </div>
+            
             <div id="screenContainer" class="screen-container">
+                <!-- Здесь динамически загружается контент через app.js -->
                 <div class="loading-screen">
                     <div class="loading-spinner">⭐</div>
-                    <div class="loading-text">Инициализация системы...</div>
+                    <div class="loading-text">Инициализация Фреди...</div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Скрытый аудиоплеер -->
     <audio id="hiddenAudioPlayer" preload="auto"></audio>
+
+    <!-- Toast уведомления -->
     <div id="toastMessage" class="floating-message" style="display: none;">
         <div class="floating-message-content">
             <div class="floating-message-text" id="toastText"></div>
@@ -150,12 +163,9 @@
         </div>
     </div>
 
-    <!-- ========== ПОДКЛЮЧЕНИЕ СКРИПТОВ ========== -->
-    <!-- Сначала загружаем голосовой модуль -->
+    <!-- Скрипты — порядок важен! -->
     <script src="/voice.js"></script>
-    <!-- Затем тестовый модуль -->
     <script src="/test.js"></script>
-    <!-- Основной модуль (зависит от voice.js) -->
     <script src="/app.js"></script>
 </body>
 </html>
