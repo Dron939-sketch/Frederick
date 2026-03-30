@@ -5,6 +5,7 @@
 Базовый класс для всех режимов общения (КОУЧ/ПСИХОЛОГ/ТРЕНЕР/BASIC)
 Интегрирован с конфайнтмент-моделью и гипнотическими техниками
 Поддержка потоковой обработки для живого голосового диалога
+ВЕРСИЯ 2.0 — с улучшенным разбиением на предложения и восстановлением пунктуации
 """
 
 from abc import ABC, abstractmethod
@@ -155,6 +156,9 @@ class BaseMode(ABC):
         result = self.process_question(question)
         full_response = result.get("response", "")
 
+        # Восстанавливаем пунктуацию перед отправкой
+        full_response = self._restore_punctuation(full_response)
+        
         self.save_to_history(question, full_response)
 
         # Разбиваем на предложения и отправляем по одному
@@ -167,17 +171,64 @@ class BaseMode(ABC):
         # Добавляем follow-up, если нужно
         if result.get("follow_up"):
             follow_up_text = self._get_follow_up_suggestion(result)
+            follow_up_text = self._restore_punctuation(follow_up_text)
             for sentence in self._split_into_sentences(follow_up_text):
                 if sentence.strip():
                     yield sentence.strip()
                     await asyncio.sleep(0.05)
 
+    def _restore_punctuation(self, text: str) -> str:
+        """
+        Восстанавливает знаки препинания в тексте для голосового вывода.
+        """
+        if not text:
+            return text
+        
+        original = text
+        
+        # 1. Добавляем точку в конце, если её нет
+        if text and text[-1] not in '.!?':
+            text += '.'
+        
+        # 2. Добавляем пробел после знаков препинания, если его нет
+        text = re.sub(r'([.!?])([А-ЯЁA-Zа-яёa-z0-9])', r'\1 \2', text)
+        
+        # 3. Убираем дублирующиеся знаки препинания
+        text = re.sub(r'([.!?])\1+', r'\1', text)
+        text = re.sub(r'([,;:])\1+', r'\1', text)
+        
+        # 4. Исправляем тире
+        text = re.sub(r'\s*-\s*,?\s*', ' — ', text)
+        
+        # 5. Убираем запятые после частицы "не"
+        text = re.sub(r'\b(не|ни)\s*,', r'\1', text, flags=re.IGNORECASE)
+        
+        # 6. Нормализуем пробелы
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'\s*([.,!?:;])\s*', r'\1 ', text)
+        text = re.sub(r'\s+([.,!?:;])', r'\1', text)
+        
+        # 7. Убираем множественные знаки в конце
+        if len(text) > 1 and text[-1] in '.!?' and text[-2] in '.!?':
+            text = text[:-1]
+        
+        if text != original:
+            logger.debug(f"🔄 Восстановлена пунктуация в BaseMode: '{original[:100]}' → '{text[:100]}'")
+        
+        return text
+
     def _split_into_sentences(self, text: str) -> List[str]:
-        """Разбивает текст на предложения аккуратно"""
+        """
+        Разбивает текст на предложения аккуратно.
+        """
         if not text:
             return []
         
-        # Более точное разбиение по предложениям
+        # Сначала добавляем точку где нужно
+        if text and text[-1] not in '.!?':
+            text += '.'
+        
+        # Разбиваем по знакам препинания
         sentences = re.split(r'(?<=[.!?])\s+', text)
         
         result = []
@@ -189,6 +240,7 @@ class BaseMode(ABC):
         return result
 
     def _get_follow_up_suggestion(self, result: Dict[str, Any]) -> str:
+        """Возвращает предложение для продолжения диалога"""
         suggestions = result.get("suggestions", [])
         if suggestions:
             return f"Кстати, вы можете спросить меня: {suggestions[0]}"
@@ -203,6 +255,10 @@ class BaseMode(ABC):
 
     # ====================== АНАЛИЗ ПРОФИЛЯ ======================
     def analyze_profile_for_response(self) -> Dict[str, Any]:
+        """
+        Анализирует профиль пользователя для формирования ответа.
+        Возвращает словарь с ключевыми характеристиками.
+        """
         analysis = {
             "attention_focus": self._get_attention_focus(),
             "thinking_depth": self._get_thinking_depth(),
@@ -217,6 +273,7 @@ class BaseMode(ABC):
         return analysis
 
     def _get_key_confinement_info(self) -> Optional[Dict]:
+        """Возвращает информацию о ключевом конфайнтменте"""
         if self.confinement_model and hasattr(self.confinement_model, 'key_confinement'):
             key_conf = self.confinement_model.key_confinement
             if key_conf and key_conf.get('element'):
@@ -232,6 +289,7 @@ class BaseMode(ABC):
         return None
 
     def _get_loops_info(self) -> List[Dict]:
+        """Возвращает информацию о петлях"""
         if self.confinement_model and hasattr(self.confinement_model, 'loops'):
             loops = self.confinement_model.loops
             if loops:
@@ -246,11 +304,13 @@ class BaseMode(ABC):
         return []
 
     def _get_attention_focus(self) -> str:
+        """Определяет фокус внимания (внешний/внутренний)"""
         if self.perception_type in ["СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ", "СТАТУСНО-ОРИЕНТИРОВАННЫЙ"]:
             return "external"
         return "internal"
 
     def _get_thinking_depth(self) -> str:
+        """Определяет глубину мышления"""
         if self.thinking_level <= 3:
             return "concrete"
         elif self.thinking_level <= 6:
@@ -259,6 +319,7 @@ class BaseMode(ABC):
             return "deep"
 
     def _get_pain_points(self) -> List[str]:
+        """Возвращает список болевых точек"""
         points = []
         if self.weakest_profile:
             pain_costs = self.weakest_profile.get('pain_costs', [])
@@ -273,6 +334,7 @@ class BaseMode(ABC):
         return [p for p in points if p][:3]
 
     def _get_growth_area(self) -> str:
+        """Определяет зону роста"""
         dilts_counts = self.user_data.get("dilts_counts", {})
         if dilts_counts:
             dominant = max(dilts_counts.items(), key=lambda x: x[1])[0]
@@ -281,6 +343,7 @@ class BaseMode(ABC):
 
     # ====================== КОНТЕКСТ И ИСТОРИЯ ======================
     def get_context_string(self) -> str:
+        """Возвращает строку с контекстом пользователя"""
         lines = []
         if self.context:
             if hasattr(self.context, 'gender') and self.context.gender:
@@ -300,6 +363,47 @@ class BaseMode(ABC):
                 w = self.context.weather_cache
                 lines.append(f"Погода: {w.get('icon', '')} {w.get('description', '')}, {w.get('temp', '')}°C")
         return "\n".join(lines)
+
+    def get_response_context(self) -> str:
+        """
+        Возвращает полный контекст для ответа с учётом режима.
+        Включает профиль, ограничения, петли и историю.
+        """
+        context_parts = []
+        
+        # Профиль пользователя
+        if self.profile:
+            profile_code = self.profile.get('display_name', '')
+            if profile_code:
+                context_parts.append(f"Профиль пользователя: {profile_code}")
+        
+        # Ключевая характеристика
+        if self.weakest_profile:
+            quote = self.weakest_profile.get('quote', '')
+            if quote:
+                context_parts.append(f"Ключевая характеристика: {quote[:100]}")
+        
+        # Ключевой конфайнтмент
+        key_conf = self._get_key_confinement_info()
+        if key_conf and key_conf.get('description'):
+            context_parts.append(f"Ключевое ограничение: {key_conf['description'][:100]}")
+        
+        # Петли
+        loops = self._get_loops_info()
+        if loops:
+            strongest = max(loops, key=lambda x: x.get('strength', 0))
+            context_parts.append(f"Главная петля: {strongest.get('description', '')[:100]}")
+        
+        # Недавний диалог (последние 4 сообщения = 2 обмена)
+        if self.history:
+            last_messages = self.history[-4:]
+            context_parts.append("\nНедавний диалог:")
+            for msg in last_messages:
+                role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
+                content = msg.get('content', '')[:100]
+                context_parts.append(f"{role}: {content}")
+        
+        return "\n".join(context_parts)
 
     def save_to_history(self, question: str, response: str):
         """Сохраняет диалог в историю"""
@@ -322,14 +426,20 @@ class BaseMode(ABC):
 
     # ====================== ГИПНО, СКАЗКИ, ЯКОРЯ ======================
     def suggest_tale(self, issue: str = None) -> Optional[Dict]:
+        """
+        Предлагает терапевтическую сказку по теме.
+        Если тема не указана, выбирает по слабому вектору.
+        """
         if not issue:
             vector_names = {"СБ": "страх", "ТФ": "деньги", "УБ": "понимание", "ЧВ": "отношения"}
             issue = vector_names.get(self.weakest_vector, "рост")
+        
         if self.tales:
             try:
                 return self.tales.get_tale_for_issue(issue)
             except Exception as e:
                 logger.error(f"Ошибка при получении сказки: {e}")
+        
         return {
             'title': 'Сказка о переменах',
             'text': 'Жил-был человек. Однажды он понял, что может меняться. И мир изменился вместе с ним.',
@@ -337,6 +447,7 @@ class BaseMode(ABC):
         }
 
     def create_anchor(self, trigger: str, resource_state: str) -> Dict:
+        """Создаёт якорь для ресурсного состояния"""
         if self.anchoring:
             try:
                 return self.anchoring.create_anchor(self.user_id, trigger, resource_state)
@@ -345,31 +456,13 @@ class BaseMode(ABC):
         return {'success': False, 'error': 'Якорение недоступно'}
 
     def fire_anchor(self, trigger: str) -> bool:
+        """Активирует якорь"""
         if self.anchoring:
             try:
                 return self.anchoring.fire_anchor(self.user_id, trigger)
             except Exception as e:
                 logger.error(f"Ошибка при активации якоря: {e}")
         return False
-
-    def get_response_context(self) -> str:
-        context_parts = []
-        if self.profile:
-            profile_code = self.profile.get('display_name', '')
-            if profile_code:
-                context_parts.append(f"Профиль пользователя: {profile_code}")
-        if self.weakest_profile:
-            quote = self.weakest_profile.get('quote', '')
-            if quote:
-                context_parts.append(f"Ключевая характеристика: {quote[:100]}")
-        key_conf = self._get_key_confinement_info()
-        if key_conf and key_conf.get('description'):
-            context_parts.append(f"Ключевое ограничение: {key_conf['description'][:100]}")
-        loops = self._get_loops_info()
-        if loops:
-            strongest = max(loops, key=lambda x: x.get('strength', 0))
-            context_parts.append(f"Главная петля: {strongest.get('description', '')[:100]}")
-        return "\n".join(context_parts)
 
     def __repr__(self) -> str:
         return f"<{self.name}(user_id={self.user_id})>"
