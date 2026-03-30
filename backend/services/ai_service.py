@@ -85,7 +85,7 @@ class AIService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v3.1-terminus",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": temperature,
                     "max_tokens": max_tokens
@@ -96,21 +96,9 @@ class AIService:
                     data = await response.json()
                     result = data['choices'][0]['message']['content']
                     
-                    # ========== УСИЛЕННАЯ ОЧИСТКА ==========
-                    # 1. Склеиваем разорванные буквы (3 прохода)
-                    for _ in range(3):
+                    # Очистка на случай битых ответов
+                    for _ in range(2):
                         result = re.sub(r'([а-яёА-ЯЁa-zA-Z])\s+([а-яёА-ЯЁa-zA-Z])', r'\1\2', result)
-                    
-                    # 2. Нормализуем пробелы
-                    result = re.sub(r'\s+', ' ', result)
-                    
-                    # 3. Добавляем пробелы после знаков препинания
-                    result = re.sub(r'([.,!?])(\S)', r'\1 \2', result)
-                    
-                    # 4. Убираем пробелы перед знаками препинания
-                    result = re.sub(r'\s+([.,!?])', r'\1', result)
-                    
-                    # 5. Финальная нормализация
                     result = re.sub(r'\s+', ' ', result).strip()
                     
                     logger.info(f"💬 Ответ ИИ: {len(result)} символов")
@@ -136,7 +124,7 @@ class AIService:
             "Content-Type": "application/json"
         }
         data = {
-            "model": "deepseek-chat",
+            "model": "deepseek-v3.1-terminus",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -276,7 +264,7 @@ class AIService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v3.1-terminus",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -329,7 +317,7 @@ class AIService:
             "Content-Type": "application/json"
         }
         data = {
-            "model": "deepseek-chat",
+            "model": "deepseek-v3.1-terminus",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -615,7 +603,7 @@ class AIService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v3.1-terminus",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
