@@ -4,7 +4,7 @@
 МОДУЛЬ: РЕЖИМ КОУЧ (coach.py)
 Партнёрский стиль общения. Помогает находить ответы внутри себя через открытые вопросы.
 Образ: Бертран Рассел — мудрый философ, скептик, ценитель ясности мысли и свободы разума.
-ВЕРСИЯ 3.0 — философский коучинг
+ВЕРСИЯ 3.1 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА
 """
 
 from typing import Dict, Any, List, Optional
@@ -14,6 +14,7 @@ from datetime import datetime
 
 from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
+from services.ai_service import AIService  # ДОБАВЛЕН ИМПОРТ
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,9 @@ class CoachMode(BaseMode):
     
     def __init__(self, user_id: int, user_data: Dict[str, Any], context=None):
         super().__init__(user_id, user_data, context)
+        
+        # ДОБАВЛЕН AI-СЕРВИС
+        self.ai_service = AIService()
         
         self.tools = {
             "open_questions": self._generate_open_questions,
@@ -195,8 +199,47 @@ class CoachMode(BaseMode):
         
         return random.choice(greetings)
     
+    # ========== ДОБАВЛЕН НОВЫЙ МЕТОД ДЛЯ AI ==========
+    async def process_question_streaming(self, question: str):
+        """Потоковая обработка вопроса через AI с учётом профиля"""
+        
+        # Собираем данные профиля для AI
+        profile = {
+            'profile_data': self.profile_data,
+            'perception_type': self.perception_type,
+            'thinking_level': self.thinking_level,
+            'behavioral_levels': self.behavioral_levels,
+            'deep_patterns': self.deep_patterns,
+            'weakest_vector': getattr(self, 'weakest_vector', None),
+            'weakest_level': getattr(self, 'weakest_level', None)
+        }
+        
+        context_data = {
+            'name': self.context.name if self.context else None,
+            'city': self.context.city if self.context else None,
+            'age': self.context.age if self.context else None
+        }
+        
+        full_response = ""
+        async for chunk in self.ai_service.generate_response_streaming(
+            message=question,
+            context=context_data,
+            profile=profile,
+            mode='coach'
+        ):
+            if chunk:
+                full_response += chunk
+                yield chunk
+        
+        if not full_response:
+            # Fallback на философский вопрос
+            yield self._generate_philosophical_question(question)
+        
+        self.save_to_history(question, full_response)
+    # =================================================
+    
     def process_question(self, question: str) -> Dict[str, Any]:
-        """Обрабатывает вопрос в философском стиле"""
+        """Обрабатывает вопрос в философском стиле (синхронная версия, используется как fallback)"""
         question_lower = question.lower()
         self.last_tools_used = []
         
