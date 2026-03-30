@@ -700,7 +700,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                             "data": f"🧠 Фреди: {clean_chunk}"
                         })
 
-                response_text = " ".join(response_chunks)
+                response_text = "".join(response_chunks)
                 response_text = normalize_tts_text(response_text)
 
                 logger.info(f"💬 AI response collected in WS: {len(response_text)} символов")
