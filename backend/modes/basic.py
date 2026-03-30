@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-МОДУЛЬ: БАЗОВЫЙ РЕЖИМ (basic.py) - Великий Комбинатор
+МОДУЛЬ: БАЗОВЫЙ РЕЖИМ (basic.py)
 Режим для пользователей, которые еще не прошли тест.
-Фреди в образе Остапа Бендера с использованием DeepSeek.
-Версия 3.0 — упрощённая, как в Telegram-боте (без стриминга, без сложного анализа)
+Фреди — харизматичный и остроумный помощник.
+Версия 3.1 — исправленная (без упоминаний Бендера, с защитой от склеивания)
 """
 
 import re
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class BasicMode(BaseMode):
     """
-    Великий Комбинатор — Остап Бендер 2.0
+    Базовый режим общения с Фреди.
     Упрощённая версия, как в Telegram-боте.
     - Читает между строк (скрытый контекст)
     - Запоминает последние сообщения
@@ -30,7 +30,7 @@ class BasicMode(BaseMode):
     """
 
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
-        # Минимальные данные для Бендера
+        # Минимальные данные для базового режима
         minimal_data = {
             "profile_data": {},
             "perception_type": user_data.get("perception_type", "не определен"),
@@ -55,7 +55,7 @@ class BasicMode(BaseMode):
         self.rules: List[str] = []           # факты о пользователе
         self.golden_phrases: List[str] = []  # сильные фразы
         
-        logger.info(f"🎭 BasicMode (Бендер 3.0) инициализирован для user_id={user_id}")
+        logger.info(f"🎭 BasicMode инициализирован для user_id={user_id}")
 
     # ====================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ======================
     
@@ -82,7 +82,7 @@ class BasicMode(BaseMode):
         else:
             return "Ночь на дворе"
 
-    # ====================== ПРОСТЫЕ ПРАВИЛА (как в Telegram-боте) ======================
+    # ====================== ПРОСТЫЕ ПРАВИЛА ======================
     
     async def _extract_rule(self, message: str) -> Optional[str]:
         """Извлекает простое правило из сообщения"""
@@ -106,7 +106,7 @@ class BasicMode(BaseMode):
     # ====================== ПРОМПТ ======================
     
     def get_system_prompt(self) -> str:
-        return """Ты Фреди — Великий Комбинатор, современный Остап Бендер 2.0.
+        return """Ты Фреди — виртуальный помощник. 
 Твой текст будет озвучиваться голосом.
 
 ВАЖНО: Пиши ТОЛЬКО с пробелами между словами. НЕ склеивай слова.
@@ -133,7 +133,7 @@ class BasicMode(BaseMode):
         address = self._get_address()
         time_greeting = self._get_time_greeting()
         name_part = f", {self.user_name}" if self.user_name else ""
-        return f"{time_greeting}{name_part}, {address}. Я Фреди, великий комбинатор. Чую в тебе что-то интересное. Любовь, деньги, слава или бананы?"
+        return f"{time_greeting}{name_part}, {address}. Я Фреди. Чую в тебе что-то интересное. Расскажешь, что у тебя происходит?"
 
     def _build_prompt(self, question: str) -> str:
         """Простой промпт, как в Telegram-боте"""
@@ -158,7 +158,7 @@ class BasicMode(BaseMode):
 
 Ответь коротко, с лёгкой иронией. Обязательно заканчивай вопросом."""
 
-    # ====================== ОСНОВНОЙ МЕТОД (БЕЗ СТРИМИНГА) ======================
+    # ====================== ОСНОВНОЙ МЕТОД ======================
     
     async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
         """Главный метод — как в Telegram-боте (без стриминга)"""
@@ -197,7 +197,7 @@ class BasicMode(BaseMode):
         # 6. Формируем простой промпт
         full_prompt = self._build_prompt(question)
         
-        # 7. Вызываем DeepSeek (БЕЗ СТРИМИНГА, как в Telegram-боте)
+        # 7. Вызываем DeepSeek
         try:
             response = await self.ai_service._simple_call(
                 prompt=full_prompt,
@@ -206,8 +206,9 @@ class BasicMode(BaseMode):
             )
             
             if response and response.strip():
-                # Возвращаем ВЕСЬ ответ одним чанком
-                yield response  # ← без _simple_clean!
+                # Очищаем от маркдауна и эмодзи, но сохраняем пробелы
+                cleaned = self._simple_clean(response)
+                yield cleaned
             else:
                 address = self._get_address()
                 yield f"{address}, интересный вопрос. Расскажи подробнее."
@@ -217,7 +218,7 @@ class BasicMode(BaseMode):
             address = self._get_address()
             yield f"{address}, интересный вопрос. Расскажи подробнее."
 
-    # ====================== ПРОСТАЯ ОЧИСТКА (как в Telegram-боте) ======================
+    # ====================== ПРОСТАЯ ОЧИСТКА ======================
     
     def _simple_clean(self, text: str) -> str:
         """
@@ -268,7 +269,7 @@ class BasicMode(BaseMode):
     # ====================== ЗАГЛУШКА ======================
     
     def process_question(self, question: str):
-        return {"response": "Бендер работает в streaming-режиме", "tools_used": []}
+        return {"response": "Базовый режим работает", "tools_used": []}
 
     def __repr__(self):
-        return f"<BasicMode(Bender, msgs={self.message_counter}, rules={len(self.rules)})>"
+        return f"<BasicMode(msgs={self.message_counter}, rules={len(self.rules)})>"
