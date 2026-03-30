@@ -694,7 +694,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk and chunk.strip():
                         clean_chunk = chunk.strip()
-                        response_chunks.append(clean_chunk)
+                        response_chunks.append(chunk)
                         await websocket.send_json({
                             "type": "text",
                             "data": f"🧠 Фреди: {clean_chunk}"
@@ -1399,7 +1399,7 @@ async def process_voice(
         response_chunks = []
         async for chunk in mode_instance.process_question_streaming(recognized_text):
             if chunk and chunk.strip():
-                response_chunks.append(chunk.strip())
+                response_chunks.append(chunk)
 
         # Склеиваем + нормализуем
         response_text = "".join(response_chunks)
