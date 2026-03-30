@@ -2570,118 +2570,156 @@ ${interpretation}
     },
     
     showFinalProfileButtons() {
-        const profile = this.calculateFinalProfile();
-        const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
-        
-        const sbDesc = {
-            1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
-            4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
-        }[profile.sbLevel] || "Информация уточняется";
-        
-        const tfDesc = {
-            1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
-            4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
-        }[profile.tfLevel] || "Информация уточняется";
-        
-        const ubDesc = {
-            1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
-            4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
-        }[profile.ubLevel] || "Информация уточняется";
-        
-        const chvDesc = {
-            1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
-            4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
-        }[profile.chvLevel] || "Информация уточняется";
-        
-        let profileText = `
-🧠 ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
+    const profile = this.calculateFinalProfile();
+    const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
+    
+    const sbDesc = {
+        1: "Под давлением замираете", 2: "Избегаете конфликтов", 3: "Внешне соглашаетесь",
+        4: "Внешне спокойны", 5: "Умеете защищать", 6: "Защищаете и используете силу"
+    }[profile.sbLevel] || "Информация уточняется";
+    
+    const tfDesc = {
+        1: "Деньги как повезёт", 2: "Ищете возможности с нуля", 3: "Зарабатываете трудом",
+        4: "Хорошо зарабатываете", 5: "Создаёте системы дохода", 6: "Управляете капиталом"
+    }[profile.tfLevel] || "Информация уточняется";
+    
+    const ubDesc = {
+        1: "Не думаете о сложном", 2: "Верите в знаки", 3: "Доверяете экспертам",
+        4: "Ищете заговоры", 5: "Анализируете факты", 6: "Строите теории"
+    }[profile.ubLevel] || "Информация уточняется";
+    
+    const chvDesc = {
+        1: "Сильно привязываетесь", 2: "Подстраиваетесь", 3: "Хотите нравиться",
+        4: "Умеете влиять", 5: "Строите равные отношения", 6: "Создаёте сообщества"
+    }[profile.chvLevel] || "Информация уточняется";
+    
+    // Формируем текст профиля
+    let profileText = `
+🧠 **ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ**
 
-Профиль: ${profile.displayName}
-Тип восприятия: ${profile.perceptionType}
-Уровень мышления: ${profile.thinkingLevel}/9
+**Профиль:** ${profile.displayName}
+**Тип восприятия:** ${profile.perceptionType}
+**Уровень мышления:** ${profile.thinkingLevel}/9
 
-📊 ТВОИ ВЕКТОРЫ:
+---
 
-• Реакция на давление (СБ ${profile.sbLevel}/6): ${sbDesc}
+**📊 ВАШИ ВЕКТОРЫ:**
 
-• Отношение к деньгам (ТФ ${profile.tfLevel}/6): ${tfDesc}
+**Реакция на давление (СБ ${profile.sbLevel}/6):** ${sbDesc}
 
-• Понимание мира (УБ ${profile.ubLevel}/6): ${ubDesc}
+**Отношение к деньгам (ТФ ${profile.tfLevel}/6):** ${tfDesc}
 
-• Отношения с людьми (ЧВ ${profile.chvLevel}/6): ${chvDesc}
+**Понимание мира (УБ ${profile.ubLevel}/6):** ${ubDesc}
 
-🧠 Глубинный паттерн: ${deep.attachment}
+**Отношения с людьми (ЧВ ${profile.chvLevel}/6):** ${chvDesc}
+
+---
+
+**🧠 Глубинный паттерн:** ${deep.attachment}
 `;
-        
-        if (this.aiGeneratedProfile) {
-            profileText += `\n\n🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:\n\n${this.aiGeneratedProfile}`;
-        }
-        
-        this.addBotMessage(profileText, true);
-        
-        this.addMessageWithButtons("👇 ЧТО ДАЛЬШЕ?", [
-            { text: "🧠 МЫСЛИ ПСИХОЛОГА", callback: () => this.showPsychologistThought() }
-        ]);
-        
-        if (this.userId) {
-            localStorage.setItem(`test_results_${this.userId}`, JSON.stringify({
-                profile,
-                deepPatterns: deep,
-                perceptionType: this.perceptionType,
-                thinkingLevel: this.thinkingLevel,
-                context: this.context,
-                aiProfile: this.aiGeneratedProfile
-            }));
-        }
-    },
     
-    goToNextStage() {
-        this.currentStage++;
-        this.currentQuestionIndex = 0;
-        this.sendStageIntro();
-    },
+    // Добавляем AI-профиль, если есть
+    if (this.aiGeneratedProfile) {
+        // Очищаем AI-профиль от маркдауна и форматируем
+        let cleanProfile = this.aiGeneratedProfile;
+        
+        // Делаем жирные заголовки
+        cleanProfile = cleanProfile.replace(/КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА/gi, '\n\n**🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА**\n');
+        cleanProfile = cleanProfile.replace(/СИЛЬНЫЕ СТОРОНЫ/gi, '\n\n**💪 СИЛЬНЫЕ СТОРОНЫ**\n');
+        cleanProfile = cleanProfile.replace(/ЗОНЫ РОСТА/gi, '\n\n**🎯 ЗОНЫ РОСТА**\n');
+        cleanProfile = cleanProfile.replace(/КАК ЭТО СФОРМИРОВАЛОСЬ/gi, '\n\n**🌱 КАК ЭТО СФОРМИРОВАЛОСЬ**\n');
+        cleanProfile = cleanProfile.replace(/ГЛАВНАЯ ЛОВУШКА/gi, '\n\n**⚠️ ГЛАВНАЯ ЛОВУШКА**\n');
+        
+        // Превращаем маркированные списки в обычные с переносами
+        cleanProfile = cleanProfile.replace(/•\s*/g, '• ');
+        cleanProfile = cleanProfile.replace(/-\s*/g, '• ');
+        
+        profileText += `\n\n---\n\n**🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:**\n\n${cleanProfile}`;
+    }
     
-    showFinalProfile() {
-        this.showFinalProfileButtons();
-    },
+    // Отображаем сообщение
+    this.addBotMessage(profileText, true);
+    
+    // Кнопки после профиля
+    this.addMessageWithButtons("👇 **ЧТО ДАЛЬШЕ?**", [
+        { text: "🧠 МЫСЛИ ПСИХОЛОГА", callback: () => this.showPsychologistThought() },
+        { text: "🏠 НА ГЛАВНУЮ", callback: () => this.goToDashboard() }
+    ]);
+    
+    // Сохраняем в localStorage
+    if (this.userId) {
+        localStorage.setItem(`test_results_${this.userId}`, JSON.stringify({
+            profile,
+            deepPatterns: deep,
+            perceptionType: this.perceptionType,
+            thinkingLevel: this.thinkingLevel,
+            context: this.context,
+            aiProfile: this.aiGeneratedProfile
+        }));
+    }
+},
+
+// Добавьте эту функцию для возврата на главный экран
+goToDashboard() {
+    // Очищаем экран теста
+    const container = document.getElementById('screenContainer');
+    if (container) {
+        container.innerHTML = '';
+    }
+    // Вызываем рендер дашборда из глобального объекта
+    if (typeof renderDashboard === 'function') {
+        renderDashboard();
+    } else if (window.dashboard && typeof window.dashboard.renderDashboard === 'function') {
+        window.dashboard.renderDashboard();
+    }
+},
     
     async showPsychologistThought() {
-        if (this.psychologistThought) {
-            const formattedThought = this.formatProfileText(this.psychologistThought);
-            this.addBotMessage(`
-🧠 МЫСЛИ ПСИХОЛОГА
-
-${formattedThought}
-`, true);
-            return;
-        }
+    if (this.psychologistThought) {
+        // Форматируем мысль психолога
+        let thought = this.psychologistThought;
         
-        this.addBotMessage("🧠 Генерирую мысли психолога...", true);
+        // Добавляем заголовки если есть
+        thought = thought.replace(/КЛЮЧЕВОЙ ЭЛЕМЕНТ/gi, '\n\n**🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ**\n');
+        thought = thought.replace(/ПЕТЛЯ/gi, '\n\n**🔄 ПЕТЛЯ**\n');
+        thought = thought.replace(/ТОЧКА ВХОДА/gi, '\n\n**🚪 ТОЧКА ВХОДА**\n');
+        thought = thought.replace(/ПРОГНОЗ/gi, '\n\n**📊 ПРОГНОЗ**\n');
+        thought = thought.replace(/РЕКОМЕНДАЦИИ/gi, '\n\n**💡 РЕКОМЕНДАЦИИ**\n');
         
-        try {
-            const response = await fetch(`${TEST_API_BASE_URL}/api/psychologist-thought/${this.userId}`);
-            const data = await response.json();
-            
-            if (data.success && data.thought) {
-                this.psychologistThought = data.thought;
-                const formattedThought = this.formatProfileText(data.thought);
-                this.addBotMessage(`
-🧠 МЫСЛИ ПСИХОЛОГА
-
-${formattedThought}
-`, true);
-            } else {
-                this.addBotMessage("🧠 Мысли психолога будут доступны через несколько секунд.", true);
-            }
-        } catch (error) {
-            console.error('Ошибка:', error);
-            this.addBotMessage("🧠 Мысли психолога временно недоступны. Попробуйте позже.", true);
-        }
-        
-        this.addMessageWithButtons("", [
-            { text: "🧠 К ПРОФИЛЮ", callback: () => this.showFinalProfileButtons() }
-        ]);
+        this.addBotMessage(`🧠 **МЫСЛИ ПСИХОЛОГА**\n\n${thought}`, true);
+        return;
     }
+    
+    this.addBotMessage("🧠 Генерирую мысли психолога...", true);
+    
+    try {
+        const response = await fetch(`${TEST_API_BASE_URL}/api/psychologist-thought/${this.userId}`);
+        const data = await response.json();
+        
+        if (data.success && data.thought) {
+            this.psychologistThought = data.thought;
+            
+            let thought = data.thought;
+            thought = thought.replace(/КЛЮЧЕВОЙ ЭЛЕМЕНТ/gi, '\n\n**🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ**\n');
+            thought = thought.replace(/ПЕТЛЯ/gi, '\n\n**🔄 ПЕТЛЯ**\n');
+            thought = thought.replace(/ТОЧКА ВХОДА/gi, '\n\n**🚪 ТОЧКА ВХОДА**\n');
+            thought = thought.replace(/ПРОГНОЗ/gi, '\n\n**📊 ПРОГНОЗ**\n');
+            thought = thought.replace(/РЕКОМЕНДАЦИИ/gi, '\n\n**💡 РЕКОМЕНДАЦИИ**\n');
+            
+            this.addBotMessage(`🧠 **МЫСЛИ ПСИХОЛОГА**\n\n${thought}`, true);
+        } else {
+            this.addBotMessage("🧠 Мысли психолога будут доступны через несколько секунд.", true);
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        this.addBotMessage("🧠 Мысли психолога временно недоступны. Попробуйте позже.", true);
+    }
+    
+    this.addMessageWithButtons("", [
+        { text: "🧠 К ПРОФИЛЮ", callback: () => this.showFinalProfileButtons() },
+        { text: "🏠 НА ГЛАВНУЮ", callback: () => this.goToDashboard() }
+    ]);
+}
 };
 
 // Глобальный экспорт
