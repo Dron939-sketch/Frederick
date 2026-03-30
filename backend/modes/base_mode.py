@@ -98,7 +98,7 @@ class BaseMode(ABC):
     @property
     def profile_data(self) -> Dict[str, Any]:
         """Совместимость с voice_service (алиас для profile)"""
-        return self.profile
+        return getattr(self, 'profile', {})
 
     @profile_data.setter
     def profile_data(self, value: Dict[str, Any]):
@@ -106,11 +106,22 @@ class BaseMode(ABC):
         self.profile = value
 
     @property
+    def behavioral_levels(self) -> Dict[str, List[float]]:
+        """Совместимость с voice_service"""
+        return self.user_data.get('behavioral_levels', {})
+
+    @property
+    def deep_patterns_data(self) -> Dict[str, Any]:
+        """Совместимость с voice_service"""
+        return getattr(self, 'deep_patterns', {})
+
+    @property
     def confinement_model_data(self) -> Optional[Dict]:
         """Возвращает данные конфайнтмент-модели для voice_service"""
-        if self.confinement_model and hasattr(self.confinement_model, 'to_dict'):
-            return self.confinement_model.to_dict()
-        return None
+        if hasattr(self, 'confinement_model') and self.confinement_model:
+            if hasattr(self.confinement_model, 'to_dict'):
+                return self.confinement_model.to_dict()
+        return self.user_data.get('confinement_model', None)
     # ====================================================================
 
     def _level(self, score: float) -> int:
