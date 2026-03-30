@@ -16,6 +16,7 @@ import json
 import time
 import traceback
 import random
+import re
 from typing import Optional, Dict, Any, AsyncGenerator, Callable
 from datetime import datetime
 
@@ -113,25 +114,24 @@ def add_bender_flavor(text: str) -> str:
 
     original = text.strip()
 
-    # Добавляем префикс ТОЛЬКО если его нет
-    if not any(p.strip().lower() in original.lower()[:30] for p in BENDER_PREFIXES):
+    # Добавляем префикс только если его нет в начале
+    if not any(p.strip().lower() in original.lower()[:40] for p in BENDER_PREFIXES):
         prefix = random.choice(BENDER_PREFIXES)
-        # Добавляем префикс с пробелом, не ломая регистр
         text = prefix + original
     else:
         text = original
 
-    # Убираем ВСЕ эмодзи полностью
+    # Убираем ВСЕ эмодзи
     text = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251]', '', text)
 
     # Убираем возможные SSML-теги
     text = re.sub(r'<break[^>]*>', ' ', text)
 
-    # Финальная супер-очистка пробелов
-    text = re.sub(r'([.,!?;:-—])(\S)', r'\1 \2', text)   # пробел после знака
+    # Принудительно вставляем пробелы после знаков препинания
+    text = re.sub(r'([.,!?;:-—])(\S)', r'\1 \2', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
-    logger.debug(f"✨ Бендер flavor: '{original[:70]}...' → '{text[:90]}...'")
+    logger.debug(f"✨ Бендер flavor: '{original[:60]}...' → '{text[:80]}...'")
     return text
 
 
