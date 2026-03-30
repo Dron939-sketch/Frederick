@@ -2627,22 +2627,18 @@ goToNextStage() {
     
     // Добавляем AI-профиль, если есть
     if (this.aiGeneratedProfile) {
-        // Очищаем AI-профиль от маркдауна и форматируем
-        let cleanProfile = this.aiGeneratedProfile;
-        
-        // Делаем жирные заголовки
-        cleanProfile = cleanProfile.replace(/КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА/gi, '\n\n**🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА**\n');
-        cleanProfile = cleanProfile.replace(/СИЛЬНЫЕ СТОРОНЫ/gi, '\n\n**💪 СИЛЬНЫЕ СТОРОНЫ**\n');
-        cleanProfile = cleanProfile.replace(/ЗОНЫ РОСТА/gi, '\n\n**🎯 ЗОНЫ РОСТА**\n');
-        cleanProfile = cleanProfile.replace(/КАК ЭТО СФОРМИРОВАЛОСЬ/gi, '\n\n**🌱 КАК ЭТО СФОРМИРОВАЛОСЬ**\n');
-        cleanProfile = cleanProfile.replace(/ГЛАВНАЯ ЛОВУШКА/gi, '\n\n**⚠️ ГЛАВНАЯ ЛОВУШКА**\n');
-        
-        // Превращаем маркированные списки в обычные с переносами
-        cleanProfile = cleanProfile.replace(/•\s*/g, '• ');
-        cleanProfile = cleanProfile.replace(/-\s*/g, '• ');
-        
-        profileText += `\n\n---\n\n**🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:**\n\n${cleanProfile}`;
-    }
+    // Просто заменяем ** на <strong> для жирного текста
+    let cleanProfile = this.aiGeneratedProfile;
+    
+    // Превращаем маркированные списки в обычные с переносами
+    cleanProfile = cleanProfile.replace(/•\s*/g, '• ');
+    cleanProfile = cleanProfile.replace(/-\s*/g, '• ');
+    
+    // Заменяем **текст** на <strong>текст</strong> для жирного выделения
+    cleanProfile = cleanProfile.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    profileText += `\n\n---\n\n**🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:**\n\n${cleanProfile}`;
+}
     
     // Отображаем сообщение
     this.addBotMessage(profileText, true);
@@ -2683,17 +2679,13 @@ goToDashboard() {
     
     async showPsychologistThought() {
     if (this.psychologistThought) {
-        // Форматируем мысль психолога
         let thought = this.psychologistThought;
         
-        // Добавляем заголовки если есть
-        thought = thought.replace(/КЛЮЧЕВОЙ ЭЛЕМЕНТ/gi, '\n\n**🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ**\n');
-        thought = thought.replace(/ПЕТЛЯ/gi, '\n\n**🔄 ПЕТЛЯ**\n');
-        thought = thought.replace(/ТОЧКА ВХОДА/gi, '\n\n**🚪 ТОЧКА ВХОДА**\n');
-        thought = thought.replace(/ПРОГНОЗ/gi, '\n\n**📊 ПРОГНОЗ**\n');
-        thought = thought.replace(/РЕКОМЕНДАЦИИ/gi, '\n\n**💡 РЕКОМЕНДАЦИИ**\n');
+        // Только заменяем ** на <strong> (без добавления новых заголовков)
+        thought = thought.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        thought = thought.replace(/\n/g, '<br>');
         
-        this.addBotMessage(`🧠 **МЫСЛИ ПСИХОЛОГА**\n\n${thought}`, true);
+        this.addBotMessage(`🧠 <strong>МЫСЛИ ПСИХОЛОГА</strong><br><br>${thought}`, true);
         return;
     }
     
@@ -2707,13 +2699,11 @@ goToDashboard() {
             this.psychologistThought = data.thought;
             
             let thought = data.thought;
-            thought = thought.replace(/КЛЮЧЕВОЙ ЭЛЕМЕНТ/gi, '\n\n**🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ**\n');
-            thought = thought.replace(/ПЕТЛЯ/gi, '\n\n**🔄 ПЕТЛЯ**\n');
-            thought = thought.replace(/ТОЧКА ВХОДА/gi, '\n\n**🚪 ТОЧКА ВХОДА**\n');
-            thought = thought.replace(/ПРОГНОЗ/gi, '\n\n**📊 ПРОГНОЗ**\n');
-            thought = thought.replace(/РЕКОМЕНДАЦИИ/gi, '\n\n**💡 РЕКОМЕНДАЦИИ**\n');
+            // Только заменяем ** на <strong>
+            thought = thought.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            thought = thought.replace(/\n/g, '<br>');
             
-            this.addBotMessage(`🧠 **МЫСЛИ ПСИХОЛОГА**\n\n${thought}`, true);
+            this.addBotMessage(`🧠 <strong>МЫСЛИ ПСИХОЛОГА</strong><br><br>${thought}`, true);
         } else {
             this.addBotMessage("🧠 Мысли психолога будут доступны через несколько секунд.", true);
         }
