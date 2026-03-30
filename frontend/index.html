@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Фреди">
     <meta name="theme-color" content="#0a0a0a">
-    <meta name="format-detection" content="telephone=no">
+   meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
     
     <title>Фреди | Премиум виртуальный психолог</title>
@@ -33,18 +33,325 @@
         }
 
         @supports (height: 100dvh) {
-            .app, .chat-panel, .screen-container {
+            .app, .chat-panel, .screen-container, .test-chat-container {
                 height: 100dvh !important;
                 min-height: 100dvh !important;
             }
         }
         
         @supports (padding: max(0px)) {
+            .test-chat-messages { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+            .test-message-input { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
             .chats-list { padding-bottom: max(80px, env(safe-area-inset-bottom)); }
         }
         
         input, select, textarea { font-size: 16px !important; }
-        .mode-btn, .chat-item, button { min-height: 44px; touch-action: manipulation; }
+        .test-message-button, .mode-btn, .chat-item, button { min-height: 44px; touch-action: manipulation; }
+        
+        .test-message { animation: fadeInUp 0.2s ease-out; }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .test-chat-messages::-webkit-scrollbar { width: 4px; }
+        .test-chat-messages::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+        .test-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,107,59,0.5); border-radius: 4px; }
+        
+        body.test-active { overflow: hidden; position: fixed; width: 100%; height: 100%; }
+        
+        /* Dashboard Styles - ОРИГИНАЛЬНЫЕ */
+        .dashboard-container {
+            padding: 20px;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .hero-section {
+            margin-bottom: 24px;
+        }
+
+        .user-greeting {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .greeting-text h2 {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .greeting-text p {
+            color: rgba(255,255,255,0.7);
+            font-size: 14px;
+        }
+
+        .profile-badge {
+            text-align: center;
+        }
+
+        .profile-code {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .mode-selector {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 30px;
+            padding: 12px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .mode-btn.active {
+            background: #ff6b3b;
+            border-color: #ff6b3b;
+        }
+
+        .voice-card {
+            background: linear-gradient(135deg, rgba(255,107,59,0.15), rgba(255,107,59,0.05));
+            border-radius: 20px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255,107,59,0.2);
+            cursor: pointer;
+        }
+
+        .voice-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .voice-text {
+            font-size: 14px;
+            color: rgba(255,255,255,0.7);
+        }
+
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .module-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .module-card:hover {
+            border-color: #ff6b3b;
+            transform: translateY(-2px);
+        }
+
+        .module-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .module-name {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .module-desc {
+            font-size: 11px;
+            color: rgba(255,255,255,0.7);
+        }
+
+        .quick-actions-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .quick-actions-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        .quick-action {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-action:hover {
+            background: rgba(255,107,59,0.15);
+            transform: translateY(-2px);
+        }
+
+        .action-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .action-name {
+            font-size: 11px;
+            color: rgba(255,255,255,0.7);
+        }
+
+        /* Content Pages */
+        .full-content-page {
+            padding: 20px;
+            height: 100%;
+            overflow-y: auto;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .back-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 30px;
+            padding: 10px 20px;
+            color: white;
+            margin-bottom: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .content-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .content-emoji {
+            font-size: 48px;
+        }
+
+        .content-header h1 {
+            font-size: 24px;
+            margin-top: 10px;
+            background: linear-gradient(135deg, #fff, #ff6b3b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .content-body {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 20px;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+
+        .profile-section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
+            color: #ff6b3b;
+        }
+
+        .profile-section-title:first-of-type {
+            margin-top: 0;
+        }
+
+        .thoughts-section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
+            color: #ff6b3b;
+        }
+
+        .loading-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: 20px;
+        }
+
+        .loading-spinner {
+            font-size: 48px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Floating Toast */
+        .floating-message {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 10000;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .floating-message-content {
+            background: rgba(0,0,0,0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            border: 1px solid rgba(255,107,59,0.3);
+        }
+
+        .floating-message-text {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .floating-message-close {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.05);
+            border-radius: 50%;
+            cursor: pointer;
+        }
 
         /* App Layout */
         .app {
@@ -255,311 +562,10 @@
             background: #ff6b3b;
         }
 
-        .mode-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 30px;
-            padding: 8px 16px;
-            color: white;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 14px;
-        }
-
-        .mode-btn:hover {
-            background: rgba(255,255,255,0.1);
-        }
-
         .screen-container {
             flex: 1;
             overflow-y: auto;
             position: relative;
-        }
-
-        /* Dashboard Styles (оригинальный) */
-        .dashboard-container {
-            padding: 20px;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .hero-section {
-            margin-bottom: 24px;
-        }
-
-        .user-greeting {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .greeting-text h2 {
-            font-size: 24px;
-            margin-bottom: 4px;
-        }
-
-        .greeting-text p {
-            color: rgba(255,255,255,0.7);
-            font-size: 14px;
-        }
-
-        .profile-badge {
-            text-align: center;
-        }
-
-        .profile-code {
-            font-size: 32px;
-            font-weight: 700;
-        }
-
-        .mode-selector {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-
-        .mode-selector .mode-btn {
-            flex: 1;
-            padding: 12px;
-        }
-
-        .mode-selector .mode-btn.active {
-            background: #ff6b3b;
-            border-color: #ff6b3b;
-        }
-
-        .voice-card {
-            background: linear-gradient(135deg, rgba(255,107,59,0.15), rgba(255,107,59,0.05));
-            border-radius: 20px;
-            padding: 20px;
-            text-align: center;
-            margin-bottom: 24px;
-            border: 1px solid rgba(255,107,59,0.2);
-        }
-
-        .voice-icon {
-            font-size: 32px;
-            margin-bottom: 8px;
-        }
-
-        .voice-text {
-            font-size: 14px;
-            color: rgba(255,255,255,0.7);
-        }
-
-        .modules-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-
-        .module-card {
-            background: rgba(255,255,255,0.05);
-            border-radius: 16px;
-            padding: 16px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 1px solid transparent;
-        }
-
-        .module-card:hover {
-            border-color: #ff6b3b;
-            transform: translateY(-2px);
-        }
-
-        .module-icon {
-            font-size: 28px;
-            margin-bottom: 8px;
-        }
-
-        .module-name {
-            font-weight: 600;
-            font-size: 14px;
-            margin-bottom: 4px;
-        }
-
-        .module-desc {
-            font-size: 11px;
-            color: rgba(255,255,255,0.7);
-        }
-
-        .quick-actions-title {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-
-        .quick-actions-grid {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-
-        .quick-action {
-            flex: 1;
-            min-width: 80px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 12px;
-            padding: 12px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .quick-action:hover {
-            background: rgba(255,107,59,0.15);
-            transform: translateY(-2px);
-        }
-
-        .action-icon {
-            font-size: 24px;
-            margin-bottom: 4px;
-        }
-
-        .action-name {
-            font-size: 11px;
-            color: rgba(255,255,255,0.7);
-        }
-
-        /* Content Pages */
-        .full-content-page {
-            padding: 20px;
-            height: 100%;
-            overflow-y: auto;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .back-btn {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 30px;
-            padding: 10px 20px;
-            color: white;
-            margin-bottom: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-
-        .back-btn:hover {
-            background: rgba(255,255,255,0.1);
-        }
-
-        .content-header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .content-emoji {
-            font-size: 48px;
-        }
-
-        .content-header h1 {
-            font-size: 24px;
-            margin-top: 10px;
-            background: linear-gradient(135deg, #fff, #ff6b3b);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .content-body {
-            background: rgba(255,255,255,0.05);
-            border-radius: 20px;
-            padding: 20px;
-            line-height: 1.6;
-            font-size: 15px;
-        }
-
-        .profile-section-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
-        }
-
-        .profile-section-title:first-of-type {
-            margin-top: 0;
-        }
-
-        .thoughts-section-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
-        }
-
-        .loading-screen {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            gap: 20px;
-        }
-
-        .loading-spinner {
-            font-size: 48px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        /* Floating Toast */
-        .floating-message {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            right: 20px;
-            z-index: 10000;
-            animation: slideUp 0.3s ease;
-        }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .floating-message-content {
-            background: rgba(0,0,0,0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 12px 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            border: 1px solid rgba(255,107,59,0.3);
-        }
-
-        .floating-message-text {
-            flex: 1;
-            font-size: 14px;
-        }
-
-        .floating-message-close {
-            width: 28px;
-            height: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255,255,255,0.05);
-            border-radius: 50%;
-            cursor: pointer;
         }
 
         /* Mobile Responsive */
@@ -583,11 +589,22 @@
             }
 
             .quick-actions-grid {
-                flex-wrap: wrap;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
             }
             
-            .quick-action {
-                min-width: 70px;
+            .action-name {
+                font-size: 10px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .quick-actions-grid {
+                gap: 8px;
+            }
+            
+            .modules-grid {
+                gap: 8px;
             }
         }
     </style>
@@ -734,7 +751,7 @@
                     <div>
                         <div class="chat-header-name">Фреди</div>
                         <div class="chat-header-status" id="botStatus">
-                            <span class="mode-indicator" id="modeIndicator"></span>
+                            <span class="mode-indicator" id="modeIndicator" style="background: #ff6b3b;"></span>
                             <span id="modeLabel">Психолог</span>
                         </div>
                     </div>
@@ -752,6 +769,8 @@
             </div>
         </div>
     </div>
+
+    <audio id="hiddenAudioPlayer" preload="auto"></audio>
 
     <div id="toastMessage" class="floating-message" style="display: none;">
         <div class="floating-message-content">
@@ -771,7 +790,6 @@
         // ============================================
         const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
 
-        // Получение или создание user_id
         function getUserId() {
             let userId = localStorage.getItem('fredi_user_id');
             if (!userId) {
@@ -982,24 +1000,53 @@
                         <button class="mode-btn ${currentMode === 'psychologist' ? 'active' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
                     </div>
                     
-                    <div class="voice-card">
+                    <div class="voice-card" id="voiceCard">
                         <div class="voice-icon">🎤</div>
                         <div class="voice-text">Расскажите, что вас беспокоит</div>
                     </div>
                     
                     <div class="modules-grid">
-                        <div class="module-card"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
-                        <div class="module-card"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
-                        <div class="module-card"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
-                        <div class="module-card"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
+                        <div class="module-card" data-module="analysis">
+                            <div class="module-icon">🧠</div>
+                            <div class="module-name">Анализ</div>
+                            <div class="module-desc">Глубинные паттерны</div>
+                        </div>
+                        <div class="module-card" data-module="emotions">
+                            <div class="module-icon">💭</div>
+                            <div class="module-name">Эмоции</div>
+                            <div class="module-desc">Работа с чувствами</div>
+                        </div>
+                        <div class="module-card" data-module="trauma">
+                            <div class="module-icon">🕊️</div>
+                            <div class="module-name">Исцеление</div>
+                            <div class="module-desc">Проработка опыта</div>
+                        </div>
+                        <div class="module-card" data-module="relations">
+                            <div class="module-icon">💕</div>
+                            <div class="module-name">Отношения</div>
+                            <div class="module-desc">Коммуникация</div>
+                        </div>
                     </div>
                     
                     <div class="quick-actions">
                         <div class="quick-actions-title">⚡ Быстрые действия</div>
                         <div class="quick-actions-grid">
-                            <div class="quick-action" data-action="profile"><div class="action-icon">🧠</div><div class="action-name">Мой портрет</div></div>
-                            <div class="quick-action" data-action="thoughts"><div class="action-icon">💭</div><div class="action-name">Мысли психолога</div></div>
-                            <div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div>
+                            <div class="quick-action" data-action="profile">
+                                <div class="action-icon">🧠</div>
+                                <div class="action-name">Мой портрет</div>
+                            </div>
+                            <div class="quick-action" data-action="thoughts">
+                                <div class="action-icon">💭</div>
+                                <div class="action-name">Мысли психолога</div>
+                            </div>
+                            <div class="quick-action" data-action="weekend">
+                                <div class="action-icon">🎨</div>
+                                <div class="action-name">Идеи на выходные</div>
+                            </div>
+                            <div class="quick-action" data-action="test">
+                                <div class="action-icon">📊</div>
+                                <div class="action-name">Пройти тест</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1010,14 +1057,20 @@
                 el.addEventListener('click', async () => {
                     const action = el.dataset.action;
                     if (action === 'profile') await handleProfileClick();
-                    if (action === 'thoughts') await handleThoughtsClick();
-                    if (action === 'weekend') await handleWeekendClick();
+                    else if (action === 'thoughts') await handleThoughtsClick();
+                    else if (action === 'weekend') await handleWeekendClick();
+                    else if (action === 'test') startTest();
                 });
             });
             
             // Обработчики модулей
             document.querySelectorAll('.module-card').forEach(el => {
                 el.addEventListener('click', () => showToast('Модуль скоро будет доступен'));
+            });
+            
+            // Обработчик голосовой карточки
+            document.getElementById('voiceCard')?.addEventListener('click', () => {
+                showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
             });
             
             // Обработчик смены режима
@@ -1035,6 +1088,15 @@
                     codeEl.textContent = '✨';
                 }
             });
+        }
+
+        function startTest() {
+            if (window.Test && window.Test.start) {
+                window.Test.init(USER_ID);
+                window.Test.start();
+            } else {
+                showToast('Тест загружается...');
+            }
         }
 
         // ============================================
@@ -1114,15 +1176,7 @@
             document.getElementById('profileChatItem')?.addEventListener('click', () => handleProfileClick());
             document.getElementById('thoughtsChatItem')?.addEventListener('click', () => handleThoughtsClick());
             document.getElementById('goalsChatItem')?.addEventListener('click', () => handleWeekendClick());
-            
-            document.getElementById('testChatItem')?.addEventListener('click', () => {
-                if (window.Test && window.Test.start) {
-                    window.Test.init(USER_ID);
-                    window.Test.start();
-                } else {
-                    showToast('Тест загружается...');
-                }
-            });
+            document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
             
             document.getElementById('chatSearchInput')?.addEventListener('input', (e) => {
                 const search = e.target.value.toLowerCase();
