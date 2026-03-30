@@ -422,80 +422,81 @@ class BasicMode(BaseMode):
 Слышь между строк настоящую эмоцию или проблему.
 Обязательно заканчивай вопросом."""
 
-    # ====================== ОСНОВНОЙ МЕТОД ======================
+    # ====================== ОСНОВНОЙ МЕТОД (БЕЗ СТРИМИНГА) ======================
     
     async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
-    """Главный метод — анализирует, запоминает, отвечает (без стриминга)"""
-    self.message_counter += 1
-    self.conversation_history.append(f"Пользователь: {question}")
+        """Главный метод — анализирует, запоминает, отвечает (без стриминга)"""
+        self.message_counter += 1
+        self.conversation_history.append(f"Пользователь: {question}")
 
-    # 1. Глубинный контекст
-    self.last_question_context = await self._extract_deep_context(question)
-    logger.info(f"📊 Контекст: {self.last_question_context['implicit'][:50]} | эмоция: {self.last_question_context['emotional_tone']}")
-    
-    # 2. Извлечение правила
-    rule = await self._extract_rule(question)
-    if rule:
-        self.rules.append(rule)
-        logger.info(f"📝 Правило {len(self.rules)}: {rule}")
+        # 1. Глубинный контекст
+        self.last_question_context = await self._extract_deep_context(question)
+        logger.info(f"📊 Контекст: {self.last_question_context['implicit'][:50]} | эмоция: {self.last_question_context['emotional_tone']}")
         
-        contradiction = await self._find_contradiction(rule)
-        if contradiction:
-            logger.info(f"⚠️ Противоречие: {contradiction}")
+        # 2. Извлечение правила
+        rule = await self._extract_rule(question)
+        if rule:
+            self.rules.append(rule)
+            logger.info(f"📝 Правило {len(self.rules)}: {rule}")
+            
+            contradiction = await self._find_contradiction(rule)
+            if contradiction:
+                logger.info(f"⚠️ Противоречие: {contradiction}")
+            
+            await self._update_analysis_levels()
+            if self.current_insight:
+                logger.info(f"🎯 Инсайт ур.{self.current_insight_level}: {self.current_insight}")
         
-        await self._update_analysis_levels()
-        if self.current_insight:
-            logger.info(f"🎯 Инсайт ур.{self.current_insight_level}: {self.current_insight}")
-    
-    # 3. Золотая фраза
-    golden = await self._extract_golden_phrase(question)
-    if golden:
-        self.golden_phrases.append(golden)
-        logger.info(f"✨ Золотая фраза: {golden}")
-    
-    # 4. Обновляем интерес
-    if self.last_question_context.get("urgency", 0) > 7:
-        self.user_interest_level = min(100, self.user_interest_level + 15)
-    
-    # 5. Предложение теста
-    if self.message_counter >= 4 and not self.test_offered and self.user_resistance < self.max_resistance:
-        self.test_offered = True
-        yield f"{self._get_address()}, слушай... У меня есть один интересный тест минут на 10–12. Хочешь узнать свой настоящий код личности?"
-        await asyncio.sleep(0.02)
-        return
-    
-    # 6. Согласие на тест
-    if re.search(r'(да|хочу|давай|погнали|рискну|ок|тест)', question.lower()) and self.test_offered:
-        yield "Отлично! Тогда первый вопрос..."
-        return
-    
-    # 7. Отказ
-    if re.search(r'(нет|не хочу|потом|отстань|не надо)', question.lower()):
-        self.user_resistance += 1
-        self.test_offered = False
-        address = self._get_address()
-        yield f"{address}, не хочешь — не надо. Дверь открыта. А пока о чём ещё поговорим?"
-        return
-    
-    # 8. Формируем промпт
-    full_prompt = self._build_prompt(question)
-    
-    # 9. Вызываем DeepSeek БЕЗ СТРИМИНГА (один цельный ответ)
-    try:
-        response = await self.ai_service._simple_call(
-            prompt=full_prompt,
-            max_tokens=130,
-            temperature=0.90
-        )
+        # 3. Золотая фраза
+        golden = await self._extract_golden_phrase(question)
+        if golden:
+            self.golden_phrases.append(golden)
+            logger.info(f"✨ Золотая фраза: {golden}")
         
-        if response and response.strip():
-            # Только нормализация пробелов
-            clean_response = re.sub(r'\s+', ' ', response.strip())
-            yield clean_response
-    except Exception as e:
-        logger.error(f"BasicMode error: {e}")
-        address = self._get_address()
-        yield f"{address}, интересный вопрос. Расскажи подробнее."
+        # 4. Обновляем интерес
+        if self.last_question_context.get("urgency", 0) > 7:
+            self.user_interest_level = min(100, self.user_interest_level + 15)
+        
+        # 5. Предложение теста
+        if self.message_counter >= 4 and not self.test_offered and self.user_resistance < self.max_resistance:
+            self.test_offered = True
+            yield f"{self._get_address()}, слушай... У меня есть один интересный тест минут на 10–12. Хочешь узнать свой настоящий код личности?"
+            await asyncio.sleep(0.02)
+            return
+        
+        # 6. Согласие на тест
+        if re.search(r'(да|хочу|давай|погнали|рискну|ок|тест)', question.lower()) and self.test_offered:
+            yield "Отлично! Тогда первый вопрос..."
+            return
+        
+        # 7. Отказ
+        if re.search(r'(нет|не хочу|потом|отстань|не надо)', question.lower()):
+            self.user_resistance += 1
+            self.test_offered = False
+            address = self._get_address()
+            yield f"{address}, не хочешь — не надо. Дверь открыта. А пока о чём ещё поговорим?"
+            return
+        
+        # 8. Формируем промпт
+        full_prompt = self._build_prompt(question)
+        
+        # 9. Вызываем DeepSeek БЕЗ СТРИМИНГА (один цельный ответ)
+        try:
+            response = await self.ai_service._simple_call(
+                prompt=full_prompt,
+                max_tokens=130,
+                temperature=0.90
+            )
+            
+            if response and response.strip():
+                # Только нормализация пробелов
+                clean_response = re.sub(r'\s+', ' ', response.strip())
+                yield clean_response
+        except Exception as e:
+            logger.error(f"BasicMode error: {e}")
+            address = self._get_address()
+            yield f"{address}, интересный вопрос. Расскажи подробнее."
+
     # ====================== ЗАГЛУШКА ======================
     
     def process_question(self, question: str):
