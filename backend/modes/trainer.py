@@ -4,7 +4,7 @@
 МОДУЛЬ: РЕЖИМ ТРЕНЕР (trainer.py)
 Режим мотивирующего тренера — энергичный, вдохновляющий, ориентированный на действие.
 Образ: Тони Робинсон (Tony Robbins) — вера в потенциал человека, энергия, поддержка.
-ВЕРСИЯ 3.1 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА
+ВЕРСИЯ 3.2 — С ПОДКЛЮЧЕНИЕМ AI-СЕРВИСА И МЕТОДОМ process_question_full
 """
 
 from typing import Dict, Any, List, Optional
@@ -14,7 +14,7 @@ import logging
 
 from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
-from services.ai_service import AIService  # ДОБАВЛЕН ИМПОРТ
+from services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class TrainerMode(BaseMode):
             "Не жди идеального момента — создай его!"
         ]
         
-        # Маппинг векторов на конкретные действия (с поддержкой)
+        # Маппинг векторов на конкретные действия
         self.vector_actions = {
             "СБ": {
                 1: [
@@ -263,9 +263,9 @@ class TrainerMode(BaseMode):
         ]
         return random.choice(greetings)
     
-    # ========== ДОБАВЛЕН НОВЫЙ МЕТОД ДЛЯ AI ==========
+    # ========== МЕТОД ДЛЯ ПОТОКОВОЙ ОБРАБОТКИ (WebSocket) ==========
     async def process_question_streaming(self, question: str):
-        """Потоковая обработка вопроса через AI с учётом профиля"""
+        """Потоковая обработка вопроса через AI с учётом профиля (для WebSocket)"""
         
         # Собираем данные профиля для AI
         profile = {
@@ -300,6 +300,47 @@ class TrainerMode(BaseMode):
             yield self._set_specific_task(question)
         
         self.save_to_history(question, full_response)
+    
+    # ========== НОВЫЙ МЕТОД ДЛЯ ПОЛНОГО ОТВЕТА (HTTP) ==========
+    async def process_question_full(self, question: str) -> str:
+        """
+        Возвращает ответ целиком (без разбиения на чанки).
+        Используется в HTTP эндпоинтах (голосовой ввод).
+        """
+        logger.info(f"🎙️ process_question_full в режиме TrainerMode")
+        
+        # Собираем данные профиля для AI
+        profile = {
+            'profile_data': self.profile_data,
+            'perception_type': self.perception_type,
+            'thinking_level': self.thinking_level,
+            'behavioral_levels': self.behavioral_levels,
+            'deep_patterns': self.deep_patterns,
+            'weakest_vector': self.weakest_vector,
+            'weakest_level': self.weakest_level
+        }
+        
+        context_data = {
+            'name': self.context.name if self.context else None,
+            'city': self.context.city if self.context else None,
+            'age': self.context.age if self.context else None
+        }
+        
+        # Используем НЕ streaming версию (generate_response)
+        response = await self.ai_service.generate_response(
+            user_id=self.user_id,
+            message=question,
+            context=context_data,
+            profile=profile,
+            mode='trainer'
+        )
+        
+        if not response or not response.strip():
+            # Fallback на мотивирующую задачу
+            response = self._set_specific_task(question)
+        
+        self.save_to_history(question, response)
+        return response
     # =================================================
     
     def process_question(self, question: str) -> Dict[str, Any]:
