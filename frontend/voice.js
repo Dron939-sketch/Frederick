@@ -1,5 +1,5 @@
 // ============================================
-// АУДИО ПЛЕЕР
+// АУДИО ПЛЕЕР (полностью сохранен)
 // ============================================
 
 class AudioPlayer {
@@ -9,6 +9,7 @@ class AudioPlayer {
         this.onPlayStart = null;
         this.onPlayEnd = null;
         this.onError = null;
+        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     }
     
     play(audioData, mimeType = 'audio/mpeg') {
@@ -46,7 +47,8 @@ class AudioPlayer {
                 this.audio.src = audioUrl;
                 this.audio.load();
                 
-                this.audio.oncanplaythrough = () => {
+                // Для iOS нужно немного подождать
+                const playHandler = () => {
                     if (this.onPlayStart) {
                         this.onPlayStart();
                     }
@@ -59,6 +61,15 @@ class AudioPlayer {
                         reject(error);
                     });
                 };
+                
+                this.audio.oncanplaythrough = playHandler;
+                
+                // Fallback для iOS, если oncanplaythrough не срабатывает
+                setTimeout(() => {
+                    if (this.audio && this.audio.readyState >= 2 && !this.audio.played.length) {
+                        playHandler();
+                    }
+                }, 100);
                 
                 this.audio.onended = () => {
                     if (this.currentUrl && this.currentUrl.startsWith('blob:')) {
@@ -126,31 +137,42 @@ class LoadingIndicator {
     }
     
     create() {
-        const messagesContainer = document.getElementById('testChatMessages');
+        const messagesContainer = document.getElementById('screenContainer');
         if (!messagesContainer) return;
         
         this.remove();
         
         this.container = document.createElement('div');
-        this.container.className = 'test-message test-message-bot loading-indicator';
-        
-        const bubble = document.createElement('div');
-        bubble.className = 'test-message-bubble test-message-bubble-bot';
+        this.container.className = 'loading-indicator';
+        this.container.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 50px;
+            padding: 12px 24px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        `;
         
         this.messageElement = document.createElement('span');
         this.messageElement.className = 'loading-text';
+        this.messageElement.style.cssText = 'color: #ff6b3b; font-size: 14px;';
         this.messageElement.textContent = 'Фреди думает';
         
         this.dotsElement = document.createElement('span');
         this.dotsElement.className = 'loading-dots';
+        this.dotsElement.style.cssText = 'color: #ff6b3b; font-size: 14px;';
         this.dotsElement.textContent = '...';
         
-        bubble.appendChild(this.messageElement);
-        bubble.appendChild(this.dotsElement);
-        this.container.appendChild(bubble);
-        
+        this.container.appendChild(this.messageElement);
+        this.container.appendChild(this.dotsElement);
         messagesContainer.appendChild(this.container);
-        this.scrollToBottom();
         
         this.startAnimation();
         this.isShowing = true;
@@ -210,15 +232,6 @@ class LoadingIndicator {
         this.dotsElement = null;
         this.isShowing = false;
         this.dotsCount = 0;
-    }
-    
-    scrollToBottom() {
-        setTimeout(() => {
-            const container = document.getElementById('testChatMessages');
-            if (container) {
-                container.scrollTop = container.scrollHeight;
-            }
-        }, 10);
     }
 }
 
@@ -282,7 +295,7 @@ const VoiceConfig = {
 };
 
 // ============================================
-// VoiceWebSocket
+// VoiceWebSocket (с поддержкой iOS)
 // ============================================
 
 class VoiceWebSocket {
@@ -306,9 +319,21 @@ class VoiceWebSocket {
         this.apiBaseUrl = this.config.apiBaseUrl;
         this.pendingRequest = null;
         this.lastRequestTime = 0;
+        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        
+        // На iOS отключаем WebSocket (проблемы с соединением)
+        if (this.isIOS) {
+            console.log('📱 iOS detected, using HTTP only');
+            this.useWebSocket = false;
+        }
     }
     
     async connect() {
+        // На iOS всегда используем HTTP
+        if (this.isIOS || !this.config.useWebSocket) {
+            return this.initHTTP();
+        }
+        
         if (this.config.useWebSocket && window.WebSocket) {
             try {
                 const wsUrl = `wss://${new URL(this.apiBaseUrl).host}/ws/voice/${this.userId}`;
@@ -524,9 +549,16 @@ class VoiceWebSocket {
         const formData = new FormData();
         formData.append('user_id', this.userId);
         
-        const audioFormat = this.config.recording.format;
+        // Для iOS используем правильный MIME тип
+        let audioFormat = this.config.recording.format;
+        if (this.isIOS && audioBlob.type) {
+            if (audioBlob.type.includes('mp4')) audioFormat = 'mp4';
+            else if (audioBlob.type.includes('aac')) audioFormat = 'aac';
+        }
+        
         formData.append('voice', audioBlob, `audio.${audioFormat}`);
         formData.append('mode', this.currentMode || 'psychologist');
+        formData.append('ios_device', this.isIOS ? 'true' : 'false');
         
         const voiceSettings = this.config.voices[this.currentMode];
         if (voiceSettings) {
@@ -547,7 +579,7 @@ class VoiceWebSocket {
             const response = await fetch(`${this.apiBaseUrl}/api/voice/process`, {
                 method: 'POST',
                 body: formData,
-                signal: AbortSignal.timeout(30000)
+                signal: AbortSignal.timeout(45000) // Увеличиваем таймаут для iOS
             });
             
             const elapsed = Date.now() - startTime;
@@ -557,7 +589,7 @@ class VoiceWebSocket {
             
             if (!response.ok && retryCount < maxRetries) {
                 console.log(`🔄 Повторная попытка ${retryCount + 1}/${maxRetries}`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+                await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
                 return this.sendAudioViaHTTP(audioBlob, retryCount + 1, maxRetries);
             }
             
@@ -605,7 +637,7 @@ class VoiceWebSocket {
             
             if (retryCount < maxRetries) {
                 console.log(`🔄 Повторная попытка ${retryCount + 1}/${maxRetries}`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+                await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
                 return this.sendAudioViaHTTP(audioBlob, retryCount + 1, maxRetries);
             }
             
@@ -643,7 +675,17 @@ class VoiceWebSocket {
                 audio.onerror = (error) => {
                     console.error('Playback error:', error);
                     this.updateStatus('idle');
-                    reject(error);
+                    
+                    // Для iOS пробуем альтернативный метод
+                    if (this.isIOS) {
+                        const audio2 = new Audio();
+                        audio2.src = `data:audio/mpeg;base64,${audioBase64}`;
+                        audio2.load();
+                        audio2.play().catch(reject);
+                        audio2.onended = resolve;
+                    } else {
+                        reject(error);
+                    }
                 };
                 
                 audio.play().catch(reject);
@@ -758,7 +800,7 @@ class VoiceWebSocket {
 }
 
 // ============================================
-// VoiceRecorder (оставлен без изменений, т.к. уже полный)
+// VoiceRecorder (с поддержкой iOS)
 // ============================================
 
 class VoiceRecorder {
@@ -776,6 +818,11 @@ class VoiceRecorder {
         this.silenceStartTime = null;
         this.speechDetected = false;
         this.lastVolume = 0;
+        
+        // ДОБАВЛЯЕМ ДЛЯ iOS
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         
         this.onDataAvailable = null;
         this.onRecordingStart = null;
@@ -804,74 +851,55 @@ class VoiceRecorder {
             
             this.mediaStream = stream;
             this.wavData = [];
+            this.audioChunks = [];
             this.speechDetected = false;
             this.silenceStartTime = null;
             this.lastVolume = 0;
             this.isRecording = true;
             
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                sampleRate: this.config.sampleRate
-            });
-            
-            const source = this.audioContext.createMediaStreamSource(stream);
-            this.analyser = this.audioContext.createAnalyser();
-            this.analyser.fftSize = 256;
-            source.connect(this.analyser);
-            
-            this.startVisualizer();
-            
-            this.processor = this.audioContext.createScriptProcessor(this.config.chunkSize, 1, 1);
-            
-            this.processor.onaudioprocess = (event) => {
-                if (!this.isRecording) return;
+            // ДОБАВЛЯЕМ: Для iOS используем MediaRecorder
+            if (this.isIOS && window.MediaRecorder) {
+                const mimeTypes = ['audio/mp4', 'audio/aac', 'audio/wav'];
+                let selectedMimeType = '';
                 
-                const inputData = event.inputBuffer.getChannelData(0);
-                const int16Data = new Int16Array(inputData.length);
-                let sumAbs = 0;
-                
-                for (let i = 0; i < inputData.length; i++) {
-                    const sample = Math.max(-1, Math.min(1, inputData[i]));
-                    int16Data[i] = Math.floor(sample * 32767);
-                    sumAbs += Math.abs(int16Data[i]);
-                }
-                
-                this.wavData.push(int16Data);
-                const volume = Math.min(100, (sumAbs / int16Data.length / 32768) * 100);
-                this.lastVolume = volume;
-                
-                const isSpeech = volume > VoiceConfig.ui.minVolumeToConsiderSpeech;
-                
-                if (isSpeech) {
-                    if (!this.speechDetected) {
-                        this.speechDetected = true;
-                        if (this.onSpeechDetected) {
-                            this.onSpeechDetected(true);
-                        }
+                for (const mimeType of mimeTypes) {
+                    if (MediaRecorder.isTypeSupported(mimeType)) {
+                        selectedMimeType = mimeType;
+                        break;
                     }
-                    this.silenceStartTime = null;
-                } else if (this.speechDetected && !this.silenceStartTime) {
-                    this.silenceStartTime = Date.now();
                 }
                 
-                if (VoiceConfig.ui.autoStopAfterSilence && 
-                    this.speechDetected && 
-                    this.silenceStartTime && 
-                    (Date.now() - this.silenceStartTime) > VoiceConfig.ui.silenceTimeout) {
-                    console.log('🔇 Silence detected, auto-stopping');
-                    this.stopRecording();
+                if (selectedMimeType) {
+                    this.mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: selectedMimeType
+                    });
+                    
+                    this.mediaRecorder.ondataavailable = (event) => {
+                        if (event.data && event.data.size > 0) {
+                            this.audioChunks.push(event.data);
+                        }
+                    };
+                    
+                    this.mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(this.audioChunks, { 
+                            type: selectedMimeType 
+                        });
+                        
+                        if (this.onRecordingStop) {
+                            this.onRecordingStop(audioBlob);
+                        }
+                    };
+                    
+                    this.mediaRecorder.start(1000);
+                } else {
+                    await this.setupLegacyRecording(stream);
                 }
-                
-                if (this.onVolumeChange) {
-                    this.onVolumeChange(volume);
-                }
-            };
-            
-            source.connect(this.processor);
-            this.processor.connect(this.audioContext.destination);
-            
-            if (this.audioContext.state === 'suspended') {
-                await this.audioContext.resume();
+            } else {
+                await this.setupLegacyRecording(stream);
             }
+            
+            // Анализатор громкости для всех устройств
+            this.setupVolumeAnalyzer(stream);
             
             this.recordingTimeout = setTimeout(() => {
                 if (this.isRecording) {
@@ -884,7 +912,7 @@ class VoiceRecorder {
                 this.onRecordingStart();
             }
             
-            console.log('🎙️ Recording started');
+            console.log('🎙️ Recording started on', this.isIOS ? 'iOS' : 'other');
             return true;
             
         } catch (error) {
@@ -905,6 +933,101 @@ class VoiceRecorder {
         }
     }
     
+    async setupLegacyRecording(stream) {
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: this.config.sampleRate
+        });
+        
+        // Для iOS нужно активировать AudioContext
+        if (this.audioContext.state === 'suspended') {
+            await this.audioContext.resume();
+        }
+        
+        const source = this.audioContext.createMediaStreamSource(stream);
+        this.analyser = this.audioContext.createAnalyser();
+        this.analyser.fftSize = 256;
+        source.connect(this.analyser);
+        
+        this.startVisualizer();
+        
+        this.processor = this.audioContext.createScriptProcessor(this.config.chunkSize, 1, 1);
+        
+        this.processor.onaudioprocess = (event) => {
+            if (!this.isRecording) return;
+            
+            const inputData = event.inputBuffer.getChannelData(0);
+            const int16Data = new Int16Array(inputData.length);
+            let sumAbs = 0;
+            
+            for (let i = 0; i < inputData.length; i++) {
+                const sample = Math.max(-1, Math.min(1, inputData[i]));
+                int16Data[i] = Math.floor(sample * 32767);
+                sumAbs += Math.abs(int16Data[i]);
+            }
+            
+            this.wavData.push(int16Data);
+            const volume = Math.min(100, (sumAbs / int16Data.length / 32768) * 100);
+            this.lastVolume = volume;
+            
+            const isSpeech = volume > VoiceConfig.ui.minVolumeToConsiderSpeech;
+            
+            if (isSpeech) {
+                if (!this.speechDetected) {
+                    this.speechDetected = true;
+                    if (this.onSpeechDetected) {
+                        this.onSpeechDetected(true);
+                    }
+                }
+                this.silenceStartTime = null;
+            } else if (this.speechDetected && !this.silenceStartTime) {
+                this.silenceStartTime = Date.now();
+            }
+            
+            if (VoiceConfig.ui.autoStopAfterSilence && 
+                this.speechDetected && 
+                this.silenceStartTime && 
+                (Date.now() - this.silenceStartTime) > VoiceConfig.ui.silenceTimeout) {
+                console.log('🔇 Silence detected, auto-stopping');
+                this.stopRecording();
+            }
+            
+            if (this.onVolumeChange) {
+                this.onVolumeChange(volume);
+            }
+        };
+        
+        source.connect(this.processor);
+        this.processor.connect(this.audioContext.destination);
+    }
+    
+    setupVolumeAnalyzer(stream) {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        
+        const updateVolume = () => {
+            if (!this.isRecording) return;
+            
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            let volume = Math.min(100, (average / 255) * 100);
+            
+            if (this.onVolumeChange) {
+                this.onVolumeChange(volume);
+            }
+            
+            this.visualizerAnimation = requestAnimationFrame(updateVolume);
+        };
+        
+        updateVolume();
+        
+        this.volumeAnalyser = analyser;
+        this.volumeContext = audioContext;
+    }
+    
     stopRecording() {
         if (!this.isRecording) return null;
         
@@ -920,7 +1043,20 @@ class VoiceRecorder {
             this.silenceTimer = null;
         }
         
-        this.stopVisualizer();
+        if (this.visualizerAnimation) {
+            cancelAnimationFrame(this.visualizerAnimation);
+            this.visualizerAnimation = null;
+        }
+        
+        let audioBlob = null;
+        
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+            this.mediaRecorder.stop();
+            audioBlob = new Blob(this.audioChunks, { type: 'audio/mp4' });
+        } 
+        else if (this.wavData && this.wavData.length > 0) {
+            audioBlob = this.createWavBlob(this.wavData);
+        }
         
         if (this.processor) {
             this.processor.disconnect();
@@ -932,9 +1068,9 @@ class VoiceRecorder {
             this.audioContext = null;
         }
         
-        let audioBlob = null;
-        if (this.wavData && this.wavData.length > 0) {
-            audioBlob = this.createWavBlob(this.wavData);
+        if (this.volumeContext) {
+            this.volumeContext.close().catch(console.warn);
+            this.volumeContext = null;
         }
         
         if (this.mediaStream) {
@@ -942,7 +1078,7 @@ class VoiceRecorder {
             this.mediaStream = null;
         }
         
-        if (this.onRecordingStop) {
+        if (this.onRecordingStop && audioBlob) {
             this.onRecordingStop(audioBlob);
         }
         
@@ -1049,7 +1185,7 @@ class VoiceRecorder {
 }
 
 // ============================================
-// VoiceManager
+// VoiceManager (с поддержкой iOS)
 // ============================================
 
 class VoiceManager {
@@ -1064,6 +1200,7 @@ class VoiceManager {
         this.isRecording = false;
         this.isAISpeaking = false;
         this.currentMode = 'psychologist';
+        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         
         this.onTranscript = null;
         this.onAIResponse = null;
