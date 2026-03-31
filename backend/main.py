@@ -382,12 +382,18 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://fredi-frontend.onrender.com",
+        "https://meysternlp.ru",           # ← Новый основной домен
+        "http://meysternlp.ru",
+        "https://www.meysternlp.ru",
+
+        "https://fredi-frontend.onrender.com",   # ← Старый фронтенд
         "https://fredi-app.onrender.com",
+
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
         "http://localhost:8000",
         "http://localhost:10000",
-        "https://fredi-backend-flz2.onrender.com",  # для self-запросов
+        "https://fredi-backend-flz2.onrender.com", # для self-запросов
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
@@ -401,8 +407,8 @@ app.add_middleware(
         "X-Requested-With",
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
-        "Upgrade",  # для WebSocket
-        "Connection",  # для WebSocket
+        "Upgrade", # для WebSocket
+        "Connection", # для WebSocket
     ],
     expose_headers=[
         "Content-Length",
@@ -410,7 +416,7 @@ app.add_middleware(
         "X-Response-Time",
         "X-Total-Count",
     ],
-    max_age=86400,  # кэшировать preflight на 24 часа
+    max_age=86400, # кэшировать preflight на 24 часа
 )
 
 
