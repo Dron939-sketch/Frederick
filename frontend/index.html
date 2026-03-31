@@ -9,12 +9,12 @@
     <meta name="theme-color" content="#0a0a0a">
     <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
-    
+   
     <title>Фреди | Премиум виртуальный психолог</title>
-    
+   
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles.css">
-    
+   
     <style>
         * {
             margin: 0;
@@ -22,7 +22,6 @@
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
         }
-
         :root {
             --black-obsidian: #0a0a0a;
             --black-matte: #111111;
@@ -44,7 +43,6 @@
             --error: #ef4444;
             --warning: #f59e0b;
         }
-
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--black-obsidian);
@@ -57,14 +55,12 @@
             top: 0;
             left: 0;
         }
-
         @supports (height: 100dvh) {
             body, .app, .chat-panel, .screen-container, .test-chat-container {
                 height: 100dvh !important;
                 min-height: 100dvh !important;
             }
         }
-
         body::before {
             content: '';
             position: fixed;
@@ -76,7 +72,6 @@
                         radial-gradient(circle at 70% 80%, rgba(255, 59, 59, 0.02) 0%, transparent 60%);
             pointer-events: none;
         }
-
         body::after {
             content: '';
             position: fixed;
@@ -87,7 +82,6 @@
             background: repeating-linear-gradient(45deg, rgba(224, 224, 224, 0.008) 0px, rgba(224, 224, 224, 0.008) 2px, transparent 2px, transparent 8px);
             pointer-events: none;
         }
-
         .app {
             display: flex;
             height: 100%;
@@ -95,7 +89,6 @@
             overflow: hidden;
             position: relative;
         }
-
         /* Левая панель */
         .chats-panel {
             width: 280px;
@@ -109,7 +102,6 @@
             z-index: 20;
             position: relative;
         }
-
         @media (max-width: 768px) {
             .chats-panel {
                 position: fixed;
@@ -119,18 +111,16 @@
                 width: 260px;
                 z-index: 1000;
             }
-            
+           
             .chats-panel.open {
                 left: 0;
                 box-shadow: 5px 0 30px rgba(0, 0, 0, 0.5);
             }
         }
-
         .chats-header {
             padding: 20px 16px;
             border-bottom: 1px solid rgba(224, 224, 224, 0.1);
         }
-
         .chats-title {
             font-size: 24px;
             font-weight: 600;
@@ -139,11 +129,9 @@
             background-clip: text;
             color: transparent;
         }
-
         .chats-search {
             padding: 12px 16px;
         }
-
         .chats-search input {
             width: 100%;
             padding: 10px 16px;
@@ -153,19 +141,16 @@
             color: var(--text-primary);
             font-size: 14px;
         }
-
         .chats-list {
             flex: 1;
             overflow-y: auto;
             padding: 8px;
         }
-
         .menu-divider {
             height: 1px;
             background: rgba(224, 224, 224, 0.1);
             margin: 12px 16px;
         }
-
         .menu-section-title {
             font-size: 11px;
             font-weight: 600;
@@ -174,7 +159,6 @@
             padding: 8px 20px;
             text-transform: uppercase;
         }
-
         .chat-item {
             display: flex;
             align-items: center;
@@ -187,17 +171,14 @@
             border: 1px solid transparent;
             min-height: 44px;
         }
-
         .chat-item:hover {
             background: rgba(224, 224, 224, 0.08);
             border-color: rgba(224, 224, 224, 0.2);
         }
-
         .chat-item.active {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.1), rgba(192, 192, 192, 0.05));
             border-color: rgba(224, 224, 224, 0.3);
         }
-
         .chat-avatar {
             width: 44px;
             height: 44px;
@@ -209,7 +190,6 @@
             font-size: 22px;
             position: relative;
         }
-
         .chat-avatar::after {
             content: '';
             position: absolute;
@@ -221,31 +201,25 @@
             border-radius: 50%;
             border: 2px solid var(--black-obsidian);
         }
-
         .chat-info {
             flex: 1;
         }
-
         .chat-name {
             font-weight: 600;
             font-size: 14px;
         }
-
         .chat-preview {
             font-size: 11px;
             color: var(--text-secondary);
         }
-
         .chat-time {
             font-size: 10px;
             color: var(--text-secondary);
         }
-
         .chats-footer {
             padding: 12px 16px;
             border-top: 1px solid rgba(224, 224, 224, 0.1);
         }
-
         .user-mini-profile {
             display: flex;
             align-items: center;
@@ -255,7 +229,6 @@
             background: rgba(224, 224, 224, 0.05);
             cursor: pointer;
         }
-
         .user-mini-avatar {
             width: 40px;
             height: 40px;
@@ -268,17 +241,14 @@
             font-weight: 600;
             color: var(--black-obsidian);
         }
-
         .user-mini-name {
             font-weight: 600;
             font-size: 14px;
         }
-
         .user-mini-status {
             font-size: 10px;
             color: var(--text-secondary);
         }
-
         /* Правая панель */
         .chat-panel {
             flex: 1;
@@ -288,7 +258,6 @@
             background: rgba(10, 10, 10, 0.5);
             height: 100%;
         }
-
         .chat-header {
             display: flex;
             justify-content: space-between;
@@ -298,13 +267,11 @@
             backdrop-filter: blur(20px);
             border-bottom: 1px solid rgba(224, 224, 224, 0.1);
         }
-
         .chat-header-left {
             display: flex;
             align-items: center;
             gap: 12px;
         }
-
         .mobile-menu-btn {
             display: none;
             background: rgba(224, 224, 224, 0.1);
@@ -318,7 +285,6 @@
             min-height: 44px;
             touch-action: manipulation;
         }
-
         @media (max-width: 768px) {
             .mobile-menu-btn {
                 display: flex;
@@ -328,12 +294,11 @@
                 z-index: 10;
                 pointer-events: auto;
             }
-            
+           
             .mobile-menu-btn:active {
                 transform: scale(0.95);
             }
         }
-
         .chat-header-avatar {
             width: 44px;
             height: 44px;
@@ -344,12 +309,10 @@
             justify-content: center;
             font-size: 24px;
         }
-
         .chat-header-name {
             font-weight: 700;
             font-size: 18px;
         }
-
         .chat-header-status {
             font-size: 11px;
             color: var(--text-secondary);
@@ -357,7 +320,6 @@
             align-items: center;
             gap: 6px;
         }
-
         .mode-indicator {
             width: 8px;
             height: 8px;
@@ -365,25 +327,21 @@
             animation: pulseMode 2s infinite;
             background: #ff6b3b;
         }
-
         @keyframes pulseMode {
             0%, 100% { opacity: 0.5; }
             50% { opacity: 1; }
         }
-
         .screen-container {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
             -webkit-overflow-scrolling: touch;
         }
-
         /* Dashboard Styles */
         .dashboard-container {
             max-width: 800px;
             margin: 0 auto;
         }
-
         .hero-section {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.05), rgba(192, 192, 192, 0.02));
             border-radius: 28px;
@@ -391,7 +349,6 @@
             margin-bottom: 24px;
             border: 1px solid rgba(224, 224, 224, 0.15);
         }
-
         .user-greeting {
             display: flex;
             justify-content: space-between;
@@ -399,18 +356,15 @@
             flex-wrap: wrap;
             gap: 16px;
         }
-
         .greeting-text h2 {
             font-size: 24px;
             font-weight: 600;
             margin-bottom: 6px;
         }
-
         .greeting-text p {
             color: var(--text-secondary);
             font-size: 13px;
         }
-
         .profile-badge {
             background: rgba(224, 224, 224, 0.08);
             border-radius: 30px;
@@ -418,7 +372,6 @@
             text-align: center;
             border: 1px solid rgba(224, 224, 224, 0.2);
         }
-
         .profile-code {
             font-family: monospace;
             font-size: 12px;
@@ -429,7 +382,6 @@
             background-clip: text;
             color: transparent;
         }
-
         .mode-selector {
             display: flex;
             gap: 8px;
@@ -440,7 +392,6 @@
             padding: 4px;
             border: 1px solid rgba(224, 224, 224, 0.2);
         }
-
         .mode-btn {
             flex: 1;
             padding: 10px 16px;
@@ -458,16 +409,13 @@
             gap: 6px;
             min-height: 44px;
         }
-
         .mode-btn.active {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.2), rgba(192, 192, 192, 0.1));
             color: var(--text-primary);
         }
-
         .voice-section {
             margin-bottom: 32px;
         }
-
         .voice-card {
             background: linear-gradient(135deg, rgba(10, 10, 10, 0.7), rgba(26, 26, 26, 0.6));
             backdrop-filter: blur(20px);
@@ -476,7 +424,6 @@
             border: 1px solid rgba(224, 224, 224, 0.2);
             cursor: pointer;
         }
-
         .voice-record-btn-premium {
             width: 100%;
             padding: 20px 24px;
@@ -493,14 +440,12 @@
             font-size: 16px;
             font-weight: 500;
         }
-
         .modules-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
             margin-bottom: 24px;
         }
-
         .module-card {
             background: rgba(224, 224, 224, 0.05);
             border-radius: 16px;
@@ -509,40 +454,33 @@
             transition: all 0.2s;
             border: 1px solid transparent;
         }
-
         .module-card:hover {
             border-color: #ff6b3b;
             transform: translateY(-2px);
         }
-
         .module-icon {
             font-size: 28px;
             margin-bottom: 8px;
         }
-
         .module-name {
             font-weight: 600;
             font-size: 14px;
             margin-bottom: 4px;
         }
-
         .module-desc {
             font-size: 11px;
             color: var(--text-secondary);
         }
-
         .quick-actions-title {
             font-size: 14px;
             font-weight: 600;
             margin-bottom: 12px;
         }
-
         .quick-actions-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 12px;
         }
-
         .quick-action {
             background: rgba(224, 224, 224, 0.05);
             border-radius: 12px;
@@ -552,23 +490,19 @@
             transition: all 0.2s;
             border: 1px solid transparent;
         }
-
         .quick-action:hover {
             background: rgba(255,107,59,0.15);
             transform: translateY(-2px);
             border-color: rgba(255,107,59,0.3);
         }
-
         .action-icon {
             font-size: 24px;
             margin-bottom: 4px;
         }
-
         .action-name {
             font-size: 11px;
             color: var(--text-secondary);
         }
-
         /* Content Pages */
         .full-content-page {
             max-width: 800px;
@@ -580,7 +514,6 @@
             border: 1px solid rgba(224, 224, 224, 0.2);
             animation: contentAppear 0.3s ease-out;
         }
-
         @keyframes contentAppear {
             from {
                 opacity: 0;
@@ -591,7 +524,6 @@
                 transform: translateY(0);
             }
         }
-
         .back-btn {
             background: rgba(224, 224, 224, 0.1);
             border: 1px solid rgba(224, 224, 224, 0.2);
@@ -605,23 +537,19 @@
             font-size: 14px;
             min-height: 44px;
         }
-
         .back-btn:hover {
             background: rgba(224, 224, 224, 0.2);
         }
-
         .content-header {
             text-align: center;
             margin-bottom: 24px;
             padding-bottom: 16px;
             border-bottom: 1px solid rgba(224, 224, 224, 0.2);
         }
-
         .content-emoji {
             font-size: 48px;
             margin-bottom: 12px;
         }
-
         .content-header h1 {
             font-size: 24px;
             font-weight: 600;
@@ -630,13 +558,11 @@
             background-clip: text;
             color: transparent;
         }
-
         .content-body {
             font-size: 15px;
             line-height: 1.6;
             color: var(--text-secondary);
         }
-
         .profile-section-title {
             font-size: 18px;
             font-weight: bold;
@@ -646,11 +572,9 @@
             border-bottom: 1px solid rgba(255,107,59,0.3);
             color: #ff6b3b;
         }
-
         .profile-section-title:first-of-type {
             margin-top: 0;
         }
-
         .thoughts-section-title {
             font-size: 18px;
             font-weight: bold;
@@ -660,7 +584,6 @@
             border-bottom: 1px solid rgba(255,107,59,0.3);
             color: #ff6b3b;
         }
-
         .loading-screen {
             display: flex;
             flex-direction: column;
@@ -669,17 +592,14 @@
             height: 100%;
             gap: 20px;
         }
-
         .loading-spinner {
             font-size: 48px;
             animation: spin 1s linear infinite;
         }
-
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
-
         /* Floating Toast */
         .floating-message {
             position: fixed;
@@ -689,7 +609,6 @@
             z-index: 1000;
             animation: slideUp 0.2s ease;
         }
-
         @keyframes slideUp {
             from {
                 opacity: 0;
@@ -700,7 +619,6 @@
                 transform: translateX(-50%) translateY(0);
             }
         }
-
         .floating-message-content {
             background: rgba(10, 10, 10, 0.95);
             backdrop-filter: blur(20px);
@@ -711,40 +629,37 @@
             gap: 10px;
             border: 1px solid rgba(224, 224, 224, 0.2);
         }
-
         .floating-message-text {
             font-size: 13px;
         }
-
         .floating-message-close {
             cursor: pointer;
             opacity: 0.7;
             font-size: 16px;
         }
-
         /* Mobile Responsive */
         @media (max-width: 768px) {
             .quick-actions-grid {
                 grid-template-columns: repeat(4, 1fr);
                 gap: 8px;
             }
-            
+           
             .action-name {
                 font-size: 10px;
             }
-            
+           
             .modules-grid {
                 gap: 8px;
             }
-            
+           
             .hero-section {
                 padding: 16px;
             }
-            
+           
             .greeting-text h2 {
                 font-size: 20px;
             }
-            
+           
             .full-content-page {
                 padding: 16px;
             }
@@ -760,11 +675,11 @@
                     <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; border-radius: 50%;">✎</button>
                 </div>
             </div>
-            
+           
             <div class="chats-search">
                 <input type="text" placeholder="Поиск" id="chatSearchInput">
             </div>
-            
+           
             <div class="chats-list" id="chatsList">
                 <div class="chat-item active" data-chat="fredi">
                     <div class="chat-avatar">⭐</div>
@@ -774,7 +689,7 @@
                     </div>
                     <div class="chat-time">сейчас</div>
                 </div>
-                
+               
                 <div class="chat-item" data-chat="test" id="testChatItem">
                     <div class="chat-avatar">📊</div>
                     <div class="chat-info">
@@ -783,11 +698,11 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-                
+               
                 <div class="menu-divider"></div>
-                
+               
                 <div class="menu-section-title">РАСШИРЕННЫЕ ФУНКЦИИ</div>
-                
+               
                 <div class="chat-item" data-chat="confinement">
                     <div class="chat-avatar">🔐</div>
                     <div class="chat-info">
@@ -796,7 +711,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-                
+               
                 <div class="chat-item" data-chat="practices">
                     <div class="chat-avatar">🧘</div>
                     <div class="chat-info">
@@ -805,7 +720,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-                
+               
                 <div class="chat-item" data-chat="hypnosis">
                     <div class="chat-avatar">🌙</div>
                     <div class="chat-info">
@@ -814,7 +729,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-                
+               
                 <div class="chat-item" data-chat="tales">
                     <div class="chat-avatar">📚</div>
                     <div class="chat-info">
@@ -823,7 +738,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-                
+               
                 <div class="chat-item" data-chat="anchors">
                     <div class="chat-avatar">⚓</div>
                     <div class="chat-info">
@@ -832,7 +747,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-                
+               
                 <div class="chat-item" data-chat="statistics">
                     <div class="chat-avatar">📊</div>
                     <div class="chat-info">
@@ -842,7 +757,7 @@
                     <div class="chat-time"></div>
                 </div>
             </div>
-            
+           
             <div class="chats-footer">
                 <div class="user-mini-profile" id="userMiniProfile">
                     <div class="user-mini-avatar" id="userMiniAvatar">А</div>
@@ -853,7 +768,6 @@
                 </div>
             </div>
         </div>
-
         <div class="chat-panel" id="chatPanel">
             <div class="chat-header">
                 <div class="chat-header-left">
@@ -871,7 +785,7 @@
                     <button class="mode-btn" id="menuBtn">⋮</button>
                 </div>
             </div>
-            
+           
             <div id="screenContainer" class="screen-container">
                 <div class="loading-screen">
                     <div class="loading-spinner">⭐</div>
@@ -880,7 +794,6 @@
             </div>
         </div>
     </div>
-
     <div id="toastMessage" class="floating-message" style="display: none;">
         <div class="floating-message-content">
             <div class="floating-message-text" id="toastText"></div>
@@ -888,11 +801,12 @@
         </div>
     </div>
 
+    <!-- Подключаем скрипты -->
     <script src="/test.js"></script>
     <script src="/voice.js"></script>
     <script src="/app.js"></script>
     <script src="/analysis.js"></script>
-    
+   
     <script>
     (function() {
         // ============================================
@@ -915,55 +829,53 @@
         // ============================================
         // ФУНКЦИИ ФОРМАТИРОВАНИЯ
         // ============================================
-        
         function formatProfileText(text) {
             if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
-            
+           
             text = text.replace(/\*\*(.*?)\*\*/g, '$1');
             text = text.replace(/\*(.*?)\*/g, '$1');
-            
+           
             const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
             const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
-            
+           
             headers.forEach((header, i) => {
                 const regex = new RegExp(header, 'gi');
                 text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
             });
-            
+           
             text = text.replace(/•\s*/g, '<br>• ');
             text = text.replace(/-\s*/g, '<br>• ');
             text = text.replace(/\n\n/g, '<br><br>');
             text = text.replace(/\n/g, '<br>');
-            
+           
             return text;
         }
-        
+       
         function formatThoughtText(text) {
             if (!text) return '💭 Мысли психолога появятся после завершения теста.';
-            
+           
             text = text.replace(/\*\*(.*?)\*\*/g, '$1');
             text = text.replace(/\*(.*?)\*/g, '$1');
-            
+           
             const headers = ['КЛЮЧЕВОЙ ЭЛЕМЕНТ', 'ПЕТЛЯ', 'ТОЧКА ВХОДА', 'ПРОГНОЗ', 'РЕКОМЕНДАЦИИ'];
             const emojis = ['🔐', '🔄', '🚪', '📊', '💡'];
-            
+           
             headers.forEach((header, i) => {
                 const regex = new RegExp(header, 'gi');
                 text = text.replace(regex, `<div class="thoughts-section-title">${emojis[i]} ${header}</div>`);
             });
-            
+           
             text = text.replace(/•\s*/g, '<br>• ');
             text = text.replace(/-\s*/g, '<br>• ');
             text = text.replace(/\n\n/g, '<br><br>');
             text = text.replace(/\n/g, '<br>');
-            
+           
             return text;
         }
 
         // ============================================
         // API ВЫЗОВЫ
         // ============================================
-
         async function apiCall(endpoint, options = {}) {
             const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
             try {
@@ -1034,7 +946,6 @@
         // ============================================
         // UI ФУНКЦИИ
         // ============================================
-
         function showToast(message) {
             const toast = document.getElementById('toastMessage');
             const textEl = document.getElementById('toastText');
@@ -1060,7 +971,7 @@
         function renderDashboard() {
             const container = document.getElementById('screenContainer');
             const userName = localStorage.getItem('fredi_user_name') || 'друг';
-            
+           
             container.innerHTML = `
                 <div class="dashboard-container">
                     <div class="hero-section">
@@ -1075,11 +986,11 @@
                             </div>
                         </div>
                     </div>
-                    
+                   
                     <div class="mode-selector">
                         <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
                     </div>
-                    
+                   
                     <div class="voice-section">
                         <div class="voice-card">
                             <div class="voice-record-btn-premium" id="voiceBtn">
@@ -1088,14 +999,14 @@
                             </div>
                         </div>
                     </div>
-                    
+                   
                     <div class="modules-grid">
                         <div class="module-card"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
                         <div class="module-card"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
                         <div class="module-card"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
                         <div class="module-card"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
                     </div>
-                    
+                   
                     <div class="quick-actions">
                         <div class="quick-actions-title">⚡ Быстрые действия</div>
                         <div class="quick-actions-grid">
@@ -1119,7 +1030,7 @@
                     </div>
                 </div>
             `;
-            
+           
             // Обработчики быстрых действий
             document.querySelectorAll('.quick-action').forEach(el => {
                 el.addEventListener('click', async () => {
@@ -1130,23 +1041,23 @@
                     else if (action === 'test') startTest();
                 });
             });
-            
-            // Обработчики модулей
-document.querySelectorAll('.module-card').forEach((card, index) => {
-    card.addEventListener('click', () => {
-        if (index === 0) {           // Первая карточка — "Анализ"
-            openAnalysisScreen();
-        } else {
-            showToast('Этот модуль скоро будет доступен');
-        }
-    });
-});
-            
+           
+            // ==================== ОБРАБОТЧИКИ МОДУЛЕЙ ====================
+            document.querySelectorAll('.module-card').forEach((card, index) => {
+                card.addEventListener('click', () => {
+                    if (index === 0) {           // Первая карточка — "Анализ"
+                        openAnalysisScreen();
+                    } else {
+                        showToast('Этот модуль скоро будет доступен');
+                    }
+                });
+            });
+           
             // Обработчик голосовой кнопки
             document.getElementById('voiceBtn')?.addEventListener('click', () => {
                 showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
             });
-            
+           
             // Загружаем статус профиля
             isTestCompleted().then(completed => {
                 const codeEl = document.getElementById('profileCode');
@@ -1158,14 +1069,14 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
 
         function showFullContentScreen(title, content, contentType) {
             const container = document.getElementById('screenContainer');
-            
+           
             let formattedContent = content;
             if (contentType === 'profile') formattedContent = formatProfileText(content);
             else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
             else formattedContent = (content || '').replace(/\n/g, '<br>');
-            
+           
             const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
-            
+           
             container.innerHTML = `
                 <div class="full-content-page">
                     <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
@@ -1178,7 +1089,7 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
                     </div>
                 </div>
             `;
-            
+           
             const backBtn = document.getElementById('backBtn');
             if (backBtn) {
                 backBtn.addEventListener('click', () => {
@@ -1199,17 +1110,16 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
         // ============================================
         // ОСНОВНЫЕ ОБРАБОТЧИКИ
         // ============================================
-
         async function handleProfileClick() {
             const completed = await isTestCompleted();
             if (!completed) {
                 showToast('📊 Сначала пройдите психологический тест');
                 return;
             }
-            
+           
             showLoading('Загружаю психологический портрет...');
             const profile = await getAIGeneratedProfile();
-            
+           
             if (profile) {
                 showFullContentScreen('Мой портрет', profile, 'profile');
             } else {
@@ -1223,10 +1133,10 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
                 showToast('📊 Сначала пройдите психологический тест');
                 return;
             }
-            
+           
             showLoading('Загружаю мысли психолога...');
             const thought = await getPsychologistThought();
-            
+           
             if (thought) {
                 showFullContentScreen('Мысли психолога', thought, 'thoughts');
             } else {
@@ -1240,10 +1150,10 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
                 showToast('📊 Сначала пройдите психологический тест');
                 return;
             }
-            
+           
             showLoading('Подбираю идеи...');
             const ideas = await getWeekendIdeas();
-            
+           
             if (ideas && ideas.length > 0) {
                 const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
                 showFullContentScreen('Идеи на выходные', ideasText, 'goals');
@@ -1255,25 +1165,20 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
         // ============================================
         // ИНИЦИАЛИЗАЦИЯ
         // ============================================
-
         function initMobileMenu() {
             const mobileBtn = document.getElementById('mobileMenuBtn');
             const panel = document.getElementById('chatsPanel');
-            
+           
             if (!mobileBtn || !panel) return;
-            
-            // Удаляем возможные старые обработчики
+           
             mobileBtn.onclick = null;
-            
-            // Добавляем новый обработчик
+           
             mobileBtn.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
                 panel.classList.toggle('open');
-                console.log('Menu toggled, open:', panel.classList.contains('open'));
             });
-            
-            // Закрытие при клике вне панели
+           
             document.addEventListener('click', function(e) {
                 if (panel.classList.contains('open')) {
                     if (!panel.contains(e.target) && !mobileBtn.contains(e.target)) {
@@ -1281,24 +1186,11 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
                     }
                 }
             });
-            
-            // Закрытие при свайпе влево
-            let touchStartX = 0;
-            panel.addEventListener('touchstart', function(e) {
-                touchStartX = e.touches[0].clientX;
-            }, { passive: true });
-            
-            panel.addEventListener('touchend', function(e) {
-                const touchEndX = e.changedTouches[0].clientX;
-                if (touchEndX - touchStartX < -50) {
-                    panel.classList.remove('open');
-                }
-            });
         }
 
         function setupMenuHandlers() {
             document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
-            
+           
             document.getElementById('chatSearchInput')?.addEventListener('input', (e) => {
                 const search = e.target.value.toLowerCase();
                 document.querySelectorAll('.chat-item').forEach(item => {
@@ -1313,7 +1205,7 @@ document.querySelectorAll('.module-card').forEach((card, index) => {
             initMobileMenu();
             setupMenuHandlers();
             renderDashboard();
-            
+           
             const userName = localStorage.getItem('fredi_user_name');
             if (!userName) {
                 setTimeout(() => {
