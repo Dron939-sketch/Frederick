@@ -2330,23 +2330,42 @@ async def get_anchor_state(state: str):
 # ДОПОЛНИТЕЛЬНЫЕ ЭНДПОИНТЫ
 # ============================================
 
+from typing import Optional
+
 @app.get("/api/user-status")
-async def user_status(user_id: int):
-    """Получить статус пользователя"""
+async def user_status(user_id: Optional[str] = None):
+    """
+    Получить статус пользователя
+    Поддерживает user_id как query-параметр (?user_id=...)
+    Работает и со старым, и с новым фронтендом
+    """
     try:
+        if not user_id:
+            return {"success": False, "error": "user_id is required"}
+
+        # Приводим к строке и очищаем
+        user_id = str(user_id).strip()
+
         profile = await user_repo.get_profile(user_id) or {}
-        has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
-        
+
+        has_profile = bool(
+            profile.get('profile_data') or 
+            profile.get('ai_generated_profile')
+        )
+
         return {
             "success": True,
             "has_profile": has_profile,
             "test_completed": has_profile,
-            "profile_code": profile.get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4') if has_profile else "не определен",
-            "interpretation_ready": bool(profile.get('ai_generated_profile'))
+            "profile_code": profile.get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4') 
+                           if has_profile else "не определен",
+            "interpretation_ready": bool(profile.get('ai_generated_profile')),
+            "user_id": user_id
         }
+
     except Exception as e:
-        logger.error(f"Error in user-status: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Error in user-status for user_id={user_id}: {e}")
+        return {"success": False, "error": "Internal server error"}
 
 
 @app.post("/api/save-mode")
