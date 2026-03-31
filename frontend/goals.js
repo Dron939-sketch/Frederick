@@ -1,6 +1,6 @@
 // ============================================
 // goals.js — Модуль "Цели"
-// Динамический подбор целей по профилю пользователя
+// Полностью рабочий + красивый дизайн
 // ============================================
 
 async function openGoalsScreen() {
@@ -10,7 +10,7 @@ async function openGoalsScreen() {
         return;
     }
 
-    showLoading('🎯 Подбираю цели специально под ваш профиль...');
+    showLoading('🎯 Анализирую твой профиль и подбираю цели...');
 
     try {
         const response = await fetch(`${API_BASE_URL}/api/goals/${USER_ID}`);
@@ -23,7 +23,7 @@ async function openGoalsScreen() {
         }
 
     } catch (error) {
-        console.error('Goals loading error:', error);
+        console.error('Goals error:', error);
         showToast('Не удалось загрузить цели. Показываю примеры.');
         renderGoalsScreen([], '');
     }
@@ -35,42 +35,42 @@ function renderGoalsScreen(goals, profileCode) {
     let goalsHtml = '';
 
     if (goals && goals.length > 0) {
-        goalsHtml = goals.map((goal, index) => {
-            const difficultyColor = goal.difficulty === 'hard' ? '#ef4444' : 
-                                  goal.difficulty === 'medium' ? '#f59e0b' : '#10b981';
+        goalsHtml = goals.map((goal, i) => {
+            const diffColor = goal.difficulty === 'hard' ? '#ef4444' : 
+                             goal.difficulty === 'medium' ? '#f59e0b' : '#10b981';
             
             return `
-                <div class="goal-card">
+                <div class="goal-card" onclick="selectGoal(${JSON.stringify(goal)})">
                     <div class="goal-header">
-                        <span class="goal-number">${index + 1}</span>
-                        <span class="goal-difficulty" style="background: ${difficultyColor}20; color: ${difficultyColor}">
+                        <span class="goal-number">${i + 1}</span>
+                        <span class="goal-difficulty" style="background:${diffColor}20; color:${diffColor}">
                             ${goal.difficulty === 'hard' ? 'Сложная' : goal.difficulty === 'medium' ? 'Средняя' : 'Лёгкая'}
                         </span>
                     </div>
-                    <div class="goal-title">${goal.title || goal.name}</div>
+                    <div class="goal-title">${goal.name || goal.title}</div>
                     <div class="goal-desc">${goal.description || ''}</div>
                     ${goal.is_priority ? `<div class="goal-priority">⭐ Приоритетная цель</div>` : ''}
+                    <div class="goal-time">⏱ ${goal.time || 'не указано'}</div>
                 </div>
             `;
         }).join('');
     } else {
-        // Fallback, если целей пока нет
         goalsHtml = `
             <div class="no-goals">
                 <div class="no-goals-emoji">🎯</div>
-                <h3>Ваши цели скоро появятся</h3>
-                <p>После анализа вашего профиля Фреди подберёт персональные цели, которые помогут вам расти.</p>
+                <h3>Цели скоро появятся</h3>
+                <p>После анализа твоего профиля Фреди подберёт цели, которые помогут тебе расти.</p>
             </div>
         `;
     }
 
     container.innerHTML = `
         <div class="full-content-page" style="max-width: 920px;">
-            <button class="back-btn" id="backToDashboard">◀️ НАЗАД К ДАШБОРДУ</button>
+            <button class="back-btn" id="backBtn">◀️ НАЗАД К ДАШБОРДУ</button>
             
             <div class="content-header">
                 <div class="content-emoji" style="font-size: 68px;">🎯</div>
-                <h1>Ваши цели</h1>
+                <h1>Твои цели</h1>
                 ${profileCode ? `<p style="color: var(--text-secondary);">Профиль: <strong>${profileCode}</strong></p>` : ''}
             </div>
 
@@ -89,84 +89,104 @@ function renderGoalsScreen(goals, profileCode) {
         </div>
     `;
 
-    document.getElementById('backToDashboard').addEventListener('click', renderDashboard);
+    document.getElementById('backBtn').addEventListener('click', renderDashboard);
+}
+
+// Выбор цели
+async function selectGoal(goal) {
+    if (!goal) return;
+
+    showLoading('💾 Сохраняю выбранную цель...');
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/goals/select`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: USER_ID,
+                goal: goal
+            })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            showToast(`✅ Цель «${goal.name}» сохранена`);
+            // Можно открыть маршрут или вернуться в дашборд
+            setTimeout(() => renderDashboard(), 1200);
+        } else {
+            showToast('Не удалось сохранить цель');
+        }
+    } catch (e) {
+        console.error(e);
+        showToast('Ошибка сохранения цели');
+    }
 }
 
 // Обновление целей
 async function refreshGoals() {
-    showLoading('🎯 Генерирую новые цели по вашему профилю...');
-    await new Promise(r => setTimeout(r, 700)); // небольшая задержка для красоты
+    showLoading('🎯 Генерирую новые цели...');
+    await new Promise(r => setTimeout(r, 600));
     openGoalsScreen();
 }
 
-// Стили для модуля "Цели"
-const goalsStyles = `
+// Стили для модуля
+const goalsCSS = `
 .goals-container {
     display: flex;
     flex-direction: column;
     gap: 16px;
     margin: 24px 0;
 }
-
 .goal-card {
-    background: rgba(224, 224, 224, 0.08);
+    background: rgba(224,224,224,0.08);
+    border: 1px solid rgba(224,224,224,0.2);
     border-radius: 20px;
     padding: 20px;
-    border: 1px solid rgba(224, 224, 224, 0.15);
-    transition: all 0.3s ease;
+    cursor: pointer;
+    transition: all 0.3s;
 }
-
 .goal-card:hover {
-    transform: translateY(-3px);
+    transform: translateY(-4px);
     border-color: #3b82ff;
 }
-
 .goal-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
     margin-bottom: 12px;
 }
-
 .goal-number {
     font-size: 18px;
     font-weight: 700;
     color: #3b82ff;
 }
-
 .goal-difficulty {
     font-size: 13px;
-    font-weight: 600;
-    padding: 4px 12px;
+    padding: 4px 14px;
     border-radius: 30px;
+    font-weight: 600;
 }
-
 .goal-title {
     font-size: 17px;
     font-weight: 600;
     margin-bottom: 8px;
-    line-height: 1.4;
 }
-
 .goal-desc {
     font-size: 15px;
     line-height: 1.6;
     color: var(--text-secondary);
 }
-
 .goal-priority {
     margin-top: 12px;
-    font-size: 13px;
     color: #f59e0b;
     font-weight: 600;
+    font-size: 13px;
 }
-
-.no-goals {
-    text-align: center;
-    padding: 60px 20px;
+.goal-time {
+    margin-top: 12px;
+    font-size: 13px;
     color: var(--text-secondary);
 }
-
 .goals-actions {
     margin-top: 40px;
     display: flex;
@@ -174,10 +194,16 @@ const goalsStyles = `
     justify-content: center;
     flex-wrap: wrap;
 }
+.no-goals {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
 `;
 
-document.head.insertAdjacentHTML('beforeend', `<style>${goalsStyles}</style>`);
+document.head.insertAdjacentHTML('beforeend', `<style>${goalsCSS}</style>`);
 
 // Экспорт
 window.openGoalsScreen = openGoalsScreen;
 window.refreshGoals = refreshGoals;
+window.selectGoal = selectGoal;
