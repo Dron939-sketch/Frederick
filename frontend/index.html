@@ -1,1494 +1,1374 @@
-// ============================================
-// АУДИО ПЛЕЕР (полностью сохранен)
-// ============================================
-
-class AudioPlayer {
-    constructor() {
-        this.audio = null;
-        this.currentUrl = null;
-        this.onPlayStart = null;
-        this.onPlayEnd = null;
-        this.onError = null;
-        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    }
-    
-    play(audioData, mimeType = 'audio/mpeg') {
-        return new Promise((resolve, reject) => {
-            try {
-                this.stop();
-                
-                this.audio = new Audio();
-                let audioUrl = audioData;
-                
-                if (typeof audioData === 'string' && audioData.startsWith('data:audio/')) {
-                    const matches = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/);
-                    if (matches) {
-                        const detectedMimeType = matches[1];
-                        const base64Data = matches[2];
-                        
-                        const binaryString = atob(base64Data);
-                        const bytes = new Uint8Array(binaryString.length);
-                        for (let i = 0; i < binaryString.length; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
-                        }
-                        
-                        const blob = new Blob([bytes], { type: detectedMimeType });
-                        audioUrl = URL.createObjectURL(blob);
-                    }
-                } 
-                else if (typeof audioData === 'string' && audioData.startsWith('http')) {
-                    audioUrl = audioData;
-                }
-                else if (audioData instanceof Blob) {
-                    audioUrl = URL.createObjectURL(audioData);
-                }
-                
-                this.currentUrl = audioUrl;
-                this.audio.src = audioUrl;
-                this.audio.load();
-                
-                // Для iOS нужно немного подождать
-                const playHandler = () => {
-                    if (this.onPlayStart) {
-                        this.onPlayStart();
-                    }
-                    
-                    this.audio.play().catch(error => {
-                        console.error('Play failed:', error);
-                        if (this.onError) {
-                            this.onError(error);
-                        }
-                        reject(error);
-                    });
-                };
-                
-                this.audio.oncanplaythrough = playHandler;
-                
-                // Fallback для iOS, если oncanplaythrough не срабатывает
-                setTimeout(() => {
-                    if (this.audio && this.audio.readyState >= 2 && !this.audio.played.length) {
-                        playHandler();
-                    }
-                }, 100);
-                
-                this.audio.onended = () => {
-                    if (this.currentUrl && this.currentUrl.startsWith('blob:')) {
-                        URL.revokeObjectURL(this.currentUrl);
-                    }
-                    
-                    if (this.onPlayEnd) {
-                        this.onPlayEnd();
-                    }
-                    resolve();
-                };
-                
-                this.audio.onerror = (error) => {
-                    console.error('Audio error:', error);
-                    if (this.onError) {
-                        this.onError(error);
-                    }
-                    reject(error);
-                };
-                
-            } catch (error) {
-                console.error('Playback error:', error);
-                reject(error);
-            }
-        });
-    }
-    
-    stop() {
-        if (this.audio) {
-            this.audio.pause();
-            this.audio.currentTime = 0;
-            
-            if (this.currentUrl && this.currentUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(this.currentUrl);
-            }
-            
-            this.audio = null;
-            this.currentUrl = null;
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Фреди">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="mobile-web-app-capable" content="yes">
+   
+    <title>Фреди | Премиум виртуальный психолог</title>
+   
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+   
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
-    }
-    
-    isPlaying() {
-        return this.audio && !this.audio.paused && !this.audio.ended;
-    }
-    
-    dispose() {
-        this.stop();
-    }
-}
-
-// ============================================
-// ИНДИКАТОР ЗАГРУЗКИ "ФРЕДИ ДУМАЕТ"
-// ============================================
-
-class LoadingIndicator {
-    constructor() {
-        this.container = null;
-        this.timeout = null;
-        this.isShowing = false;
-        this.animationInterval = null;
-        this.dotsCount = 0;
-        this.messageElement = null;
-        this.dotsElement = null;
-        this.warningTimeout = null;
-    }
-    
-    create() {
-        const messagesContainer = document.getElementById('screenContainer');
-        if (!messagesContainer) return;
-        
-        this.remove();
-        
-        this.container = document.createElement('div');
-        this.container.className = 'loading-indicator';
-        this.container.style.cssText = `
+        :root {
+            --black-obsidian: #0a0a0a;
+            --black-matte: #111111;
+            --carbon-fiber: #1a1a1a;
+            --glass-dark: rgba(10, 10, 10, 0.85);
+            --chrome: #e0e0e0;
+            --silver-metallic: #c0c0c0;
+            --silver-brushed: #b0b0b0;
+            --platinum: #a0a0a0;
+            --amg-red: #ff3b3b;
+            --amg-orange: #ff6b3b;
+            --amg-blue: #3b82ff;
+            --amber: #ffb83b;
+            --shadow-premium: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            --glow-iphone: 0 0 20px rgba(255, 255, 255, 0.5), 0 0 40px rgba(255, 255, 255, 0.3);
+            --text-primary: #ffffff;
+            --text-secondary: #a0a3b0;
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--black-obsidian);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            height: 100dvh;
+            width: 100%;
             position: fixed;
-            bottom: 100px;
+            top: 0;
+            left: 0;
+        }
+        @supports (height: 100dvh) {
+            body, .app, .chat-panel, .screen-container, .test-chat-container {
+                height: 100dvh !important;
+                min-height: 100dvh !important;
+            }
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 30% 40%, rgba(224, 224, 224, 0.03) 0%, transparent 60%),
+                        radial-gradient(circle at 70% 80%, rgba(255, 59, 59, 0.02) 0%, transparent 60%);
+            pointer-events: none;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: repeating-linear-gradient(45deg, rgba(224, 224, 224, 0.008) 0px, rgba(224, 224, 224, 0.008) 2px, transparent 2px, transparent 8px);
+            pointer-events: none;
+        }
+        .app {
+            display: flex;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+        /* Левая панель */
+        .chats-panel {
+            width: 280px;
+            background: rgba(10, 10, 10, 0.85);
+            backdrop-filter: blur(25px);
+            border-right: 1px solid rgba(224, 224, 224, 0.15);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: left 0.3s ease;
+            z-index: 20;
+            position: relative;
+        }
+        @media (max-width: 768px) {
+            .chats-panel {
+                position: fixed;
+                left: -280px;
+                top: 0;
+                height: 100%;
+                width: 260px;
+                z-index: 1000;
+            }
+            .chats-panel.open {
+                left: 0;
+                box-shadow: 5px 0 30px rgba(0, 0, 0, 0.5);
+            }
+        }
+        .chats-header {
+            padding: 20px 16px;
+            border-bottom: 1px solid rgba(224, 224, 224, 0.1);
+        }
+        .chats-title {
+            font-size: 24px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .chats-search {
+            padding: 12px 16px;
+        }
+        .chats-search input {
+            width: 100%;
+            padding: 10px 16px;
+            background: rgba(224, 224, 224, 0.05);
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            border-radius: 30px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .chats-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+        .menu-divider {
+            height: 1px;
+            background: rgba(224, 224, 224, 0.1);
+            margin: 12px 16px;
+        }
+        .menu-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            padding: 8px 20px;
+            text-transform: uppercase;
+        }
+        .chat-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            gap: 12px;
+            border: 1px solid transparent;
+            min-height: 44px;
+        }
+        .chat-item:hover {
+            background: rgba(224, 224, 224, 0.08);
+            border-color: rgba(224, 224, 224, 0.2);
+        }
+        .chat-item.active {
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.1), rgba(192, 192, 192, 0.05));
+            border-color: rgba(224, 224, 224, 0.3);
+        }
+        .chat-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            position: relative;
+        }
+        .chat-avatar::after {
+            content: '';
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            width: 10px;
+            height: 10px;
+            background: var(--success);
+            border-radius: 50%;
+            border: 2px solid var(--black-obsidian);
+        }
+        .chat-info {
+            flex: 1;
+        }
+        .chat-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .chat-preview {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .chat-time {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+        .chats-footer {
+            padding: 12px 16px;
+            border-top: 1px solid rgba(224, 224, 224, 0.1);
+        }
+        .user-mini-profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 16px;
+            background: rgba(224, 224, 224, 0.05);
+            cursor: pointer;
+        }
+        .user-mini-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--black-obsidian);
+        }
+        .user-mini-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .user-mini-status {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+        /* Правая панель */
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: rgba(10, 10, 10, 0.5);
+            height: 100%;
+        }
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: rgba(10, 10, 10, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(224, 224, 224, 0.1);
+        }
+        .chat-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .mobile-menu-btn {
+            display: none;
+            background: rgba(224, 224, 224, 0.1);
+            border: none;
+            font-size: 22px;
+            color: var(--chrome);
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            min-height: 44px;
+            touch-action: manipulation;
+        }
+        @media (max-width: 768px) {
+            .mobile-menu-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                z-index: 10;
+                pointer-events: auto;
+            }
+            .mobile-menu-btn:active {
+                transform: scale(0.95);
+            }
+        }
+        .chat-header-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+        .chat-header-name {
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .chat-header-status {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .mode-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulseMode 2s infinite;
+            background: #ff6b3b;
+        }
+        @keyframes pulseMode {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+        .screen-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            -webkit-overflow-scrolling: touch;
+        }
+        /* Dashboard Styles */
+        .dashboard-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .hero-section {
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.05), rgba(192, 192, 192, 0.02));
+            border-radius: 28px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(224, 224, 224, 0.15);
+        }
+        .user-greeting {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .greeting-text h2 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .greeting-text p {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+        .profile-badge {
+            background: rgba(224, 224, 224, 0.08);
+            border-radius: 30px;
+            padding: 6px 16px;
+            text-align: center;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+        }
+        .profile-code {
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .mode-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            background: rgba(10, 10, 10, 0.5);
+            backdrop-filter: blur(20px);
+            border-radius: 50px;
+            padding: 4px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+        }
+        .mode-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: 40px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-height: 44px;
+        }
+        .mode-btn.active {
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.2), rgba(192, 192, 192, 0.1));
+            color: var(--text-primary);
+        }
+        .voice-section {
+            margin-bottom: 32px;
+        }
+        .voice-card {
+            background: linear-gradient(135deg, rgba(10, 10, 10, 0.7), rgba(26, 26, 26, 0.6));
+            backdrop-filter: blur(20px);
+            border-radius: 60px;
+            padding: 6px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            cursor: pointer;
+        }
+        .voice-record-btn-premium {
+            width: 100%;
+            padding: 20px 24px;
+            border-radius: 54px;
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.1), rgba(192, 192, 192, 0.05));
+            border: none;
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            transition: all 0.2s;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .module-card {
+            background: rgba(224, 224, 224, 0.05);
+            border-radius: 16px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .module-card:hover {
+            border-color: #ff6b3b;
+            transform: translateY(-2px);
+        }
+        .module-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+        .module-name {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+        .module-desc {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .quick-actions-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        .quick-actions-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+        .quick-action {
+            background: rgba(224, 224, 224, 0.05);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .quick-action:hover {
+            background: rgba(255,107,59,0.15);
+            transform: translateY(-2px);
+            border-color: rgba(255,107,59,0.3);
+        }
+        .action-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+        .action-name {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        /* Content Pages */
+        .full-content-page {
+            max-width: 800px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, rgba(10, 10, 10, 0.95), rgba(26, 26, 26, 0.85));
+            backdrop-filter: blur(20px);
+            border-radius: 28px;
+            padding: 24px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            animation: contentAppear 0.3s ease-out;
+        }
+        @keyframes contentAppear {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .back-btn {
+            background: rgba(224, 224, 224, 0.1);
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            border-radius: 40px;
+            padding: 10px 20px;
+            color: var(--chrome);
+            cursor: pointer;
+            font-weight: 500;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+            font-size: 14px;
+            min-height: 44px;
+        }
+        .back-btn:hover {
+            background: rgba(224, 224, 224, 0.2);
+        }
+        .content-header {
+            text-align: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(224, 224, 224, 0.2);
+        }
+        .content-emoji {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+        .content-header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .content-body {
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+        .profile-section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
+            color: #ff6b3b;
+        }
+        .thoughts-section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,107,59,0.3);
+            color: #ff6b3b;
+        }
+        .loading-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: 20px;
+        }
+        .loading-spinner {
+            font-size: 48px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        /* Floating Toast */
+        .floating-message {
+            position: fixed;
+            bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
+            z-index: 1000;
+            animation: slideUp 0.2s ease;
+        }
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+        .floating-message-content {
             background: rgba(10, 10, 10, 0.95);
             backdrop-filter: blur(20px);
             border-radius: 50px;
-            padding: 12px 24px;
-            border: 1px solid rgba(224, 224, 224, 0.2);
-            z-index: 1000;
+            padding: 10px 20px;
             display: flex;
             align-items: center;
-            gap: 8px;
-        `;
-        
-        this.messageElement = document.createElement('span');
-        this.messageElement.className = 'loading-text';
-        this.messageElement.style.cssText = 'color: #ff6b3b; font-size: 14px;';
-        this.messageElement.textContent = 'Фреди думает';
-        
-        this.dotsElement = document.createElement('span');
-        this.dotsElement.className = 'loading-dots';
-        this.dotsElement.style.cssText = 'color: #ff6b3b; font-size: 14px;';
-        this.dotsElement.textContent = '...';
-        
-        this.container.appendChild(this.messageElement);
-        this.container.appendChild(this.dotsElement);
-        messagesContainer.appendChild(this.container);
-        
-        this.startAnimation();
-        this.isShowing = true;
-        
-        // Первый таймаут — через 5 секунд меняем текст
-        this.timeout = setTimeout(() => {
-            if (this.isShowing) {
-                this.messageElement.textContent = 'Всё ещё думаю';
-                this.dotsElement.style.color = '#ffaa44';
+            gap: 10px;
+            border: 1px solid rgba(224, 224, 224, 0.2);
+        }
+        .floating-message-text {
+            font-size: 13px;
+        }
+        .floating-message-close {
+            cursor: pointer;
+            opacity: 0.7;
+            font-size: 16px;
+        }
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .quick-actions-grid {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
             }
-        }, 5000);
-        
-        // Второй таймаут — через 10 секунд предупреждение
-        this.warningTimeout = setTimeout(() => {
-            if (this.isShowing) {
-                this.messageElement.textContent = 'Это займёт чуть больше времени';
-                this.dotsElement.style.color = '#ff6b6b';
+            .action-name {
+                font-size: 10px;
             }
-        }, 10000);
-    }
-    
-    startAnimation() {
-        this.animationInterval = setInterval(() => {
-            if (!this.isShowing) return;
-            this.dotsCount = (this.dotsCount + 1) % 4;
-            const dots = '.'.repeat(this.dotsCount) + ' '.repeat(3 - this.dotsCount);
-            if (this.dotsElement) {
-                this.dotsElement.textContent = dots;
+            .modules-grid {
+                gap: 8px;
             }
-        }, 400);
-    }
-    
-    updateMessage(message) {
-        if (this.messageElement && this.isShowing) {
-            this.messageElement.textContent = message;
+            .hero-section {
+                padding: 16px;
+            }
+            .greeting-text h2 {
+                font-size: 20px;
+            }
+            .full-content-page {
+                padding: 16px;
+            }
         }
-    }
-    
-    remove() {
-        if (this.animationInterval) {
-            clearInterval(this.animationInterval);
-            this.animationInterval = null;
-        }
-        if (this.timeout) {
-            clearTimeout(this.timeout);
-            this.timeout = null;
-        }
-        if (this.warningTimeout) {
-            clearTimeout(this.warningTimeout);
-            this.warningTimeout = null;
-        }
-        if (this.container && this.container.remove) {
-            this.container.remove();
-        }
-        this.container = null;
-        this.messageElement = null;
-        this.dotsElement = null;
-        this.isShowing = false;
-        this.dotsCount = 0;
-    }
-}
+    </style>
+</head>
+<body>
+    <div class="app" id="appRoot">
+        <div class="chats-panel" id="chatsPanel">
+            <div class="chats-header">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="chats-title">FREDI</div>
+                    <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; border-radius: 50%;">✎</button>
+                </div>
+            </div>
+           
+            <div class="chats-search">
+                <input type="text" placeholder="Поиск" id="chatSearchInput">
+            </div>
+           
+            <div class="chats-list" id="chatsList">
+                <div class="chat-item active" data-chat="fredi">
+                    <div class="chat-avatar">⭐</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Фреди</div>
+                        <div class="chat-preview" id="chatPreview">Чем могу помочь?</div>
+                    </div>
+                    <div class="chat-time">сейчас</div>
+                </div>
+               
+                <div class="chat-item" data-chat="test" id="testChatItem">
+                    <div class="chat-avatar">📊</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Психологический тест</div>
+                        <div class="chat-preview">15 минут, 5 этапов</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+               
+                <div class="menu-divider"></div>
+               
+                <div class="menu-section-title">РАСШИРЕННЫЕ ФУНКЦИИ</div>
+               
+                <div class="chat-item" data-chat="confinement">
+                    <div class="chat-avatar">🔐</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Модель ограничений</div>
+                        <div class="chat-preview">Анализ паттернов поведения</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+               
+                <div class="chat-item" data-chat="practices">
+                    <div class="chat-avatar">🧘</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Практики</div>
+                        <div class="chat-preview">Утренние и вечерние практики</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+               
+                <div class="chat-item" data-chat="hypnosis">
+                    <div class="chat-avatar">🌙</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Гипноз</div>
+                        <div class="chat-preview">Гипнотические техники</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+               
+                <div class="chat-item" data-chat="tales">
+                    <div class="chat-avatar">📚</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Сказки</div>
+                        <div class="chat-preview">Терапевтические сказки</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+               
+                <div class="chat-item" data-chat="anchors">
+                    <div class="chat-avatar">⚓</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Якоря</div>
+                        <div class="chat-preview">Эмоциональные якоря</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+               
+                <div class="chat-item" data-chat="statistics">
+                    <div class="chat-avatar">📊</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Статистика</div>
+                        <div class="chat-preview">Ваша активность</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+            </div>
+           
+            <div class="chats-footer">
+                <div class="user-mini-profile" id="userMiniProfile">
+                    <div class="user-mini-avatar" id="userMiniAvatar">А</div>
+                    <div class="user-mini-info">
+                        <div class="user-mini-name" id="userName">Пользователь</div>
+                        <div class="user-mini-status" id="userStatus">⚡ активен</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="chat-panel" id="chatPanel">
+            <div class="chat-header">
+                <div class="chat-header-left">
+                    <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+                    <div class="chat-header-avatar">⭐</div>
+                    <div>
+                        <div class="chat-header-name">Фреди</div>
+                        <div class="chat-header-status" id="botStatus">
+                            <span class="mode-indicator" id="modeIndicator"></span>
+                            <span id="modeLabel">Психолог</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-header-right">
+                    <button class="mode-btn" id="menuBtn">⋮</button>
+                </div>
+            </div>
+           
+            <div id="screenContainer" class="screen-container">
+                <div class="loading-screen">
+                    <div class="loading-spinner">⭐</div>
+                    <div class="loading-text">Инициализация Фреди...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="toastMessage" class="floating-message" style="display: none;">
+        <div class="floating-message-content">
+            <div class="floating-message-text" id="toastText"></div>
+            <div class="floating-message-close" id="toastClose">✕</div>
+        </div>
+    </div>
 
-// ============================================
-// КОНФИГУРАЦИЯ ГОЛОСА FREDI PREMIUM
-// ============================================
+    <!-- Подключаем скрипты -->
+    <script src="/test.js"></script>
+    <script src="/voice.js"></script>
+    <script src="/app.js"></script>
+    <script src="/analysis.js"></script>
+    <script src="/emotions.js"></script>
+    <script src="/healing.js"></script>
+    <script src="/relationships.js"></script>
+    <script src="/weekend.js"></script>
+   
+    <script>
+    (function() {
+        // ============================================
+        // КОНФИГУРАЦИЯ
+        // ============================================
+        const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
 
-const VoiceConfig = {
-    apiBaseUrl: 'https://fredi-backend-flz2.onrender.com',
-    useWebSocket: true,
-    
-    recording: {
-        sampleRate: 16000,
-        maxDuration: 60000,
-        minDuration: 1000,
-        chunkSize: 4096,
-        format: 'wav',
-        mimeType: 'audio/wav'
-    },
-    
-    playback: {
-        format: 'mp3',
-        autoPlay: true,
-        volume: 1.0,
-        preload: true
-    },
-    
-    voices: {
-        coach: {
-            name: 'Филипп',
-            emoji: '🔮',
-            speed: 1.0,
-            pitch: 1.0,
-            emotion: 'neutral'
-        },
-        psychologist: {
-            name: 'Эрмил',
-            emoji: '🧠',
-            speed: 0.9,
-            pitch: 0.95,
-            emotion: 'calm'
-        },
-        trainer: {
-            name: 'Филипп (энергичный)',
-            emoji: '⚡',
-            speed: 1.1,
-            pitch: 1.05,
-            emotion: 'energetic'
+        function getUserId() {
+            let userId = localStorage.getItem('fredi_user_id');
+            if (!userId) {
+                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('fredi_user_id', userId);
+            }
+            return userId;
         }
-    },
-    
-    ui: {
-        showVolumeMeter: true,
-        showRecordingTime: true,
-        autoStopAfterSilence: true,
-        silenceTimeout: 5000,
-        minVolumeToConsiderSpeech: 5
-    },
-    
-    debug: true
-};
 
-// ============================================
-// VoiceWebSocket (с поддержкой iOS)
-// ============================================
+        const USER_ID = getUserId();
+        console.log('👤 User ID:', USER_ID);
 
-class VoiceWebSocket {
-    constructor(userId, config = {}) {
-        this.userId = userId;
-        this.config = { ...VoiceConfig, ...config };
-        this.isConnected = false;
-        this.isAISpeaking = false;
-        this.currentMode = 'psychologist';
-        this.useWebSocket = false;
-        this.ws = null;
-        
-        this.onTranscript = null;
-        this.onAIResponse = null;
-        this.onStatusChange = null;
-        this.onError = null;
-        this.onThinking = null;
-        this.onWeather = null;
-        this.onThinkingUpdate = null;
-        
-        this.apiBaseUrl = this.config.apiBaseUrl;
-        this.pendingRequest = null;
-        this.lastRequestTime = 0;
-        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        
-        // На iOS отключаем WebSocket (проблемы с соединением)
-        if (this.isIOS) {
-            console.log('📱 iOS detected, using HTTP only');
-            this.useWebSocket = false;
+        // ============================================
+        // ФУНКЦИИ ФОРМАТИРОВАНИЯ
+        // ============================================
+        function formatProfileText(text) {
+            if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
+            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+            text = text.replace(/\*(.*?)\*/g, '$1');
+            const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
+            const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
+            headers.forEach((header, i) => {
+                const regex = new RegExp(header, 'gi');
+                text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
+            });
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            return text;
         }
-    }
-    
-    async connect() {
-        // На iOS всегда используем HTTP
-        if (this.isIOS || !this.config.useWebSocket) {
-            return this.initHTTP();
+       
+        function formatThoughtText(text) {
+            if (!text) return '💭 Мысли психолога появятся после завершения теста.';
+            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+            text = text.replace(/\*(.*?)\*/g, '$1');
+            const headers = ['КЛЮЧЕВОЙ ЭЛЕМЕНТ', 'ПЕТЛЯ', 'ТОЧКА ВХОДА', 'ПРОГНОЗ', 'РЕКОМЕНДАЦИИ'];
+            const emojis = ['🔐', '🔄', '🚪', '📊', '💡'];
+            headers.forEach((header, i) => {
+                const regex = new RegExp(header, 'gi');
+                text = text.replace(regex, `<div class="thoughts-section-title">${emojis[i]} ${header}</div>`);
+            });
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            return text;
         }
-        
-        if (this.config.useWebSocket && window.WebSocket) {
+
+        // ============================================
+        // API ВЫЗОВЫ
+        // ============================================
+        async function apiCall(endpoint, options = {}) {
+            const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
             try {
-                const wsUrl = `wss://${new URL(this.apiBaseUrl).host}/ws/voice/${this.userId}`;
-                console.log(`🔌 Connecting WebSocket: ${wsUrl}`);
-                
-                this.ws = new WebSocket(wsUrl);
-                
-                const connectionTimeout = setTimeout(() => {
-                    if (!this.isConnected) {
-                        console.warn('WebSocket connection timeout, falling back to HTTP');
-                        this.useWebSocket = false;
-                        this.initHTTP();
-                    }
-                }, 5000);
-                
-                this.ws.onopen = () => {
-                    clearTimeout(connectionTimeout);
-                    console.log('✅ WebSocket connected');
-                    this.isConnected = true;
-                    this.useWebSocket = true;
-                    this.updateStatus('connected');
-                    
-                    this.ws.send(JSON.stringify({
-                        type: 'init',
-                        mode: this.currentMode,
-                        timestamp: Date.now()
-                    }));
-                };
-                
-                this.ws.onmessage = (event) => {
-                    this.handleWebSocketMessage(event.data);
-                };
-                
-                this.ws.onerror = (error) => {
-                    console.warn('WebSocket error:', error);
-                    if (!this.useWebSocket) return;
-                    this.useWebSocket = false;
-                    this.initHTTP();
-                };
-                
-                this.ws.onclose = () => {
-                    console.log('WebSocket closed');
-                    if (this.useWebSocket) {
-                        this.useWebSocket = false;
-                        this.initHTTP();
-                    }
-                };
-                
-                await new Promise((resolve, reject) => {
-                    const timeout = setTimeout(() => reject(new Error('WebSocket timeout')), 5000);
-                    this.ws.onopen = () => {
-                        clearTimeout(timeout);
-                        resolve();
-                    };
-                    this.ws.onerror = () => reject(new Error('WebSocket failed'));
+                const response = await fetch(url, {
+                    ...options,
+                    headers: { 'Content-Type': 'application/json', ...options.headers }
                 });
-                
-                return true;
-                
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                return data;
             } catch (error) {
-                console.warn('WebSocket failed:', error);
-                this.useWebSocket = false;
+                console.error(`API Error: ${endpoint}`, error);
+                throw error;
             }
         }
-        
-        return this.initHTTP();
-    }
-    
-    initHTTP() {
-        console.log('📡 HTTP mode active (fallback)');
-        this.isConnected = true;
-        this.useWebSocket = false;
-        this.updateStatus('connected');
-        return true;
-    }
-    
-    handleWebSocketMessage(data) {
-        try {
-            const message = JSON.parse(data);
-            
-            switch(message.type) {
-                case 'text':
-                    if (message.data) {
-                        if (message.data.includes('Вы:') && this.onTranscript) {
-                            const text = message.data.replace('🎤 Вы: ', '');
-                            this.onTranscript(text);
-                        } else if (message.data.includes('Фреди:') && this.onAIResponse) {
-                            const text = message.data.replace('🧠 Фреди: ', '');
-                            this.onAIResponse(text);
-                        }
-                    }
-                    break;
-                    
-                case 'audio':
-                    if (message.data) {
-                        this.playAudioResponse(message.data);
-                    }
-                    break;
-                    
-                case 'status':
-                    this.updateStatus(message.status);
-                    break;
-                    
-                case 'thinking':
-                    if (this.onThinkingUpdate) {
-                        this.onThinkingUpdate(message.message || 'Фреди думает');
-                    }
-                    break;
-                    
-                case 'error':
-                    if (this.onError) {
-                        this.onError(message.error);
-                    }
-                    break;
-                    
-                case 'ping':
-                    if (this.ws && this.useWebSocket) {
-                        this.ws.send(JSON.stringify({
-                            type: 'pong',
-                            timestamp: message.timestamp
-                        }));
-                    }
-                    break;
-                    
-                case 'weather':
-                    if (this.onWeather && message.data) {
-                        this.onWeather(message.data);
-                    }
-                    break;
-            }
-            
-        } catch (error) {
-            console.error('WebSocket message error:', error);
-        }
-    }
-    
-    updateStatus(status) {
-        switch (status) {
-            case 'speaking':
-                this.isAISpeaking = true;
-                break;
-            case 'idle':
-            case 'connected':
-                this.isAISpeaking = false;
-                break;
-        }
-        
-        if (this.onStatusChange) {
-            this.onStatusChange(status);
-        }
-    }
-    
-    async sendFullAudio(audioBlob, retryCount = 0) {
-        const maxRetries = 3;
-        const minBytes = this.config.recording.minDuration * 
-                        (this.config.recording.sampleRate / 1000) * 2;
-        
-        if (audioBlob.size < minBytes) {
-            console.warn(`⚠️ Audio too short: ${audioBlob.size} bytes < ${minBytes} bytes`);
-            if (this.onError) {
-                this.onError('Говорите дольше (минимум 1 секунду)');
-            }
-            return false;
-        }
-        
-        const maxBytes = this.config.recording.maxDuration * 
-                        (this.config.recording.sampleRate / 1000) * 2;
-        
-        if (audioBlob.size > maxBytes) {
-            console.warn(`⚠️ Audio too long: ${audioBlob.size} bytes > ${maxBytes} bytes`);
-            if (this.onError) {
-                this.onError('Сообщение слишком длинное (максимум 60 секунд)');
-            }
-            return false;
-        }
-        
-        if (this.useWebSocket && this.ws && this.ws.readyState === WebSocket.OPEN) {
-            return this.sendAudioViaWebSocket(audioBlob);
-        }
-        
-        return this.sendAudioViaHTTP(audioBlob, retryCount, maxRetries);
-    }
-    
-    async sendAudioViaWebSocket(audioBlob) {
-        return new Promise((resolve) => {
+
+        async function isTestCompleted() {
             try {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64Data = reader.result.split(',')[1];
-                    
-                    this.ws.send(JSON.stringify({
-                        type: 'audio_chunk',
-                        data: base64Data,
-                        format: this.config.recording.format,
-                        sample_rate: this.config.recording.sampleRate,
-                        is_final: true,
-                        timestamp: Date.now()
-                    }));
-                    
-                    this.updateStatus('processing');
-                    resolve(true);
-                };
-                reader.readAsDataURL(audioBlob);
-                
+                const data = await apiCall(`/api/user-status?user_id=${USER_ID}`);
+                if (data.has_profile) return true;
+                const stored = localStorage.getItem(`test_results_${USER_ID}`);
+                if (stored) {
+                    const results = JSON.parse(stored);
+                    if (results.profile || results.aiProfile) return true;
+                }
+                return false;
             } catch (error) {
-                console.error('WebSocket audio send error:', error);
-                resolve(this.sendAudioViaHTTP(audioBlob));
+                return false;
             }
-        });
-    }
-    
-    async sendAudioViaHTTP(audioBlob, retryCount = 0, maxRetries = 3) {
-        const formData = new FormData();
-        formData.append('user_id', this.userId);
-        
-        // Для iOS используем правильный MIME тип
-        let audioFormat = this.config.recording.format;
-        if (this.isIOS && audioBlob.type) {
-            if (audioBlob.type.includes('mp4')) audioFormat = 'mp4';
-            else if (audioBlob.type.includes('aac')) audioFormat = 'aac';
         }
-        
-        formData.append('voice', audioBlob, `audio.${audioFormat}`);
-        formData.append('mode', this.currentMode || 'psychologist');
-        formData.append('ios_device', this.isIOS ? 'true' : 'false');
-        
-        const voiceSettings = this.config.voices[this.currentMode];
-        if (voiceSettings) {
-            formData.append('voice_speed', voiceSettings.speed);
-            formData.append('voice_pitch', voiceSettings.pitch);
-            formData.append('voice_emotion', voiceSettings.emotion);
+
+        async function getAIGeneratedProfile() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/generated-profile/${USER_ID}`);
+                const data = await response.json();
+                if (data.success && data.ai_profile) return data.ai_profile;
+                if (data.status === 'generating') {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    return getAIGeneratedProfile();
+                }
+                return null;
+            } catch (error) {
+                console.error('Error fetching AI profile:', error);
+                return null;
+            }
         }
-        
-        this.updateStatus('processing');
-        
-        if (this.onThinking) {
-            this.onThinking(true);
+
+        async function getPsychologistThought() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/psychologist-thought/${USER_ID}`);
+                const data = await response.json();
+                return data.success ? data.thought : null;
+            } catch (error) {
+                console.error('Error fetching thought:', error);
+                return null;
+            }
         }
-        
-        const startTime = Date.now();
-        
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/api/voice/process`, {
-                method: 'POST',
-                body: formData,
-                signal: AbortSignal.timeout(45000) // Увеличиваем таймаут для iOS
+
+        async function getWeekendIdeas() {
+            try {
+                const data = await apiCall(`/api/ideas?user_id=${USER_ID}`);
+                return data.ideas || [];
+            } catch (error) {
+                return [];
+            }
+        }
+
+        // ============================================
+        // UI ФУНКЦИИ
+        // ============================================
+        function showToast(message) {
+            const toast = document.getElementById('toastMessage');
+            const textEl = document.getElementById('toastText');
+            if (!toast || !textEl) return;
+            textEl.innerHTML = message;
+            toast.style.display = 'flex';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+            if (document.getElementById('toastClose')) {
+                document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
+            }
+        }
+
+        function showLoading(message) {
+            const container = document.getElementById('screenContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="loading-screen">
+                        <div class="loading-spinner">🧠</div>
+                        <div class="loading-text">${message}</div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderDashboard() {
+            const container = document.getElementById('screenContainer');
+            const userName = localStorage.getItem('fredi_user_name') || 'друг';
+           
+            container.innerHTML = `
+                <div class="dashboard-container">
+                    <div class="hero-section">
+                        <div class="user-greeting">
+                            <div class="greeting-text">
+                                <h2>🧠 Привет, ${userName}!</h2>
+                                <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
+                            </div>
+                            <div class="profile-badge">
+                                <div class="profile-code" id="profileCode">🎭</div>
+                                <div style="font-size: 10px;">ваш психотип</div>
+                            </div>
+                        </div>
+                    </div>
+                   
+                    <div class="mode-selector">
+                        <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                    </div>
+                   
+                    <div class="voice-section">
+                        <div class="voice-card">
+                            <div class="voice-record-btn-premium" id="voiceBtn">
+                                <span class="voice-icon">🎤</span>
+                                <span class="voice-text">Расскажите, что вас беспокоит</span>
+                            </div>
+                        </div>
+                    </div>
+                   
+                    <div class="modules-grid">
+                        <div class="module-card"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
+                        <div class="module-card"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
+                        <div class="module-card"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
+                        <div class="module-card"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
+                    </div>
+                   
+                    <div class="quick-actions">
+                        <div class="quick-actions-title">⚡ Быстрые действия</div>
+                        <div class="quick-actions-grid">
+                            <div class="quick-action" data-action="profile">
+                                <div class="action-icon">🧠</div>
+                                <div class="action-name">Мой портрет</div>
+                            </div>
+                            <div class="quick-action" data-action="thoughts">
+                                <div class="action-icon">💭</div>
+                                <div class="action-name">Мысли психолога</div>
+                            </div>
+                            <div class="quick-action" data-action="weekend">
+                                <div class="action-icon">🎨</div>
+                                <div class="action-name">Идеи на выходные</div>
+                            </div>
+                            <div class="quick-action" data-action="test">
+                                <div class="action-icon">📊</div>
+                                <div class="action-name">Пройти тест</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+           
+            // Обработчики быстрых действий
+            document.querySelectorAll('.quick-action').forEach(el => {
+                el.addEventListener('click', async () => {
+                    const action = el.dataset.action;
+                    if (action === 'profile') await handleProfileClick();
+                    else if (action === 'thoughts') await handleThoughtsClick();
+                    else if (action === 'weekend') await handleWeekendClick();
+                    else if (action === 'test') startTest();
+                });
             });
-            
-            const elapsed = Date.now() - startTime;
-            if (this.config.debug) {
-                console.log(`📊 Request completed in ${elapsed}ms`);
-            }
-            
-            if (!response.ok && retryCount < maxRetries) {
-                console.log(`🔄 Повторная попытка ${retryCount + 1}/${maxRetries}`);
-                await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
-                return this.sendAudioViaHTTP(audioBlob, retryCount + 1, maxRetries);
-            }
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const result = await response.json();
-            
-            if (this.onThinking) {
-                this.onThinking(false);
-            }
-            
-            if (result.success) {
-                if (this.config.debug) {
-                    console.log('✅ Распознано:', result.recognized_text);
+           
+            // ==================== ОБРАБОТЧИКИ МОДУЛЕЙ ====================
+            document.querySelectorAll('.module-card').forEach((card, index) => {
+                card.addEventListener('click', () => {
+                    switch(index) {
+                        case 0: openAnalysisScreen(); break;
+                        case 1: openEmotionsScreen(); break;
+                        case 2: openHealingScreen(); break;
+                        case 3: openRelationshipsScreen(); break;
+                        default:
+                            showToast('Этот модуль скоро будет доступен');
+                    }
+                });
+            });
+           
+            // Обработчик голосовой кнопки
+            document.getElementById('voiceBtn')?.addEventListener('click', () => {
+                showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
+            });
+           
+            // Загружаем статус профиля
+            isTestCompleted().then(completed => {
+                const codeEl = document.getElementById('profileCode');
+                if (completed && codeEl) {
+                    codeEl.textContent = '✨';
                 }
-                
-                if (this.onTranscript && result.recognized_text) {
-                    this.onTranscript(result.recognized_text);
-                }
-                
-                if (this.onAIResponse && result.answer) {
-                    this.onAIResponse(result.answer);
-                }
-                
-                if (result.audio_base64) {
-                    await this.playAudioResponse(result.audio_base64);
-                } else if (result.audio_url) {
-                    await this.playAudioFromUrl(result.audio_url);
-                }
-                
-                this.updateStatus('idle');
-                return true;
+            });
+        }
+
+        function showFullContentScreen(title, content, contentType) {
+            const container = document.getElementById('screenContainer');
+            let formattedContent = content;
+            if (contentType === 'profile') formattedContent = formatProfileText(content);
+            else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
+            else formattedContent = (content || '').replace(/\n/g, '<br>');
+           
+            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
+           
+            container.innerHTML = `
+                <div class="full-content-page">
+                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                    <div class="content-header">
+                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
+                        <h1>${title}</h1>
+                    </div>
+                    <div class="content-body">
+                        ${formattedContent || 'Данные не найдены'}
+                    </div>
+                </div>
+            `;
+           
+            const backBtn = document.getElementById('backBtn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => renderDashboard());
+            }
+        }
+
+        function startTest() {
+            if (window.Test && window.Test.start) {
+                window.Test.init(USER_ID);
+                window.Test.start();
             } else {
-                throw new Error(result.error || 'Ошибка распознавания');
+                showToast('Тест загружается...');
             }
-            
-        } catch (error) {
-            console.error('HTTP error:', error);
-            
-            if (this.onThinking) {
-                this.onThinking(false);
-            }
-            
-            if (retryCount < maxRetries) {
-                console.log(`🔄 Повторная попытка ${retryCount + 1}/${maxRetries}`);
-                await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
-                return this.sendAudioViaHTTP(audioBlob, retryCount + 1, maxRetries);
-            }
-            
-            let errorMessage = 'Ошибка соединения';
-            if (error.name === 'TimeoutError') {
-                errorMessage = 'Сервер не отвечает. Попробуйте позже.';
-            } else if (error.message.includes('500')) {
-                errorMessage = 'Ошибка на сервере. Мы уже чиним.';
-            } else if (error.message.includes('429')) {
-                errorMessage = 'Слишком много запросов. Подождите немного.';
-            }
-            
-            if (this.onError) {
-                this.onError(errorMessage);
-            }
-            this.updateStatus('idle');
-            return false;
         }
-    }
-    
-    async playAudioResponse(audioBase64) {
-        return new Promise((resolve, reject) => {
-            try {
-                const audio = new Audio();
-                audio.src = `data:audio/mpeg;base64,${audioBase64}`;
-                audio.volume = this.config.playback.volume;
-                
-                this.updateStatus('speaking');
-                
-                audio.onended = () => {
-                    this.updateStatus('idle');
-                    resolve();
-                };
-                
-                audio.onerror = (error) => {
-                    console.error('Playback error:', error);
-                    this.updateStatus('idle');
-                    
-                    // Для iOS пробуем альтернативный метод
-                    if (this.isIOS) {
-                        const audio2 = new Audio();
-                        audio2.src = `data:audio/mpeg;base64,${audioBase64}`;
-                        audio2.load();
-                        audio2.play().catch(reject);
-                        audio2.onended = resolve;
-                    } else {
-                        reject(error);
-                    }
-                };
-                
-                audio.play().catch(reject);
-                
-            } catch (error) {
-                console.error('Playback error:', error);
-                this.updateStatus('idle');
-                reject(error);
-            }
-        });
-    }
-    
-    async playAudioFromUrl(url) {
-        return new Promise((resolve, reject) => {
-            try {
-                const audio = new Audio(url);
-                audio.volume = this.config.playback.volume;
-                
-                this.updateStatus('speaking');
-                
-                audio.onended = () => {
-                    this.updateStatus('idle');
-                    resolve();
-                };
-                
-                audio.onerror = (error) => {
-                    console.error('Playback error:', error);
-                    this.updateStatus('idle');
-                    reject(error);
-                };
-                
-                audio.play().catch(reject);
-                
-            } catch (error) {
-                reject(error);
-            }
-        });
-    }
-    
-    async getWeather() {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/api/weather/${this.userId}`);
-            const data = await response.json();
-            
-            if (data.success && data.weather) {
-                if (this.onWeather) {
-                    this.onWeather(data.weather);
-                }
-                return data.weather;
-            }
-            return null;
-        } catch (error) {
-            console.error('Weather fetch error:', error);
-            return null;
-        }
-    }
-    
-    async getWeatherByCity(city) {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/api/weather/by-city?city=${encodeURIComponent(city)}`);
-            const data = await response.json();
-            
-            if (data.success && data.weather) {
-                return data.weather;
-            }
-            return null;
-        } catch (error) {
-            console.error('Weather fetch error:', error);
-            return null;
-        }
-    }
-    
-    async setUserCity(city) {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/api/weather/set-city`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: this.userId, city: city })
-            });
-            
-            const data = await response.json();
-            return data.success;
-        } catch (error) {
-            console.error('Set city error:', error);
-            return false;
-        }
-    }
-    
-    interrupt() {
-        if (this.ws && this.useWebSocket && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now() }));
-        }
-        
-        const audioElements = document.querySelectorAll('audio');
-        audioElements.forEach(audio => {
-            audio.pause();
-            audio.currentTime = 0;
-        });
-        
-        this.updateStatus('idle');
-        console.log('🛑 Interrupted');
-    }
-    
-    disconnect() {
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
-        this.isConnected = false;
-        console.log('🔌 Disconnected');
-    }
-}
 
-// ============================================
-// VoiceRecorder (с поддержкой iOS)
-// ============================================
-
-class VoiceRecorder {
-    constructor(config = {}) {
-        this.config = { ...VoiceConfig.recording, ...config };
-        this.isRecording = false;
-        this.mediaStream = null;
-        this.audioContext = null;
-        this.processor = null;
-        this.wavData = [];
-        this.recordingTimeout = null;
-        this.silenceTimer = null;
-        this.visualizerAnimation = null;
-        this.analyser = null;
-        this.silenceStartTime = null;
-        this.speechDetected = false;
-        this.lastVolume = 0;
-        
-        // ДОБАВЛЯЕМ ДЛЯ iOS
-        this.mediaRecorder = null;
-        this.audioChunks = [];
-        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        
-        this.onDataAvailable = null;
-        this.onRecordingStart = null;
-        this.onRecordingStop = null;
-        this.onVolumeChange = null;
-        this.onError = null;
-        this.onSpeechDetected = null;
-    }
-    
-    async startRecording() {
-        if (this.isRecording) {
-            console.warn('Already recording');
-            return false;
+        // ============================================
+        // ОСНОВНЫЕ ОБРАБОТЧИКИ
+        // ============================================
+        async function handleProfileClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            showLoading('Загружаю психологический портрет...');
+            const profile = await getAIGeneratedProfile();
+            if (profile) {
+                showFullContentScreen('Мой портрет', profile, 'profile');
+            } else {
+                showFullContentScreen('Мой портрет', '🧠 Психологический портрет формируется. Подождите немного.', 'profile');
+            }
         }
-        
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: this.config.sampleRate,
-                    channelCount: 1
-                }
+
+        async function handleThoughtsClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            showLoading('Загружаю мысли психолога...');
+            const thought = await getPsychologistThought();
+            if (thought) {
+                showFullContentScreen('Мысли психолога', thought, 'thoughts');
+            } else {
+                showFullContentScreen('Мысли психолога', '💭 Мысли психолога появятся после завершения теста.', 'thoughts');
+            }
+        }
+
+        async function handleWeekendClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            showLoading('Подбираю идеи...');
+            const ideas = await getWeekendIdeas();
+            if (ideas && ideas.length > 0) {
+                const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
+                showFullContentScreen('Идеи на выходные', ideasText, 'goals');
+            } else {
+                showFullContentScreen('Идеи на выходные', '🎨 Идеи появятся после завершения теста.', 'goals');
+            }
+        }
+
+        // ============================================
+        // МОБИЛЬНОЕ МЕНЮ (исправлено и усилено)
+        // ============================================
+        function initMobileMenu() {
+            const mobileBtn = document.getElementById('mobileMenuBtn');
+            const panel = document.getElementById('chatsPanel');
+           
+            if (!mobileBtn || !panel) return;
+
+            // Удаляем старые обработчики
+            mobileBtn.replaceWith(mobileBtn.cloneNode(true));
+            const newMobileBtn = document.getElementById('mobileMenuBtn');
+
+            newMobileBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                panel.classList.toggle('open');
             });
-            
-            this.mediaStream = stream;
-            this.wavData = [];
-            this.audioChunks = [];
-            this.speechDetected = false;
-            this.silenceStartTime = null;
-            this.lastVolume = 0;
-            this.isRecording = true;
-            
-            // ДОБАВЛЯЕМ: Для iOS используем MediaRecorder
-            if (this.isIOS && window.MediaRecorder) {
-                const mimeTypes = ['audio/mp4', 'audio/aac', 'audio/wav'];
-                let selectedMimeType = '';
-                
-                for (const mimeType of mimeTypes) {
-                    if (MediaRecorder.isTypeSupported(mimeType)) {
-                        selectedMimeType = mimeType;
-                        break;
+
+            // Закрытие при клике вне меню
+            document.addEventListener('click', function(e) {
+                if (panel.classList.contains('open')) {
+                    if (!panel.contains(e.target) && !newMobileBtn.contains(e.target)) {
+                        panel.classList.remove('open');
                     }
                 }
+            });
+
+            // Закрытие при свайпе влево
+            let touchStartX = 0;
+            panel.addEventListener('touchstart', function(e) {
+                touchStartX = e.touches[0].clientX;
+            }, { passive: true });
+
+            panel.addEventListener('touchend', function(e) {
+                const touchEndX = e.changedTouches[0].clientX;
+                if (touchEndX - touchStartX < -80) {
+                    panel.classList.remove('open');
+                }
+            });
+        }
+
+        function setupMenuHandlers() {
+            document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
+           
+            document.getElementById('chatSearchInput')?.addEventListener('input', (e) => {
+                const search = e.target.value.toLowerCase();
+                document.querySelectorAll('.chat-item').forEach(item => {
+                    const name = item.querySelector('.chat-name')?.textContent.toLowerCase();
+                    item.style.display = name?.includes(search) ? 'flex' : 'none';
+                });
+            });
+        }
+
+        function init() {
+            console.log('🚀 FREDI запущен');
+            initMobileMenu();
+            setupMenuHandlers();
+            renderDashboard();
+           
+            const userName = localStorage.getItem('fredi_user_name');
+            if (!userName) {
+                setTimeout(() => {
+                    const name = prompt('Как мне к вам обращаться?', '');
+                    if (name && name.trim()) {
+                        localStorage.setItem('fredi_user_name', name.trim());
+                        document.getElementById('userName').textContent = name;
+                        document.getElementById('userMiniAvatar').textContent = name.charAt(0).toUpperCase();
+                        renderDashboard();
+                    }
+                }, 500);
+            } else {
+                document.getElementById('userName').textContent = userName;
+                document.getElementById('userMiniAvatar').textContent = userName.charAt(0).toUpperCase();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+    <script>
+// ============================================
+// ИНИЦИАЛИЗАЦИЯ ГОЛОСОВОГО АССИСТЕНТА
+// ============================================
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Ждем загрузки всех скриптов
+    setTimeout(async function() {
+        if (typeof VoiceManager === 'undefined') {
+            console.error('VoiceManager not loaded!');
+            return;
+        }
+        
+        const userId = localStorage.getItem('fredi_user_id') || 'user_' + Date.now();
+        if (!localStorage.getItem('fredi_user_id')) {
+            localStorage.setItem('fredi_user_id', userId);
+        }
+        
+        console.log('🎤 Initializing VoiceManager for user:', userId);
+        
+        window.voiceManager = new VoiceManager(userId, VoiceConfig);
+        
+        // Обработчики событий
+        window.voiceManager.onTranscript = (text) => {
+            console.log('🎤 Распознано:', text);
+            showToast(`🎤 Вы сказали: ${text.substring(0, 50)}...`);
+        };
+        
+        window.voiceManager.onAIResponse = (answer) => {
+            console.log('🤖 Ответ Фреди:', answer);
+            showToast(`🧠 Фреди: ${answer.substring(0, 100)}...`);
+        };
+        
+        window.voiceManager.onError = (error) => {
+            console.error('❌ Ошибка:', error);
+            showToast(`❌ ${error}`);
+        };
+        
+        window.voiceManager.onStatusChange = (status) => {
+            const voiceBtn = document.getElementById('voiceBtn');
+            if (!voiceBtn) return;
+            
+            const voiceText = voiceBtn.querySelector('.voice-text');
+            const voiceIcon = voiceBtn.querySelector('.voice-icon');
+            
+            switch(status) {
+                case 'recording':
+                    voiceText.textContent = '🎙️ Слушаю... нажмите для остановки';
+                    voiceIcon.textContent = '🔴';
+                    voiceBtn.style.background = 'linear-gradient(135deg, rgba(255,59,59,0.2), rgba(255,107,59,0.1))';
+                    break;
+                case 'processing':
+                    voiceText.textContent = '🔄 Обрабатываю...';
+                    voiceIcon.textContent = '⏳';
+                    break;
+                case 'speaking':
+                    voiceText.textContent = '🔊 Фреди говорит...';
+                    voiceIcon.textContent = '🔊';
+                    break;
+                case 'idle':
+                    voiceText.textContent = '🎤 Расскажите, что вас беспокоит';
+                    voiceIcon.textContent = '🎤';
+                    voiceBtn.style.background = '';
+                    break;
+            }
+        };
+        
+        window.voiceManager.onThinking = (isThinking) => {
+            if (isThinking) {
+                console.log('🤔 Фреди думает...');
+            }
+        };
+        
+        // Подключаем голосовую кнопку
+        const voiceBtn = document.getElementById('voiceBtn');
+        if (voiceBtn) {
+            let recording = false;
+            
+            voiceBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
                 
-                if (selectedMimeType) {
-                    this.mediaRecorder = new MediaRecorder(stream, {
-                        mimeType: selectedMimeType
-                    });
-                    
-                    this.mediaRecorder.ondataavailable = (event) => {
-                        if (event.data && event.data.size > 0) {
-                            this.audioChunks.push(event.data);
-                        }
-                    };
-                    
-                    this.mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(this.audioChunks, { 
-                            type: selectedMimeType 
-                        });
-                        
-                        if (this.onRecordingStop) {
-                            this.onRecordingStop(audioBlob);
-                        }
-                    };
-                    
-                    this.mediaRecorder.start(1000);
+                if (!window.voiceManager) {
+                    showToast('⏳ Голосовой ассистент загружается...');
+                    return;
+                }
+                
+                if (window.voiceManager.isRecordingActive()) {
+                    console.log('🛑 Останавливаем запись...');
+                    window.voiceManager.stopRecording();
+                    voiceBtn.style.transform = 'scale(1)';
+                    recording = false;
                 } else {
-                    await this.setupLegacyRecording(stream);
-                }
-            } else {
-                await this.setupLegacyRecording(stream);
-            }
-            
-            // Анализатор громкости для всех устройств
-            this.setupVolumeAnalyzer(stream);
-            
-            this.recordingTimeout = setTimeout(() => {
-                if (this.isRecording) {
-                    console.log('⏱️ Max recording duration reached');
-                    this.stopRecording();
-                }
-            }, this.config.maxDuration);
-            
-            if (this.onRecordingStart) {
-                this.onRecordingStart();
-            }
-            
-            console.log('🎙️ Recording started on', this.isIOS ? 'iOS' : 'other');
-            return true;
-            
-        } catch (error) {
-            console.error('Start recording error:', error);
-            
-            let errorMessage = 'Не удалось получить доступ к микрофону';
-            if (error.name === 'NotAllowedError') {
-                errorMessage = 'Пожалуйста, разрешите доступ к микрофону';
-            } else if (error.name === 'NotFoundError') {
-                errorMessage = 'Микрофон не найден';
-            }
-            
-            if (this.onError) {
-                this.onError(errorMessage);
-            }
-            this.isRecording = false;
-            return false;
-        }
-    }
-    
-    async setupLegacyRecording(stream) {
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: this.config.sampleRate
-        });
-        
-        // Для iOS нужно активировать AudioContext
-        if (this.audioContext.state === 'suspended') {
-            await this.audioContext.resume();
-        }
-        
-        const source = this.audioContext.createMediaStreamSource(stream);
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 256;
-        source.connect(this.analyser);
-        
-        this.startVisualizer();
-        
-        this.processor = this.audioContext.createScriptProcessor(this.config.chunkSize, 1, 1);
-        
-        this.processor.onaudioprocess = (event) => {
-            if (!this.isRecording) return;
-            
-            const inputData = event.inputBuffer.getChannelData(0);
-            const int16Data = new Int16Array(inputData.length);
-            let sumAbs = 0;
-            
-            for (let i = 0; i < inputData.length; i++) {
-                const sample = Math.max(-1, Math.min(1, inputData[i]));
-                int16Data[i] = Math.floor(sample * 32767);
-                sumAbs += Math.abs(int16Data[i]);
-            }
-            
-            this.wavData.push(int16Data);
-            const volume = Math.min(100, (sumAbs / int16Data.length / 32768) * 100);
-            this.lastVolume = volume;
-            
-            const isSpeech = volume > VoiceConfig.ui.minVolumeToConsiderSpeech;
-            
-            if (isSpeech) {
-                if (!this.speechDetected) {
-                    this.speechDetected = true;
-                    if (this.onSpeechDetected) {
-                        this.onSpeechDetected(true);
+                    if (window.voiceManager.isSpeaking()) {
+                        console.log('🔇 Прерываем воспроизведение...');
+                        window.voiceManager.interrupt();
+                        setTimeout(() => {
+                            startVoiceRecording();
+                        }, 300);
+                    } else {
+                        startVoiceRecording();
                     }
                 }
-                this.silenceStartTime = null;
-            } else if (this.speechDetected && !this.silenceStartTime) {
-                this.silenceStartTime = Date.now();
-            }
-            
-            if (VoiceConfig.ui.autoStopAfterSilence && 
-                this.speechDetected && 
-                this.silenceStartTime && 
-                (Date.now() - this.silenceStartTime) > VoiceConfig.ui.silenceTimeout) {
-                console.log('🔇 Silence detected, auto-stopping');
-                this.stopRecording();
-            }
-            
-            if (this.onVolumeChange) {
-                this.onVolumeChange(volume);
-            }
-        };
-        
-        source.connect(this.processor);
-        this.processor.connect(this.audioContext.destination);
-    }
-    
-    setupVolumeAnalyzer(stream) {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        
-        const updateVolume = () => {
-            if (!this.isRecording) return;
-            
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(dataArray);
-            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            let volume = Math.min(100, (average / 255) * 100);
-            
-            if (this.onVolumeChange) {
-                this.onVolumeChange(volume);
-            }
-            
-            this.visualizerAnimation = requestAnimationFrame(updateVolume);
-        };
-        
-        updateVolume();
-        
-        this.volumeAnalyser = analyser;
-        this.volumeContext = audioContext;
-    }
-    
-    stopRecording() {
-        if (!this.isRecording) return null;
-        
-        this.isRecording = false;
-        
-        if (this.recordingTimeout) {
-            clearTimeout(this.recordingTimeout);
-            this.recordingTimeout = null;
-        }
-        
-        if (this.silenceTimer) {
-            clearTimeout(this.silenceTimer);
-            this.silenceTimer = null;
-        }
-        
-        if (this.visualizerAnimation) {
-            cancelAnimationFrame(this.visualizerAnimation);
-            this.visualizerAnimation = null;
-        }
-        
-        let audioBlob = null;
-        
-        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-            this.mediaRecorder.stop();
-            audioBlob = new Blob(this.audioChunks, { type: 'audio/mp4' });
-        } 
-        else if (this.wavData && this.wavData.length > 0) {
-            audioBlob = this.createWavBlob(this.wavData);
-        }
-        
-        if (this.processor) {
-            this.processor.disconnect();
-            this.processor = null;
-        }
-        
-        if (this.audioContext) {
-            this.audioContext.close().catch(console.warn);
-            this.audioContext = null;
-        }
-        
-        if (this.volumeContext) {
-            this.volumeContext.close().catch(console.warn);
-            this.volumeContext = null;
-        }
-        
-        if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach(track => track.stop());
-            this.mediaStream = null;
-        }
-        
-        if (this.onRecordingStop && audioBlob) {
-            this.onRecordingStop(audioBlob);
-        }
-        
-        console.log('⏹️ Recording stopped');
-        return audioBlob;
-    }
-    
-    createWavBlob(audioData) {
-        let totalLength = 0;
-        for (const chunk of audioData) {
-            totalLength += chunk.length;
-        }
-        
-        const MAX_SAMPLES = this.config.maxDuration * this.config.sampleRate / 1000;
-        if (totalLength > MAX_SAMPLES) {
-            console.warn(`Audio too long, truncating to ${MAX_SAMPLES} samples`);
-            totalLength = MAX_SAMPLES;
-        }
-        
-        const combined = new Int16Array(totalLength);
-        let offset = 0;
-        for (const chunk of audioData) {
-            if (offset + chunk.length > totalLength) {
-                const remaining = totalLength - offset;
-                combined.set(chunk.slice(0, remaining), offset);
-                break;
-            }
-            combined.set(chunk, offset);
-            offset += chunk.length;
-        }
-        
-        const sampleRate = this.config.sampleRate;
-        const numChannels = 1;
-        const bitsPerSample = 16;
-        const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-        const blockAlign = numChannels * bitsPerSample / 8;
-        
-        const buffer = new ArrayBuffer(44 + combined.length * 2);
-        const view = new DataView(buffer);
-        
-        this.writeString(view, 0, 'RIFF');
-        view.setUint32(4, 36 + combined.length * 2, true);
-        this.writeString(view, 8, 'WAVE');
-        this.writeString(view, 12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, numChannels, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, byteRate, true);
-        view.setUint16(32, blockAlign, true);
-        view.setUint16(34, bitsPerSample, true);
-        this.writeString(view, 36, 'data');
-        view.setUint32(40, combined.length * 2, true);
-        
-        for (let i = 0; i < combined.length; i++) {
-            view.setInt16(44 + i * 2, combined[i], true);
-        }
-        
-        return new Blob([buffer], { type: `audio/${this.config.format}` });
-    }
-    
-    writeString(view, offset, string) {
-        for (let i = 0; i < string.length; i++) {
-            view.setUint8(offset + i, string.charCodeAt(i));
-        }
-    }
-    
-    startVisualizer() {
-        if (!this.analyser) return;
-        
-        const updateVolume = () => {
-            if (!this.isRecording || !this.analyser) return;
-            
-            const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-            this.analyser.getByteFrequencyData(dataArray);
-            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            let volume = Math.min(100, (average / 255) * 100);
-            
-            if (this.onVolumeChange) {
-                this.onVolumeChange(volume);
-            }
-            
-            this.visualizerAnimation = requestAnimationFrame(updateVolume);
-        };
-        
-        updateVolume();
-    }
-    
-    stopVisualizer() {
-        if (this.visualizerAnimation) {
-            cancelAnimationFrame(this.visualizerAnimation);
-            this.visualizerAnimation = null;
-        }
-        this.analyser = null;
-    }
-    
-    isRecordingActive() {
-        return this.isRecording;
-    }
-    
-    dispose() {
-        this.stopRecording();
-    }
-}
-
-// ============================================
-// VoiceManager (с поддержкой iOS)
-// ============================================
-
-class VoiceManager {
-    constructor(userId, config = {}) {
-        this.userId = userId;
-        this.config = { ...VoiceConfig, ...config };
-        this.websocket = null;
-        this.recorder = null;
-        this.player = null;
-        this.loadingIndicator = null;
-        
-        this.isRecording = false;
-        this.isAISpeaking = false;
-        this.currentMode = 'psychologist';
-        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        
-        this.onTranscript = null;
-        this.onAIResponse = null;
-        this.onStatusChange = null;
-        this.onError = null;
-        this.onRecordingStart = null;
-        this.onRecordingStop = null;
-        this.onVolumeChange = null;
-        this.onThinking = null;
-        this.onSpeechDetected = null;
-        this.onWeather = null;
-        
-        this.init();
-    }
-    
-    init() {
-        this.loadingIndicator = new LoadingIndicator();
-        
-        this.player = new AudioPlayer();
-        this.player.onPlayStart = () => {
-            this.isAISpeaking = true;
-            this.updateStatus('speaking');
-        };
-        this.player.onPlayEnd = () => {
-            this.isAISpeaking = false;
-            this.updateStatus('idle');
-        };
-        this.player.onError = (error) => {
-            console.error('Player error:', error);
-            if (this.onError) {
-                this.onError('Ошибка воспроизведения');
-            }
-        };
-        
-        this.recorder = new VoiceRecorder(this.config.recording);
-        
-        this.recorder.onRecordingStart = () => {
-            this.isRecording = true;
-            if (this.onRecordingStart) {
-                this.onRecordingStart();
-            }
-            this.updateStatus('recording');
-        };
-        
-        this.recorder.onRecordingStop = (audioBlob) => {
-            this.isRecording = false;
-            if (this.onRecordingStop) {
-                this.onRecordingStop(audioBlob);
-            }
-            
-            if (audioBlob && audioBlob.size > 0) {
-                this.sendAudio(audioBlob);
-            }
-            
-            this.updateStatus('idle');
-        };
-        
-        this.recorder.onVolumeChange = (volume) => {
-            if (this.onVolumeChange) {
-                this.onVolumeChange(volume);
-            }
-        };
-        
-        this.recorder.onError = (error) => {
-            if (this.onError) {
-                this.onError(error);
-            }
-        };
-        
-        this.recorder.onSpeechDetected = (detected) => {
-            if (this.onSpeechDetected) {
-                this.onSpeechDetected(detected);
-            }
-        };
-        
-        this.initWebSocket();
-    }
-    
-    async initWebSocket() {
-        console.log('🎤 Initializing voice service...');
-        this.websocket = new VoiceWebSocket(this.userId, this.config);
-        this.websocket.currentMode = this.currentMode;
-        
-        this.websocket.onTranscript = (text) => {
-            if (this.onTranscript) {
-                this.onTranscript(text);
-            }
-        };
-        
-        this.websocket.onAIResponse = (answer) => {
-            if (this.onAIResponse) {
-                this.onAIResponse(answer);
-            }
-        };
-        
-        this.websocket.onThinking = (isThinking) => {
-            if (this.onThinking) {
-                this.onThinking(isThinking);
-            }
-        };
-        
-        this.websocket.onThinkingUpdate = (message) => {
-            if (this.loadingIndicator && this.loadingIndicator.isShowing) {
-                this.loadingIndicator.updateMessage(message);
-            }
-        };
-        
-        this.websocket.onStatusChange = (status) => {
-            if (status === 'speaking') {
-                this.isAISpeaking = true;
-                if (this.loadingIndicator) {
-                    this.loadingIndicator.remove();
-                }
-            } else if (status === 'idle') {
-                this.isAISpeaking = false;
-                if (this.loadingIndicator) {
-                    this.loadingIndicator.remove();
-                }
-            } else if (status === 'processing') {
-                if (this.loadingIndicator && this.loadingIndicator.isShowing) {
-                    this.loadingIndicator.updateMessage('Распознаю речь...');
-                }
-            }
-            this.updateStatus(status);
-        };
-        
-        this.websocket.onError = (error) => {
-            if (this.onError) {
-                this.onError(error);
-            }
-            if (this.loadingIndicator) {
-                this.loadingIndicator.remove();
-            }
-        };
-        
-        this.websocket.onWeather = (weather) => {
-            if (this.onWeather) {
-                this.onWeather(weather);
-            }
-        };
-        
-        await this.websocket.connect();
-    }
-    
-    async sendAudio(audioBlob) {
-        if (this.loadingIndicator) {
-            this.loadingIndicator.create();
-        }
-        return this.websocket.sendFullAudio(audioBlob);
-    }
-    
-    async textToSpeech(text, mode) {
-        try {
-            const formData = new URLSearchParams();
-            formData.append('text', text);
-            formData.append('mode', mode || this.currentMode);
-            
-            const voiceSettings = this.config.voices[mode || this.currentMode];
-            if (voiceSettings) {
-                formData.append('speed', voiceSettings.speed);
-                formData.append('pitch', voiceSettings.pitch);
-                formData.append('emotion', voiceSettings.emotion);
-            }
-            
-            const response = await fetch(`${this.config.apiBaseUrl}/api/voice/tts`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: formData
             });
             
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+            function startVoiceRecording() {
+                console.log('🎙️ Начинаем запись...');
+                window.voiceManager.startRecording();
+                voiceBtn.style.transform = 'scale(0.98)';
+                recording = true;
+                
+                // Авто-остановка через 60 секунд
+                setTimeout(() => {
+                    if (window.voiceManager && window.voiceManager.isRecordingActive()) {
+                        console.log('⏱️ Auto-stopping recording');
+                        window.voiceManager.stopRecording();
+                        voiceBtn.style.transform = 'scale(1)';
+                    }
+                }, 60000);
             }
-            
-            const audioBlob = await response.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            await this.player.play(audioUrl);
-            
-            return { audio_url: audioUrl };
-            
-        } catch (error) {
-            console.error('TTS error:', error);
-            if (this.onError) {
-                this.onError('Ошибка синтеза речи');
-            }
-            return null;
-        }
-    }
-    
-    async getWeather() {
-        return this.websocket.getWeather();
-    }
-    
-    async getWeatherByCity(city) {
-        return this.websocket.getWeatherByCity(city);
-    }
-    
-    async setUserCity(city) {
-        return this.websocket.setUserCity(city);
-    }
-    
-    startRecording() {
-        if (this.isAISpeaking) {
-            this.interrupt();
-            setTimeout(() => {
-                this.recorder.startRecording();
-            }, 300);
-        } else {
-            this.recorder.startRecording();
-        }
-    }
-    
-    stopRecording() {
-        return this.recorder.stopRecording();
-    }
-    
-    interrupt() {
-        if (this.websocket) {
-            this.websocket.interrupt();
-        }
-        if (this.player) {
-            this.player.stop();
-        }
-        this.isAISpeaking = false;
-        if (this.loadingIndicator) {
-            this.loadingIndicator.remove();
-        }
-    }
-    
-    updateStatus(status) {
-        if (this.onStatusChange) {
-            this.onStatusChange(status);
-        }
-    }
-    
-    setMode(mode) {
-        this.currentMode = mode;
-        if (this.websocket) {
-            this.websocket.currentMode = mode;
         }
         
-        if (this.config.debug) {
-            const voiceInfo = this.config.voices[mode];
-            console.log(`🎭 Mode changed to: ${mode} (${voiceInfo?.name || 'unknown'})`);
+        // Обновляем индикатор мода
+        function updateModeIndicator() {
+            const modeLabel = document.getElementById('modeLabel');
+            const modeIndicator = document.getElementById('modeIndicator');
+            if (modeLabel && window.voiceManager) {
+                const mode = window.voiceManager.getCurrentMode();
+                const voiceSettings = window.voiceManager.getVoiceSettings();
+                if (mode === 'psychologist') {
+                    modeLabel.textContent = '🧠 Психолог';
+                    modeIndicator.style.background = '#3b82ff';
+                } else if (mode === 'coach') {
+                    modeLabel.textContent = '⚡ Коуч';
+                    modeIndicator.style.background = '#ff6b3b';
+                } else if (mode === 'trainer') {
+                    modeLabel.textContent = '💪 Тренер';
+                    modeIndicator.style.background = '#10b981';
+                }
+            }
         }
-    }
-    
-    isRecordingActive() {
-        return this.recorder?.isRecordingActive() || false;
-    }
-    
-    isSpeaking() {
-        return this.isAISpeaking;
-    }
-    
-    getCurrentMode() {
-        return this.currentMode;
-    }
-    
-    getVoiceSettings() {
-        return this.config.voices[this.currentMode] || this.config.voices.psychologist;
-    }
-    
-    dispose() {
-        if (this.loadingIndicator) {
-            this.loadingIndicator.remove();
-        }
-        if (this.recorder) {
-            this.recorder.dispose();
-        }
-        if (this.player) {
-            this.player.dispose();
-        }
-        if (this.websocket) {
-            this.websocket.disconnect();
-        }
-    }
-}
-
-// ============================================
-// ЭКСПОРТ
-// ============================================
-
-if (typeof window !== 'undefined') {
-    window.AudioPlayer = AudioPlayer;
-    window.LoadingIndicator = LoadingIndicator;
-    window.VoiceManager = VoiceManager;
-    window.VoiceConfig = VoiceConfig;
-    window.VoiceWebSocket = VoiceWebSocket;
-    window.VoiceRecorder = VoiceRecorder;
-}
+        
+        updateModeIndicator();
+        
+        console.log('✅ VoiceManager initialized successfully!');
+        
+    }, 1000);
+});
+</script>
+</body>
+</html>
