@@ -1132,9 +1132,15 @@
             });
             
             // Обработчики модулей
-            document.querySelectorAll('.module-card').forEach(el => {
-                el.addEventListener('click', () => showToast('Модуль скоро будет доступен'));
-            });
+document.querySelectorAll('.module-card').forEach((card, index) => {
+    card.addEventListener('click', () => {
+        if (index === 0) {           // Первая карточка — "Анализ"
+            openAnalysisScreen();
+        } else {
+            showToast('Этот модуль скоро будет доступен');
+        }
+    });
+});
             
             // Обработчик голосовой кнопки
             document.getElementById('voiceBtn')?.addEventListener('click', () => {
