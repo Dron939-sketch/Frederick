@@ -111,7 +111,6 @@
                 width: 260px;
                 z-index: 1000;
             }
-           
             .chats-panel.open {
                 left: 0;
                 box-shadow: 5px 0 30px rgba(0, 0, 0, 0.5);
@@ -294,7 +293,6 @@
                 z-index: 10;
                 pointer-events: auto;
             }
-           
             .mobile-menu-btn:active {
                 transform: scale(0.95);
             }
@@ -572,9 +570,6 @@
             border-bottom: 1px solid rgba(255,107,59,0.3);
             color: #ff6b3b;
         }
-        .profile-section-title:first-of-type {
-            margin-top: 0;
-        }
         .thoughts-section-title {
             font-size: 18px;
             font-weight: bold;
@@ -643,23 +638,18 @@
                 grid-template-columns: repeat(4, 1fr);
                 gap: 8px;
             }
-           
             .action-name {
                 font-size: 10px;
             }
-           
             .modules-grid {
                 gap: 8px;
             }
-           
             .hero-section {
                 padding: 16px;
             }
-           
             .greeting-text h2 {
                 font-size: 20px;
             }
-           
             .full-content-page {
                 padding: 16px;
             }
@@ -806,6 +796,9 @@
     <script src="/voice.js"></script>
     <script src="/app.js"></script>
     <script src="/analysis.js"></script>
+    <script src="/emotions.js"></script>
+    <script src="/healing.js"></script>
+    <script src="/relationships.js"></script>
    
     <script>
     (function() {
@@ -831,45 +824,35 @@
         // ============================================
         function formatProfileText(text) {
             if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
-           
             text = text.replace(/\*\*(.*?)\*\*/g, '$1');
             text = text.replace(/\*(.*?)\*/g, '$1');
-           
             const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
             const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
-           
             headers.forEach((header, i) => {
                 const regex = new RegExp(header, 'gi');
                 text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
             });
-           
             text = text.replace(/•\s*/g, '<br>• ');
             text = text.replace(/-\s*/g, '<br>• ');
             text = text.replace(/\n\n/g, '<br><br>');
             text = text.replace(/\n/g, '<br>');
-           
             return text;
         }
        
         function formatThoughtText(text) {
             if (!text) return '💭 Мысли психолога появятся после завершения теста.';
-           
             text = text.replace(/\*\*(.*?)\*\*/g, '$1');
             text = text.replace(/\*(.*?)\*/g, '$1');
-           
             const headers = ['КЛЮЧЕВОЙ ЭЛЕМЕНТ', 'ПЕТЛЯ', 'ТОЧКА ВХОДА', 'ПРОГНОЗ', 'РЕКОМЕНДАЦИИ'];
             const emojis = ['🔐', '🔄', '🚪', '📊', '💡'];
-           
             headers.forEach((header, i) => {
                 const regex = new RegExp(header, 'gi');
                 text = text.replace(regex, `<div class="thoughts-section-title">${emojis[i]} ${header}</div>`);
             });
-           
             text = text.replace(/•\s*/g, '<br>• ');
             text = text.replace(/-\s*/g, '<br>• ');
             text = text.replace(/\n\n/g, '<br><br>');
             text = text.replace(/\n/g, '<br>');
-           
             return text;
         }
 
@@ -953,7 +936,9 @@
             textEl.innerHTML = message;
             toast.style.display = 'flex';
             setTimeout(() => { toast.style.display = 'none'; }, 3000);
-            document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
+            if (document.getElementById('toastClose')) {
+                document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
+            }
         }
 
         function showLoading(message) {
@@ -1045,10 +1030,13 @@
             // ==================== ОБРАБОТЧИКИ МОДУЛЕЙ ====================
             document.querySelectorAll('.module-card').forEach((card, index) => {
                 card.addEventListener('click', () => {
-                    if (index === 0) {           // Первая карточка — "Анализ"
-                        openAnalysisScreen();
-                    } else {
-                        showToast('Этот модуль скоро будет доступен');
+                    switch(index) {
+                        case 0: openAnalysisScreen(); break;
+                        case 1: openEmotionsScreen(); break;
+                        case 2: openHealingScreen(); break;
+                        case 3: openRelationshipsScreen(); break;
+                        default:
+                            showToast('Этот модуль скоро будет доступен');
                     }
                 });
             });
@@ -1069,7 +1057,6 @@
 
         function showFullContentScreen(title, content, contentType) {
             const container = document.getElementById('screenContainer');
-           
             let formattedContent = content;
             if (contentType === 'profile') formattedContent = formatProfileText(content);
             else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
@@ -1092,9 +1079,7 @@
            
             const backBtn = document.getElementById('backBtn');
             if (backBtn) {
-                backBtn.addEventListener('click', () => {
-                    renderDashboard();
-                });
+                backBtn.addEventListener('click', () => renderDashboard());
             }
         }
 
@@ -1116,10 +1101,8 @@
                 showToast('📊 Сначала пройдите психологический тест');
                 return;
             }
-           
             showLoading('Загружаю психологический портрет...');
             const profile = await getAIGeneratedProfile();
-           
             if (profile) {
                 showFullContentScreen('Мой портрет', profile, 'profile');
             } else {
@@ -1133,10 +1116,8 @@
                 showToast('📊 Сначала пройдите психологический тест');
                 return;
             }
-           
             showLoading('Загружаю мысли психолога...');
             const thought = await getPsychologistThought();
-           
             if (thought) {
                 showFullContentScreen('Мысли психолога', thought, 'thoughts');
             } else {
@@ -1150,10 +1131,8 @@
                 showToast('📊 Сначала пройдите психологический тест');
                 return;
             }
-           
             showLoading('Подбираю идеи...');
             const ideas = await getWeekendIdeas();
-           
             if (ideas && ideas.length > 0) {
                 const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
                 showFullContentScreen('Идеи на выходные', ideasText, 'goals');
@@ -1163,27 +1142,43 @@
         }
 
         // ============================================
-        // ИНИЦИАЛИЗАЦИЯ
+        // МОБИЛЬНОЕ МЕНЮ (исправлено и усилено)
         // ============================================
         function initMobileMenu() {
             const mobileBtn = document.getElementById('mobileMenuBtn');
             const panel = document.getElementById('chatsPanel');
            
             if (!mobileBtn || !panel) return;
-           
-            mobileBtn.onclick = null;
-           
-            mobileBtn.addEventListener('click', function(e) {
+
+            // Удаляем старые обработчики
+            mobileBtn.replaceWith(mobileBtn.cloneNode(true));
+            const newMobileBtn = document.getElementById('mobileMenuBtn');
+
+            newMobileBtn.addEventListener('click', function(e) {
                 e.preventDefault();
-                e.stopPropagation();
+                e.stopImmediatePropagation();
                 panel.classList.toggle('open');
             });
-           
+
+            // Закрытие при клике вне меню
             document.addEventListener('click', function(e) {
                 if (panel.classList.contains('open')) {
-                    if (!panel.contains(e.target) && !mobileBtn.contains(e.target)) {
+                    if (!panel.contains(e.target) && !newMobileBtn.contains(e.target)) {
                         panel.classList.remove('open');
                     }
+                }
+            });
+
+            // Закрытие при свайпе влево
+            let touchStartX = 0;
+            panel.addEventListener('touchstart', function(e) {
+                touchStartX = e.touches[0].clientX;
+            }, { passive: true });
+
+            panel.addEventListener('touchend', function(e) {
+                const touchEndX = e.changedTouches[0].clientX;
+                if (touchEndX - touchStartX < -80) {
+                    panel.classList.remove('open');
                 }
             });
         }
