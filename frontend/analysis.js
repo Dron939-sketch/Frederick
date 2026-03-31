@@ -1,8 +1,8 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
+// Версия 2.0 — улучшенный дизайн и структура
 // ============================================
 
-// Основная функция открытия экрана анализа
 async function openAnalysisScreen() {
     const completed = await isTestCompleted();
     if (!completed) {
@@ -29,91 +29,93 @@ async function openAnalysisScreen() {
         renderAnalysisUI(model, loops, keyConfinement);
 
     } catch (error) {
-        console.error('Analysis error:', error);
+        console.error('Analysis loading error:', error);
         showToast('Не удалось загрузить анализ. Попробуйте позже.');
         renderDashboard();
     }
 }
 
-// Рендер интерфейса анализа
 function renderAnalysisUI(model, loops, keyConfinement) {
     const container = document.getElementById('screenContainer');
 
+    // Ключевое ограничение
     let keyHtml = '';
-    if (keyConfinement) {
+    if (keyConfinement && keyConfinement.name) {
         keyHtml = `
-            <div style="background: rgba(255,107,59,0.12); border: 1px solid rgba(255,107,59,0.4); border-radius: 20px; padding: 20px; margin-bottom: 28px;">
-                <h3 style="color: #ff6b3b; margin-bottom: 10px;">🔑 Ключевое ограничение</h3>
-                <strong style="font-size: 18px;">${keyConfinement.name || 'Основное ограничение'}</strong>
-                <p style="margin-top: 10px; color: var(--text-secondary); line-height: 1.5;">
-                    ${keyConfinement.description || 'Это центральный паттерн, который влияет на многие области вашей жизни.'}
-                </p>
+            <div class="analysis-key-confinement">
+                <h3>🔑 Ключевое ограничение</h3>
+                <div class="key-name">${keyConfinement.name}</div>
+                <p>${keyConfinement.description || 'Центральный паттерн, влияющий на многие сферы жизни.'}</p>
             </div>`;
     }
 
+    // Список петель
     const loopsHtml = loops.length > 0 
         ? loops.map((loop, i) => `
-            <div style="background: rgba(26,26,26,0.8); padding: 18px; border-radius: 16px; border-left: 5px solid #ff6b3b; margin-bottom: 12px;">
-                <div style="font-weight: 600; margin-bottom: 6px;">Петля ${i+1}: ${loop.name || 'Повторяющийся цикл'}</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">${loop.description || 'Автоматический паттерн поведения'}</div>
+            <div class="loop-item">
+                <div class="loop-number">Петля ${i+1}</div>
+                <div class="loop-name">${loop.name || 'Повторяющийся цикл'}</div>
+                <div class="loop-desc">${loop.description || 'Автоматический паттерн мышления и поведения'}</div>
             </div>`).join('')
-        : `<p style="color: var(--text-secondary); text-align: center; padding: 40px 20px;">
-            Пока петли не обнаружены.<br>Продолжайте общение с Фреди — анализ будет обновляться.
-           </p>`;
+        : `<div class="no-loops">Пока петли не обнаружены.<br>Продолжайте общение с Фреди — анализ будет обновляться автоматически.</div>`;
 
     container.innerHTML = `
         <div class="full-content-page" style="max-width: 1100px;">
             <button class="back-btn" id="backToDashboard">◀️ НАЗАД К ДАШБОРДУ</button>
             
             <div class="content-header">
-                <div class="content-emoji" style="font-size: 64px;">🧠</div>
+                <div class="content-emoji" style="font-size: 68px;">🧠</div>
                 <h1>Анализ глубинных паттернов</h1>
-                <p style="color: var(--text-secondary);">Конфайнтмент-модель • Психологические петли • Ключевые ограничения</p>
+                <p style="color: var(--text-secondary);">Конфайнтмент-модель • Психологические петли</p>
             </div>
 
             ${keyHtml}
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px;">
-                <div class="module-card">
-                    <div class="module-icon">📍</div>
-                    <div class="module-name">Элементов в модели</div>
-                    <div style="font-size: 36px; font-weight: 700; color: var(--chrome);">${Object.keys(model.elements || {}).length}</div>
+            <!-- Статистика -->
+            <div class="analysis-stats">
+                <div class="stat-card">
+                    <div class="stat-icon">📍</div>
+                    <div class="stat-value">${Object.keys(model.elements || {}).length}</div>
+                    <div class="stat-label">Элементов в модели</div>
                 </div>
-                <div class="module-card">
-                    <div class="module-icon">🔄</div>
-                    <div class="module-name">Активных петель</div>
-                    <div style="font-size: 36px; font-weight: 700; color: var(--chrome);">${loops.length}</div>
+                <div class="stat-card">
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-value">${loops.length}</div>
+                    <div class="stat-label">Активных петель</div>
                 </div>
-                <div class="module-card">
-                    <div class="module-icon">🔒</div>
-                    <div class="module-name">Состояние системы</div>
-                    <div style="font-size: 18px; font-weight: 600; color: ${model.is_closed ? '#ef4444' : '#10b981'}; margin-top: 8px;">
-                        ${model.is_closed ? '🔒 Система замкнута' : '🔓 Система открыта'}
+                <div class="stat-card">
+                    <div class="stat-icon">🔒</div>
+                    <div class="stat-value" style="color: ${model.is_closed ? '#ef4444' : '#10b981'}">
+                        ${model.is_closed ? 'Замкнута' : 'Открыта'}
                     </div>
+                    <div class="stat-label">Система</div>
                 </div>
             </div>
 
-            <h3 style="color: #ff6b3b; margin: 24px 0 16px;">🔄 Психологические петли</h3>
-            <div style="display: flex; flex-direction: column; gap: 12px;">
+            <!-- Петли -->
+            <h3 style="color: #ff6b3b; margin: 32px 0 16px;">🔄 Психологические петли</h3>
+            <div class="loops-container">
                 ${loopsHtml}
             </div>
 
-            <div style="margin-top: 40px; text-align: center;">
-                <button onclick="getPersonalIntervention()" class="voice-record-btn-premium" style="max-width: 360px;">
+            <!-- Действия -->
+            <div class="analysis-actions">
+                <button onclick="getPersonalIntervention()" class="voice-record-btn-premium">
                     Получить персональную интервенцию
                 </button>
             </div>
         </div>
     `;
 
-    // Обработчик кнопки "Назад"
+    // Кнопка "Назад"
     document.getElementById('backToDashboard').addEventListener('click', renderDashboard);
 }
 
-// Заглушка для интервенции (можно сильно развить позже)
+// Заглушка для персональной интервенции
 async function getPersonalIntervention() {
-    showToast('🧘‍♂️ Персональная интервенция загружается...<br>Скоро здесь появится практика из InterventionLibrary');
+    showToast('🧘‍♂️ Генерирую персональную интервенцию...<br>Скоро здесь появится практика из InterventionLibrary');
 }
 
-// Экспортируем главную функцию (для использования в app.js)
+// Экспорт функций
 window.openAnalysisScreen = openAnalysisScreen;
+window.getPersonalIntervention = getPersonalIntervention;
