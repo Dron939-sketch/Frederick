@@ -1,5 +1,5 @@
 // ============================================
-// АУДИО ПЛЕЕР (полностью сохранен)
+// АУДИО ПЛЕЕР (улучшенная версия)
 // ============================================
 
 class AudioPlayer {
@@ -10,10 +10,26 @@ class AudioPlayer {
         this.onPlayEnd = null;
         this.onError = null;
         this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        this.userInteractionOccurred = false;
+        this.pendingPlay = null;
+        
+        // Отслеживаем взаимодействие с пользователем
+        this.setupUserInteractionTracking();
+    }
+    
+    setupUserInteractionTracking() {
+        const handleInteraction = () => {
+            this.userInteractionOccurred = true;
+            document.removeEventListener('touchstart', handleInteraction);
+            document.removeEventListener('click', handleInteraction);
+        };
+        
+        document.addEventListener('touchstart', handleInteraction);
+        document.addEventListener('click', handleInteraction);
     }
     
     play(audioData, mimeType = 'audio/mpeg') {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             try {
                 this.stop();
                 
@@ -26,14 +42,20 @@ class AudioPlayer {
                         const detectedMimeType = matches[1];
                         const base64Data = matches[2];
                         
-                        const binaryString = atob(base64Data);
-                        const bytes = new Uint8Array(binaryString.length);
-                        for (let i = 0; i < binaryString.length; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
+                        try {
+                            const binaryString = atob(base64Data);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            
+                            const blob = new Blob([bytes], { type: detectedMimeType });
+                            audioUrl = URL.createObjectURL(blob);
+                        } catch (e) {
+                            console.error('Base64 decode error:', e);
+                            reject(new Error('Ошибка декодирования аудио'));
+                            return;
                         }
-                        
-                        const blob = new Blob([bytes], { type: detectedMimeType });
-                        audioUrl = URL.createObjectURL(blob);
                     }
                 } 
                 else if (typeof audioData === 'string' && audioData.startsWith('http')) {
@@ -46,28 +68,53 @@ class AudioPlayer {
                 this.currentUrl = audioUrl;
                 this.audio.src = audioUrl;
                 this.audio.load();
+                this.audio.volume = 1.0;
                 
-                // Для iOS нужно немного подождать
-                const playHandler = () => {
-                    if (this.onPlayStart) {
-                        this.onPlayStart();
-                    }
+                // Функция воспроизведения с обработкой ошибок
+                const playAudio = () => {
+                    const playPromise = this.audio.play();
                     
-                    this.audio.play().catch(error => {
-                        console.error('Play failed:', error);
-                        if (this.onError) {
-                            this.onError(error);
-                        }
-                        reject(error);
-                    });
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => {
+                            if (this.onPlayStart) {
+                                this.onPlayStart();
+                            }
+                            resolve();
+                        }).catch(error => {
+                            console.error('Play failed:', error);
+                            
+                            // Для iOS пробуем альтернативный метод
+                            if (this.isIOS && !this.userInteractionOccurred) {
+                                this.onError && this.onError('Для воспроизведения коснитесь экрана');
+                                reject(new Error('Требуется взаимодействие с пользователем'));
+                            } else {
+                                this.onError && this.onError(error);
+                                reject(error);
+                            }
+                        });
+                    }
                 };
                 
-                this.audio.oncanplaythrough = playHandler;
+                // Ожидаем загрузку с таймаутом
+                let loadTimeout = setTimeout(() => {
+                    if (this.audio && this.audio.readyState >= 2) {
+                        playAudio();
+                    } else if (this.audio) {
+                        console.warn('Audio load timeout, attempting to play anyway');
+                        playAudio();
+                    }
+                }, 3000);
                 
-                // Fallback для iOS, если oncanplaythrough не срабатывает
+                this.audio.oncanplaythrough = () => {
+                    clearTimeout(loadTimeout);
+                    playAudio();
+                };
+                
+                // Fallback для iOS
                 setTimeout(() => {
                     if (this.audio && this.audio.readyState >= 2 && !this.audio.played.length) {
-                        playHandler();
+                        clearTimeout(loadTimeout);
+                        playAudio();
                     }
                 }, 100);
                 
@@ -79,10 +126,10 @@ class AudioPlayer {
                     if (this.onPlayEnd) {
                         this.onPlayEnd();
                     }
-                    resolve();
                 };
                 
                 this.audio.onerror = (error) => {
+                    clearTimeout(loadTimeout);
                     console.error('Audio error:', error);
                     if (this.onError) {
                         this.onError(error);
@@ -158,6 +205,7 @@ class LoadingIndicator {
             display: flex;
             align-items: center;
             gap: 8px;
+            pointer-events: none;
         `;
         
         this.messageElement = document.createElement('span');
@@ -236,7 +284,7 @@ class LoadingIndicator {
 }
 
 // ============================================
-// КОНФИГУРАЦИЯ ГОЛОСА FREDI PREMIUM
+// КОНФИГУРАЦИЯ ГОЛОСА FREDI PREMIUM (расширенная)
 // ============================================
 
 const VoiceConfig = {
@@ -244,10 +292,10 @@ const VoiceConfig = {
     useWebSocket: true,
     
     recording: {
-        sampleRate: 16000,
+        sampleRate: /iPhone|iPad|iPod/.test(navigator.userAgent) ? 44100 : 16000,
         maxDuration: 60000,
         minDuration: 1000,
-        chunkSize: 4096,
+        chunkSize: /Android/.test(navigator.userAgent) ? 2048 : 4096,
         format: 'wav',
         mimeType: 'audio/wav'
     },
@@ -291,11 +339,20 @@ const VoiceConfig = {
         minVolumeToConsiderSpeech: 5
     },
     
-    debug: true
+    debug: true,
+    
+    // Диагностика поддержки браузера
+    diagnostics: {
+        browser: navigator.userAgent,
+        audioContextSupported: !!(window.AudioContext || window.webkitAudioContext),
+        mediaRecorderSupported: !!window.MediaRecorder,
+        webSocketSupported: !!window.WebSocket,
+        getUserMediaSupported: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+    }
 };
 
 // ============================================
-// VoiceWebSocket (с поддержкой iOS)
+// VoiceWebSocket (улучшенная версия)
 // ============================================
 
 class VoiceWebSocket {
@@ -307,6 +364,8 @@ class VoiceWebSocket {
         this.currentMode = 'psychologist';
         this.useWebSocket = false;
         this.ws = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 3;
         
         this.onTranscript = null;
         this.onAIResponse = null;
@@ -325,6 +384,11 @@ class VoiceWebSocket {
         if (this.isIOS) {
             console.log('📱 iOS detected, using HTTP only');
             this.useWebSocket = false;
+        }
+        
+        // Выводим диагностику
+        if (this.config.debug) {
+            console.log('🔍 VoiceWebSocket diagnostics:', this.config.diagnostics);
         }
     }
     
@@ -354,12 +418,14 @@ class VoiceWebSocket {
                     console.log('✅ WebSocket connected');
                     this.isConnected = true;
                     this.useWebSocket = true;
+                    this.reconnectAttempts = 0;
                     this.updateStatus('connected');
                     
                     this.ws.send(JSON.stringify({
                         type: 'init',
                         mode: this.currentMode,
-                        timestamp: Date.now()
+                        timestamp: Date.now(),
+                        userAgent: navigator.userAgent
                     }));
                 };
                 
@@ -376,7 +442,10 @@ class VoiceWebSocket {
                 
                 this.ws.onclose = () => {
                     console.log('WebSocket closed');
-                    if (this.useWebSocket) {
+                    if (this.useWebSocket && this.reconnectAttempts < this.maxReconnectAttempts) {
+                        this.reconnectAttempts++;
+                        setTimeout(() => this.connect(), 2000);
+                    } else if (this.useWebSocket) {
                         this.useWebSocket = false;
                         this.initHTTP();
                     }
@@ -554,11 +623,13 @@ class VoiceWebSocket {
         if (this.isIOS && audioBlob.type) {
             if (audioBlob.type.includes('mp4')) audioFormat = 'mp4';
             else if (audioBlob.type.includes('aac')) audioFormat = 'aac';
+            else if (audioBlob.type.includes('webm')) audioFormat = 'webm';
         }
         
         formData.append('voice', audioBlob, `audio.${audioFormat}`);
         formData.append('mode', this.currentMode || 'psychologist');
         formData.append('ios_device', this.isIOS ? 'true' : 'false');
+        formData.append('user_agent', navigator.userAgent);
         
         const voiceSettings = this.config.voices[this.currentMode];
         if (voiceSettings) {
@@ -576,11 +647,16 @@ class VoiceWebSocket {
         const startTime = Date.now();
         
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 45000);
+            
             const response = await fetch(`${this.apiBaseUrl}/api/voice/process`, {
                 method: 'POST',
                 body: formData,
-                signal: AbortSignal.timeout(45000) // Увеличиваем таймаут для iOS
+                signal: controller.signal
             });
+            
+            clearTimeout(timeoutId);
             
             const elapsed = Date.now() - startTime;
             if (this.config.debug) {
@@ -635,19 +711,21 @@ class VoiceWebSocket {
                 this.onThinking(false);
             }
             
-            if (retryCount < maxRetries) {
+            if (retryCount < maxRetries && error.name !== 'AbortError') {
                 console.log(`🔄 Повторная попытка ${retryCount + 1}/${maxRetries}`);
                 await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
                 return this.sendAudioViaHTTP(audioBlob, retryCount + 1, maxRetries);
             }
             
             let errorMessage = 'Ошибка соединения';
-            if (error.name === 'TimeoutError') {
+            if (error.name === 'AbortError') {
                 errorMessage = 'Сервер не отвечает. Попробуйте позже.';
             } else if (error.message.includes('500')) {
                 errorMessage = 'Ошибка на сервере. Мы уже чиним.';
             } else if (error.message.includes('429')) {
                 errorMessage = 'Слишком много запросов. Подождите немного.';
+            } else if (error.message.includes('Network')) {
+                errorMessage = 'Проверьте интернет-соединение';
             }
             
             if (this.onError) {
@@ -681,14 +759,23 @@ class VoiceWebSocket {
                         const audio2 = new Audio();
                         audio2.src = `data:audio/mpeg;base64,${audioBase64}`;
                         audio2.load();
-                        audio2.play().catch(reject);
-                        audio2.onended = resolve;
+                        const playPromise = audio2.play();
+                        if (playPromise !== undefined) {
+                            playPromise.then(() => {
+                                audio2.onended = resolve;
+                            }).catch(reject);
+                        } else {
+                            reject(error);
+                        }
                     } else {
                         reject(error);
                     }
                 };
                 
-                audio.play().catch(reject);
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(reject);
+                }
                 
             } catch (error) {
                 console.error('Playback error:', error);
@@ -717,7 +804,10 @@ class VoiceWebSocket {
                     reject(error);
                 };
                 
-                audio.play().catch(reject);
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(reject);
+                }
                 
             } catch (error) {
                 reject(error);
@@ -800,7 +890,7 @@ class VoiceWebSocket {
 }
 
 // ============================================
-// VoiceRecorder (с поддержкой iOS)
+// VoiceRecorder (улучшенная версия с поддержкой iOS)
 // ============================================
 
 class VoiceRecorder {
@@ -819,7 +909,7 @@ class VoiceRecorder {
         this.speechDetected = false;
         this.lastVolume = 0;
         
-        // ДОБАВЛЯЕМ ДЛЯ iOS
+        // Для iOS
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -830,6 +920,9 @@ class VoiceRecorder {
         this.onVolumeChange = null;
         this.onError = null;
         this.onSpeechDetected = null;
+        
+        // Флаг для активации AudioContext
+        this.audioContextInitialized = false;
     }
     
     async startRecording() {
@@ -839,6 +932,7 @@ class VoiceRecorder {
         }
         
         try {
+            // Запрашиваем доступ к микрофону
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: true,
@@ -857,21 +951,32 @@ class VoiceRecorder {
             this.lastVolume = 0;
             this.isRecording = true;
             
-            // ДОБАВЛЯЕМ: Для iOS используем MediaRecorder
+            // Для iOS используем MediaRecorder если возможно
             if (this.isIOS && window.MediaRecorder) {
-                const mimeTypes = ['audio/mp4', 'audio/aac', 'audio/wav'];
-                let selectedMimeType = '';
+                const mimeTypes = [
+                    'audio/mp4',
+                    'audio/aac',
+                    'audio/wav',
+                    'audio/webm',
+                    'audio/mpeg'
+                ];
                 
+                let selectedMimeType = '';
                 for (const mimeType of mimeTypes) {
-                    if (MediaRecorder.isTypeSupported(mimeType)) {
-                        selectedMimeType = mimeType;
-                        break;
+                    try {
+                        if (MediaRecorder.isTypeSupported(mimeType)) {
+                            selectedMimeType = mimeType;
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(`Type check failed for ${mimeType}:`, e);
                     }
                 }
                 
                 if (selectedMimeType) {
                     this.mediaRecorder = new MediaRecorder(stream, {
-                        mimeType: selectedMimeType
+                        mimeType: selectedMimeType,
+                        audioBitsPerSecond: 128000
                     });
                     
                     this.mediaRecorder.ondataavailable = (event) => {
@@ -892,6 +997,7 @@ class VoiceRecorder {
                     
                     this.mediaRecorder.start(1000);
                 } else {
+                    console.warn('No supported MIME type found for MediaRecorder, using legacy method');
                     await this.setupLegacyRecording(stream);
                 }
             } else {
@@ -923,6 +1029,8 @@ class VoiceRecorder {
                 errorMessage = 'Пожалуйста, разрешите доступ к микрофону';
             } else if (error.name === 'NotFoundError') {
                 errorMessage = 'Микрофон не найден';
+            } else if (error.name === 'NotReadableError') {
+                errorMessage = 'Микрофон используется другим приложением';
             }
             
             if (this.onError) {
@@ -938,9 +1046,39 @@ class VoiceRecorder {
             sampleRate: this.config.sampleRate
         });
         
-        // Для iOS нужно активировать AudioContext
+        // Функция для активации AudioContext
+        const resumeAudioContext = async () => {
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+                try {
+                    await this.audioContext.resume();
+                    console.log('AudioContext resumed');
+                    this.audioContextInitialized = true;
+                } catch (e) {
+                    console.warn('Failed to resume AudioContext:', e);
+                }
+            }
+        };
+        
+        // Пытаемся активировать AudioContext
         if (this.audioContext.state === 'suspended') {
-            await this.audioContext.resume();
+            // Для iOS нужно пользовательское взаимодействие
+            const handleUserInteraction = async () => {
+                await resumeAudioContext();
+                document.removeEventListener('touchstart', handleUserInteraction);
+                document.removeEventListener('click', handleUserInteraction);
+            };
+            
+            document.addEventListener('touchstart', handleUserInteraction);
+            document.addEventListener('click', handleUserInteraction);
+            
+            // Таймаут на случай, если взаимодействия не будет
+            setTimeout(async () => {
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    await resumeAudioContext();
+                }
+            }, 1000);
+        } else {
+            await resumeAudioContext();
         }
         
         const source = this.audioContext.createMediaStreamSource(stream);
@@ -1001,31 +1139,35 @@ class VoiceRecorder {
     }
     
     setupVolumeAnalyzer(stream) {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        
-        const updateVolume = () => {
-            if (!this.isRecording) return;
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(stream);
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
             
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(dataArray);
-            let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            let volume = Math.min(100, (average / 255) * 100);
+            const updateVolume = () => {
+                if (!this.isRecording) return;
+                
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(dataArray);
+                let average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                let volume = Math.min(100, (average / 255) * 100);
+                
+                if (this.onVolumeChange && this.isRecording) {
+                    this.onVolumeChange(volume);
+                }
+                
+                this.visualizerAnimation = requestAnimationFrame(updateVolume);
+            };
             
-            if (this.onVolumeChange) {
-                this.onVolumeChange(volume);
-            }
+            updateVolume();
             
-            this.visualizerAnimation = requestAnimationFrame(updateVolume);
-        };
-        
-        updateVolume();
-        
-        this.volumeAnalyser = analyser;
-        this.volumeContext = audioContext;
+            this.volumeAnalyser = analyser;
+            this.volumeContext = audioContext;
+        } catch (error) {
+            console.warn('Volume analyzer setup failed:', error);
+        }
     }
     
     stopRecording() {
@@ -1052,14 +1194,16 @@ class VoiceRecorder {
         
         if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
             this.mediaRecorder.stop();
-            audioBlob = new Blob(this.audioChunks, { type: 'audio/mp4' });
+            audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType });
         } 
         else if (this.wavData && this.wavData.length > 0) {
             audioBlob = this.createWavBlob(this.wavData);
         }
         
         if (this.processor) {
-            this.processor.disconnect();
+            try {
+                this.processor.disconnect();
+            } catch (e) {}
             this.processor = null;
         }
         
@@ -1074,7 +1218,11 @@ class VoiceRecorder {
         }
         
         if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach(track => track.stop());
+            this.mediaStream.getTracks().forEach(track => {
+                try {
+                    track.stop();
+                } catch (e) {}
+            });
             this.mediaStream = null;
         }
         
@@ -1185,7 +1333,7 @@ class VoiceRecorder {
 }
 
 // ============================================
-// VoiceManager (с поддержкой iOS)
+// VoiceManager (улучшенная версия)
 // ============================================
 
 class VoiceManager {
@@ -1213,7 +1361,37 @@ class VoiceManager {
         this.onSpeechDetected = null;
         this.onWeather = null;
         
+        // Диагностика
+        this.diagnostics = this.checkBrowserSupport();
+        
         this.init();
+    }
+    
+    checkBrowserSupport() {
+        const diagnostics = {
+            userAgent: navigator.userAgent,
+            isIOS: this.isIOS,
+            isAndroid: /Android/.test(navigator.userAgent),
+            getUserMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+            AudioContext: !!(window.AudioContext || window.webkitAudioContext),
+            MediaRecorder: !!window.MediaRecorder,
+            WebSocket: !!window.WebSocket,
+            supportedMimeTypes: []
+        };
+        
+        if (window.MediaRecorder) {
+            const types = ['audio/mp4', 'audio/aac', 'audio/wav', 'audio/webm', 'audio/mpeg'];
+            types.forEach(type => {
+                try {
+                    if (MediaRecorder.isTypeSupported(type)) {
+                        diagnostics.supportedMimeTypes.push(type);
+                    }
+                } catch (e) {}
+            });
+        }
+        
+        console.log('🔍 VoiceManager diagnostics:', diagnostics);
+        return diagnostics;
     }
     
     init() {
@@ -1464,6 +1642,10 @@ class VoiceManager {
         return this.config.voices[this.currentMode] || this.config.voices.psychologist;
     }
     
+    getDiagnostics() {
+        return this.diagnostics;
+    }
+    
     dispose() {
         if (this.loadingIndicator) {
             this.loadingIndicator.remove();
@@ -1481,6 +1663,20 @@ class VoiceManager {
 }
 
 // ============================================
+// ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
+// ============================================
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('error', (event) => {
+        console.error('Global error:', event.error);
+    });
+    
+    window.addEventListener('unhandledrejection', (event) => {
+        console.error('Unhandled rejection:', event.reason);
+    });
+}
+
+// ============================================
 // ЭКСПОРТ
 // ============================================
 
@@ -1491,4 +1687,32 @@ if (typeof window !== 'undefined') {
     window.VoiceConfig = VoiceConfig;
     window.VoiceWebSocket = VoiceWebSocket;
     window.VoiceRecorder = VoiceRecorder;
+    
+    // Добавляем функцию проверки поддержки
+    window.checkVoiceSupport = function() {
+        const diagnostics = {
+            browser: navigator.userAgent,
+            isIOS: /iPad|iPhone|iPod/.test(navigator.userAgent),
+            isAndroid: /Android/.test(navigator.userAgent),
+            getUserMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+            AudioContext: !!(window.AudioContext || window.webkitAudioContext),
+            MediaRecorder: !!window.MediaRecorder,
+            WebSocket: !!window.WebSocket,
+            supportedMimeTypes: []
+        };
+        
+        if (window.MediaRecorder) {
+            const types = ['audio/mp4', 'audio/aac', 'audio/wav', 'audio/webm', 'audio/mpeg'];
+            types.forEach(type => {
+                try {
+                    if (MediaRecorder.isTypeSupported(type)) {
+                        diagnostics.supportedMimeTypes.push(type);
+                    }
+                } catch (e) {}
+            });
+        }
+        
+        console.log('📱 Voice support check:', diagnostics);
+        return diagnostics;
+    };
 }
