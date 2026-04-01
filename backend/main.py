@@ -2906,6 +2906,50 @@ async def _force_lifespan():
         logger.error(f"❌ Ошибка при принудительном запуске lifespan: {e}")
 
 # Если модуль импортируется (не запускается напрямую), запускаем lifespan
+
+@app.post("/api/migrate-user")
+async def migrate_user(request: Request):
+    """Миграция строкового ID в числовой"""
+    try:
+        data = await request.json()
+        old_user_id = data.get('old_user_id')
+        new_user_id = data.get('new_user_id')
+        
+        if not old_user_id or not new_user_id:
+            return {"success": False, "error": "Missing ids"}
+        
+        async with db.get_connection() as conn:
+            # Переносим данные из старого ID в новый
+            await conn.execute("""
+                UPDATE messages SET user_id = $1 WHERE user_id::text = $2
+            """, new_user_id, old_user_id)
+            
+            await conn.execute("""
+                UPDATE user_contexts SET user_id = $1 WHERE user_id::text = $2
+            """, new_user_id, old_user_id)
+            
+            await conn.execute("""
+                UPDATE test_results SET user_id = $1 WHERE user_id::text = $2
+            """, new_user_id, old_user_id)
+            
+            await conn.execute("""
+                UPDATE psychologist_thoughts SET user_id = $1 WHERE user_id::text = $2
+            """, new_user_id, old_user_id)
+            
+            await conn.execute("""
+                UPDATE events SET user_id = $1 WHERE user_id::text = $2
+            """, new_user_id, old_user_id)
+            
+            # Удаляем старого пользователя
+            await conn.execute("DELETE FROM users WHERE user_id::text = $1", old_user_id)
+            
+        logger.info(f"✅ Миграция: {old_user_id} → {new_user_id}")
+        return {"success": True}
+        
+    except Exception as e:
+        logger.error(f"Migration error: {e}")
+        return {"success": False, "error": str(e)}
+        
 if __name__ != "__main__":
     try:
         loop = asyncio.get_event_loop()
