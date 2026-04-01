@@ -287,48 +287,48 @@ class AIService:
     # МЕТОДЫ ДЛЯ ГЕНЕРАЦИИ AI-ПРОФИЛЯ И МЫСЛЕЙ ПСИХОЛОГА
     # ============================================
 
-    async def _call_deepseek(
-    self,
-    system_prompt: str,
-    user_prompt: str,
-    max_tokens: int = 1000,
-    temperature: float = 0.7
-) -> Optional[str]:
-    """Вызов DeepSeek API с системным промптом"""
-    if not self.api_key:
-        return None
+        async def _call_deepseek(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 1000,
+        temperature: float = 0.7
+    ) -> Optional[str]:
+        """Вызов DeepSeek API с системным промптом"""  # ← 4 пробела перед строкой
+        if not self.api_key:
+            return None
 
-    try:
-        session = await self._get_session()
-        async with session.post(
-            f"{self.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "deepseek-chat",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            },
-            timeout=aiohttp.ClientTimeout(total=120)  # ← УВЕЛИЧИТЬ С 35 ДО 120 СЕКУНД
-        ) as response:
-            if response.status == 200:
-                data = await response.json()
-                return data['choices'][0]['message']['content']
-            else:
-                logger.error(f"DeepSeek error in _call_deepseek: {response.status}")
-                return None
-    except asyncio.TimeoutError:
-        logger.error("DeepSeek timeout in _call_deepseek")
-        return None
-    except Exception as e:
-        logger.error(f"DeepSeek call error in _call_deepseek: {e}")
-        return None
+        try:
+            session = await self._get_session()
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                },
+                timeout=aiohttp.ClientTimeout(total=120)  # ← увеличен до 120 секунд
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data['choices'][0]['message']['content']
+                else:
+                    logger.error(f"DeepSeek error in _call_deepseek: {response.status}")
+                    return None
+        except asyncio.TimeoutError:
+            logger.error("DeepSeek timeout in _call_deepseek")
+            return None
+        except Exception as e:
+            logger.error(f"DeepSeek call error in _call_deepseek: {e}")
+            return None
 
     async def generate_psychologist_thought(self, user_id: int, profile: Dict) -> str:
         """Генерация мысли психолога с красивым оформлением"""
