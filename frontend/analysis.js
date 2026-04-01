@@ -1,10 +1,9 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.1 — с автономной проверкой теста и AI-анализом
+// Версия 3.2 — ГЛУБОКИЙ AI-АНАЛИЗ с системными петлями и прогнозом
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
-// Если функция isTestCompleted не определена глобально, создаем свою
 if (typeof window.isTestCompleted === 'undefined' && typeof isTestCompleted === 'undefined') {
     window.isTestCompleted = async function() {
         try {
@@ -31,7 +30,6 @@ let cachedAIAnalysis = null;
 // ============================================
 
 async function openAnalysisScreen() {
-    // 1. Проверка: пройден ли тест?
     const completed = await window.isTestCompleted();
     if (!completed) {
         if (window.showToast) {
@@ -42,56 +40,45 @@ async function openAnalysisScreen() {
         return;
     }
 
-    // 2. Показываем загрузку
     if (window.showLoading) {
-        window.showLoading('🔍 Анализирую ваши глубинные паттерны...');
+        window.showLoading('🔍 Загружаю данные для анализа...');
     }
 
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
         
-        // 3. Получаем AI-профиль и мысль психолога
-        const [profileRes, thoughtRes] = await Promise.all([
-            fetch(`${apiUrl}/api/generated-profile/${userId}`).then(r => r.json()),
-            fetch(`${apiUrl}/api/psychologist-thought/${userId}`).then(r => r.json())
-        ]);
+        // Получаем профиль пользователя
+        const profileRes = await fetch(`${apiUrl}/api/get-profile/${userId}`);
+        cachedProfile = await profileRes.json();
         
-        cachedProfile = profileRes.success ? profileRes : {};
+        // Получаем мысль психолога
+        const thoughtRes = await fetch(`${apiUrl}/api/psychologist-thought/${userId}`);
+        const thoughtData = await thoughtRes.json();
+        
         cachedAIAnalysis = {
-            profile: cachedProfile.ai_profile || '',
-            thought: thoughtRes.success ? thoughtRes.thought : ''
+            profile: null,
+            thought: thoughtData.success ? thoughtData.thought : ''
         };
         
-        // 4. Если AI-профиля нет — генерируем
-        if (!cachedAIAnalysis.profile) {
-            await generateAIAnalysis();
-            return;
-        }
+        // Запускаем глубокий анализ
+        await generateDeepAnalysis();
         
-        // 5. Отображаем анализ
-        renderAnalysisWithTabs();
-
     } catch (error) {
         console.error('Analysis error:', error);
-        if (window.showToast) {
-            window.showToast('❌ Не удалось загрузить анализ. Попробуйте позже.');
-        }
-        if (typeof renderDashboard === 'function') {
-            renderDashboard();
-        } else if (window.renderDashboard) {
-            window.renderDashboard();
-        }
+        if (window.showToast) window.showToast('❌ Не удалось загрузить данные для анализа');
+        if (typeof renderDashboard === 'function') renderDashboard();
+        else if (window.renderDashboard) window.renderDashboard();
     }
 }
 
 // ============================================
-// ГЕНЕРАЦИЯ AI-АНАЛИЗА
+// ГЛУБОКИЙ AI-АНАЛИЗ
 // ============================================
 
-async function generateAIAnalysis() {
+async function generateDeepAnalysis() {
     if (window.showLoading) {
-        window.showLoading('🧠 Генерирую глубинный анализ...');
+        window.showLoading('🧠 Провожу глубинный психологический анализ...');
     }
     
     try {
@@ -99,22 +86,95 @@ async function generateAIAnalysis() {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
         const currentMode = window.currentMode || 'psychologist';
         
-        // Запрашиваем AI-анализ через чат
+        // Извлекаем все данные профиля
+        const userProfile = cachedProfile?.profile || {};
+        const behavioralLevels = userProfile.behavioral_levels || {};
+        const deepPatterns = userProfile.deep_patterns || {};
+        const perceptionType = userProfile.perception_type || 'не определен';
+        const thinkingLevel = userProfile.thinking_level || 5;
+        const profileCode = userProfile.display_name || 'не определен';
+        
+        // Формируем структурированные данные для AI
+        const profileForAnalysis = `
+=== ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ ===
+Код профиля: ${profileCode}
+Тип восприятия: ${perceptionType}
+Уровень мышления: ${thinkingLevel}/9
+
+=== ПОВЕДЕНЧЕСКИЕ ВЕКТОРЫ ===
+• Реакция на давление (СБ): ${JSON.stringify(behavioralLevels.СБ || [])}
+• Отношение к деньгам (ТФ): ${JSON.stringify(behavioralLevels.ТФ || [])}
+• Понимание мира (УБ): ${JSON.stringify(behavioralLevels.УБ || [])}
+• Отношения с людьми (ЧВ): ${JSON.stringify(behavioralLevels.ЧВ || [])}
+
+=== ГЛУБИННЫЕ ПАТТЕРНЫ ===
+Тип привязанности: ${deepPatterns.attachment || 'не определен'}
+Защитные механизмы: ${JSON.stringify(deepPatterns.defenses || [])}
+Глубинные страхи: ${JSON.stringify(deepPatterns.fears || [])}
+Ключевые убеждения: ${JSON.stringify(deepPatterns.beliefs || [])}
+
+=== AI-ПРОФИЛЬ ===
+${userProfile.ai_generated_profile || 'Нет данных'}
+`;
+
+        // Усиленный промпт для глубокого анализа
+        const analysisPrompt = `Ты — виртуальный психолог Фреди (цифровая копия Андрея Мейстера).
+Проведи ГЛУБОКИЙ ПСИХОЛОГИЧЕСКИЙ АНАЛИЗ на основе данных пользователя.
+
+Данные пользователя:
+${profileForAnalysis}
+
+Твой анализ должен быть:
+1. **НЕ ПОВЕРХНОСТНЫМ** — не просто пересказывай профиль, а выявляй скрытые связи
+2. **СИСТЕМНЫМ** — показывай, как разные паттерны связаны друг с другом
+3. **ПРОГНОСТИЧЕСКИМ** — объясняй, к каким последствиям ведут эти паттерны
+4. **ПРАКТИЧНЫМ** — давай конкретные точки входа для изменений
+
+Структура ответа (обязательно используй эти заголовки):
+
+## 🔍 ГЛУБИННЫЙ ПОРТРЕТ
+- Как сформировалась текущая конфигурация
+- Какая травма/опыт стоит за основными паттернами
+- Как это проявляется в повседневной жизни
+
+## 🔄 СИСТЕМНЫЕ ПЕТЛИ
+- Какие паттерны замыкаются в петли
+- Где главная точка напряжения
+- Что удерживает систему в равновесии
+
+## 🧠 СКРЫТЫЕ МЕХАНИЗМЫ
+- Какие защиты активны
+- Какие выгоды даёт текущее состояние
+- Чего боится подсознание
+
+## 🌱 ТОЧКИ РОСТА
+- Главный рычаг изменений
+- Конкретные первые шаги (пошагово)
+- Как отличить движение от иллюзии движения
+
+## 📊 ПРОГНОЗ
+- Куда ведёт текущая траектория
+- Какие кризисы вероятны
+- Когда и как они проявятся
+
+## 🔑 ПЕРСОНАЛЬНЫЕ КЛЮЧИ
+- Какие техники будут эффективны
+- Какие слова/образы отзываются
+- Как обходить защиты
+
+ВАЖНО:
+- Не используй шаблонные фразы
+- Говори о конкретном человеке, а не в общем
+- Будь честным, но бережным
+- Пиши на русском языке
+- Используй эмодзи для визуального выделения разделов`;
+
         const response = await fetch(`${apiUrl}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 user_id: userId,
-                message: `Проведи глубинный психологический анализ моего профиля. 
-Выяви:
-1. КЛЮЧЕВЫЕ ПАТТЕРНЫ ПОВЕДЕНИЯ
-2. СКРЫТЫЕ МЕХАНИЗМЫ
-3. ПОВТОРЯЮЩИЕСЯ СЦЕНАРИИ
-4. ТОЧКИ НАПРЯЖЕНИЯ
-5. РЕСУРСНЫЕ СОСТОЯНИЯ
-6. РЕКОМЕНДАЦИИ ДЛЯ РАЗВИТИЯ
-
-Ответ оформи структурированно, с заголовками.`,
+                message: analysisPrompt,
                 mode: currentMode
             })
         });
@@ -122,23 +182,55 @@ async function generateAIAnalysis() {
         const data = await response.json();
         
         if (data.success && data.response) {
-            cachedAIAnalysis = {
-                profile: data.response,
-                thought: cachedAIAnalysis?.thought || ''
-            };
+            cachedAIAnalysis.profile = data.response;
             renderAnalysisWithTabs();
         } else {
-            if (window.showToast) window.showToast('⚠️ Не удалось сгенерировать анализ');
-            if (typeof renderDashboard === 'function') renderDashboard();
-            else if (window.renderDashboard) window.renderDashboard();
+            if (window.showToast) window.showToast('⚠️ Не удалось сгенерировать глубокий анализ');
+            renderFallbackAnalysis();
         }
         
     } catch (error) {
-        console.error('Generate analysis error:', error);
+        console.error('Generate deep analysis error:', error);
         if (window.showToast) window.showToast('❌ Ошибка при генерации анализа');
-        if (typeof renderDashboard === 'function') renderDashboard();
-        else if (window.renderDashboard) window.renderDashboard();
+        renderFallbackAnalysis();
     }
+}
+
+// ============================================
+// ЗАГЛУШКА ЕСЛИ AI НЕ ОТВЕЧАЕТ
+// ============================================
+
+function renderFallbackAnalysis() {
+    const fallbackText = `
+## 🔍 ГЛУБИННЫЙ ПОРТРЕТ
+
+Анализ на основе имеющихся данных показывает, что ваша психологическая конфигурация формировалась под влиянием базовых паттернов восприятия и поведения.
+
+**Ключевые особенности:**
+- Тип восприятия: ${cachedProfile?.profile?.perception_type || 'определяется'}
+- Уровень мышления: ${cachedProfile?.profile?.thinking_level || '5'}/9
+
+## 🔄 СИСТЕМНЫЕ ПЕТЛИ
+
+Для более точного анализа петель поведения необходимо продолжить диалог. Каждый разговор с Фреди помогает выявить скрытые связи.
+
+## 🌱 ТОЧКИ РОСТА
+
+1. **Наблюдение** — начните замечать, в каких ситуациях проявляются автоматические реакции
+2. **Дневник** — записывайте повторяющиеся сценарии
+3. **Диалог** — обсуждайте эти наблюдения с Фреди
+
+## 🔑 ПЕРСОНАЛЬНЫЕ КЛЮЧИ
+
+Ваш уникальный путь требует времени. Продолжайте исследовать себя через диалог, и анализ будет становиться точнее с каждым разговором.
+
+---
+
+✨ *Для более глубокого анализа продолжайте диалог с Фреди. Каждый разговор добавляет новые данные.*
+`;
+    
+    cachedAIAnalysis.profile = fallbackText;
+    renderAnalysisWithTabs();
 }
 
 // ============================================
@@ -157,29 +249,26 @@ function renderAnalysisWithTabs() {
 
             <div class="content-header">
                 <div class="content-emoji" style="font-size: 64px;">🧠</div>
-                <h1>Анализ глубинных паттернов</h1>
+                <h1>Глубинный анализ паттернов</h1>
                 <p style="color: var(--text-secondary); margin-top: 8px;">
-                    AI-анализ вашего психологического профиля
+                    Системный AI-анализ вашей психологической конфигурации
                 </p>
             </div>
 
-            <!-- Вкладки -->
             <div class="analysis-tabs" style="display: flex; gap: 8px; margin: 32px 0 24px; border-bottom: 1px solid rgba(224,224,224,0.2); padding-bottom: 12px; flex-wrap: wrap;">
-                <button class="analysis-tab active" data-tab="overview">📊 Общий анализ</button>
-                <button class="analysis-tab" data-tab="patterns">🔄 Паттерны</button>
-                <button class="analysis-tab" data-tab="recommendations">💡 Рекомендации</button>
+                <button class="analysis-tab active" data-tab="overview">📊 Полный анализ</button>
+                <button class="analysis-tab" data-tab="patterns">🔄 Петли и механизмы</button>
+                <button class="analysis-tab" data-tab="recommendations">🌱 Точки роста</button>
                 <button class="analysis-tab" data-tab="thought">🧠 Мысли психолога</button>
             </div>
 
-            <!-- Контент вкладок -->
             <div id="analysisTabContent">
                 <!-- Заполняется через JS -->
             </div>
 
-            <!-- Нижние кнопки -->
             <div style="margin-top: 48px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; border-top: 1px solid rgba(224,224,224,0.1); padding-top: 32px;">
                 <button id="regenerateAnalysisBtn" class="voice-record-btn-premium" style="background: rgba(255,107,59,0.15); border-color: #ff6b3b;">
-                    🔄 Сгенерировать новый анализ
+                    🔄 Провести новый анализ
                 </button>
                 <button id="backToDashboardBtn" class="back-btn" style="min-width: 140px;">
                     Вернуться в дашборд
@@ -188,15 +277,12 @@ function renderAnalysisWithTabs() {
         </div>
     `;
 
-    // Активируем первую вкладку
     switchTab('overview');
 
-    // Обработчики
     document.getElementById('backToDashboard')?.addEventListener('click', () => goToDashboard());
     document.getElementById('backToDashboardBtn')?.addEventListener('click', () => goToDashboard());
-    document.getElementById('regenerateAnalysisBtn')?.addEventListener('click', () => generateAIAnalysis());
+    document.getElementById('regenerateAnalysisBtn')?.addEventListener('click', () => generateDeepAnalysis());
     
-    // Обработчики вкладок
     document.querySelectorAll('.analysis-tab').forEach(btn => {
         btn.addEventListener('click', () => {
             const tab = btn.dataset.tab;
@@ -238,81 +324,85 @@ function switchTab(tab) {
 }
 
 // ============================================
-// ВКЛАДКА 1: ОБЩИЙ АНАЛИЗ
+// ВКЛАДКА 1: ПОЛНЫЙ АНАЛИЗ
 // ============================================
 
 function renderOverviewTab() {
-    const profile = cachedAIAnalysis?.profile || '';
+    const analysis = cachedAIAnalysis?.profile || '';
     
-    if (!profile) {
+    if (!analysis) {
         document.getElementById('analysisTabContent').innerHTML = `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 48px; margin-bottom: 20px;">🧠</div>
                 <h3>Анализ формируется</h3>
-                <p style="color: var(--text-secondary);">Нажмите "Сгенерировать новый анализ"</p>
-                <button onclick="generateAIAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px;">
-                    🔄 Сгенерировать анализ
+                <p style="color: var(--text-secondary);">Нажмите "Провести новый анализ"</p>
+                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px;">
+                    🔄 Провести анализ
                 </button>
             </div>
         `;
         return;
     }
     
-    // Форматируем текст
-    let formattedText = profile
+    let formattedText = analysis
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/^#+\s*(.*)/gm, '<h3 style="margin: 24px 0 12px; color: #ff6b3b;">$1</h3>')
+        .replace(/^##\s*(.*)/gm, '<h2 style="margin: 28px 0 16px; color: #ff6b3b; font-size: 22px;">$1</h2>')
+        .replace(/^###\s*(.*)/gm, '<h3 style="margin: 20px 0 12px; color: #ff8c4a;">$1</h3>')
+        .replace(/^\*\s*(.*)/gm, '<li>$1</li>')
         .replace(/\n/g, '<br>');
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div class="analysis-content" style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px; line-height: 1.7;">
+        <div class="analysis-content" style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 32px; line-height: 1.8;">
             ${formattedText}
         </div>
     `;
 }
 
 // ============================================
-// ВКЛАДКА 2: ПАТТЕРНЫ
+// ВКЛАДКА 2: ПЕТЛИ И МЕХАНИЗМЫ
 // ============================================
 
 function renderPatternsTab() {
-    const profile = cachedAIAnalysis?.profile || '';
+    const analysis = cachedAIAnalysis?.profile || '';
     
-    if (!profile) {
+    if (!analysis) {
         renderOverviewTab();
         return;
     }
     
-    // Извлекаем секции с паттернами
     let patternsSection = '';
-    const patternMatches = profile.match(/(?:ПАТТЕРНЫ|ПАТТЕРН|ПОВТОРЯЮЩИЕСЯ|СЦЕНАРИИ)[\s\S]*?(?=(?:РЕКОМЕНДАЦИИ|ТОЧКИ|МЫСЛИ|$))/i);
+    const systemMatch = analysis.match(/(?:🔄|СИСТЕМНЫЕ ПЕТЛИ)[\s\S]*?(?=(?:🌱|ТОЧКИ РОСТА|🧠|СКРЫТЫЕ МЕХАНИЗМЫ|$))/i);
+    const hiddenMatch = analysis.match(/(?:🧠|СКРЫТЫЕ МЕХАНИЗМЫ)[\s\S]*?(?=(?:🌱|ТОЧКИ РОСТА|🔑|ПЕРСОНАЛЬНЫЕ|$))/i);
     
-    if (patternMatches) {
-        patternsSection = patternMatches[0]
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/•/g, '<span style="color: #ff6b3b;">•</span>')
-            .replace(/\n/g, '<br>');
-    } else {
-        patternsSection = '<p style="color: var(--text-secondary);">Специальный раздел с паттернами будет доступен после генерации анализа.</p>';
+    let content = '';
+    if (systemMatch) {
+        content += `<div class="analysis-section" style="margin-bottom: 32px;">
+            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🔄 Системные петли</h2>
+            <div style="line-height: 1.7;">${systemMatch[0]}</div>
+        </div>`;
+    }
+    
+    if (hiddenMatch) {
+        content += `<div class="analysis-section" style="margin-bottom: 32px;">
+            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🧠 Скрытые механизмы</h2>
+            <div style="line-height: 1.7;">${hiddenMatch[0]}</div>
+        </div>`;
+    }
+    
+    if (!content) {
+        content = '<p style="color: var(--text-secondary); text-align: center;">Специальный раздел с петлями и механизмами будет доступен после проведения анализа.</p>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
-            <div style="margin-bottom: 24px;">
-                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">🔍 АНАЛИЗ ПАТТЕРНОВ</div>
-                <div style="height: 2px; background: linear-gradient(90deg, #ff6b3b, transparent); width: 60px;"></div>
-            </div>
-            <div style="line-height: 1.7;">
-                ${patternsSection}
-            </div>
+        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 32px;">
+            ${content}
         </div>
-        
         <div style="margin-top: 24px; background: rgba(255,107,59,0.08); border-radius: 20px; padding: 20px;">
-            <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <div style="display: flex; gap: 12px;">
                 <span style="font-size: 24px;">💡</span>
                 <div>
-                    <strong>Что с этим делать?</strong>
-                    <p style="color: var(--text-secondary); margin-top: 8px;">Осознание паттерна — первый шаг к его изменению. Обсудите эти наблюдения с Фреди в диалоге.</p>
+                    <strong>Осознание петли — первый шаг к её разрыву</strong>
+                    <p style="color: var(--text-secondary); margin-top: 8px;">Обсудите эти наблюдения с Фреди в диалоге. Каждый разговор помогает увидеть новые связи.</p>
                 </div>
             </div>
         </div>
@@ -320,56 +410,60 @@ function renderPatternsTab() {
 }
 
 // ============================================
-// ВКЛАДКА 3: РЕКОМЕНДАЦИИ
+// ВКЛАДКА 3: ТОЧКИ РОСТА
 // ============================================
 
 function renderRecommendationsTab() {
-    const profile = cachedAIAnalysis?.profile || '';
+    const analysis = cachedAIAnalysis?.profile || '';
     
-    if (!profile) {
+    if (!analysis) {
         renderOverviewTab();
         return;
     }
     
-    // Извлекаем секции с рекомендациями
-    let recommendationsSection = '';
-    const recMatches = profile.match(/(?:РЕКОМЕНДАЦИИ|СОВЕТЫ|РАЗВИТИЕ|ЧТО ДЕЛАТЬ)[\s\S]*?(?=(?:МЫСЛИ|$))/i);
+    let growthSection = '';
+    const growthMatch = analysis.match(/(?:🌱|ТОЧКИ РОСТА)[\s\S]*?(?=(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|📊|ПРОГНОЗ|$))/i);
+    const keysMatch = analysis.match(/(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ)[\s\S]*?(?=(?:$))/i);
     
-    if (recMatches) {
-        recommendationsSection = recMatches[0]
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/•/g, '<span style="color: #ff6b3b;">•</span>')
-            .replace(/\n/g, '<br>');
-    } else {
-        recommendationsSection = '<p style="color: var(--text-secondary);">Персональные рекомендации появятся после завершения анализа.</p>';
+    let content = '';
+    if (growthMatch) {
+        content += `<div class="analysis-section" style="margin-bottom: 32px;">
+            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🌱 Точки роста</h2>
+            <div style="line-height: 1.7;">${growthMatch[0]}</div>
+        </div>`;
+    }
+    
+    if (keysMatch) {
+        content += `<div class="analysis-section" style="margin-bottom: 32px;">
+            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🔑 Персональные ключи</h2>
+            <div style="line-height: 1.7;">${keysMatch[0]}</div>
+        </div>`;
+    }
+    
+    if (!content) {
+        content = '<p style="color: var(--text-secondary); text-align: center;">Персональные рекомендации появятся после проведения анализа.</p>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
-            <div style="margin-bottom: 24px;">
-                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">🎯 ПЕРСОНАЛЬНЫЕ РЕКОМЕНДАЦИИ</div>
-                <div style="height: 2px; background: linear-gradient(90deg, #ff6b3b, transparent); width: 60px;"></div>
-            </div>
-            <div style="line-height: 1.7;">
-                ${recommendationsSection}
-            </div>
+        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 32px;">
+            ${content}
         </div>
         
         <div style="margin-top: 32px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
             <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 20px; text-align: center;">
                 <div style="font-size: 32px;">🧘</div>
                 <div style="font-weight: 600; margin: 12px 0 8px;">Практика</div>
-                <div style="font-size: 13px; color: var(--text-secondary);">Выделите 5 минут на осознанное дыхание</div>
+                <div style="font-size: 13px; color: var(--text-secondary);">Начните с малого: 5 минут осознанности</div>
             </div>
             <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 20px; text-align: center;">
                 <div style="font-size: 32px;">📝</div>
                 <div style="font-weight: 600; margin: 12px 0 8px;">Дневник</div>
-                <div style="font-size: 13px; color: var(--text-secondary);">Записывайте повторяющиеся ситуации</div>
+                <div style="font-size: 13px; color: var(--text-secondary);">Записывайте повторяющиеся сценарии</div>
             </div>
             <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 20px; text-align: center;">
                 <div style="font-size: 32px;">💬</div>
                 <div style="font-weight: 600; margin: 12px 0 8px;">Диалог</div>
-                <div style="font-size: 13px; color: var(--text-secondary);">Обсудите эти паттерны с Фреди</div>
+                <div style="font-size: 13px; color: var(--text-secondary);">Обсудите эти точки роста с Фреди</div>
             </div>
         </div>
     `;
@@ -387,8 +481,8 @@ function renderThoughtTab() {
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 48px; margin-bottom: 20px;">🧠</div>
                 <h3>Мысли психолога появятся после анализа</h3>
-                <button onclick="generateAIAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px;">
-                    🔄 Сгенерировать анализ
+                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px;">
+                    🔄 Провести анализ
                 </button>
             </div>
         `;
@@ -412,7 +506,7 @@ function renderThoughtTab() {
                 ${formattedThought}
             </div>
             <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(255,107,59,0.2);">
-                <p style="font-size: 13px; color: var(--text-secondary);">✨ Это уникальный анализ, сформированный на основе ваших ответов</p>
+                <p style="font-size: 13px; color: var(--text-secondary);">✨ Этот анализ сформирован на основе ваших ответов и глубинных паттернов</p>
             </div>
         </div>
     `;
@@ -423,7 +517,7 @@ function renderThoughtTab() {
 // ============================================
 
 window.openAnalysisScreen = openAnalysisScreen;
-window.generateAIAnalysis = generateAIAnalysis;
+window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.1 — AI-анализ с автономной проверкой)');
+console.log('✅ Модуль анализа загружен (версия 3.2 — глубокий AI-анализ с системными петлями и прогнозом)');
