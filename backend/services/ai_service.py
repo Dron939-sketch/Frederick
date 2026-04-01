@@ -5,7 +5,7 @@
 Адаптирован для API из бота
 Поддержка базового режима для пользователей без теста
 
-ВЕРСИЯ 3.1 — ПОЛНАЯ ВЕРСИЯ С ГЕНЕРАЦИЕЙ AI-ПРОФИЛЯ
+ВЕРСИЯ 3.2 — С УЛУЧШЕННЫМ ЛОГИРОВАНИЕМ И УВЕЛИЧЕННЫМ ТАЙМАУТОМ
 - КОУЧ: образ Бертрана Рассела (философский, мудрый)
 - ПСИХОЛОГ: глубинный анализ с конфайнтмент-моделью
 - ТРЕНЕР: образ Тони Робинсона (мотивирующий, энергичный)
@@ -207,7 +207,7 @@ class AIService:
             logger.error(f"Streaming error: {e}")
             yield ""
 
-       # ============================================
+    # ============================================
     # ГЕНЕРАЦИЯ AI-ПРОФИЛЯ
     # ============================================
 
@@ -287,47 +287,101 @@ class AIService:
     # МЕТОДЫ ДЛЯ ГЕНЕРАЦИИ AI-ПРОФИЛЯ И МЫСЛЕЙ ПСИХОЛОГА
     # ============================================
 
-        async def _call_deepseek(
+    async def _call_deepseek(
         self,
         system_prompt: str,
         user_prompt: str,
         max_tokens: int = 1000,
         temperature: float = 0.7
     ) -> Optional[str]:
-        """Вызов DeepSeek API с системным промптом"""  # ← 4 пробела перед строкой
+        """Вызов DeepSeek API с системным промптом и подробным логированием"""
         if not self.api_key:
+            logger.warning("DEEPSEEK_API_KEY not set, cannot call DeepSeek")
             return None
 
+        logger.info(f"📡 Вызов DeepSeek API: system_prompt_len={len(system_prompt)}, user_prompt_len={len(user_prompt)}, max_tokens={max_tokens}")
+        
         try:
             session = await self._get_session()
+            
+            request_body = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            logger.info(f"📝 System prompt (первые 200 символов): {system_prompt[:200]}...")
+            logger.info(f"📝 User prompt (первые 200 символов): {user_prompt[:200]}...")
+            
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens
-                },
-                timeout=aiohttp.ClientTimeout(total=120)  # ← увеличен до 120 секунд
+                json=request_body,
+                timeout=aiohttp.ClientTimeout(total=120)  # 120 секунд для глубокого анализа
             ) as response:
+                
+                logger.info(f"📡 DeepSeek ответ: статус {response.status}")
+                
                 if response.status == 200:
                     data = await response.json()
-                    return data['choices'][0]['message']['content']
-                else:
-                    logger.error(f"DeepSeek error in _call_deepseek: {response.status}")
+                    result = data['choices'][0]['message']['content']
+                    
+                    logger.info("=" * 80)
+                    logger.info("🔴 RAW RESPONSE FROM DEEPSEEK:")
+                    logger.info(f"📊 Длина ответа: {len(result)} символов")
+                    logger.info(f"📝 Первые 500 символов ответа:")
+                    logger.info(repr(result[:500]))
+                    if len(result) > 500:
+                        logger.info(f"... и еще {len(result) - 500} символов")
+                    logger.info("=" * 80)
+                    
+                    # Нормализация пробелов — НЕ склеиваем слова!
+                    result = re.sub(r'\s+', ' ', result).strip()
+                    
+                    logger.info(f"✅ DeepSeek ответ успешно получен (длина после очистки: {len(result)} символов)")
+                    return result
+                    
+                elif response.status == 400:
+                    error_text = await response.text()
+                    logger.error(f"❌ DeepSeek 400 error!")
+                    logger.error(f"   Response body: {error_text}")
+                    logger.error(f"   Request body (first 500 chars): {json.dumps(request_body, ensure_ascii=False)[:500]}")
                     return None
+                    
+                elif response.status == 401:
+                    logger.error("❌ DeepSeek 401 error: Invalid API key")
+                    logger.error(f"   API key (first 5 chars): {self.api_key[:5]}...")
+                    return None
+                    
+                elif response.status == 429:
+                    logger.error("❌ DeepSeek 429 error: Rate limit exceeded")
+                    return None
+                    
+                else:
+                    logger.error(f"❌ DeepSeek error: {response.status}")
+                    try:
+                        error_text = await response.text()
+                        logger.error(f"   Response body: {error_text[:500]}")
+                    except:
+                        pass
+                    return None
+                    
         except asyncio.TimeoutError:
-            logger.error("DeepSeek timeout in _call_deepseek")
+            logger.error("❌ DeepSeek timeout (120 seconds)")
+            return None
+        except aiohttp.ClientError as e:
+            logger.error(f"❌ DeepSeek client error: {e}")
             return None
         except Exception as e:
-            logger.error(f"DeepSeek call error in _call_deepseek: {e}")
+            logger.error(f"❌ DeepSeek unexpected error: {e}")
+            logger.exception("Full traceback:")
             return None
 
     async def generate_psychologist_thought(self, user_id: int, profile: Dict) -> str:
