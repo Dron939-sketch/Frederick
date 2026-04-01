@@ -1342,15 +1342,16 @@ async def get_chat_history(request: Request, user_id: int, limit: int = 50):
 
 
 # ---------- ГОЛОС ----------
+# ---------- ГОЛОС ----------
 @app.post("/api/voice/process")
 @limiter.limit("10/minute")
 async def process_voice(
     request: Request,
-    user_id: int = Form(...),
+    user_id: str = Form(...),  # ← принимаем как строку
     voice: UploadFile = File(...),
     mode: str = Form("psychologist")
 ):
-    """Обработка голосового сообщения (STT + AI + TTS)"""
+    """Обработка голосового сообщения (STT + AI + TTS) - поддерживает оба формата user_id"""
     try:
         audio_bytes = await voice.read()
      
@@ -1365,9 +1366,30 @@ async def process_voice(
         
         logger.info(f"🎤 Распознано: «{recognized_text}»")
 
-        # Загрузка данных пользователя
-        context_obj = await context_repo.get(user_id) or {}
-        profile = await user_repo.get_profile(user_id) or {}
+        # ========== УНИВЕРСАЛЬНАЯ ОБРАБОТКА USER_ID ==========
+        # Пробуем преобразовать в int (для старого фронтенда)
+        try:
+            user_id_int = int(user_id)
+            user_id_for_db = user_id_int
+            logger.info(f"✅ Старый формат user_id (число): {user_id_int}")
+        except ValueError:
+            # Строковый формат (для нового фронтенда)
+            user_id_for_db = user_id
+            logger.info(f"✅ Новый формат user_id (строка): {user_id}")
+            
+            # Убеждаемся, что пользователь есть в БД
+            async with db.get_connection() as conn:
+                exists = await conn.fetchval("SELECT 1 FROM users WHERE user_id::text = $1", user_id)
+                if not exists:
+                    await conn.execute(
+                        "INSERT INTO users (user_id, username, created_at) VALUES ($1, $2, NOW())",
+                        user_id, f"user_{user_id}"
+                    )
+                    logger.info(f"📝 Создан новый пользователь со строковым ID: {user_id}")
+        
+        # Загрузка данных пользователя (работает и с int, и со str)
+        context_obj = await context_repo.get(user_id_for_db) or {}
+        profile = await user_repo.get_profile(user_id_for_db) or {}
         
         # === ОПРЕДЕЛЕНИЕ РЕЖИМА ===
         has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
@@ -1400,11 +1422,37 @@ async def process_voice(
                 self.communication_mode = data.get("communication_mode", "psychologist")
 
         simple_context = SimpleContext(context_obj)
-      
-        mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
+        
+        # Передаем user_id_for_db (может быть int или str)
+        mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
 
-                                                # === УПРОЩЁННЫЙ СБОР ОТВЕТА (один чанк) ===
-        response_text = await mode_instance.process_question_full(recognized_text)
+        # === ПОЛУЧЕНИЕ ОТВЕТА (универсальный вызов) ===
+        response_text = None
+        
+        # Пробуем process_question_full (новый метод)
+        if hasattr(mode_instance, 'process_question_full'):
+            try:
+                response_text = await mode_instance.process_question_full(recognized_text)
+            except Exception as e:
+                logger.warning(f"process_question_full failed: {e}")
+        
+        # Если не сработало, пробуем process_question_streaming
+        if response_text is None and hasattr(mode_instance, 'process_question_streaming'):
+            try:
+                response_text = ""
+                async for chunk in mode_instance.process_question_streaming(recognized_text):
+                    response_text += chunk
+            except Exception as e:
+                logger.warning(f"process_question_streaming failed: {e}")
+        
+        # Если всё ещё нет ответа, используем синхронный метод
+        if response_text is None or not response_text.strip():
+            try:
+                result = mode_instance.process_question(recognized_text)
+                response_text = result.get("response", "")
+            except Exception as e:
+                logger.error(f"All methods failed: {e}")
+                response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
 
         # Защита от пустого ответа
         if not response_text or not response_text.strip():
@@ -1412,24 +1460,20 @@ async def process_voice(
 
         response_text = normalize_tts_text(response_text)
 
-        logger.info(f"💬 AI response collected: {len(response_text)} символов")
-        logger.debug(f"Final cleaned text for TTS: {response_text[:350]}...")
-
-        # Защита от пустого ответа
-        if not response_text.strip():
-            response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+        logger.info(f"💬 AI response: {len(response_text)} символов")
 
         # === TTS (синтез речи) ===
         audio_base64 = await voice_service.text_to_speech(response_text, mode_name)
 
-        # Сохранение в историю
-        await message_repo.save(user_id, "user", recognized_text, {"voice": True})
-        await message_repo.save(user_id, "assistant", response_text, {"voice": True})
+        # Сохранение в историю (используем user_id_for_db)
+        await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True})
+        await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True})
 
-        await log_event(user_id, "voice", {
+        await log_event(user_id_for_db, "voice", {
             "text_length": len(recognized_text),
             "mode": mode_name,
-            "has_profile": has_profile
+            "has_profile": has_profile,
+            "user_id_format": "int" if isinstance(user_id_for_db, int) else "str"
         })
 
         return {
