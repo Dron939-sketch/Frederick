@@ -1324,8 +1324,73 @@ async def get_chat_history(request: Request, user_id: int, limit: int = 50):
         logger.error(f"Error getting history for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/deep-analysis")
+@limiter.limit("5/minute")
+async def deep_analysis(request: Request, data: ChatRequest):
+    """Глубокий психологический анализ (отдельный эндпоинт)"""
+    try:
+        context_obj = await context_repo.get(data.user_id) or {}
+        profile = await user_repo.get_profile(data.user_id) or {}
+        
+        has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
+        
+        if not has_profile:
+            return {"success": False, "error": "Сначала пройдите тест"}
+        
+        # Формируем данные для анализа
+        profile_data = profile.get('profile_data', {})
+        behavioral_levels = profile.get('behavioral_levels', {})
+        deep_patterns = profile.get('deep_patterns', {})
+        
+        # Специальный промпт для глубокого анализа
+        system_prompt = """Ты — виртуальный психолог Фреди (цифровая копия Андрея Мейстера).
+Проведи ГЛУБОКИЙ ПСИХОЛОГИЧЕСКИЙ АНАЛИЗ.
 
-# ---------- ГОЛОС ----------
+Твой анализ должен быть:
+- НЕ ПОВЕРХНОСТНЫМ — выявляй скрытые связи
+- СИСТЕМНЫМ — показывай, как паттерны связаны
+- ПРОГНОСТИЧЕСКИМ — объясняй последствия
+- ПРАКТИЧНЫМ — давай точки входа для изменений
+
+Структура ответа:
+## 🔍 ГЛУБИННЫЙ ПОРТРЕТ
+## 🔄 СИСТЕМНЫЕ ПЕТЛИ
+## 🧠 СКРЫТЫЕ МЕХАНИЗМЫ
+## 🌱 ТОЧКИ РОСТА
+## 📊 ПРОГНОЗ
+## 🔑 ПЕРСОНАЛЬНЫЕ КЛЮЧИ
+
+Будь честным, но бережным. Пиши на русском."""
+        
+        user_prompt = f"""
+Данные пользователя:
+Профиль: {profile_data.get('display_name', 'не определен')}
+Тип восприятия: {profile.get('perception_type', 'не определен')}
+Уровень мышления: {profile.get('thinking_level', 5)}/9
+
+Поведенческие уровни:
+{json.dumps(behavioral_levels, ensure_ascii=False, indent=2)}
+
+Глубинные паттерны:
+{json.dumps(deep_patterns, ensure_ascii=False, indent=2)}
+
+AI-профиль:
+{profile.get('ai_generated_profile', 'Нет данных')}
+
+Проведи глубокий анализ по указанной структуре.
+"""
+        
+        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=2000, temperature=0.7)
+        
+        if response:
+            return {"success": True, "analysis": response}
+        else:
+            return {"success": False, "error": "Не удалось сгенерировать анализ"}
+        
+    except Exception as e:
+        logger.error(f"Deep analysis error: {e}")
+        return {"success": False, "error": str(e)}
+
 # ---------- ГОЛОС ----------
 @app.post("/api/voice/process")
 @limiter.limit("10/minute")
