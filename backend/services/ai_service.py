@@ -82,7 +82,7 @@ class AIService:
     async def _get_session(self) -> aiohttp.ClientSession:
         if not self.session or self.session.closed:
             self.session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=35)
+                timeout=aiohttp.ClientTimeout(total=120)
             )
         return self.session
 
