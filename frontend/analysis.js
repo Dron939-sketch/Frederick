@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.4 — с исправленным форматированием
+// Версия 3.5 — с исправленным форматированием для читаемости
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -320,13 +320,14 @@ function renderOverviewTab() {
         return;
     }
     
+    // Форматирование без изменения цвета всего текста
     let formattedText = analysis
-        // Жирный текст (нормальный размер)
-        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b; font-weight: 600;">$1</strong>')
-        // Заголовки ## — уменьшаем размер
+        // Жирный текст (только он будет оранжевым)
+        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+        // Заголовки ## — нормальный размер
         .replace(/^##\s+(.*)$/gm, '<h3 style="margin: 24px 0 12px; font-size: 18px; font-weight: 600; color: #ff6b3b; border-left: 3px solid #ff6b3b; padding-left: 12px;">$1</h3>')
         // Заголовки ###
-        .replace(/^###\s+(.*)$/gm, '<h4 style="margin: 16px 0 8px; font-size: 15px; font-weight: 500; color: #ff8c4a;">$1</h4>')
+        .replace(/^###\s+(.*)$/gm, '<h4 style="margin: 16px 0 8px; font-size: 16px; font-weight: 500; color: #ff8c4a;">$1</h4>')
         // Маркированные списки
         .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px; line-height: 1.6;">$1</li>')
         .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px; line-height: 1.6;">$1</li>');
@@ -560,4 +561,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.4 — исправленное форматирование)');
+console.log('✅ Модуль анализа загружен (версия 3.5 — исправленное форматирование)');
