@@ -176,7 +176,7 @@ class BaseMode(ABC):
         """
         logger.info(f"🎙️ process_question_streaming в режиме {self.name}")
 
-        # Проверяем, переопределён ли метод в дочернем классе (BasicMode и др.)
+        # Проверяем, переопределён ли метод в дочернем классе
         if 'process_question_streaming' in self.__class__.__dict__ and self.__class__.__name__ != "BaseMode":
             async for chunk in self.__class__.process_question_streaming(self, question):
                 yield chunk
@@ -206,6 +206,42 @@ class BaseMode(ABC):
                 if sentence.strip():
                     yield sentence.strip()
                     await asyncio.sleep(0.05)
+
+    # ====================== НОВЫЙ МЕТОД ДЛЯ ГОЛОСОВОГО РЕЖИМА ======================
+    async def process_question_full(self, question: str) -> str:
+        """
+        Полная обработка вопроса для голосового режима.
+        Возвращает строку с ответом (не стриминг).
+        Используется voice.js для получения полного ответа.
+        """
+        logger.info(f"🎙️ process_question_full в режиме {self.name}, вопрос: {question[:50]}...")
+        
+        full_response = ""
+        
+        # Используем существующий стриминг-метод
+        try:
+            async for chunk in self.process_question_streaming(question):
+                if chunk:
+                    full_response += chunk
+        except Exception as e:
+            logger.error(f"Ошибка в process_question_streaming: {e}")
+            # Fallback на синхронный метод
+            result = self.process_question(question)
+            full_response = result.get("response", "Вопрос интересный. Расскажите подробнее, пожалуйста.")
+        
+        # Убеждаемся, что ответ не пустой
+        if not full_response or not full_response.strip():
+            full_response = "Вопрос интересный. Расскажите подробнее, пожалуйста."
+        
+        # Восстанавливаем пунктуацию
+        full_response = self._restore_punctuation(full_response)
+        
+        # Сохраняем в историю
+        self.save_to_history(question, full_response)
+        
+        logger.info(f"✅ process_question_full завершён, длина ответа: {len(full_response)}")
+        
+        return full_response
 
     def _restore_punctuation(self, text: str) -> str:
         """
