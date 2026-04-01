@@ -2345,8 +2345,25 @@ async def user_status(user_id: Optional[str] = None):
 
         # Приводим к строке и очищаем
         user_id = str(user_id).strip()
+        
+        # Пытаемся конвертировать в int, если не получается - оставляем строку
+        try:
+            user_id_int = int(user_id)
+        except ValueError:
+            # Если user_id строка (как у нового фронтенда), создаем запись
+            user_id_int = None
+            # Проверяем есть ли такой пользователь в БД
+            async with db.get_connection() as conn:
+                exists = await conn.fetchval("SELECT 1 FROM users WHERE user_id::text = $1", user_id)
+                if not exists:
+                    # Создаем пользователя со строковым ID
+                    await conn.execute(
+                        "INSERT INTO users (user_id, username, created_at) VALUES ($1, $2, NOW())",
+                        user_id, f"user_{user_id}"
+                    )
+            user_id_int = user_id  # сохраняем строку для дальнейшей работы
 
-        profile = await user_repo.get_profile(user_id) or {}
+        profile = await user_repo.get_profile(user_id_int) or {}
 
         has_profile = bool(
             profile.get('profile_data') or 
@@ -2366,7 +2383,6 @@ async def user_status(user_id: Optional[str] = None):
     except Exception as e:
         logger.error(f"Error in user-status for user_id={user_id}: {e}")
         return {"success": False, "error": "Internal server error"}
-
 
 @app.post("/api/save-mode")
 async def save_mode(request: Request):
