@@ -762,12 +762,26 @@ async function showConfinementModel() {
         }
     });
     
-    document.querySelectorAll('.confinement-element').forEach(el => {
-        el.addEventListener('click', () => {
-            const elementId = el.dataset.element;
-            navigateTo('intervention', { elementId: parseInt(elementId) });
-        });
+    document.querySelectorAll('.module-card').forEach(card => {
+    card.addEventListener('click', () => { 
+        const moduleId = card.dataset.module;
+        const name = card.querySelector('.module-name')?.textContent;
+        
+        if (moduleId === 'analysis') {
+            if (typeof openAnalysisScreen === 'function') {
+                openAnalysisScreen();
+            } else {
+                showToast('📊 Модуль анализа загружается...', 'info');
+                const script = document.createElement('script');
+                script.src = 'analysis.js';
+                script.onload = () => openAnalysisScreen();
+                document.head.appendChild(script);
+            }
+        } else {
+            showToast(`Модуль "${name}" — скоро будет доступен`, 'info');
+        }
     });
+});
 }
 
 async function showConfinementLoops(params) {
