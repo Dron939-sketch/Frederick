@@ -89,6 +89,7 @@
             overflow: hidden;
             position: relative;
         }
+        /* Левая панель */
         .chats-panel {
             width: 280px;
             background: rgba(10, 10, 10, 0.85);
@@ -247,6 +248,7 @@
             font-size: 10px;
             color: var(--text-secondary);
         }
+        /* Правая панель */
         .chat-panel {
             flex: 1;
             display: flex;
@@ -333,6 +335,7 @@
             padding: 20px;
             -webkit-overflow-scrolling: touch;
         }
+        /* Dashboard Styles */
         .dashboard-container {
             max-width: 800px;
             margin: 0 auto;
@@ -498,6 +501,7 @@
             font-size: 11px;
             color: var(--text-secondary);
         }
+        /* Content Pages */
         .full-content-page {
             max-width: 800px;
             margin: 0 auto;
@@ -591,6 +595,7 @@
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
+        /* Floating Toast */
         .floating-message {
             position: fixed;
             bottom: 20px;
@@ -627,6 +632,7 @@
             opacity: 0.7;
             font-size: 16px;
         }
+        /* Mobile Responsive */
         @media (max-width: 768px) {
             .quick-actions-grid {
                 grid-template-columns: repeat(4, 1fr);
@@ -647,28 +653,6 @@
             .full-content-page {
                 padding: 16px;
             }
-        }
-        .tabs-container {
-            margin: 24px 0;
-            display: flex;
-            background: rgba(224,224,224,0.05);
-            border-radius: 50px;
-            padding: 6px;
-            width: fit-content;
-        }
-        .tab-btn {
-            padding: 10px 24px;
-            border-radius: 40px;
-            border: none;
-            background: transparent;
-            color: var(--text-secondary);
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .tab-btn.active {
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            color: white;
         }
     </style>
 </head>
@@ -944,100 +928,6 @@
         }
 
         // ============================================
-        // МОДУЛЬНЫЕ ФУНКЦИИ
-        // ============================================
-        
-        // Эмоции
-        async function openEmotionsScreen() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('💭 Загружаю анализ эмоций...');
-            setTimeout(() => {
-                const container = document.getElementById('screenContainer');
-                container.innerHTML = `
-                    <div class="full-content-page">
-                        <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                        <div class="content-header">
-                            <div class="content-emoji">💭</div>
-                            <h1>Анализ эмоций</h1>
-                        </div>
-                        <div class="content-body">
-                            <p>🧠 Здесь будет отображаться анализ ваших эмоциональных паттернов на основе пройденного теста.</p>
-                            <br>
-                            <p>📊 Эмоциональный профиль формируется после завершения тестирования.</p>
-                            <br>
-                            <p>💡 Рекомендации по работе с эмоциями появятся здесь.</p>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('backBtn')?.addEventListener('click', renderDashboard);
-            }, 500);
-        }
-        
-        // Исцеление
-        async function openHealingScreen() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('🕊️ Загружаю практики исцеления...');
-            setTimeout(() => {
-                const container = document.getElementById('screenContainer');
-                container.innerHTML = `
-                    <div class="full-content-page">
-                        <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                        <div class="content-header">
-                            <div class="content-emoji">🕊️</div>
-                            <h1>Практики исцеления</h1>
-                        </div>
-                        <div class="content-body">
-                            <p>🌿 Здесь будут отображаться персональные практики исцеления.</p>
-                            <br>
-                            <p>🧘 Ежедневные упражнения для проработки глубинных паттернов.</p>
-                            <br>
-                            <p>💫 Рекомендации по работе с травматическим опытом.</p>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('backBtn')?.addEventListener('click', renderDashboard);
-            }, 500);
-        }
-        
-        // Отношения
-        async function openRelationshipsScreen() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('💕 Загружаю анализ отношений...');
-            setTimeout(() => {
-                const container = document.getElementById('screenContainer');
-                container.innerHTML = `
-                    <div class="full-content-page">
-                        <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                        <div class="content-header">
-                            <div class="content-emoji">💕</div>
-                            <h1>Анализ отношений</h1>
-                        </div>
-                        <div class="content-body">
-                            <p>👥 Здесь будет отображаться анализ ваших паттернов в отношениях.</p>
-                            <br>
-                            <p>🔍 Тип привязанности и рекомендации по построению здоровых отношений.</p>
-                            <br>
-                            <p>💡 Советы по коммуникации и установлению границ.</p>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('backBtn')?.addEventListener('click', renderDashboard);
-            }, 500);
-        }
-
-        // ============================================
         // UI ФУНКЦИИ
         // ============================================
         function showToast(message) {
@@ -1097,10 +987,10 @@
                     </div>
                    
                     <div class="modules-grid">
-                        <div class="module-card" data-module="analysis"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
-                        <div class="module-card" data-module="emotions"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
-                        <div class="module-card" data-module="healing"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
-                        <div class="module-card" data-module="relationships"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
+                        <div class="module-card"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
+                        <div class="module-card"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
+                        <div class="module-card"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
+                        <div class="module-card"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
                     </div>
                    
                     <div class="quick-actions">
@@ -1127,17 +1017,6 @@
                 </div>
             `;
            
-            // Обработчики модулей
-            document.querySelectorAll('.module-card').forEach(card => {
-                card.addEventListener('click', async () => {
-                    const module = card.dataset.module;
-                    if (module === 'analysis') await openAnalysisScreen();
-                    else if (module === 'emotions') await openEmotionsScreen();
-                    else if (module === 'healing') await openHealingScreen();
-                    else if (module === 'relationships') await openRelationshipsScreen();
-                });
-            });
-           
             // Обработчики быстрых действий
             document.querySelectorAll('.quick-action').forEach(el => {
                 el.addEventListener('click', async () => {
@@ -1149,17 +1028,23 @@
                 });
             });
            
+            // ==================== ОБРАБОТЧИКИ МОДУЛЕЙ ====================
+            document.querySelectorAll('.module-card').forEach((card, index) => {
+                card.addEventListener('click', () => {
+                    switch(index) {
+                        case 0: openAnalysisScreen(); break;
+                        case 1: openEmotionsScreen(); break;
+                        case 2: openHealingScreen(); break;
+                        case 3: openRelationshipsScreen(); break;
+                        default:
+                            showToast('Этот модуль скоро будет доступен');
+                    }
+                });
+            });
+           
             // Обработчик голосовой кнопки
             document.getElementById('voiceBtn')?.addEventListener('click', () => {
-                if (window.voiceManager) {
-                    if (window.voiceManager.isRecordingActive()) {
-                        window.voiceManager.stopRecording();
-                    } else {
-                        window.voiceManager.startRecording();
-                    }
-                } else {
-                    showToast('🎤 Голосовой ассистент загружается...');
-                }
+                showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
             });
            
             // Загружаем статус профиля
@@ -1258,7 +1143,7 @@
         }
 
         // ============================================
-        // МОБИЛЬНОЕ МЕНЮ
+        // МОБИЛЬНОЕ МЕНЮ (исправлено и усилено)
         // ============================================
         function initMobileMenu() {
             const mobileBtn = document.getElementById('mobileMenuBtn');
@@ -1266,6 +1151,7 @@
            
             if (!mobileBtn || !panel) return;
 
+            // Удаляем старые обработчики
             mobileBtn.replaceWith(mobileBtn.cloneNode(true));
             const newMobileBtn = document.getElementById('mobileMenuBtn');
 
@@ -1275,6 +1161,7 @@
                 panel.classList.toggle('open');
             });
 
+            // Закрытие при клике вне меню
             document.addEventListener('click', function(e) {
                 if (panel.classList.contains('open')) {
                     if (!panel.contains(e.target) && !newMobileBtn.contains(e.target)) {
@@ -1283,6 +1170,7 @@
                 }
             });
 
+            // Закрытие при свайпе влево
             let touchStartX = 0;
             panel.addEventListener('touchstart', function(e) {
                 touchStartX = e.touches[0].clientX;
@@ -1331,87 +1219,8 @@
             }
         }
 
-        // Экспорт глобальных функций
-        window.openAnalysisScreen = openAnalysisScreen;
-        window.openEmotionsScreen = openEmotionsScreen;
-        window.openHealingScreen = openHealingScreen;
-        window.openRelationshipsScreen = openRelationshipsScreen;
-        window.renderDashboard = renderDashboard;
-        window.showToast = showToast;
-        window.showLoading = showLoading;
-
         document.addEventListener('DOMContentLoaded', init);
     })();
     </script>
-    <script>
-// ============================================
-// ИНИЦИАЛИЗАЦИЯ ГОЛОСОВОГО АССИСТЕНТА
-// ============================================
-
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(async function() {
-        if (typeof VoiceManager === 'undefined') {
-            console.error('VoiceManager not loaded!');
-            return;
-        }
-        
-        const userId = localStorage.getItem('fredi_user_id') || 'user_' + Date.now();
-        if (!localStorage.getItem('fredi_user_id')) {
-            localStorage.setItem('fredi_user_id', userId);
-        }
-        
-        console.log('🎤 Initializing VoiceManager for user:', userId);
-        
-        window.voiceManager = new VoiceManager(userId, VoiceConfig);
-        
-        window.voiceManager.onTranscript = (text) => {
-            console.log('🎤 Распознано:', text);
-            if (window.showToast) window.showToast(`🎤 Вы сказали: ${text.substring(0, 50)}...`);
-        };
-        
-        window.voiceManager.onAIResponse = (answer) => {
-            console.log('🤖 Ответ Фреди:', answer);
-            if (window.showToast) window.showToast(`🧠 Фреди: ${answer.substring(0, 100)}...`);
-        };
-        
-        window.voiceManager.onError = (error) => {
-            console.error('❌ Ошибка:', error);
-            if (window.showToast) window.showToast(`❌ ${error}`);
-        };
-        
-        window.voiceManager.onStatusChange = (status) => {
-            const voiceBtn = document.getElementById('voiceBtn');
-            if (!voiceBtn) return;
-            
-            const voiceText = voiceBtn.querySelector('.voice-text');
-            const voiceIcon = voiceBtn.querySelector('.voice-icon');
-            
-            switch(status) {
-                case 'recording':
-                    voiceText.textContent = '🎙️ Слушаю... нажмите для остановки';
-                    voiceIcon.textContent = '🔴';
-                    voiceBtn.style.background = 'linear-gradient(135deg, rgba(255,59,59,0.2), rgba(255,107,59,0.1))';
-                    break;
-                case 'processing':
-                    voiceText.textContent = '🔄 Обрабатываю...';
-                    voiceIcon.textContent = '⏳';
-                    break;
-                case 'speaking':
-                    voiceText.textContent = '🔊 Фреди говорит...';
-                    voiceIcon.textContent = '🔊';
-                    break;
-                case 'idle':
-                    voiceText.textContent = '🎤 Расскажите, что вас беспокоит';
-                    voiceIcon.textContent = '🎤';
-                    voiceBtn.style.background = '';
-                    break;
-            }
-        };
-        
-        console.log('✅ VoiceManager initialized successfully!');
-        
-    }, 1000);
-});
-</script>
 </body>
 </html>
