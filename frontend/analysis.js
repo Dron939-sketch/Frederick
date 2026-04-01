@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.2 — ГЛУБОКИЙ AI-АНАЛИЗ с системными петлями и прогнозом
+// Версия 3.3 — с индикатором загрузки и улучшенным анализом
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -25,6 +25,42 @@ let currentTab = 'overview';
 let cachedProfile = null;
 let cachedAIAnalysis = null;
 
+// ========== ФУНКЦИЯ ПОКАЗА ЗАГРУЗКИ ==========
+function showAnalysisLoading(message) {
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div class="loading-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 500px; gap: 24px;">
+            <div class="loading-spinner" style="font-size: 72px; animation: spin 1.5s linear infinite; filter: drop-shadow(0 0 10px rgba(255,107,59,0.3));">🧠</div>
+            <div class="loading-text" style="font-size: 20px; font-weight: 500; color: var(--text-primary); text-align: center; max-width: 400px;">${message}</div>
+            <div class="loading-subtext" style="font-size: 13px; color: var(--text-secondary); opacity: 0.7; text-align: center;">Анализ занимает 20-30 секунд<br>Пожалуйста, подождите</div>
+            <div class="loading-dots" style="display: flex; gap: 8px; margin-top: 16px;">
+                <span style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1s ease-in-out infinite;"></span>
+                <span style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1s ease-in-out infinite 0.2s;"></span>
+                <span style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1s ease-in-out infinite 0.4s;"></span>
+            </div>
+        </div>
+    `;
+    
+    // Добавляем анимации если их нет
+    if (!document.querySelector('#analysis-loading-styles')) {
+        const style = document.createElement('style');
+        style.id = 'analysis-loading-styles';
+        style.textContent = `
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            @keyframes pulse {
+                0%, 100% { opacity: 0.3; transform: scale(0.8); }
+                50% { opacity: 1; transform: scale(1.2); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
 // ============================================
 // ГЛАВНАЯ ФУНКЦИЯ — ОТКРЫТЬ АНАЛИЗ
 // ============================================
@@ -40,9 +76,8 @@ async function openAnalysisScreen() {
         return;
     }
 
-    if (window.showLoading) {
-        window.showLoading('🔍 Загружаю данные для анализа...');
-    }
+    // Показываем загрузку сразу
+    showAnalysisLoading('🔍 Загружаю данные для анализа...');
 
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -77,53 +112,21 @@ async function openAnalysisScreen() {
 // ============================================
 
 async function generateDeepAnalysis() {
-    if (window.showLoading) {
-        window.showLoading('🧠 Провожу глубинный психологический анализ...');
-    }
+    // Показываем загрузку с сообщением
+    showAnalysisLoading('🧠 Провожу глубинный психологический анализ...');
     
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
         const currentMode = window.currentMode || 'psychologist';
         
-        // Извлекаем все данные профиля
-        const userProfile = cachedProfile?.profile || {};
-        const behavioralLevels = userProfile.behavioral_levels || {};
-        const deepPatterns = userProfile.deep_patterns || {};
-        const perceptionType = userProfile.perception_type || 'не определен';
-        const thinkingLevel = userProfile.thinking_level || 5;
-        const profileCode = userProfile.display_name || 'не определен';
-        
-        // Формируем структурированные данные для AI
-        const profileForAnalysis = `
-=== ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ ===
-Код профиля: ${profileCode}
-Тип восприятия: ${perceptionType}
-Уровень мышления: ${thinkingLevel}/9
-
-=== ПОВЕДЕНЧЕСКИЕ ВЕКТОРЫ ===
-• Реакция на давление (СБ): ${JSON.stringify(behavioralLevels.СБ || [])}
-• Отношение к деньгам (ТФ): ${JSON.stringify(behavioralLevels.ТФ || [])}
-• Понимание мира (УБ): ${JSON.stringify(behavioralLevels.УБ || [])}
-• Отношения с людьми (ЧВ): ${JSON.stringify(behavioralLevels.ЧВ || [])}
-
-=== ГЛУБИННЫЕ ПАТТЕРНЫ ===
-Тип привязанности: ${deepPatterns.attachment || 'не определен'}
-Защитные механизмы: ${JSON.stringify(deepPatterns.defenses || [])}
-Глубинные страхи: ${JSON.stringify(deepPatterns.fears || [])}
-Ключевые убеждения: ${JSON.stringify(deepPatterns.beliefs || [])}
-
-=== AI-ПРОФИЛЬ ===
-${userProfile.ai_generated_profile || 'Нет данных'}
-`;
-
-        // ИСПОЛЬЗУЕМ НОВЫЙ ЭНДПОИНТ /api/deep-analysis
+        // Используем эндпоинт /api/deep-analysis
         const response = await fetch(`${apiUrl}/api/deep-analysis`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 user_id: userId,
-                message: "",  // не нужен, эндпоинт сам берет профиль
+                message: "",
                 mode: currentMode
             })
         });
@@ -146,36 +149,69 @@ ${userProfile.ai_generated_profile || 'Нет данных'}
 }
 
 // ============================================
-// ЗАГЛУШКА ЕСЛИ AI НЕ ОТВЕЧАЕТ
+// КРАСИВАЯ ЗАГЛУШКА ЕСЛИ AI НЕ ОТВЕЧАЕТ
 // ============================================
 
 function renderFallbackAnalysis() {
+    const userName = window.CONFIG?.USER_NAME || localStorage.getItem('fredi_user_name') || 'друг';
+    
     const fallbackText = `
-## 🔍 ГЛУБИННЫЙ ПОРТРЕТ
+<div style="text-align: center; margin-bottom: 32px;">
+    <div style="font-size: 72px; margin-bottom: 16px;">🧠✨</div>
+    <h2 style="font-size: 28px; background: linear-gradient(135deg, #ff6b3b, #ff3b3b); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 12px;">Анализ формируется</h2>
+    <p style="color: var(--text-secondary); font-size: 16px;">${userName}, ваш уникальный психологический портрет создаётся прямо сейчас</p>
+</div>
 
-Анализ на основе имеющихся данных показывает, что ваша психологическая конфигурация формировалась под влиянием базовых паттернов восприятия и поведения.
+<div style="background: linear-gradient(135deg, rgba(255,107,59,0.08), rgba(255,59,59,0.03)); border-radius: 28px; padding: 32px; margin: 24px 0;">
+    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
+        <div style="font-size: 48px;">🔍</div>
+        <div>
+            <h3 style="color: #ff6b3b; margin: 0;">Что происходит сейчас?</h3>
+            <p style="color: var(--text-secondary); margin: 4px 0 0;">AI анализирует ваши паттерны</p>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px;">
+        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 20px; text-align: center;">
+            <div style="font-size: 32px; margin-bottom: 12px;">📊</div>
+            <div style="font-weight: 600;">${cachedProfile?.profile?.behavioral_levels ? '✅' : '⏳'} Поведенческие векторы</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">СБ, ТФ, УБ, ЧВ</div>
+        </div>
+        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 20px; text-align: center;">
+            <div style="font-size: 32px; margin-bottom: 12px;">🧬</div>
+            <div style="font-weight: 600;">${cachedProfile?.profile?.deep_patterns ? '✅' : '⏳'} Глубинные паттерны</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">Привязанность, защиты, убеждения</div>
+        </div>
+        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 20px; text-align: center;">
+            <div style="font-size: 32px; margin-bottom: 12px;">🔄</div>
+            <div style="font-weight: 600;">⏳ Системные петли</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">Повторяющиеся сценарии</div>
+        </div>
+    </div>
+</div>
 
-**Ключевые особенности:**
-- Тип восприятия: ${cachedProfile?.profile?.perception_type || 'определяется'}
-- Уровень мышления: ${cachedProfile?.profile?.thinking_level || '5'}/9
+<div style="background: rgba(255,107,59,0.08); border-radius: 24px; padding: 24px; margin: 24px 0;">
+    <div style="display: flex; gap: 16px; align-items: flex-start;">
+        <div style="font-size: 28px;">💡</div>
+        <div>
+            <div style="font-weight: 600; margin-bottom: 8px;">Пока анализ готовится...</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Вот что вы можете сделать:</p>
+            <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.8;">
+                <li>🗣️ <strong>Продолжить диалог с Фреди</strong> — каждый разговор добавляет новые данные</li>
+                <li>📝 <strong>Вести дневник мыслей</strong> — записывайте повторяющиеся ситуации</li>
+                <li>🧘 <strong>Попробовать практики</strong> — в разделе "Практики" есть упражнения</li>
+            </ul>
+        </div>
+    </div>
+</div>
 
-## 🔄 СИСТЕМНЫЕ ПЕТЛИ
-
-Для более точного анализа петель поведения необходимо продолжить диалог. Каждый разговор с Фреди помогает выявить скрытые связи.
-
-## 🌱 ТОЧКИ РОСТА
-
-1. **Наблюдение** — начните замечать, в каких ситуациях проявляются автоматические реакции
-2. **Дневник** — записывайте повторяющиеся сценарии
-3. **Диалог** — обсуждайте эти наблюдения с Фреди
-
-## 🔑 ПЕРСОНАЛЬНЫЕ КЛЮЧИ
-
-Ваш уникальный путь требует времени. Продолжайте исследовать себя через диалог, и анализ будет становиться точнее с каждым разговором.
-
----
-
-✨ *Для более глубокого анализа продолжайте диалог с Фреди. Каждый разговор добавляет новые данные.*
+<div style="text-align: center; margin-top: 32px;">
+    <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="background: linear-gradient(135deg, #ff6b3b, #ff3b3b); border: none; padding: 14px 32px; font-size: 16px;">
+        🔄 Попробовать снова
+    </button>
+    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 16px;">
+        ✨ Чем больше вы общаетесь с Фреди, тем точнее становится анализ
+    </p>
+</div>
 `;
     
     cachedAIAnalysis.profile = fallbackText;
@@ -469,4 +505,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.2 — глубокий AI-анализ с системными петлями и прогнозом)');
+console.log('✅ Модуль анализа загружен (версия 3.3 — с красивой загрузкой и заглушкой)');
