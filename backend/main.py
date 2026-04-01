@@ -1380,7 +1380,7 @@ AI-профиль:
 Проведи глубокий анализ по указанной структуре.
 """
         
-        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=3000, temperature=0.7)
+        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=3500, temperature=0.7)
         
         if response:
             return {"success": True, "analysis": response}
