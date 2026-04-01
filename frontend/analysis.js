@@ -1,7 +1,26 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.0 — с AI-анализом
+// Версия 3.1 — с автономной проверкой теста и AI-анализом
 // ============================================
+
+// ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
+// Если функция isTestCompleted не определена глобально, создаем свою
+if (typeof window.isTestCompleted === 'undefined' && typeof isTestCompleted === 'undefined') {
+    window.isTestCompleted = async function() {
+        try {
+            const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+            const userId = window.CONFIG?.USER_ID || window.USER_ID;
+            const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
+            const data = await response.json();
+            return data.has_profile === true;
+        } catch (error) {
+            console.warn('isTestCompleted error, checking localStorage:', error);
+            const userId = window.CONFIG?.USER_ID || window.USER_ID;
+            const stored = localStorage.getItem(`test_results_${userId}`);
+            return !!stored;
+        }
+    };
+}
 
 let currentTab = 'overview';
 let cachedProfile = null;
@@ -13,22 +32,29 @@ let cachedAIAnalysis = null;
 
 async function openAnalysisScreen() {
     // 1. Проверка: пройден ли тест?
-    const completed = await isTestCompleted();
+    const completed = await window.isTestCompleted();
     if (!completed) {
-        showToast('📊 Сначала пройдите психологический тест, чтобы увидеть анализ');
+        if (window.showToast) {
+            window.showToast('📊 Сначала пройдите психологический тест, чтобы увидеть анализ');
+        } else {
+            alert('📊 Сначала пройдите психологический тест, чтобы увидеть анализ');
+        }
         return;
     }
 
     // 2. Показываем загрузку
-    showLoading('🔍 Анализирую ваши глубинные паттерны...');
+    if (window.showLoading) {
+        window.showLoading('🔍 Анализирую ваши глубинные паттерны...');
+    }
 
     try {
-        const userId = window.USER_ID;
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const userId = window.CONFIG?.USER_ID || window.USER_ID;
         
         // 3. Получаем AI-профиль и мысль психолога
         const [profileRes, thoughtRes] = await Promise.all([
-            fetch(`${window.API_BASE_URL}/api/generated-profile/${userId}`).then(r => r.json()),
-            fetch(`${window.API_BASE_URL}/api/psychologist-thought/${userId}`).then(r => r.json())
+            fetch(`${apiUrl}/api/generated-profile/${userId}`).then(r => r.json()),
+            fetch(`${apiUrl}/api/psychologist-thought/${userId}`).then(r => r.json())
         ]);
         
         cachedProfile = profileRes.success ? profileRes : {};
@@ -48,8 +74,14 @@ async function openAnalysisScreen() {
 
     } catch (error) {
         console.error('Analysis error:', error);
-        showToast('❌ Не удалось загрузить анализ. Попробуйте позже.');
-        renderDashboard();
+        if (window.showToast) {
+            window.showToast('❌ Не удалось загрузить анализ. Попробуйте позже.');
+        }
+        if (typeof renderDashboard === 'function') {
+            renderDashboard();
+        } else if (window.renderDashboard) {
+            window.renderDashboard();
+        }
     }
 }
 
@@ -58,15 +90,21 @@ async function openAnalysisScreen() {
 // ============================================
 
 async function generateAIAnalysis() {
-    showLoading('🧠 Генерирую глубинный анализ...');
+    if (window.showLoading) {
+        window.showLoading('🧠 Генерирую глубинный анализ...');
+    }
     
     try {
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const userId = window.CONFIG?.USER_ID || window.USER_ID;
+        const currentMode = window.currentMode || 'psychologist';
+        
         // Запрашиваем AI-анализ через чат
-        const response = await fetch(`${window.API_BASE_URL}/api/chat`, {
+        const response = await fetch(`${apiUrl}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                user_id: window.USER_ID,
+                user_id: userId,
                 message: `Проведи глубинный психологический анализ моего профиля. 
 Выяви:
 1. КЛЮЧЕВЫЕ ПАТТЕРНЫ ПОВЕДЕНИЯ
@@ -77,7 +115,7 @@ async function generateAIAnalysis() {
 6. РЕКОМЕНДАЦИИ ДЛЯ РАЗВИТИЯ
 
 Ответ оформи структурированно, с заголовками.`,
-                mode: 'psychologist'
+                mode: currentMode
             })
         });
         
@@ -90,14 +128,16 @@ async function generateAIAnalysis() {
             };
             renderAnalysisWithTabs();
         } else {
-            showToast('⚠️ Не удалось сгенерировать анализ');
-            renderDashboard();
+            if (window.showToast) window.showToast('⚠️ Не удалось сгенерировать анализ');
+            if (typeof renderDashboard === 'function') renderDashboard();
+            else if (window.renderDashboard) window.renderDashboard();
         }
         
     } catch (error) {
         console.error('Generate analysis error:', error);
-        showToast('❌ Ошибка при генерации анализа');
-        renderDashboard();
+        if (window.showToast) window.showToast('❌ Ошибка при генерации анализа');
+        if (typeof renderDashboard === 'function') renderDashboard();
+        else if (window.renderDashboard) window.renderDashboard();
     }
 }
 
@@ -152,8 +192,8 @@ function renderAnalysisWithTabs() {
     switchTab('overview');
 
     // Обработчики
-    document.getElementById('backToDashboard')?.addEventListener('click', () => renderDashboard());
-    document.getElementById('backToDashboardBtn')?.addEventListener('click', () => renderDashboard());
+    document.getElementById('backToDashboard')?.addEventListener('click', () => goToDashboard());
+    document.getElementById('backToDashboardBtn')?.addEventListener('click', () => goToDashboard());
     document.getElementById('regenerateAnalysisBtn')?.addEventListener('click', () => generateAIAnalysis());
     
     // Обработчики вкладок
@@ -165,6 +205,16 @@ function renderAnalysisWithTabs() {
             btn.classList.add('active');
         });
     });
+}
+
+function goToDashboard() {
+    if (typeof renderDashboard === 'function') {
+        renderDashboard();
+    } else if (window.renderDashboard) {
+        window.renderDashboard();
+    } else {
+        location.reload();
+    }
 }
 
 // ============================================
@@ -208,7 +258,7 @@ function renderOverviewTab() {
         return;
     }
     
-    // Форматируем текст (заменяем маркдаун)
+    // Форматируем текст
     let formattedText = profile
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/^#+\s*(.*)/gm, '<h3 style="margin: 24px 0 12px; color: #ff6b3b;">$1</h3>')
@@ -222,7 +272,7 @@ function renderOverviewTab() {
 }
 
 // ============================================
-// ВКЛАДКА 2: ПАТТЕРНЫ (выделяем ключевое)
+// ВКЛАДКА 2: ПАТТЕРНЫ
 // ============================================
 
 function renderPatternsTab() {
@@ -374,5 +424,6 @@ function renderThoughtTab() {
 
 window.openAnalysisScreen = openAnalysisScreen;
 window.generateAIAnalysis = generateAIAnalysis;
+window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.0 — AI-анализ)');
+console.log('✅ Модуль анализа загружен (версия 3.1 — AI-анализ с автономной проверкой)');
