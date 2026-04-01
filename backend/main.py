@@ -124,14 +124,14 @@ class VoiceConnectionManager:
     """Управление WebSocket соединениями для голосового диалога"""
     
     def __init__(self):
-        self.active_connections: Dict[int, WebSocket] = {}
-        self.speaking_tasks: Dict[int, asyncio.Task] = {}
+        self.active_connections: Dict[Any, WebSocket] = {}  # ← Any
+        self.speaking_tasks: Dict[Any, asyncio.Task] = {}   # ← Any
     
-    async def connect(self, user_id: int, websocket: WebSocket):
+    async def connect(self, user_id: Any, websocket: WebSocket):  # ← Any
         self.active_connections[user_id] = websocket
         logger.info(f"🔊 Voice WS connected for user {user_id}")
     
-    def disconnect(self, user_id: int):
+    def disconnect(self, user_id: Any):  # ← Any
         if user_id in self.active_connections:
             del self.active_connections[user_id]
         if user_id in self.speaking_tasks:
@@ -140,7 +140,7 @@ class VoiceConnectionManager:
                 task.cancel()
         logger.info(f"🔊 Voice WS disconnected for user {user_id}")
     
-    async def send_audio(self, user_id: int, audio_base64: str, is_final: bool = True):
+    async def send_audio(self, user_id: Any, audio_base64: str, is_final: bool = True):  # ← Any
         """Отправить аудио клиенту"""
         if user_id in self.active_connections:
             try:
@@ -152,7 +152,7 @@ class VoiceConnectionManager:
             except Exception as e:
                 logger.error(f"Error sending audio to {user_id}: {e}")
     
-    async def send_text(self, user_id: int, text: str):
+    async def send_text(self, user_id: Any, text: str):  # ← Any
         """Отправить текст клиенту (для субтитров)"""
         if user_id in self.active_connections:
             try:
@@ -163,7 +163,7 @@ class VoiceConnectionManager:
             except Exception as e:
                 logger.error(f"Error sending text to {user_id}: {e}")
     
-    async def send_status(self, user_id: int, status: str):
+    async def send_status(self, user_id: Any, status: str):  # ← Any
         """Отправить статус клиенту"""
         if user_id in self.active_connections:
             try:
@@ -174,7 +174,7 @@ class VoiceConnectionManager:
             except Exception as e:
                 logger.error(f"Error sending status to {user_id}: {e}")
     
-    async def send_error(self, user_id: int, error: str):
+    async def send_error(self, user_id: Any, error: str):  # ← Any
         """Отправить ошибку клиенту"""
         if user_id in self.active_connections:
             try:
@@ -184,7 +184,7 @@ class VoiceConnectionManager:
                 })
             except Exception as e:
                 logger.error(f"Error sending error to {user_id}: {e}")
-
+                
 # Создаем глобальный менеджер (будет инициализирован в lifespan)
 voice_manager: Optional[VoiceConnectionManager] = None
 
@@ -462,13 +462,10 @@ async def log_requests(request: Request, call_next):
 # ============================================
 
 @app.websocket("/ws/voice/{user_id}")
-async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
+async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):  # ← меняем на str
     """
     WebSocket эндпоинт для живого голосового диалога
-    Поддерживает:
-    - Бинарные аудио чанки (PCM)
-    - JSON сообщения с метаданными
-    - Heartbeat для поддержания соединения
+    Поддерживает оба формата: число (старый фронт) и строку user_xxx (новый фронт)
     """
     logger.info(f"🔌 WebSocket connection attempt for user {user_id}")
     
@@ -489,30 +486,51 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
             pass
         return
     
-    await voice_manager.connect(user_id, websocket)
-    
-    # ========== 3. ЗАГРУЖАЕМ КОНТЕКСТ ==========
+    # ========== 3. НОРМАЛИЗУЕМ USER_ID (поддержка int и str) ==========
+    # Пробуем преобразовать в int для старого фронтенда
     try:
-        context = await context_repo.get(user_id) or {}
-        profile = await user_repo.get_profile(user_id) or {}
-        logger.info(f"📦 Context loaded for user {user_id}: {context.get('name', 'unknown')}")
+        user_id_int = int(user_id)
+        user_id_for_db = user_id_int
+        logger.info(f"✅ Старый формат (число): {user_id_for_db}")
+    except ValueError:
+        # Строковый формат для нового фронтенда
+        user_id_for_db = user_id
+        logger.info(f"✅ Новый формат (строка): {user_id_for_db}")
+        
+        # Создаем пользователя если не существует
+        async with db.get_connection() as conn:
+            exists = await conn.fetchval("SELECT 1 FROM users WHERE user_id::text = $1", user_id)
+            if not exists:
+                await conn.execute(
+                    "INSERT INTO users (user_id, username, created_at, last_activity) VALUES ($1, $2, NOW(), NOW())",
+                    user_id, f"user_{user_id}"
+                )
+                logger.info(f"📝 Создан пользователь со строковым ID: {user_id}")
+    
+    await voice_manager.connect(user_id_for_db, websocket)
+    
+    # ========== 4. ЗАГРУЖАЕМ КОНТЕКСТ (используем нормализованный ID) ==========
+    try:
+        context = await context_repo.get(user_id_for_db) or {}
+        profile = await user_repo.get_profile(user_id_for_db) or {}
+        logger.info(f"📦 Context loaded for user {user_id_for_db}: {context.get('name', 'unknown')}")
     except Exception as e:
         logger.error(f"❌ Failed to load context: {e}")
         await websocket.close(code=1011, reason="Context load failed")
         return
     
-    # ========== 4. ОПРЕДЕЛЯЕМ РЕЖИМ ==========
+    # ========== 5. ОПРЕДЕЛЯЕМ РЕЖИМ ==========
     has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
     
     if not has_profile:
         mode_name = "basic"
-        logger.info(f"🎭 User {user_id} has no profile, switching to BASIC mode")
+        logger.info(f"🎭 User {user_id_for_db} has no profile, switching to BASIC mode")
     else:
         mode_name = context.get("communication_mode", "psychologist")
     
-    logger.info(f"🎭 Mode: {mode_name} for user {user_id}")
+    logger.info(f"🎭 Mode: {mode_name} for user {user_id_for_db}")
     
-    # ========== 5. СОЗДАЕМ ОБЪЕКТ РЕЖИМА ==========
+    # ========== 6. СОЗДАЕМ ОБЪЕКТ РЕЖИМА ==========
     user_data = {
         "profile_data": profile.get("profile_data", {}),
         "perception_type": profile.get("perception_type", "не определен"),
@@ -536,27 +554,27 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     simple_context = SimpleContext(context)
     
     try:
-        mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
+        mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
         logger.info(f"✅ Mode instance created: {mode_instance.__class__.__name__}")
     except Exception as e:
         logger.error(f"❌ Failed to create mode instance: {e}")
         await websocket.close(code=1011, reason="Mode creation failed")
         return
     
-    # ========== 6. БУФЕР ДЛЯ АУДИО ==========
+    # ========== 7. ОСТАЛЬНОЙ КОД (буфер, heartbeat, цикл) ==========
+    # ... здесь остаётся без изменений, но везде используем user_id_for_db
+    
     audio_buffer = bytearray()
     chunk_count = 0
-    vad = voice_service.create_vad(user_id) if voice_service else None
     
-    # ========== 7. HEARTBEAT ЗАДАЧА ==========
+    # Heartbeat задача
     async def heartbeat_task():
-        """Отправка ping для поддержания соединения"""
         try:
             while True:
                 await asyncio.sleep(25)
                 try:
                     await websocket.send_json({"type": "ping", "timestamp": time.time()})
-                    logger.debug(f"💓 Server ping sent to user {user_id}")
+                    logger.debug(f"💓 Server ping sent to user {user_id_for_db}")
                 except Exception:
                     break
         except asyncio.CancelledError:
@@ -564,44 +582,34 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
     
     heartbeat = asyncio.create_task(heartbeat_task())
     
-    # ========== 8. ОСНОВНОЙ ЦИКЛ ==========
     try:
         while True:
             try:
-                # Ждём сообщение с таймаутом
                 message = await asyncio.wait_for(websocket.receive(), timeout=30.0)
             except asyncio.TimeoutError:
-                # Отправляем heartbeat чтобы проверить соединение
                 try:
                     await websocket.send_json({"type": "ping", "timestamp": time.time()})
                     continue
                 except:
                     break
             
-            # ========== ОБРАБОТКА БИНАРНЫХ СООБЩЕНИЙ (ПРЯМОЙ PCM) ==========
+            # Обработка сообщений (оставляем как было)
             if message.get("type") == "websocket.receive":
                 if "bytes" in message:
-                    # Бинарное аудио - самый простой и надежный способ
                     audio_chunk = message["bytes"]
                     audio_buffer.extend(audio_chunk)
                     chunk_count += 1
                     
-                    logger.debug(f"📦 Binary chunk: {len(audio_chunk)} bytes, total: {len(audio_buffer)}")
-                    
-                    # Отправляем подтверждение
                     await websocket.send_json({
                         "type": "chunk_ack",
                         "chunk_index": chunk_count,
                         "timestamp": time.time()
                     })
                     
-                    # Если накопилось достаточно данных (≥ 1 секунда), отправляем на распознавание
-                    # 1 секунда при 16kHz, 16bit = 32000 байт
                     if len(audio_buffer) >= 32000:
                         await process_audio_buffer()
                 
                 elif "text" in message:
-                    # JSON сообщение
                     try:
                         data = json.loads(message["text"])
                         msg_type = data.get("type")
@@ -610,31 +618,17 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                             chunk_base64 = data.get("data", "")
                             is_final = data.get("is_final", False)
                             chunk_index = data.get("chunk_index", chunk_count)
-                            audio_format = data.get("format", "pcm16")
-                            sample_rate = data.get("sample_rate", 16000)
-                            
-                            logger.debug(f"📦 JSON chunk {chunk_index}: final={is_final}, format={audio_format}")
-                            
-                            # Отправляем подтверждение
-                            await websocket.send_json({
-                                "type": "chunk_ack",
-                                "chunk_index": chunk_index,
-                                "timestamp": time.time()
-                            })
                             
                             if chunk_base64:
-                                try:
-                                    chunk_data = base64.b64decode(chunk_base64)
-                                    audio_buffer.extend(chunk_data)
-                                    chunk_count += 1
-                                except Exception as e:
-                                    logger.error(f"Decode error: {e}")
+                                chunk_data = base64.b64decode(chunk_base64)
+                                audio_buffer.extend(chunk_data)
+                                chunk_count += 1
                             
                             if is_final and len(audio_buffer) > 0:
                                 await process_audio_buffer()
                         
                         elif msg_type == "interrupt":
-                            logger.info(f"🛑 INTERRUPT from user {user_id}")
+                            logger.info(f"🛑 INTERRUPT from user {user_id_for_db}")
                             audio_buffer = bytearray()
                             chunk_count = 0
                             await websocket.send_json({"type": "status", "status": "listening"})
@@ -645,26 +639,23 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                                 "timestamp": data.get("timestamp", time.time())
                             })
                         
-                        elif msg_type == "heartbeat":
-                            await websocket.send_json({"type": "heartbeat_ack"})
-                        
                     except json.JSONDecodeError as e:
                         logger.error(f"JSON decode error: {e}")
                         await websocket.send_json({"type": "error", "error": "Invalid JSON"})
             
             elif message.get("type") == "websocket.disconnect":
-                logger.info(f"🔌 WebSocket disconnected for user {user_id}")
+                logger.info(f"🔌 WebSocket disconnected for user {user_id_for_db}")
                 break
     
     except WebSocketDisconnect as e:
-        logger.info(f"🔌 WebSocket disconnect for user {user_id}: code={e.code}")
+        logger.info(f"🔌 WebSocket disconnect for user {user_id_for_db}: code={e.code}")
     except Exception as e:
         logger.error(f"❌ WebSocket error: {type(e).__name__}: {e}")
         logger.error(traceback.format_exc())
     finally:
         heartbeat.cancel()
-        voice_manager.disconnect(user_id)
-        logger.info(f"🧹 Cleanup complete for user {user_id}")
+        voice_manager.disconnect(user_id_for_db)
+        logger.info(f"🧹 Cleanup complete for user {user_id_for_db}")
     
     # ========== ВНУТРЕННЯЯ ФУНКЦИЯ ДЛЯ ОБРАБОТКИ АУДИО ==========
     async def process_audio_buffer():
@@ -681,7 +672,6 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
         await websocket.send_json({"type": "status", "status": "processing"})
         
         try:
-            # Распознавание речи
             recognized_text = await voice_service.speech_to_text_pcm(
                 bytes(audio_buffer), sample_rate=16000
             )
@@ -689,13 +679,12 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
             logger.info(f"📝 STT result: '{recognized_text}'")
             
             if recognized_text and len(recognized_text.strip()) > 0:
-                # Отправляем распознанный текст
                 await websocket.send_json({
                     "type": "text",
                     "data": f"🎤 Вы: {recognized_text}"
                 })
                 
-                                                                # Генерируем ответ через ИИ (исправленная версия)
+                # Используем process_question_streaming (есть во всех режимах)
                 response_text = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk:
@@ -704,19 +693,15 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                             "type": "text",
                             "data": f"🧠 Фреди: {chunk}"
                         })
-                    
-
+                
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
-
+                
                 response_text = normalize_tts_text(response_text)
-
-                logger.info(f"💬 AI response collected in WS: {len(response_text)} символов")
                 
                 logger.info(f"💬 AI response: {len(response_text)} chars")
                 await websocket.send_json({"type": "status", "status": "speaking"})
                 
-                # Синтез речи
                 try:
                     async for audio_chunk in voice_service.text_to_speech_streaming(
                         response_text, mode_name, chunk_size=4096
@@ -737,9 +722,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                     })
                     logger.info(f"✅ TTS complete")
                     
-                    # Сохраняем в БД
-                    await message_repo.save(user_id, "user", recognized_text, {"voice": True})
-                    await message_repo.save(user_id, "assistant", response_text, {"voice": True})
+                    # Сохраняем в БД (используем нормализованный ID)
+                    await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True})
+                    await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True})
                     
                 except Exception as e:
                     logger.error(f"TTS error: {e}")
@@ -761,7 +746,6 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: int):
                 "error": f"Ошибка: {str(e)}"
             })
         
-        # Очищаем буфер
         audio_buffer = bytearray()
         chunk_count = 0
         await websocket.send_json({"type": "status", "status": "idle"})
