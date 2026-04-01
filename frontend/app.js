@@ -570,6 +570,17 @@ function navigateTo(screen, params = {}) {
         case 'doubles':
             showFullContentScreen('👥 Психометрические двойники', params.content, 'doubles');
             break;
+        case 'analysis':
+            if (typeof openAnalysisScreen === 'function') {
+                openAnalysisScreen();
+            } else {
+                showToast('Анализ загружается...', 'info');
+                const script = document.createElement('script');
+                script.src = 'analysis.js';
+                script.onload = () => openAnalysisScreen();
+                document.head.appendChild(script);
+            }
+            break;
         default:
             renderDashboard();
     }
@@ -761,27 +772,6 @@ async function showConfinementModel() {
             navigateTo('intervention', { elementId: model.key_confinement.element.id });
         }
     });
-    
-    document.querySelectorAll('.module-card').forEach(card => {
-    card.addEventListener('click', () => { 
-        const moduleId = card.dataset.module;
-        const name = card.querySelector('.module-name')?.textContent;
-        
-        if (moduleId === 'analysis') {
-            if (typeof openAnalysisScreen === 'function') {
-                openAnalysisScreen();
-            } else {
-                showToast('📊 Модуль анализа загружается...', 'info');
-                const script = document.createElement('script');
-                script.src = 'analysis.js';
-                script.onload = () => openAnalysisScreen();
-                document.head.appendChild(script);
-            }
-        } else {
-            showToast(`Модуль "${name}" — скоро будет доступен`, 'info');
-        }
-    });
-});
 }
 
 async function showConfinementLoops(params) {
@@ -1564,8 +1554,26 @@ function renderDashboard() {
         btn.addEventListener('click', () => { const mode = btn.dataset.mode; if (mode) switchMode(mode); });
     });
     
+    // ========== ОБРАБОТЧИК МОДУЛЕЙ (ВКЛЮЧАЯ АНАЛИЗ) ==========
     document.querySelectorAll('.module-card').forEach(card => {
-        card.addEventListener('click', () => { const name = card.querySelector('.module-name')?.textContent; showToast(`Модуль "${name}" — скоро будет доступен`, 'info'); });
+        card.addEventListener('click', () => { 
+            const moduleId = card.dataset.module;
+            const name = card.querySelector('.module-name')?.textContent;
+            
+            if (moduleId === 'analysis') {
+                if (typeof openAnalysisScreen === 'function') {
+                    openAnalysisScreen();
+                } else {
+                    showToast('📊 Модуль анализа загружается...', 'info');
+                    const script = document.createElement('script');
+                    script.src = 'analysis.js';
+                    script.onload = () => openAnalysisScreen();
+                    document.head.appendChild(script);
+                }
+            } else {
+                showToast(`Модуль "${name}" — скоро будет доступен`, 'info');
+            }
+        });
     });
     
     document.querySelectorAll('.quick-action').forEach(action => {
