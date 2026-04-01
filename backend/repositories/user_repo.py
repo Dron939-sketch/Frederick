@@ -1,10 +1,11 @@
 """
 Репозиторий для работы с пользователями
+Поддерживает оба формата user_id: int (старый фронтенд) и str (новый фронтенд)
 """
 
 import json
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 
 from db import Database
 from cache import RedisCache
@@ -13,39 +14,53 @@ logger = logging.getLogger(__name__)
 
 
 class UserRepository:
-    """Репозиторий пользователей"""
+    """Репозиторий пользователей (поддержка int и str user_id)"""
     
     def __init__(self, db: Database, cache: Optional[RedisCache] = None):
         self.db = db
         self.cache = cache
     
-    def _ensure_int(self, user_id) -> int:
-        """Преобразует user_id в int, если это возможно"""
+    def _normalize_user_id(self, user_id: Union[int, str]) -> Union[int, str]:
+        """
+        Нормализует user_id для работы с БД.
+        Возвращает исходное значение без изменений.
+        """
         if user_id is None:
             raise ValueError("user_id cannot be None")
-        if isinstance(user_id, int):
-            return user_id
-        if isinstance(user_id, str) and user_id.isdigit():
-            return int(user_id)
-        raise ValueError(f"Cannot convert {user_id} (type: {type(user_id)}) to int")
+        return user_id
     
-    async def save_profile(self, user_id: int, profile: Dict[str, Any]) -> bool:
-        """Сохранение профиля пользователя"""
+    def _get_id_condition(self, user_id: Union[int, str]) -> tuple:
+        """
+        Возвращает SQL условие и значение для поиска пользователя.
+        Поддерживает и int, и str.
+        """
+        if isinstance(user_id, int):
+            return "user_id = $1", user_id
+        else:
+            # Для строкового ID используем приведение типа
+            return "user_id::text = $1", user_id
+    
+    # ============================================
+    # ОСНОВНЫЕ МЕТОДЫ
+    # ============================================
+    
+    async def save_profile(self, user_id: Union[int, str], profile: Dict[str, Any]) -> bool:
+        """Сохранение профиля пользователя (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
             
-            await self.db.execute("""
+            await self.db.execute(f"""
                 INSERT INTO users (user_id, profile, updated_at, last_activity)
                 VALUES ($1, $2, NOW(), NOW())
                 ON CONFLICT (user_id) DO UPDATE SET
                     profile = $2,
                     updated_at = NOW(),
                     last_activity = NOW()
-            """, user_id_int, json.dumps(profile, default=str))
+            """, value, json.dumps(profile, default=str))
             
             # Очищаем кэш
             if self.cache:
-                await self.cache.delete(f"profile:{user_id_int}")
+                await self.cache.delete(f"profile:{user_id}")
             
             return True
             
@@ -53,21 +68,21 @@ class UserRepository:
             logger.error(f"Error saving profile for user {user_id}: {e}")
             return False
     
-    async def get_profile(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Получение профиля пользователя"""
+    async def get_profile(self, user_id: Union[int, str]) -> Optional[Dict[str, Any]]:
+        """Получение профиля пользователя (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
-            
             # Проверяем кэш
-            cache_key = f"profile:{user_id_int}"
+            cache_key = f"profile:{user_id}"
             if self.cache:
                 cached = await self.cache.get(cache_key)
                 if cached:
                     return cached
             
-            row = await self.db.fetchrow("""
-                SELECT profile FROM users WHERE user_id = $1
-            """, user_id_int)
+            condition, value = self._get_id_condition(user_id)
+            
+            row = await self.db.fetchrow(f"""
+                SELECT profile FROM users WHERE {condition}
+            """, value)
             
             if row and row['profile']:
                 profile = row['profile'] if isinstance(row['profile'], dict) else json.loads(row['profile'])
@@ -84,33 +99,31 @@ class UserRepository:
             logger.error(f"Error getting profile for user {user_id}: {e}")
             return None
     
-    async def update_profile_field(self, user_id: int, field: str, value: Any) -> bool:
+    async def update_profile_field(self, user_id: Union[int, str], field: str, value: Any) -> bool:
         """
         Обновляет одно поле в профиле пользователя
         """
         try:
-            user_id_int = self._ensure_int(user_id)
-            
             # Получаем текущий профиль
-            current_profile = await self.get_profile(user_id_int) or {}
+            current_profile = await self.get_profile(user_id) or {}
             
             # Обновляем поле
             current_profile[field] = value
             
             # Сохраняем обновлённый профиль
-            return await self.save_profile(user_id_int, current_profile)
+            return await self.save_profile(user_id, current_profile)
             
         except Exception as e:
             logger.error(f"Error updating profile field '{field}' for user {user_id}: {e}")
             return False
     
     # ============================================
-    # ОСТАЛЬНЫЕ МЕТОДЫ (с добавленным преобразованием типов)
+    # ТЕСТЫ
     # ============================================
     
     async def save_test_results(
         self, 
-        user_id: int, 
+        user_id: Union[int, str], 
         test_type: str, 
         results: Dict, 
         profile_code: str = None,
@@ -120,9 +133,12 @@ class UserRepository:
         behavioral_levels: Dict = None,
         confinement_model: Dict = None
     ) -> Optional[int]:
-        """Сохраняет результаты теста в таблицу test_results"""
+        """Сохраняет результаты теста в таблицу test_results (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
+            
+            # Сначала убеждаемся, что пользователь существует
+            await self.create_user_if_not_exists(user_id)
             
             result_id = await self.db.fetchval("""
                 INSERT INTO test_results (
@@ -132,7 +148,7 @@ class UserRepository:
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
                 RETURNING id
             """, 
-                user_id_int, 
+                value, 
                 test_type, 
                 json.dumps(results, default=str), 
                 profile_code,
@@ -147,22 +163,22 @@ class UserRepository:
             return result_id
             
         except Exception as e:
-            logger.error(f"Error saving test results: {e}")
+            logger.error(f"Error saving test results for user {user_id}: {e}")
             return None
     
-    async def get_test_results(self, user_id: int, limit: int = 5) -> List[Dict]:
-        """Получает результаты тестов пользователя"""
+    async def get_test_results(self, user_id: Union[int, str], limit: int = 5) -> List[Dict]:
+        """Получает результаты тестов пользователя (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
             
-            rows = await self.db.fetch("""
+            rows = await self.db.fetch(f"""
                 SELECT id, test_type, results, profile_code, 
                        perception_type, thinking_level, created_at
                 FROM test_results
-                WHERE user_id = $1
+                WHERE {condition}
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, user_id_int, limit)
+            """, value, limit)
             
             results = []
             for row in rows:
@@ -179,85 +195,107 @@ class UserRepository:
             return results
             
         except Exception as e:
-            logger.error(f"Error getting test results: {e}")
+            logger.error(f"Error getting test results for user {user_id}: {e}")
             return []
     
-    async def save_message(self, user_id: int, role: str, content: str, metadata: Dict = None) -> bool:
-        """Сохранение сообщения"""
+    # ============================================
+    # СООБЩЕНИЯ
+    # ============================================
+    
+    async def save_message(self, user_id: Union[int, str], role: str, content: str, metadata: Dict = None) -> bool:
+        """Сохранение сообщения (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
+            
+            # Сначала убеждаемся, что пользователь существует
+            await self.create_user_if_not_exists(user_id)
             
             await self.db.execute("""
                 INSERT INTO messages (user_id, role, content, metadata, created_at)
                 VALUES ($1, $2, $3, $4, NOW())
-            """, user_id_int, role, content, json.dumps(metadata or {}))
+            """, value, role, content, json.dumps(metadata or {}))
             
             # Обновляем активность
-            await self.db.execute("""
-                UPDATE users SET last_activity = NOW() WHERE user_id = $1
-            """, user_id_int)
+            await self.db.execute(f"""
+                UPDATE users SET last_activity = NOW() WHERE {condition}
+            """, value)
             
             return True
             
         except Exception as e:
-            logger.error(f"Error saving message: {e}")
+            logger.error(f"Error saving message for user {user_id}: {e}")
             return False
+    
+    # ============================================
+    # МЫСЛИ ПСИХОЛОГА
+    # ============================================
     
     async def save_psychologist_thought(
         self, 
-        user_id: int, 
+        user_id: Union[int, str], 
         thought: str, 
         test_result_id: int = None,
         thought_type: str = 'psychologist_thought'
     ) -> Optional[int]:
-        """Сохранение мысли психолога"""
+        """Сохранение мысли психолога (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
+            
+            # Сначала убеждаемся, что пользователь существует
+            await self.create_user_if_not_exists(user_id)
             
             thought_id = await self.db.fetchval("""
                 INSERT INTO psychologist_thoughts (
                     user_id, test_result_id, thought_type, thought_text, thought_summary
                 ) VALUES ($1, $2, $3, $4, $5)
                 RETURNING id
-            """, user_id_int, test_result_id, thought_type, thought, thought[:200])
+            """, value, test_result_id, thought_type, thought, thought[:200])
             
             logger.info(f"✅ Psychologist thought saved for user {user_id}, id={thought_id}")
             return thought_id
             
         except Exception as e:
-            logger.error(f"Error saving psychologist thought: {e}")
+            logger.error(f"Error saving psychologist thought for user {user_id}: {e}")
             return None
     
-    async def get_psychologist_thought(self, user_id: int, thought_type: str = 'psychologist_thought') -> Optional[str]:
-        """Получение последней мысли психолога"""
+    async def get_psychologist_thought(
+        self, 
+        user_id: Union[int, str], 
+        thought_type: str = 'psychologist_thought'
+    ) -> Optional[str]:
+        """Получение последней мысли психолога (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
             
-            row = await self.db.fetchrow("""
+            row = await self.db.fetchrow(f"""
                 SELECT thought_text FROM psychologist_thoughts
-                WHERE user_id = $1 AND thought_type = $2 AND is_active = TRUE
+                WHERE {condition} AND thought_type = $2 AND is_active = TRUE
                 ORDER BY created_at DESC
                 LIMIT 1
-            """, user_id_int, thought_type)
+            """, value, thought_type)
             
             return row['thought_text'] if row else None
             
         except Exception as e:
-            logger.error(f"Error getting psychologist thought: {e}")
+            logger.error(f"Error getting psychologist thought for user {user_id}: {e}")
             return None
     
-    async def get_all_psychologist_thoughts(self, user_id: int, limit: int = 10) -> List[Dict]:
-        """Получение всех мыслей психолога пользователя"""
+    async def get_all_psychologist_thoughts(
+        self, 
+        user_id: Union[int, str], 
+        limit: int = 10
+    ) -> List[Dict]:
+        """Получение всех мыслей психолога пользователя (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
             
-            rows = await self.db.fetch("""
+            rows = await self.db.fetch(f"""
                 SELECT id, thought_type, thought_text, thought_summary, created_at
                 FROM psychologist_thoughts
-                WHERE user_id = $1 AND is_active = TRUE
+                WHERE {condition} AND is_active = TRUE
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, user_id_int, limit)
+            """, value, limit)
             
             thoughts = []
             for row in rows:
@@ -272,46 +310,126 @@ class UserRepository:
             return thoughts
             
         except Exception as e:
-            logger.error(f"Error getting psychologist thoughts: {e}")
+            logger.error(f"Error getting psychologist thoughts for user {user_id}: {e}")
             return []
     
-    async def update_user_activity(self, user_id: int) -> bool:
-        """Обновление времени последней активности"""
+    # ============================================
+    # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
+    # ============================================
+    
+    async def update_user_activity(self, user_id: Union[int, str]) -> bool:
+        """Обновление времени последней активности (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
             
-            await self.db.execute("""
-                UPDATE users SET last_activity = NOW() WHERE user_id = $1
-            """, user_id_int)
+            await self.db.execute(f"""
+                UPDATE users SET last_activity = NOW() WHERE {condition}
+            """, value)
             return True
         except Exception as e:
-            logger.error(f"Error updating user activity: {e}")
+            logger.error(f"Error updating user activity for user {user_id}: {e}")
             return False
     
-    async def user_exists(self, user_id: int) -> bool:
-        """Проверка существования пользователя"""
+    async def user_exists(self, user_id: Union[int, str]) -> bool:
+        """Проверка существования пользователя (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            condition, value = self._get_id_condition(user_id)
             
-            count = await self.db.fetchval("""
-                SELECT COUNT(*) FROM users WHERE user_id = $1
-            """, user_id_int)
+            count = await self.db.fetchval(f"""
+                SELECT COUNT(*) FROM users WHERE {condition}
+            """, value)
             return count > 0
         except Exception as e:
-            logger.error(f"Error checking user existence: {e}")
+            logger.error(f"Error checking user existence for user {user_id}: {e}")
             return False
     
-    async def create_user_if_not_exists(self, user_id: int, username: str = None, first_name: str = None) -> bool:
-        """Создание пользователя если не существует"""
+    async def create_user_if_not_exists(
+        self, 
+        user_id: Union[int, str], 
+        username: str = None, 
+        first_name: str = None
+    ) -> bool:
+        """Создание пользователя если не существует (поддержка int и str)"""
         try:
-            user_id_int = self._ensure_int(user_id)
+            # Проверяем существование
+            if await self.user_exists(user_id):
+                return True
             
+            condition, value = self._get_id_condition(user_id)
+            
+            # Для строковых ID используем value как есть
             await self.db.execute("""
                 INSERT INTO users (user_id, username, first_name, created_at, last_activity)
                 VALUES ($1, $2, $3, NOW(), NOW())
-                ON CONFLICT (user_id) DO NOTHING
-            """, user_id_int, username, first_name)
+            """, value, username, first_name)
+            
+            logger.info(f"✅ User created: {user_id}")
             return True
+            
         except Exception as e:
-            logger.error(f"Error creating user: {e}")
+            logger.error(f"Error creating user {user_id}: {e}")
             return False
+    
+    # ============================================
+    # СТАТИСТИКА
+    # ============================================
+    
+    async def get_user_stats(self, user_id: Union[int, str]) -> Dict[str, Any]:
+        """Получение статистики пользователя (поддержка int и str)"""
+        try:
+            condition, value = self._get_id_condition(user_id)
+            
+            # Количество сообщений
+            messages_count = await self.db.fetchval(f"""
+                SELECT COUNT(*) FROM messages WHERE {condition}
+            """, value)
+            
+            # Количество сессий (уникальных часов)
+            sessions = await self.db.fetchval(f"""
+                SELECT COUNT(DISTINCT DATE_TRUNC('hour', created_at))
+                FROM messages WHERE {condition}
+            """, value)
+            
+            # Последняя активность
+            last_activity = await self.db.fetchval(f"""
+                SELECT last_activity FROM users WHERE {condition}
+            """, value)
+            
+            return {
+                "total_messages": messages_count or 0,
+                "total_sessions": sessions or 0,
+                "last_activity": last_activity.isoformat() if last_activity else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting stats for user {user_id}: {e}")
+            return {
+                "total_messages": 0,
+                "total_sessions": 0,
+                "last_activity": None
+            }
+    
+    # ============================================
+    # АДМИНКА
+    # ============================================
+    
+    async def get_total_users_count(self) -> int:
+        """Получить общее количество пользователей"""
+        try:
+            count = await self.db.fetchval("SELECT COUNT(*) FROM users")
+            return count or 0
+        except Exception as e:
+            logger.error(f"Error getting total users count: {e}")
+            return 0
+    
+    async def get_active_users_today(self) -> int:
+        """Получить количество активных пользователей за сегодня"""
+        try:
+            count = await self.db.fetchval("""
+                SELECT COUNT(DISTINCT user_id) FROM events 
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+            """)
+            return count or 0
+        except Exception as e:
+            logger.error(f"Error getting active users: {e}")
+            return 0
