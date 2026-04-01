@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.3 — с индикатором загрузки и улучшенным анализом
+// Версия 3.4 — с исправленным форматированием
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -43,7 +43,6 @@ function showAnalysisLoading(message) {
         </div>
     `;
     
-    // Добавляем анимации если их нет
     if (!document.querySelector('#analysis-loading-styles')) {
         const style = document.createElement('style');
         style.id = 'analysis-loading-styles';
@@ -76,18 +75,15 @@ async function openAnalysisScreen() {
         return;
     }
 
-    // Показываем загрузку сразу
     showAnalysisLoading('🔍 Загружаю данные для анализа...');
 
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
         
-        // Получаем профиль пользователя
         const profileRes = await fetch(`${apiUrl}/api/get-profile/${userId}`);
         cachedProfile = await profileRes.json();
         
-        // Получаем мысль психолога
         const thoughtRes = await fetch(`${apiUrl}/api/psychologist-thought/${userId}`);
         const thoughtData = await thoughtRes.json();
         
@@ -96,7 +92,6 @@ async function openAnalysisScreen() {
             thought: thoughtData.success ? thoughtData.thought : ''
         };
         
-        // Запускаем глубокий анализ
         await generateDeepAnalysis();
         
     } catch (error) {
@@ -112,7 +107,6 @@ async function openAnalysisScreen() {
 // ============================================
 
 async function generateDeepAnalysis() {
-    // Показываем загрузку с сообщением
     showAnalysisLoading('🧠 Провожу глубинный психологический анализ...');
     
     try {
@@ -120,7 +114,6 @@ async function generateDeepAnalysis() {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
         const currentMode = window.currentMode || 'psychologist';
         
-        // Используем эндпоинт /api/deep-analysis
         const response = await fetch(`${apiUrl}/api/deep-analysis`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -149,7 +142,7 @@ async function generateDeepAnalysis() {
 }
 
 // ============================================
-// КРАСИВАЯ ЗАГЛУШКА ЕСЛИ AI НЕ ОТВЕЧАЕТ
+// КРАСИВАЯ ЗАГЛУШКА
 // ============================================
 
 function renderFallbackAnalysis() {
@@ -157,45 +150,45 @@ function renderFallbackAnalysis() {
     
     const fallbackText = `
 <div style="text-align: center; margin-bottom: 32px;">
-    <div style="font-size: 72px; margin-bottom: 16px;">🧠✨</div>
-    <h2 style="font-size: 28px; background: linear-gradient(135deg, #ff6b3b, #ff3b3b); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 12px;">Анализ формируется</h2>
-    <p style="color: var(--text-secondary); font-size: 16px;">${userName}, ваш уникальный психологический портрет создаётся прямо сейчас</p>
+    <div style="font-size: 64px; margin-bottom: 16px;">🧠✨</div>
+    <h2 style="font-size: 26px; background: linear-gradient(135deg, #ff6b3b, #ff3b3b); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 12px;">Анализ формируется</h2>
+    <p style="color: var(--text-secondary); font-size: 15px;">${userName}, ваш уникальный психологический портрет создаётся прямо сейчас</p>
 </div>
 
-<div style="background: linear-gradient(135deg, rgba(255,107,59,0.08), rgba(255,59,59,0.03)); border-radius: 28px; padding: 32px; margin: 24px 0;">
+<div style="background: linear-gradient(135deg, rgba(255,107,59,0.08), rgba(255,59,59,0.03)); border-radius: 28px; padding: 28px; margin: 24px 0;">
     <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
-        <div style="font-size: 48px;">🔍</div>
+        <div style="font-size: 42px;">🔍</div>
         <div>
-            <h3 style="color: #ff6b3b; margin: 0;">Что происходит сейчас?</h3>
-            <p style="color: var(--text-secondary); margin: 4px 0 0;">AI анализирует ваши паттерны</p>
+            <h3 style="color: #ff6b3b; margin: 0; font-size: 18px;">Что происходит сейчас?</h3>
+            <p style="color: var(--text-secondary); margin: 4px 0 0; font-size: 14px;">AI анализирует ваши паттерны</p>
         </div>
     </div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px;">
-        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 20px; text-align: center;">
-            <div style="font-size: 32px; margin-bottom: 12px;">📊</div>
-            <div style="font-weight: 600;">${cachedProfile?.profile?.behavioral_levels ? '✅' : '⏳'} Поведенческие векторы</div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">СБ, ТФ, УБ, ЧВ</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 20px;">
+        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 16px; text-align: center;">
+            <div style="font-size: 28px; margin-bottom: 10px;">📊</div>
+            <div style="font-weight: 500; font-size: 14px;">${cachedProfile?.profile?.behavioral_levels ? '✅' : '⏳'} Поведенческие векторы</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">СБ, ТФ, УБ, ЧВ</div>
         </div>
-        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 20px; text-align: center;">
-            <div style="font-size: 32px; margin-bottom: 12px;">🧬</div>
-            <div style="font-weight: 600;">${cachedProfile?.profile?.deep_patterns ? '✅' : '⏳'} Глубинные паттерны</div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">Привязанность, защиты, убеждения</div>
+        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 16px; text-align: center;">
+            <div style="font-size: 28px; margin-bottom: 10px;">🧬</div>
+            <div style="font-weight: 500; font-size: 14px;">${cachedProfile?.profile?.deep_patterns ? '✅' : '⏳'} Глубинные паттерны</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Привязанность, защиты, убеждения</div>
         </div>
-        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 20px; text-align: center;">
-            <div style="font-size: 32px; margin-bottom: 12px;">🔄</div>
-            <div style="font-weight: 600;">⏳ Системные петли</div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">Повторяющиеся сценарии</div>
+        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 16px; text-align: center;">
+            <div style="font-size: 28px; margin-bottom: 10px;">🔄</div>
+            <div style="font-weight: 500; font-size: 14px;">⏳ Системные петли</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Повторяющиеся сценарии</div>
         </div>
     </div>
 </div>
 
-<div style="background: rgba(255,107,59,0.08); border-radius: 24px; padding: 24px; margin: 24px 0;">
-    <div style="display: flex; gap: 16px; align-items: flex-start;">
-        <div style="font-size: 28px;">💡</div>
+<div style="background: rgba(255,107,59,0.08); border-radius: 20px; padding: 24px; margin: 24px 0;">
+    <div style="display: flex; gap: 14px; align-items: flex-start;">
+        <div style="font-size: 26px;">💡</div>
         <div>
-            <div style="font-weight: 600; margin-bottom: 8px;">Пока анализ готовится...</div>
-            <p style="color: var(--text-secondary); margin-bottom: 16px;">Вот что вы можете сделать:</p>
-            <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.8;">
+            <div style="font-weight: 600; margin-bottom: 8px; font-size: 15px;">Пока анализ готовится...</div>
+            <p style="color: var(--text-secondary); margin-bottom: 14px; font-size: 14px;">Вот что вы можете сделать:</p>
+            <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.6; font-size: 14px;">
                 <li>🗣️ <strong>Продолжить диалог с Фреди</strong> — каждый разговор добавляет новые данные</li>
                 <li>📝 <strong>Вести дневник мыслей</strong> — записывайте повторяющиеся ситуации</li>
                 <li>🧘 <strong>Попробовать практики</strong> — в разделе "Практики" есть упражнения</li>
@@ -205,10 +198,10 @@ function renderFallbackAnalysis() {
 </div>
 
 <div style="text-align: center; margin-top: 32px;">
-    <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="background: linear-gradient(135deg, #ff6b3b, #ff3b3b); border: none; padding: 14px 32px; font-size: 16px;">
+    <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="background: linear-gradient(135deg, #ff6b3b, #ff3b3b); border: none; padding: 12px 28px; font-size: 14px;">
         🔄 Попробовать снова
     </button>
-    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 16px;">
+    <p style="color: var(--text-secondary); font-size: 11px; margin-top: 14px;">
         ✨ Чем больше вы общаетесь с Фреди, тем точнее становится анализ
     </p>
 </div>
@@ -233,29 +226,27 @@ function renderAnalysisWithTabs() {
             </button>
 
             <div class="content-header">
-                <div class="content-emoji" style="font-size: 64px;">🧠</div>
-                <h1>Глубинный анализ паттернов</h1>
-                <p style="color: var(--text-secondary); margin-top: 8px;">
+                <div class="content-emoji" style="font-size: 56px;">🧠</div>
+                <h1 style="font-size: 28px; margin: 12px 0 8px;">Глубинный анализ паттернов</h1>
+                <p style="color: var(--text-secondary); margin-top: 8px; font-size: 14px;">
                     Системный AI-анализ вашей психологической конфигурации
                 </p>
             </div>
 
-            <div class="analysis-tabs" style="display: flex; gap: 8px; margin: 32px 0 24px; border-bottom: 1px solid rgba(224,224,224,0.2); padding-bottom: 12px; flex-wrap: wrap;">
-                <button class="analysis-tab active" data-tab="overview">📊 Полный анализ</button>
-                <button class="analysis-tab" data-tab="patterns">🔄 Петли и механизмы</button>
-                <button class="analysis-tab" data-tab="recommendations">🌱 Точки роста</button>
-                <button class="analysis-tab" data-tab="thought">🧠 Мысли психолога</button>
+            <div class="analysis-tabs" style="display: flex; gap: 8px; margin: 28px 0 20px; border-bottom: 1px solid rgba(224,224,224,0.2); padding-bottom: 12px; flex-wrap: wrap;">
+                <button class="analysis-tab active" data-tab="overview" style="padding: 8px 20px; font-size: 14px;">📊 Полный анализ</button>
+                <button class="analysis-tab" data-tab="patterns" style="padding: 8px 20px; font-size: 14px;">🔄 Петли и механизмы</button>
+                <button class="analysis-tab" data-tab="recommendations" style="padding: 8px 20px; font-size: 14px;">🌱 Точки роста</button>
+                <button class="analysis-tab" data-tab="thought" style="padding: 8px 20px; font-size: 14px;">🧠 Мысли психолога</button>
             </div>
 
-            <div id="analysisTabContent">
-                <!-- Заполняется через JS -->
-            </div>
+            <div id="analysisTabContent"></div>
 
-            <div style="margin-top: 48px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; border-top: 1px solid rgba(224,224,224,0.1); padding-top: 32px;">
-                <button id="regenerateAnalysisBtn" class="voice-record-btn-premium" style="background: rgba(255,107,59,0.15); border-color: #ff6b3b;">
+            <div style="margin-top: 40px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; border-top: 1px solid rgba(224,224,224,0.1); padding-top: 28px;">
+                <button id="regenerateAnalysisBtn" class="voice-record-btn-premium" style="background: rgba(255,107,59,0.15); border-color: #ff6b3b; padding: 10px 24px; font-size: 13px;">
                     🔄 Провести новый анализ
                 </button>
-                <button id="backToDashboardBtn" class="back-btn" style="min-width: 140px;">
+                <button id="backToDashboardBtn" class="back-btn" style="min-width: 130px; padding: 10px 20px; font-size: 13px;">
                     Вернуться в дашборд
                 </button>
             </div>
@@ -309,7 +300,7 @@ function switchTab(tab) {
 }
 
 // ============================================
-// ВКЛАДКА 1: ПОЛНЫЙ АНАЛИЗ
+// ВКЛАДКА 1: ПОЛНЫЙ АНАЛИЗ (исправленное форматирование)
 // ============================================
 
 function renderOverviewTab() {
@@ -319,9 +310,9 @@ function renderOverviewTab() {
         document.getElementById('analysisTabContent').innerHTML = `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 48px; margin-bottom: 20px;">🧠</div>
-                <h3>Анализ формируется</h3>
-                <p style="color: var(--text-secondary);">Нажмите "Провести новый анализ"</p>
-                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px;">
+                <h3 style="font-size: 18px;">Анализ формируется</h3>
+                <p style="color: var(--text-secondary); font-size: 14px;">Нажмите "Провести новый анализ"</p>
+                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px; padding: 10px 24px; font-size: 14px;">
                     🔄 Провести анализ
                 </button>
             </div>
@@ -330,15 +321,55 @@ function renderOverviewTab() {
     }
     
     let formattedText = analysis
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/^##\s*(.*)/gm, '<h2 style="margin: 28px 0 16px; color: #ff6b3b; font-size: 22px;">$1</h2>')
-        .replace(/^###\s*(.*)/gm, '<h3 style="margin: 20px 0 12px; color: #ff8c4a;">$1</h3>')
-        .replace(/^\*\s*(.*)/gm, '<li>$1</li>')
-        .replace(/\n/g, '<br>');
+        // Жирный текст (нормальный размер)
+        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b; font-weight: 600;">$1</strong>')
+        // Заголовки ## — уменьшаем размер
+        .replace(/^##\s+(.*)$/gm, '<h3 style="margin: 24px 0 12px; font-size: 18px; font-weight: 600; color: #ff6b3b; border-left: 3px solid #ff6b3b; padding-left: 12px;">$1</h3>')
+        // Заголовки ###
+        .replace(/^###\s+(.*)$/gm, '<h4 style="margin: 16px 0 8px; font-size: 15px; font-weight: 500; color: #ff8c4a;">$1</h4>')
+        // Маркированные списки
+        .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px; line-height: 1.6;">$1</li>')
+        .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px; line-height: 1.6;">$1</li>');
+    
+    // Оборачиваем списки в ul
+    formattedText = formattedText.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+    
+    // Разбиваем на параграфы
+    const lines = formattedText.split('\n');
+    let result = '';
+    let inParagraph = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) {
+            if (inParagraph) {
+                result += '</p>';
+                inParagraph = false;
+            }
+            continue;
+        }
+        
+        if (line.startsWith('<h3') || line.startsWith('<h4') || line.startsWith('<ul') || line.startsWith('<li')) {
+            if (inParagraph) {
+                result += '</p>';
+                inParagraph = false;
+            }
+            result += line;
+        } else {
+            if (!inParagraph) {
+                result += '<p style="margin: 12px 0; line-height: 1.7; color: var(--text-secondary); font-size: 14px;">';
+                inParagraph = true;
+            }
+            result += line;
+        }
+    }
+    if (inParagraph) {
+        result += '</p>';
+    }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div class="analysis-content" style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 32px; line-height: 1.8;">
-            ${formattedText}
+        <div class="analysis-content" style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
+            ${result}
         </div>
     `;
 }
@@ -361,33 +392,45 @@ function renderPatternsTab() {
     
     let content = '';
     if (systemMatch) {
-        content += `<div class="analysis-section" style="margin-bottom: 32px;">
-            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🔄 Системные петли</h2>
-            <div style="line-height: 1.7;">${systemMatch[0]}</div>
+        let text = systemMatch[0]
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
+            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        
+        content += `<div style="margin-bottom: 28px;">
+            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🔄 Системные петли</h3>
+            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
         </div>`;
     }
     
     if (hiddenMatch) {
-        content += `<div class="analysis-section" style="margin-bottom: 32px;">
-            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🧠 Скрытые механизмы</h2>
-            <div style="line-height: 1.7;">${hiddenMatch[0]}</div>
+        let text = hiddenMatch[0]
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
+            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        
+        content += `<div style="margin-bottom: 28px;">
+            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🧠 Скрытые механизмы</h3>
+            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
         </div>`;
     }
     
     if (!content) {
-        content = '<p style="color: var(--text-secondary); text-align: center;">Специальный раздел с петлями и механизмами будет доступен после проведения анализа.</p>';
+        content = '<p style="color: var(--text-secondary); text-align: center; padding: 40px; font-size: 14px;">Специальный раздел с петлями и механизмами будет доступен после проведения анализа.</p>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 32px;">
+        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
             ${content}
         </div>
-        <div style="margin-top: 24px; background: rgba(255,107,59,0.08); border-radius: 20px; padding: 20px;">
+        <div style="margin-top: 20px; background: rgba(255,107,59,0.08); border-radius: 20px; padding: 18px;">
             <div style="display: flex; gap: 12px;">
-                <span style="font-size: 24px;">💡</span>
+                <span style="font-size: 22px;">💡</span>
                 <div>
-                    <strong>Осознание петли — первый шаг к её разрыву</strong>
-                    <p style="color: var(--text-secondary); margin-top: 8px;">Обсудите эти наблюдения с Фреди в диалоге. Каждый разговор помогает увидеть новые связи.</p>
+                    <strong style="font-size: 14px;">Осознание петли — первый шаг к её разрыву</strong>
+                    <p style="color: var(--text-secondary); margin-top: 6px; font-size: 13px;">Обсудите эти наблюдения с Фреди в диалоге. Каждый разговор помогает увидеть новые связи.</p>
                 </div>
             </div>
         </div>
@@ -412,43 +455,55 @@ function renderRecommendationsTab() {
     
     let content = '';
     if (growthMatch) {
-        content += `<div class="analysis-section" style="margin-bottom: 32px;">
-            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🌱 Точки роста</h2>
-            <div style="line-height: 1.7;">${growthMatch[0]}</div>
+        let text = growthMatch[0]
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
+            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        
+        content += `<div style="margin-bottom: 28px;">
+            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🌱 Точки роста</h3>
+            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
         </div>`;
     }
     
     if (keysMatch) {
-        content += `<div class="analysis-section" style="margin-bottom: 32px;">
-            <h2 style="color: #ff6b3b; margin-bottom: 16px;">🔑 Персональные ключи</h2>
-            <div style="line-height: 1.7;">${keysMatch[0]}</div>
+        let text = keysMatch[0]
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
+            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        
+        content += `<div style="margin-bottom: 28px;">
+            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🔑 Персональные ключи</h3>
+            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
         </div>`;
     }
     
     if (!content) {
-        content = '<p style="color: var(--text-secondary); text-align: center;">Персональные рекомендации появятся после проведения анализа.</p>';
+        content = '<p style="color: var(--text-secondary); text-align: center; padding: 40px; font-size: 14px;">Персональные рекомендации появятся после проведения анализа.</p>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 32px;">
+        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
             ${content}
         </div>
         
-        <div style="margin-top: 32px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
-            <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 20px; text-align: center;">
-                <div style="font-size: 32px;">🧘</div>
-                <div style="font-weight: 600; margin: 12px 0 8px;">Практика</div>
-                <div style="font-size: 13px; color: var(--text-secondary);">Начните с малого: 5 минут осознанности</div>
+        <div style="margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;">
+            <div style="background: rgba(224,224,224,0.05); border-radius: 18px; padding: 16px; text-align: center;">
+                <div style="font-size: 28px;">🧘</div>
+                <div style="font-weight: 500; margin: 10px 0 6px; font-size: 14px;">Практика</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">5 минут осознанности</div>
             </div>
-            <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 20px; text-align: center;">
-                <div style="font-size: 32px;">📝</div>
-                <div style="font-weight: 600; margin: 12px 0 8px;">Дневник</div>
-                <div style="font-size: 13px; color: var(--text-secondary);">Записывайте повторяющиеся сценарии</div>
+            <div style="background: rgba(224,224,224,0.05); border-radius: 18px; padding: 16px; text-align: center;">
+                <div style="font-size: 28px;">📝</div>
+                <div style="font-weight: 500; margin: 10px 0 6px; font-size: 14px;">Дневник</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Записывайте сценарии</div>
             </div>
-            <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 20px; text-align: center;">
-                <div style="font-size: 32px;">💬</div>
-                <div style="font-weight: 600; margin: 12px 0 8px;">Диалог</div>
-                <div style="font-size: 13px; color: var(--text-secondary);">Обсудите эти точки роста с Фреди</div>
+            <div style="background: rgba(224,224,224,0.05); border-radius: 18px; padding: 16px; text-align: center;">
+                <div style="font-size: 28px;">💬</div>
+                <div style="font-weight: 500; margin: 10px 0 6px; font-size: 14px;">Диалог</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Обсудите с Фреди</div>
             </div>
         </div>
     `;
@@ -465,8 +520,8 @@ function renderThoughtTab() {
         document.getElementById('analysisTabContent').innerHTML = `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 48px; margin-bottom: 20px;">🧠</div>
-                <h3>Мысли психолога появятся после анализа</h3>
-                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px;">
+                <h3 style="font-size: 18px;">Мысли психолога появятся после анализа</h3>
+                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px; padding: 10px 24px; font-size: 14px;">
                     🔄 Провести анализ
                 </button>
             </div>
@@ -475,23 +530,23 @@ function renderThoughtTab() {
     }
     
     let formattedThought = thought
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
         .replace(/\n/g, '<br>');
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: linear-gradient(135deg, rgba(255,107,59,0.05), rgba(255,59,59,0.02)); border-radius: 28px; padding: 32px;">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
-                <div style="font-size: 32px;">🧠</div>
+        <div style="background: linear-gradient(135deg, rgba(255,107,59,0.05), rgba(255,59,59,0.02)); border-radius: 24px; padding: 28px;">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+                <div style="font-size: 28px;">🧠</div>
                 <div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">ФРЕДИ ГОВОРИТ</div>
-                    <div style="font-size: 20px; font-weight: 600;">Мысли психолога</div>
+                    <div style="font-size: 11px; color: var(--text-secondary);">ФРЕДИ ГОВОРИТ</div>
+                    <div style="font-size: 18px; font-weight: 500;">Мысли психолога</div>
                 </div>
             </div>
-            <div style="font-size: 16px; line-height: 1.7; font-style: italic; color: var(--text-secondary);">
+            <div style="font-size: 15px; line-height: 1.7; font-style: italic; color: var(--text-secondary);">
                 ${formattedThought}
             </div>
-            <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(255,107,59,0.2);">
-                <p style="font-size: 13px; color: var(--text-secondary);">✨ Этот анализ сформирован на основе ваших ответов и глубинных паттернов</p>
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,107,59,0.2);">
+                <p style="font-size: 12px; color: var(--text-secondary);">✨ Этот анализ сформирован на основе ваших ответов и глубинных паттернов</p>
             </div>
         </div>
     `;
@@ -505,4 +560,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.3 — с красивой загрузкой и заглушкой)');
+console.log('✅ Модуль анализа загружен (версия 3.4 — исправленное форматирование)');
