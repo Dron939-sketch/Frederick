@@ -132,9 +132,13 @@ class UserRepository:
         try:
             condition, value = self._get_id_condition(user_id)
             
+            # Сначала убеждаемся, что пользователь существует
+            await self.create_user_if_not_exists(user_id)
+            
             # Деактивируем старые анализы
             await self.db.execute(f"""
-                UPDATE deep_analyses SET is_active = FALSE WHERE {condition}
+                UPDATE deep_analyses SET is_active = FALSE 
+                WHERE {condition}
             """, value)
             
             # Сохраняем новый анализ
@@ -157,19 +161,26 @@ class UserRepository:
     ) -> Optional[Dict[str, Any]]:
         """
         Получает последний активный глубокий анализ пользователя из БД
+        Возвращает None если анализа нет
         """
         try:
             condition, value = self._get_id_condition(user_id)
             
             row = await self.db.fetchrow(f"""
-                SELECT analysis_text FROM deep_analyses
+                SELECT analysis_text, created_at, updated_at 
+                FROM deep_analyses
                 WHERE {condition} AND is_active = TRUE
                 ORDER BY created_at DESC
                 LIMIT 1
             """, value)
             
             if row and row['analysis_text']:
-                return json.loads(row['analysis_text'])
+                analysis_data = json.loads(row['analysis_text'])
+                return {
+                    "analysis": analysis_data,
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                    "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None
+                }
             return None
             
         except Exception as e:
@@ -188,7 +199,7 @@ class UserRepository:
             condition, value = self._get_id_condition(user_id)
             
             rows = await self.db.fetch(f"""
-                SELECT id, analysis_text, analysis_type, created_at, is_active
+                SELECT id, analysis_text, analysis_type, created_at, updated_at, is_active
                 FROM deep_analyses
                 WHERE {condition}
                 ORDER BY created_at DESC
@@ -202,6 +213,7 @@ class UserRepository:
                     "analysis": json.loads(row['analysis_text']),
                     "type": row['analysis_type'],
                     "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                    "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None,
                     "is_active": row['is_active']
                 })
             
@@ -210,6 +222,36 @@ class UserRepository:
         except Exception as e:
             logger.error(f"Error getting deep analyses history for user {user_id}: {e}")
             return []
+    
+    async def delete_deep_analysis(
+        self, 
+        user_id: Union[int, str], 
+        analysis_id: int = None
+    ) -> bool:
+        """
+        Удаляет (деактивирует) глубокий анализ
+        Если analysis_id не указан - деактивирует все
+        """
+        try:
+            condition, value = self._get_id_condition(user_id)
+            
+            if analysis_id:
+                await self.db.execute(f"""
+                    UPDATE deep_analyses SET is_active = FALSE 
+                    WHERE {condition} AND id = $2
+                """, value, analysis_id)
+            else:
+                await self.db.execute(f"""
+                    UPDATE deep_analyses SET is_active = FALSE 
+                    WHERE {condition}
+                """, value)
+            
+            logger.info(f"✅ Deep analysis deleted for user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting deep analysis for user {user_id}: {e}")
+            return False
     
     # ============================================
     # ТЕСТЫ
