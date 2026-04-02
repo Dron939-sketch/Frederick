@@ -36,15 +36,15 @@ function setUserName(name) {
 // ========== КОНФИГУРАЦИЯ ==========
 const CONFIG = {
     API_BASE_URL: 'https://fredi-backend-flz2.onrender.com',
-    get USER_ID() { return getOrCreateUserId(); },  // Динамический ID
-    get USER_NAME() { return getUserName() || 'друг'; },  // Имя или "друг"
-    PROFILE_CODE: null  // Профиль определится из БД
+    get USER_ID() { return getOrCreateUserId(); },
+    get USER_NAME() { return getUserName() || 'друг'; },
+    PROFILE_CODE: null
 };
 
 // Для обратной совместимости
 window.CONFIG = CONFIG;
 
-// Режимы (без приветствий)
+// Режимы
 const MODES = {
     coach: {
         id: 'coach',
@@ -97,7 +97,7 @@ const MODULES = {
 // Состояние
 let currentMode = 'psychologist';
 let navigationHistory = [];
-let voiceManager = null; // Будет инициализирован позже
+let voiceManager = null;
 
 // ============================================
 // API ВЫЗОВЫ
@@ -120,6 +120,17 @@ async function apiCall(endpoint, options = {}) {
     } catch (error) {
         console.error(`API Error: ${endpoint}`, error);
         throw error;
+    }
+}
+
+// ========== ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
+async function isTestCompleted() {
+    try {
+        const data = await apiCall(`/api/user-status?user_id=${CONFIG.USER_ID}`);
+        return data.has_profile === true;
+    } catch (error) {
+        console.warn('isTestCompleted error:', error);
+        return false;
     }
 }
 
@@ -347,7 +358,7 @@ async function getConfinementStatistics() {
     }
 }
 
-// ========== НОВЫЕ API ДЛЯ ПРОВЕРКИ РЕАЛЬНОСТИ ==========
+// ========== API ДЛЯ ПРОВЕРКИ РЕАЛЬНОСТИ ==========
 
 async function getRealityPath(goalId, mode = 'coach') {
     try {
@@ -620,7 +631,6 @@ function showFullContentScreen(title, content, contentType, rawText = null) {
         </div>
     `;
     
-    // Кнопка НАЗАД - исправлена
     const backBtn = document.getElementById('backBtn');
     if (backBtn) {
         backBtn.onclick = function() {
@@ -1372,10 +1382,42 @@ async function handleShowChallenges() {
     else showToast('Челленджи появятся после прохождения теста', 'info');
 }
 
+// ========== ДВОЙНИКИ - ИСПРАВЛЕННАЯ ФУНКЦИЯ ==========
 async function handleShowDoubles() {
-    const doubles = await findPsychometricDoubles();
-    if (doubles.length) navigateTo('doubles', { content: doubles.map(d => `**${d.name}**\nПрофиль: ${d.profile_code}\nСхожесть: ${Math.round(d.similarity * 100)}%`).join('\n\n') });
-    else showToast('Двойники появятся после прохождения теста', 'info');
+    // Проверяем, прошел ли пользователь тест
+    const completed = await isTestCompleted();
+    
+    if (!completed) {
+        // Если тест не пройден - показываем сообщение и предложение пройти тест
+        showToast('📊 Сначала пройдите психологический тест для определения вашего профиля', 'info');
+        
+        // Дополнительно показываем кнопку для перехода к тесту
+        setTimeout(() => {
+            const confirmTest = confirm('У вас ещё нет психологического профиля. Хотите пройти тест прямо сейчас?');
+            if (confirmTest) {
+                startTest();
+            }
+        }, 500);
+        return;
+    }
+    
+    // Тест пройден - открываем экран двойников
+    if (typeof showDoublesScreen === 'function') {
+        showDoublesScreen();
+    } else {
+        showToast('👥 Загрузка модуля двойников...', 'info');
+        const script = document.createElement('script');
+        script.src = 'doubles.js';
+        script.onload = () => {
+            if (typeof showDoublesScreen === 'function') {
+                showDoublesScreen();
+            } else {
+                showToast('❌ Ошибка загрузки модуля', 'error');
+            }
+        };
+        script.onerror = () => showToast('❌ Не удалось загрузить модуль', 'error');
+        document.head.appendChild(script);
+    }
 }
 
 // ========== ДАШБОРД ==========
@@ -1395,7 +1437,6 @@ async function switchMode(mode) {
     updateModeUI();
     renderDashboard();
     
-    // Обновляем режим в голосовом менеджере
     if (voiceManager) {
         voiceManager.setMode(mode);
     }
@@ -1544,7 +1585,6 @@ function renderDashboard() {
         </div>
     `;
     
-    // Инициализируем голосовую кнопку с VoiceManager
     const voiceBtnElement = document.getElementById('mainVoiceBtn');
     if (voiceBtnElement && voiceManager) {
         setupVoiceButton(voiceBtnElement);
@@ -1554,7 +1594,6 @@ function renderDashboard() {
         btn.addEventListener('click', () => { const mode = btn.dataset.mode; if (mode) switchMode(mode); });
     });
     
-    // ========== ОБРАБОТЧИК МОДУЛЕЙ (ВКЛЮЧАЯ АНАЛИЗ) ==========
     document.querySelectorAll('.module-card').forEach(card => {
         card.addEventListener('click', () => { 
             const moduleId = card.dataset.module;
@@ -1592,25 +1631,20 @@ function renderDashboard() {
         });
     });
     
-    // ========== ДОБАВЛЕННЫЙ БЛОК ЗАПРОСА ИМЕНИ ==========
     setTimeout(async () => {
         try {
             const status = await getUserStatus();
             
-            // Если у пользователя нет имени в localStorage и он не проходил тест
             if (!localStorage.getItem('fredi_user_name') && !status.has_profile) {
                 const name = prompt('Как мне к вам обращаться?', '');
                 if (name && name.trim()) {
                     setUserName(name);
-                    // Обновляем отображение имени
                     const userNameEl = document.getElementById('userName');
                     if (userNameEl) userNameEl.textContent = name;
-                    // Перерисовываем дашборд с новым именем
                     renderDashboard();
                 }
             }
             
-            // Обновляем отображение кода профиля
             const profileCodeEl = document.getElementById('profileCode');
             if (profileCodeEl) {
                 if (status.has_profile && status.profile_code) {
@@ -1624,7 +1658,6 @@ function renderDashboard() {
             console.warn('Failed to load user status:', e);
         }
     }, 1500);
-    // ========== КОНЕЦ ДОБАВЛЕННОГО БЛОКА ==========
     
     initMobileEnhancements();
 }
@@ -1658,19 +1691,14 @@ function setupVoiceButton(buttonElement) {
         }
     };
     
-    // События для мыши
     buttonElement.addEventListener('mousedown', onPressStart);
     buttonElement.addEventListener('mouseup', onPressEnd);
     buttonElement.addEventListener('mouseleave', onPressEnd);
-    
-    // События для касания (мобильные)
     buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
     buttonElement.addEventListener('touchend', onPressEnd, { passive: false });
     buttonElement.addEventListener('touchcancel', onPressEnd, { passive: false });
-    
     buttonElement.addEventListener('contextmenu', (e) => e.preventDefault());
     
-    // Обновляем UI кнопки при изменении статуса
     voiceManager.onStatusChange = (status) => {
         const iconSpan = buttonElement.querySelector('.voice-icon');
         const textSpan = buttonElement.querySelector('.voice-text');
@@ -1706,7 +1734,6 @@ function setupVoiceButton(buttonElement) {
 // ========== ИНИЦИАЛИЗАЦИЯ ГОЛОСОВОГО МЕНЕДЖЕРА ==========
 
 async function initVoice() {
-    // Проверяем, загружен ли VoiceManager
     if (typeof VoiceManager === 'undefined') {
         console.error('VoiceManager not loaded! Make sure voice.js is included before app.js');
         return false;
@@ -1717,7 +1744,6 @@ async function initVoice() {
         apiBaseUrl: CONFIG.API_BASE_URL
     });
     
-    // Настройка колбэков
     voiceManager.onTranscript = (text) => {
         addMessage(`🎤 "${text}"`, 'system');
     };
@@ -1738,10 +1764,27 @@ async function initVoice() {
         console.log('Recording stopped', audioBlob?.size);
     };
     
-    // Устанавливаем текущий режим
     voiceManager.setMode(currentMode);
     
     return true;
+}
+
+function startTest() {
+    if (window.Test && window.Test.start) {
+        if (window.Test.init) {
+            window.Test.init(CONFIG.USER_ID);
+        }
+        window.Test.start();
+    } else {
+        showToast('📊 Тест загружается...', 'info');
+        const script = document.createElement('script');
+        script.src = 'test.js';
+        script.onload = () => {
+            window.Test.init(CONFIG.USER_ID);
+            window.Test.start();
+        };
+        document.head.appendChild(script);
+    }
 }
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
@@ -1759,7 +1802,6 @@ async function init() {
         }
     } catch (e) {}
     
-    // Инициализируем голосовой менеджер
     await initVoice();
     
     renderDashboard();
@@ -1767,7 +1809,6 @@ async function init() {
     document.getElementById('userName').textContent = CONFIG.USER_NAME;
     document.getElementById('userMiniAvatar').textContent = CONFIG.USER_NAME.charAt(0);
     
-    // Проверка микрофона
     setTimeout(async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1787,20 +1828,7 @@ async function init() {
                     renderDashboard();
                     break;
                 case 'test':
-                    if (window.Test && window.Test.start) {
-                        window.Test.init(CONFIG.USER_ID);
-                        window.Test.start();
-                    } else {
-                        console.error('Test module not loaded');
-                        showToast('Тест загружается...', 'info');
-                        const script = document.createElement('script');
-                        script.src = '/test.js';
-                        script.onload = () => {
-                            window.Test.init(CONFIG.USER_ID);
-                            window.Test.start();
-                        };
-                        document.head.appendChild(script);
-                    }
+                    startTest();
                     break;
                 case 'confinement':
                     navigateTo('confinement-model');
