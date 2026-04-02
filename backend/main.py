@@ -14,6 +14,7 @@ import time
 import json
 import random
 import base64
+import re
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
@@ -1343,38 +1344,27 @@ async def deep_analysis(request: Request, data: ChatRequest):
         behavioral_levels = profile.get('behavioral_levels', {})
         deep_patterns = profile.get('deep_patterns', {})
         
-        # НОВЫЙ ПРОМПТ ДЛЯ JSON
+        # Промпт для JSON
         system_prompt = """Ты — психолог Фреди. Проведи глубокий анализ личности пользователя.
 
 ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON:
 
 {
-  "portrait": "Глубинный портрет: 5-6 предложения о характере и ключевых особенностях",
-  "loops": "Системные петли: 5-6 предложения с описанием петель поведения",
-  "mechanisms": "Скрытые механизмы: 5-6 предложения о защитных механизмах",
-  "growth": "Точки роста: 5-6 предложения с практическими шагами",
-  "forecast": "Прогноз: 3-4 предложения о том, что будет без изменений и при работе над собой",
-  "keys": "Персональные ключи: 3-4 ключевые идеи для пользователя"
+  "portrait": "Глубинный портрет: 3-4 предложения",
+  "loops": "Системные петли: 3-4 предложения",
+  "mechanisms": "Скрытые механизмы: 3-4 предложения",
+  "growth": "Точки роста: 3-4 предложения",
+  "forecast": "Прогноз: 2 предложения",
+  "keys": "Персональные ключи: 2-3 предложения"
 }
 
 ПРАВИЛА:
 - Пиши на русском языке
 - Обращайся на "ты"
-- Будь честным, но бережным
 - Не используй эмодзи
 - Не используй маркдаун
-- Каждое поле должно содержать ТОЛЬКО текст, без заголовков внутри
-
-Пример правильного ответа:
-{
-  "portrait": "Ты — социально-ориентированный человек, чья самооценка зависит от отношений.",
-  "loops": "Петля одобрения: жажда одобрения ведёт к гиперфокусу на других и истощению.",
-  "mechanisms": "Внешняя валидация как топливо: твоё состояние зависит от внешних сигналов.",
-  "growth": "1. Начни распознавать свои потребности. 2. Практикуй малые отказы.",
-  "forecast": "Без изменений: риск выгорания. При работе над собой: устойчивость и здоровые отношения.",
-  "keys": "Твоя ценность не зависит от полезности для других. Будь аутентичным."
-}"""
-
+- Каждое поле должно содержать ТОЛЬКО текст, без заголовков внутри"""
+        
         user_prompt = f"""
 Данные пользователя:
 Профиль: {profile_data.get('display_name', 'не определен')}
@@ -1382,10 +1372,10 @@ async def deep_analysis(request: Request, data: ChatRequest):
 Уровень мышления: {profile.get('thinking_level', 5)}/9
 
 Поведенческие уровни:
-СБ (реакция на давление): {behavioral_levels.get('СБ', [3])[-1] if behavioral_levels.get('СБ') else 3}/6
-ТФ (деньги): {behavioral_levels.get('ТФ', [3])[-1] if behavioral_levels.get('ТФ') else 3}/6
-УБ (понимание мира): {behavioral_levels.get('УБ', [3])[-1] if behavioral_levels.get('УБ') else 3}/6
-ЧВ (отношения): {behavioral_levels.get('ЧВ', [3])[-1] if behavioral_levels.get('ЧВ') else 3}/6
+СБ: {behavioral_levels.get('СБ', [3])[-1] if behavioral_levels.get('СБ') else 3}/6
+ТФ: {behavioral_levels.get('ТФ', [3])[-1] if behavioral_levels.get('ТФ') else 3}/6
+УБ: {behavioral_levels.get('УБ', [3])[-1] if behavioral_levels.get('УБ') else 3}/6
+ЧВ: {behavioral_levels.get('ЧВ', [3])[-1] if behavioral_levels.get('ЧВ') else 3}/6
 
 Глубинные паттерны:
 {json.dumps(deep_patterns, ensure_ascii=False, indent=2) if deep_patterns else 'Нет данных'}
@@ -1396,16 +1386,14 @@ async def deep_analysis(request: Request, data: ChatRequest):
         response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=2000, temperature=0.7)
         
         if response:
-            # Пробуем распарсить JSON
+            # Парсим JSON
             try:
-                # Ищем JSON в ответе
-                json_match = re.search(r'\{[\s\S]*\}', response)
-                if json_match:
-                    analysis_data = json.loads(json_match.group())
-                    return {"success": True, "analysis": analysis_data}
-                else:
-                    logger.error("No JSON found in response")
-                    return {"success": False, "error": "Invalid response format"}
+                # Убираем маркдаун обёртку ```json ... ```
+                cleaned = re.sub(r'^```json\s*', '', response)
+                cleaned = re.sub(r'\s*```$', '', cleaned)
+                
+                analysis_data = json.loads(cleaned)
+                return {"success": True, "analysis": analysis_data}
             except json.JSONDecodeError as e:
                 logger.error(f"JSON parse error: {e}")
                 logger.error(f"Raw response: {response[:500]}")
