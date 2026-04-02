@@ -9,12 +9,63 @@
     <meta name="theme-color" content="#0a0a0a">
     <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
-   
-    <title>Фреди | Премиум виртуальный психолог</title>
+    
+    <!-- ========== SEO МЕТАТЕГИ ========== -->
+    <title>Фреди | Виртуальный психолог на базе ИИ — психологическая помощь онлайн</title>
+    <meta name="description" content="Фреди — премиум виртуальный психолог на базе искусственного интеллекта. Глубинный анализ личности, психологическая поддержка 24/7, работа с паттернами поведения, тревогой и отношениями. Персональные рекомендации и терапевтические практики.">
+    <meta name="keywords" content="виртуальный психолог, ИИ психолог, психологическая помощь онлайн, искусственный интеллект психолог, Фреди, психолог AI, анализ личности, работа с тревогой, психологические тесты, консультация психолога, психолог 24/7, эмоциональная поддержка, глубинный анализ">
+    <meta name="author" content="Фреди — виртуальный психолог">
+    <meta name="robots" content="index, follow">
+    <meta name="language" content="Russian">
+    <meta name="revisit-after" content="7 days">
+    
+    <!-- ========== Open Graph (для соцсетей) ========== -->
+    <meta property="og:title" content="Фреди — виртуальный психолог на базе ИИ">
+    <meta property="og:description" content="Глубинный анализ личности, психологическая поддержка 24/7, работа с паттернами поведения. Персональные рекомендации от AI-психолога.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://meysternlp.ru/fredi/">
+    <meta property="og:image" content="https://meysternlp.ru/fredi/og-image.png">
+    <meta property="og:site_name" content="Фреди — виртуальный психолог">
+    <meta property="og:locale" content="ru_RU">
+    
+    <!-- ========== Twitter Card ========== -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Фреди — виртуальный психолог на базе ИИ">
+    <meta name="twitter:description" content="Глубинный анализ личности, психологическая поддержка 24/7, работа с паттернами поведения.">
+    <meta name="twitter:image" content="https://meysternlp.ru/fredi/og-image.png">
+    
+    <!-- ========== Структурированные данные JSON-LD (Schema.org) ========== -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Фреди — виртуальный психолог",
+        "description": "Премиум виртуальный психолог на базе искусственного интеллекта. Помощь в работе с глубинными паттернами, тревогой, отношениями. Психологическая поддержка 24/7.",
+        "url": "https://meysternlp.ru/fredi/",
+        "applicationCategory": "Health",
+        "operatingSystem": "All",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "RUB"
+        },
+        "author": {
+            "@type": "Person",
+            "name": "Андрей Мейстер"
+        },
+        "provider": {
+            "@type": "Organization",
+            "name": "Фреди",
+            "url": "https://meysternlp.ru"
+        }
+    }
+    </script>
+    
+    <!-- ========== Альтернативная версия для поисковиков ========== -->
+    <link rel="canonical" href="https://meysternlp.ru/fredi/">
    
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css">
-   
+    
     <style>
         * {
             margin: 0;
@@ -22,6 +73,7 @@
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
         }
+        
         :root {
             --black-obsidian: #0a0a0a;
             --black-matte: #111111;
@@ -43,6 +95,7 @@
             --error: #ef4444;
             --warning: #f59e0b;
         }
+        
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--black-obsidian);
@@ -55,12 +108,14 @@
             top: 0;
             left: 0;
         }
+        
         @supports (height: 100dvh) {
             body, .app, .chat-panel, .screen-container, .test-chat-container {
                 height: 100dvh !important;
                 min-height: 100dvh !important;
             }
         }
+        
         body::before {
             content: '';
             position: fixed;
@@ -72,6 +127,7 @@
                         radial-gradient(circle at 70% 80%, rgba(255, 59, 59, 0.02) 0%, transparent 60%);
             pointer-events: none;
         }
+        
         body::after {
             content: '';
             position: fixed;
@@ -82,6 +138,7 @@
             background: repeating-linear-gradient(45deg, rgba(224, 224, 224, 0.008) 0px, rgba(224, 224, 224, 0.008) 2px, transparent 2px, transparent 8px);
             pointer-events: none;
         }
+        
         .app {
             display: flex;
             height: 100%;
@@ -89,6 +146,7 @@
             overflow: hidden;
             position: relative;
         }
+        
         /* Левая панель */
         .chats-panel {
             width: 280px;
@@ -102,6 +160,7 @@
             z-index: 20;
             position: relative;
         }
+        
         @media (max-width: 768px) {
             .chats-panel {
                 position: fixed;
@@ -110,16 +169,20 @@
                 height: 100%;
                 width: 260px;
                 z-index: 1000;
+                background: rgba(10, 10, 10, 0.95);
+                backdrop-filter: blur(20px);
             }
             .chats-panel.open {
                 left: 0;
                 box-shadow: 5px 0 30px rgba(0, 0, 0, 0.5);
             }
         }
+        
         .chats-header {
             padding: 20px 16px;
             border-bottom: 1px solid rgba(224, 224, 224, 0.1);
         }
+        
         .chats-title {
             font-size: 24px;
             font-weight: 600;
@@ -128,9 +191,11 @@
             background-clip: text;
             color: transparent;
         }
+        
         .chats-search {
             padding: 12px 16px;
         }
+        
         .chats-search input {
             width: 100%;
             padding: 10px 16px;
@@ -140,16 +205,19 @@
             color: var(--text-primary);
             font-size: 14px;
         }
+        
         .chats-list {
             flex: 1;
             overflow-y: auto;
             padding: 8px;
         }
+        
         .menu-divider {
             height: 1px;
             background: rgba(224, 224, 224, 0.1);
             margin: 12px 16px;
         }
+        
         .menu-section-title {
             font-size: 11px;
             font-weight: 600;
@@ -158,6 +226,7 @@
             padding: 8px 20px;
             text-transform: uppercase;
         }
+        
         .chat-item {
             display: flex;
             align-items: center;
@@ -170,14 +239,17 @@
             border: 1px solid transparent;
             min-height: 44px;
         }
+        
         .chat-item:hover {
             background: rgba(224, 224, 224, 0.08);
             border-color: rgba(224, 224, 224, 0.2);
         }
+        
         .chat-item.active {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.1), rgba(192, 192, 192, 0.05));
             border-color: rgba(224, 224, 224, 0.3);
         }
+        
         .chat-avatar {
             width: 44px;
             height: 44px;
@@ -189,6 +261,7 @@
             font-size: 22px;
             position: relative;
         }
+        
         .chat-avatar::after {
             content: '';
             position: absolute;
@@ -200,25 +273,31 @@
             border-radius: 50%;
             border: 2px solid var(--black-obsidian);
         }
+        
         .chat-info {
             flex: 1;
         }
+        
         .chat-name {
             font-weight: 600;
             font-size: 14px;
         }
+        
         .chat-preview {
             font-size: 11px;
             color: var(--text-secondary);
         }
+        
         .chat-time {
             font-size: 10px;
             color: var(--text-secondary);
         }
+        
         .chats-footer {
             padding: 12px 16px;
             border-top: 1px solid rgba(224, 224, 224, 0.1);
         }
+        
         .user-mini-profile {
             display: flex;
             align-items: center;
@@ -228,6 +307,7 @@
             background: rgba(224, 224, 224, 0.05);
             cursor: pointer;
         }
+        
         .user-mini-avatar {
             width: 40px;
             height: 40px;
@@ -240,14 +320,17 @@
             font-weight: 600;
             color: var(--black-obsidian);
         }
+        
         .user-mini-name {
             font-weight: 600;
             font-size: 14px;
         }
+        
         .user-mini-status {
             font-size: 10px;
             color: var(--text-secondary);
         }
+        
         /* Правая панель */
         .chat-panel {
             flex: 1;
@@ -257,6 +340,7 @@
             background: rgba(10, 10, 10, 0.5);
             height: 100%;
         }
+        
         .chat-header {
             display: flex;
             justify-content: space-between;
@@ -266,37 +350,36 @@
             backdrop-filter: blur(20px);
             border-bottom: 1px solid rgba(224, 224, 224, 0.1);
         }
+        
         .chat-header-left {
             display: flex;
             align-items: center;
             gap: 12px;
         }
+        
         .mobile-menu-btn {
             display: none;
             background: rgba(224, 224, 224, 0.1);
             border: none;
-            font-size: 22px;
+            font-size: 24px;
             color: var(--chrome);
             cursor: pointer;
-            width: 40px;
-            height: 40px;
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
-            min-height: 44px;
+            z-index: 1001;
+            position: relative;
             touch-action: manipulation;
         }
+        
         @media (max-width: 768px) {
             .mobile-menu-btn {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                position: relative;
-                z-index: 10;
-                pointer-events: auto;
-            }
-            .mobile-menu-btn:active {
-                transform: scale(0.95);
             }
         }
+        
         .chat-header-avatar {
             width: 44px;
             height: 44px;
@@ -307,10 +390,12 @@
             justify-content: center;
             font-size: 24px;
         }
+        
         .chat-header-name {
             font-weight: 700;
             font-size: 18px;
         }
+        
         .chat-header-status {
             font-size: 11px;
             color: var(--text-secondary);
@@ -318,6 +403,7 @@
             align-items: center;
             gap: 6px;
         }
+        
         .mode-indicator {
             width: 8px;
             height: 8px;
@@ -325,21 +411,25 @@
             animation: pulseMode 2s infinite;
             background: #ff6b3b;
         }
+        
         @keyframes pulseMode {
             0%, 100% { opacity: 0.5; }
             50% { opacity: 1; }
         }
+        
         .screen-container {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
             -webkit-overflow-scrolling: touch;
         }
+        
         /* Dashboard Styles */
         .dashboard-container {
             max-width: 800px;
             margin: 0 auto;
         }
+        
         .hero-section {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.05), rgba(192, 192, 192, 0.02));
             border-radius: 28px;
@@ -347,6 +437,7 @@
             margin-bottom: 24px;
             border: 1px solid rgba(224, 224, 224, 0.15);
         }
+        
         .user-greeting {
             display: flex;
             justify-content: space-between;
@@ -354,15 +445,18 @@
             flex-wrap: wrap;
             gap: 16px;
         }
+        
         .greeting-text h2 {
             font-size: 24px;
             font-weight: 600;
             margin-bottom: 6px;
         }
+        
         .greeting-text p {
             color: var(--text-secondary);
             font-size: 13px;
         }
+        
         .profile-badge {
             background: rgba(224, 224, 224, 0.08);
             border-radius: 30px;
@@ -370,6 +464,7 @@
             text-align: center;
             border: 1px solid rgba(224, 224, 224, 0.2);
         }
+        
         .profile-code {
             font-family: monospace;
             font-size: 12px;
@@ -380,6 +475,7 @@
             background-clip: text;
             color: transparent;
         }
+        
         .mode-selector {
             display: flex;
             gap: 8px;
@@ -390,6 +486,7 @@
             padding: 4px;
             border: 1px solid rgba(224, 224, 224, 0.2);
         }
+        
         .mode-btn {
             flex: 1;
             padding: 10px 16px;
@@ -407,13 +504,16 @@
             gap: 6px;
             min-height: 44px;
         }
+        
         .mode-btn.active {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.2), rgba(192, 192, 192, 0.1));
             color: var(--text-primary);
         }
+        
         .voice-section {
             margin-bottom: 32px;
         }
+        
         .voice-card {
             background: linear-gradient(135deg, rgba(10, 10, 10, 0.7), rgba(26, 26, 26, 0.6));
             backdrop-filter: blur(20px);
@@ -422,6 +522,7 @@
             border: 1px solid rgba(224, 224, 224, 0.2);
             cursor: pointer;
         }
+        
         .voice-record-btn-premium {
             width: 100%;
             padding: 20px 24px;
@@ -438,12 +539,14 @@
             font-size: 16px;
             font-weight: 500;
         }
+        
         .modules-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
             margin-bottom: 24px;
         }
+        
         .module-card {
             background: rgba(224, 224, 224, 0.05);
             border-radius: 16px;
@@ -452,33 +555,40 @@
             transition: all 0.2s;
             border: 1px solid transparent;
         }
+        
         .module-card:hover {
             border-color: #ff6b3b;
             transform: translateY(-2px);
         }
+        
         .module-icon {
             font-size: 28px;
             margin-bottom: 8px;
         }
+        
         .module-name {
             font-weight: 600;
             font-size: 14px;
             margin-bottom: 4px;
         }
+        
         .module-desc {
             font-size: 11px;
             color: var(--text-secondary);
         }
+        
         .quick-actions-title {
             font-size: 14px;
             font-weight: 600;
             margin-bottom: 12px;
         }
+        
         .quick-actions-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 12px;
         }
+        
         .quick-action {
             background: rgba(224, 224, 224, 0.05);
             border-radius: 12px;
@@ -488,19 +598,23 @@
             transition: all 0.2s;
             border: 1px solid transparent;
         }
+        
         .quick-action:hover {
             background: rgba(255,107,59,0.15);
             transform: translateY(-2px);
             border-color: rgba(255,107,59,0.3);
         }
+        
         .action-icon {
             font-size: 24px;
             margin-bottom: 4px;
         }
+        
         .action-name {
             font-size: 11px;
             color: var(--text-secondary);
         }
+        
         /* Content Pages */
         .full-content-page {
             max-width: 800px;
@@ -512,6 +626,7 @@
             border: 1px solid rgba(224, 224, 224, 0.2);
             animation: contentAppear 0.3s ease-out;
         }
+        
         @keyframes contentAppear {
             from {
                 opacity: 0;
@@ -522,6 +637,7 @@
                 transform: translateY(0);
             }
         }
+        
         .back-btn {
             background: rgba(224, 224, 224, 0.1);
             border: 1px solid rgba(224, 224, 224, 0.2);
@@ -535,19 +651,23 @@
             font-size: 14px;
             min-height: 44px;
         }
+        
         .back-btn:hover {
             background: rgba(224, 224, 224, 0.2);
         }
+        
         .content-header {
             text-align: center;
             margin-bottom: 24px;
             padding-bottom: 16px;
             border-bottom: 1px solid rgba(224, 224, 224, 0.2);
         }
+        
         .content-emoji {
             font-size: 48px;
             margin-bottom: 12px;
         }
+        
         .content-header h1 {
             font-size: 24px;
             font-weight: 600;
@@ -556,11 +676,13 @@
             background-clip: text;
             color: transparent;
         }
+        
         .content-body {
             font-size: 15px;
             line-height: 1.6;
             color: var(--text-secondary);
         }
+        
         .profile-section-title {
             font-size: 18px;
             font-weight: bold;
@@ -570,6 +692,7 @@
             border-bottom: 1px solid rgba(255,107,59,0.3);
             color: #ff6b3b;
         }
+        
         .thoughts-section-title {
             font-size: 18px;
             font-weight: bold;
@@ -579,6 +702,7 @@
             border-bottom: 1px solid rgba(255,107,59,0.3);
             color: #ff6b3b;
         }
+        
         .loading-screen {
             display: flex;
             flex-direction: column;
@@ -587,15 +711,17 @@
             height: 100%;
             gap: 20px;
         }
+        
         .loading-spinner {
             font-size: 48px;
             animation: spin 1s linear infinite;
         }
+        
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
-        /* Floating Toast */
+        
         .floating-message {
             position: fixed;
             bottom: 20px;
@@ -604,6 +730,7 @@
             z-index: 1000;
             animation: slideUp 0.2s ease;
         }
+        
         @keyframes slideUp {
             from {
                 opacity: 0;
@@ -614,6 +741,7 @@
                 transform: translateX(-50%) translateY(0);
             }
         }
+        
         .floating-message-content {
             background: rgba(10, 10, 10, 0.95);
             backdrop-filter: blur(20px);
@@ -624,34 +752,217 @@
             gap: 10px;
             border: 1px solid rgba(224, 224, 224, 0.2);
         }
+        
         .floating-message-text {
             font-size: 13px;
         }
+        
         .floating-message-close {
             cursor: pointer;
             opacity: 0.7;
             font-size: 16px;
         }
-        /* Mobile Responsive */
+        
+        /* Test Styles */
+        .test-chat-container {
+            position: relative;
+            height: 100%;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            background: transparent;
+            overflow: hidden;
+        }
+        
+        .test-chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            -webkit-overflow-scrolling: touch;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .test-message {
+            display: flex;
+            animation: messageAppear 0.2s ease-out;
+        }
+        
+        @keyframes messageAppear {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .test-message-bot {
+            justify-content: flex-start;
+        }
+        
+        .test-message-user {
+            justify-content: flex-end;
+        }
+        
+        .test-message-bubble {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 20px;
+            position: relative;
+        }
+        
+        .test-message-bubble-bot {
+            background: linear-gradient(135deg, rgba(224, 224, 224, 0.08), rgba(192, 192, 192, 0.03));
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            border-bottom-left-radius: 4px;
+        }
+        
+        .test-message-bubble-user {
+            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
+            border-bottom-right-radius: 4px;
+        }
+        
+        .test-message-text {
+            font-size: 15px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        
+        .test-message-text strong {
+            color: #ff6b3b;
+        }
+        
+        .test-message-time {
+            font-size: 10px;
+            opacity: 0.6;
+            margin-top: 6px;
+            text-align: right;
+        }
+        
+        .test-message-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
+        .test-message-button {
+            background: rgba(255, 107, 59, 0.15);
+            border: 1px solid rgba(255, 107, 59, 0.3);
+            border-radius: 30px;
+            padding: 10px 20px;
+            font-size: 14px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        
+        .test-message-button:active {
+            transform: scale(0.96);
+        }
+        
+        /* Analysis Styles */
+        .analysis-content {
+            background: rgba(224, 224, 224, 0.03);
+            border-radius: 24px;
+            padding: 28px;
+        }
+        
+        .analysis-header {
+            margin: 28px 0 12px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #ff6b3b;
+            border-left: 3px solid #ff6b3b;
+            padding-left: 12px;
+        }
+        
+        .analysis-paragraph {
+            margin: 12px 0;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .analysis-list {
+            margin: 10px 0;
+            list-style: none;
+            padding: 0;
+        }
+        
+        .analysis-list-item {
+            margin: 6px 0 6px 24px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .analysis-block {
+            margin: 12px 0;
+            padding: 8px 12px;
+            background: rgba(255, 107, 59, 0.05);
+            border-radius: 8px;
+        }
+        
+        .block-label {
+            color: #ff8c4a;
+            font-weight: 600;
+        }
+        
         @media (max-width: 768px) {
             .quick-actions-grid {
                 grid-template-columns: repeat(4, 1fr);
                 gap: 8px;
             }
+            
             .action-name {
                 font-size: 10px;
             }
+            
             .modules-grid {
                 gap: 8px;
             }
+            
             .hero-section {
                 padding: 16px;
             }
+            
             .greeting-text h2 {
                 font-size: 20px;
             }
+            
             .full-content-page {
                 padding: 16px;
+            }
+            
+            .test-message-bubble {
+                max-width: 90%;
+            }
+            
+            .test-message-button {
+                padding: 8px 16px;
+                font-size: 13px;
+            }
+            
+            .test-message-text {
+                font-size: 14px;
+            }
+            
+            .analysis-content {
+                padding: 16px;
+            }
+            
+            .analysis-header {
+                font-size: 16px;
+            }
+            
+            .analysis-list-item {
+                margin-left: 16px;
             }
         }
     </style>
@@ -791,31 +1102,66 @@
         </div>
     </div>
 
-    <!-- Подключаем скрипты -->
-    <script src="/app.js"></script>
-    <script src="/test.js"></script>
-    <script src="/voice.js"></script>
-    <script src="/analysis.js"></script>
-  
+    <!-- ========== СКРИПТЫ ========== -->
+    <script>
+        // ============================================
+        // МИГРАЦИЯ USER_ID (строковый → числовой)
+        // ============================================
+        window.API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+        
+        let userId = localStorage.getItem('fredi_user_id');
+        
+        if (!userId) {
+            userId = Date.now();
+            localStorage.setItem('fredi_user_id', userId);
+            window.USER_ID = userId;
+            console.log('✅ Новый пользователь, ID:', userId);
+        } else if (!isNaN(parseInt(userId))) {
+            window.USER_ID = parseInt(userId);
+            console.log('✅ Существующий числовой ID:', window.USER_ID);
+        } else {
+            const oldUserId = userId;
+            userId = Date.now();
+            localStorage.setItem('fredi_user_id', userId);
+            window.USER_ID = userId;
+            
+            console.log('🔄 Миграция ID:', oldUserId, '→', userId);
+            
+            fetch(`${window.API_BASE_URL}/api/migrate-user`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    old_user_id: oldUserId,
+                    new_user_id: userId
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('✅ Миграция успешна');
+                } else {
+                    console.warn('⚠️ Миграция не удалась:', data.error);
+                }
+            })
+            .catch(err => console.warn('Migration error:', err));
+        }
+        
+        console.log('✅ USER_ID установлен:', window.USER_ID);
+    </script>
     
-  
+    <script src="app.js"></script>
+    <script src="test.js"></script>
+    <script src="voice.js"></script>
+    <script src="analysis.js"></script>
+   
     <script>
     (function() {
         // ============================================
         // КОНФИГУРАЦИЯ
         // ============================================
         const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+        const USER_ID = window.USER_ID;
 
-        function getUserId() {
-            let userId = localStorage.getItem('fredi_user_id');
-            if (!userId) {
-                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('fredi_user_id', userId);
-            }
-            return userId;
-        }
-
-        const USER_ID = getUserId();
         console.log('👤 User ID:', USER_ID);
 
         // ============================================
@@ -894,10 +1240,6 @@
                 const response = await fetch(`${API_BASE_URL}/api/generated-profile/${USER_ID}`);
                 const data = await response.json();
                 if (data.success && data.ai_profile) return data.ai_profile;
-                if (data.status === 'generating') {
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    return getAIGeneratedProfile();
-                }
                 return null;
             } catch (error) {
                 console.error('Error fetching AI profile:', error);
@@ -918,7 +1260,7 @@
 
         async function getWeekendIdeas() {
             try {
-                const data = await apiCall(`/api/ideas?user_id=${USER_ID}`);
+                const data = await apiCall(`/api/ideas/${USER_ID}`);
                 return data.ideas || [];
             } catch (error) {
                 return [];
@@ -952,108 +1294,6 @@
             }
         }
 
-        function renderDashboard() {
-            const container = document.getElementById('screenContainer');
-            const userName = localStorage.getItem('fredi_user_name') || 'друг';
-           
-            container.innerHTML = `
-                <div class="dashboard-container">
-                    <div class="hero-section">
-                        <div class="user-greeting">
-                            <div class="greeting-text">
-                                <h2>🧠 Привет, ${userName}!</h2>
-                                <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
-                            </div>
-                            <div class="profile-badge">
-                                <div class="profile-code" id="profileCode">🎭</div>
-                                <div style="font-size: 10px;">ваш психотип</div>
-                            </div>
-                        </div>
-                    </div>
-                   
-                    <div class="mode-selector">
-                        <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
-                    </div>
-                   
-                    <div class="voice-section">
-                        <div class="voice-card">
-                            <div class="voice-record-btn-premium" id="voiceBtn">
-                                <span class="voice-icon">🎤</span>
-                                <span class="voice-text">Расскажите, что вас беспокоит</span>
-                            </div>
-                        </div>
-                    </div>
-                   
-                    <div class="modules-grid">
-                        <div class="module-card"><div class="module-icon">🧠</div><div class="module-name">Анализ</div><div class="module-desc">Глубинные паттерны</div></div>
-                        <div class="module-card"><div class="module-icon">💭</div><div class="module-name">Эмоции</div><div class="module-desc">Работа с чувствами</div></div>
-                        <div class="module-card"><div class="module-icon">🕊️</div><div class="module-name">Исцеление</div><div class="module-desc">Проработка опыта</div></div>
-                        <div class="module-card"><div class="module-icon">💕</div><div class="module-name">Отношения</div><div class="module-desc">Коммуникация</div></div>
-                    </div>
-                   
-                    <div class="quick-actions">
-                        <div class="quick-actions-title">⚡ Быстрые действия</div>
-                        <div class="quick-actions-grid">
-                            <div class="quick-action" data-action="profile">
-                                <div class="action-icon">🧠</div>
-                                <div class="action-name">Мой портрет</div>
-                            </div>
-                            <div class="quick-action" data-action="thoughts">
-                                <div class="action-icon">💭</div>
-                                <div class="action-name">Мысли психолога</div>
-                            </div>
-                            <div class="quick-action" data-action="weekend">
-                                <div class="action-icon">🎨</div>
-                                <div class="action-name">Идеи на выходные</div>
-                            </div>
-                            <div class="quick-action" data-action="test">
-                                <div class="action-icon">📊</div>
-                                <div class="action-name">Пройти тест</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-           
-            // Обработчики быстрых действий
-            document.querySelectorAll('.quick-action').forEach(el => {
-                el.addEventListener('click', async () => {
-                    const action = el.dataset.action;
-                    if (action === 'profile') await handleProfileClick();
-                    else if (action === 'thoughts') await handleThoughtsClick();
-                    else if (action === 'weekend') await handleWeekendClick();
-                    else if (action === 'test') startTest();
-                });
-            });
-           
-            // ==================== ОБРАБОТЧИКИ МОДУЛЕЙ ====================
-            document.querySelectorAll('.module-card').forEach((card, index) => {
-                card.addEventListener('click', () => {
-                    switch(index) {
-                        case 0: openAnalysisScreen(); break;
-                        case 1: openEmotionsScreen(); break;
-                        case 2: openHealingScreen(); break;
-                        case 3: openRelationshipsScreen(); break;
-                        default:
-                            showToast('Этот модуль скоро будет доступен');
-                    }
-                });
-            });
-           
-            // Обработчик голосовой кнопки
-            document.getElementById('voiceBtn')?.addEventListener('click', () => {
-                showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
-            });
-           
-            // Загружаем статус профиля
-            isTestCompleted().then(completed => {
-                const codeEl = document.getElementById('profileCode');
-                if (completed && codeEl) {
-                    codeEl.textContent = '✨';
-                }
-            });
-        }
-
         function showFullContentScreen(title, content, contentType) {
             const container = document.getElementById('screenContainer');
             let formattedContent = content;
@@ -1084,10 +1324,12 @@
 
         function startTest() {
             if (window.Test && window.Test.start) {
-                window.Test.init(USER_ID);
+                if (window.Test.init) {
+                    window.Test.init(USER_ID);
+                }
                 window.Test.start();
             } else {
-                showToast('Тест загружается...');
+                showToast('📊 Тест загружается...');
             }
         }
 
@@ -1140,40 +1382,165 @@
             }
         }
 
+        function renderDashboard() {
+            const container = document.getElementById('screenContainer');
+            const userName = localStorage.getItem('fredi_user_name') || 'друг';
+           
+            container.innerHTML = `
+                <div class="dashboard-container">
+                    <div class="hero-section">
+                        <div class="user-greeting">
+                            <div class="greeting-text">
+                                <h2>🧠 Привет, ${userName}!</h2>
+                                <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
+                            </div>
+                            <div class="profile-badge">
+                                <div class="profile-code" id="profileCode">🎭</div>
+                                <div style="font-size: 10px;">ваш психотип</div>
+                            </div>
+                        </div>
+                    </div>
+                   
+                    <div class="mode-selector">
+                        <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                    </div>
+                   
+                    <div class="voice-section">
+                        <div class="voice-card">
+                            <div class="voice-record-btn-premium" id="voiceBtn">
+                                <span class="voice-icon">🎤</span>
+                                <span class="voice-text">Расскажите, что вас беспокоит</span>
+                            </div>
+                        </div>
+                    </div>
+                   
+                    <div class="modules-grid">
+                        <div class="module-card" data-module="analysis">
+                            <div class="module-icon">🧠</div>
+                            <div class="module-name">Анализ</div>
+                            <div class="module-desc">Глубинные паттерны</div>
+                        </div>
+                        <div class="module-card" data-module="emotions">
+                            <div class="module-icon">💭</div>
+                            <div class="module-name">Эмоции</div>
+                            <div class="module-desc">Работа с чувствами</div>
+                        </div>
+                        <div class="module-card" data-module="healing">
+                            <div class="module-icon">🕊️</div>
+                            <div class="module-name">Исцеление</div>
+                            <div class="module-desc">Проработка опыта</div>
+                        </div>
+                        <div class="module-card" data-module="relationships">
+                            <div class="module-icon">💕</div>
+                            <div class="module-name">Отношения</div>
+                            <div class="module-desc">Коммуникация</div>
+                        </div>
+                    </div>
+                   
+                    <div class="quick-actions">
+                        <div class="quick-actions-title">⚡ Быстрые действия</div>
+                        <div class="quick-actions-grid">
+                            <div class="quick-action" data-action="profile">
+                                <div class="action-icon">🧠</div>
+                                <div class="action-name">Мой портрет</div>
+                            </div>
+                            <div class="quick-action" data-action="thoughts">
+                                <div class="action-icon">💭</div>
+                                <div class="action-name">Мысли психолога</div>
+                            </div>
+                            <div class="quick-action" data-action="weekend">
+                                <div class="action-icon">🎨</div>
+                                <div class="action-name">Идеи на выходные</div>
+                            </div>
+                            <div class="quick-action" data-action="test">
+                                <div class="action-icon">📊</div>
+                                <div class="action-name">Пройти тест</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+           
+            // Обработчики быстрых действий
+            document.querySelectorAll('.quick-action').forEach(el => {
+                el.addEventListener('click', async () => {
+                    const action = el.dataset.action;
+                    if (action === 'profile') await handleProfileClick();
+                    else if (action === 'thoughts') await handleThoughtsClick();
+                    else if (action === 'weekend') await handleWeekendClick();
+                    else if (action === 'test') startTest();
+                });
+            });
+           
+            // Обработчики модулей
+            document.querySelectorAll('.module-card').forEach((card) => {
+                const moduleName = card.dataset.module;
+                card.addEventListener('click', () => {
+                    if (moduleName === 'analysis') {
+                        if (typeof openAnalysisScreen === 'function') {
+                            openAnalysisScreen();
+                        } else {
+                            showToast('📊 Модуль анализа загружается...');
+                            const script = document.createElement('script');
+                            script.src = 'analysis.js';
+                            script.onload = () => openAnalysisScreen();
+                            document.head.appendChild(script);
+                        }
+                    } else {
+                        showToast(`Модуль "${card.querySelector('.module-name')?.textContent}" скоро будет доступен`);
+                    }
+                });
+            });
+           
+            // Обработчик голосовой кнопки
+            document.getElementById('voiceBtn')?.addEventListener('click', () => {
+                if (window.VoiceManager && window.VoiceManager.startRecording) {
+                    window.VoiceManager.startRecording();
+                } else {
+                    showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
+                }
+            });
+           
+            // Загружаем статус профиля
+            isTestCompleted().then(completed => {
+                const codeEl = document.getElementById('profileCode');
+                if (completed && codeEl) {
+                    codeEl.textContent = '✨';
+                }
+            });
+        }
+
         // ============================================
-        // МОБИЛЬНОЕ МЕНЮ (исправлено и усилено)
+        // МОБИЛЬНОЕ МЕНЮ
         // ============================================
         function initMobileMenu() {
             const mobileBtn = document.getElementById('mobileMenuBtn');
             const panel = document.getElementById('chatsPanel');
-           
+            
             if (!mobileBtn || !panel) return;
-
-            // Удаляем старые обработчики
-            mobileBtn.replaceWith(mobileBtn.cloneNode(true));
-            const newMobileBtn = document.getElementById('mobileMenuBtn');
-
-            newMobileBtn.addEventListener('click', function(e) {
+            
+            const newBtn = mobileBtn.cloneNode(true);
+            mobileBtn.parentNode.replaceChild(newBtn, mobileBtn);
+            
+            newBtn.addEventListener('click', function(e) {
                 e.preventDefault();
-                e.stopImmediatePropagation();
+                e.stopPropagation();
                 panel.classList.toggle('open');
             });
-
-            // Закрытие при клике вне меню
+            
             document.addEventListener('click', function(e) {
                 if (panel.classList.contains('open')) {
-                    if (!panel.contains(e.target) && !newMobileBtn.contains(e.target)) {
+                    if (!panel.contains(e.target) && !newBtn.contains(e.target)) {
                         panel.classList.remove('open');
                     }
                 }
             });
-
-            // Закрытие при свайпе влево
+            
             let touchStartX = 0;
             panel.addEventListener('touchstart', function(e) {
                 touchStartX = e.touches[0].clientX;
             }, { passive: true });
-
+            
             panel.addEventListener('touchend', function(e) {
                 const touchEndX = e.changedTouches[0].clientX;
                 if (touchEndX - touchStartX < -80) {
@@ -1220,5 +1587,23 @@
         document.addEventListener('DOMContentLoaded', init);
     })();
     </script>
+
+    <!-- SEO-текст для поисковиков (скрыт от пользователей, но виден роботам) -->
+    <div style="display: none; position: absolute; visibility: hidden; height: 0; width: 0; overflow: hidden;">
+        <h1>Фреди — виртуальный психолог на базе искусственного интеллекта</h1>
+        <p>Фреди — это премиум виртуальный психолог, созданный на основе технологий искусственного интеллекта. Сервис предоставляет психологическую поддержку 24/7, глубинный анализ личности, работу с паттернами поведения, тревогой, стрессом и межличностными отношениями.</p>
+        
+        <h2>Возможности Фреди:</h2>
+        <ul>
+            <li>Глубинный психологический анализ личности</li>
+            <li>Работа с поведенческими паттернами</li>
+            <li>Помощь в преодолении тревоги и стресса</li>
+            <li>Развитие эмоционального интеллекта</li>
+            <li>Терапевтические сказки и гипнотические техники</li>
+            <li>Персональные рекомендации по развитию</li>
+        </ul>
+        
+        <p>Виртуальный психолог Фреди — это доступная психологическая помощь онлайн. Искусственный интеллект анализирует ваши ответы, выявляет глубинные паттерны и помогает найти точки роста.</p>
+    </div>
 </body>
 </html>
