@@ -622,6 +622,10 @@ function startTest() {
 
 // ========== ДАШБОРД ==========
 function updateModeUI() {
+    const config = MODES[currentMode];
+    document.getElementById('modeLabel').textContent = config.name;
+    document.getElementById('modeIndicator').style.background = config.color;
+}
 
 function showFullContentScreen(title, content, contentType, rawText = null) {
     const container = document.getElementById('screenContainer');
@@ -688,6 +692,8 @@ function formatContentForDisplay(text) {
     }).join('');
     return formatted;
 }
+
+async function switchMode(mode) {
 
 // ========== ОТОБРАЖЕНИЕ РАЗДЕЛОВ ==========
 
@@ -1445,15 +1451,6 @@ async function handleShowDoubles() {
         document.head.appendChild(script);
     }
 }
-
-// ========== ДАШБОРД ==========
-function updateModeUI() {
-    const config = MODES[currentMode];
-    document.getElementById('modeLabel').textContent = config.name;
-    document.getElementById('modeIndicator').style.background = config.color;
-}
-
-function showFullContentScreen(title, content, contentType, rawText = null) {
 
 async function switchMode(mode) {
     if (mode === currentMode) return;
