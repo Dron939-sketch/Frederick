@@ -1466,6 +1466,7 @@ async function switchMode(mode) {
     }
 }
 
+
 function initMobileEnhancements() {
     if (window.innerWidth > 768) return;
     
@@ -1888,4 +1889,3 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
-} 
