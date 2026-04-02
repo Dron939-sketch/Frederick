@@ -1095,12 +1095,466 @@
         console.log('✅ USER_ID установлен:', window.USER_ID);
     </script>
     
-    <script src="app.js"></script>
     <script src="test.js"></script>
     <script src="voice.js"></script>
     <script src="analysis.js"></script>
     <script src="doubles.js"></script>
+    
+    <script>
+    (function() {
+        // ============================================
+        // КОНФИГУРАЦИЯ
+        // ============================================
+        const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+        const USER_ID = window.USER_ID;
 
+        console.log('👤 User ID:', USER_ID);
+
+        // ============================================
+        // ФУНКЦИИ ФОРМАТИРОВАНИЯ
+        // ============================================
+        function formatProfileText(text) {
+            if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
+            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+            text = text.replace(/\*(.*?)\*/g, '$1');
+            const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
+            const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
+            headers.forEach((header, i) => {
+                const regex = new RegExp(header, 'gi');
+                text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
+            });
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            return text;
+        }
+       
+        function formatThoughtText(text) {
+            if (!text) return '💭 Мысли психолога появятся после завершения теста.';
+            text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+            text = text.replace(/\*(.*?)\*/g, '$1');
+            const headers = ['КЛЮЧЕВОЙ ЭЛЕМЕНТ', 'ПЕТЛЯ', 'ТОЧКА ВХОДА', 'ПРОГНОЗ', 'РЕКОМЕНДАЦИИ'];
+            const emojis = ['🔐', '🔄', '🚪', '📊', '💡'];
+            headers.forEach((header, i) => {
+                const regex = new RegExp(header, 'gi');
+                text = text.replace(regex, `<div class="thoughts-section-title">${emojis[i]} ${header}</div>`);
+            });
+            text = text.replace(/•\s*/g, '<br>• ');
+            text = text.replace(/-\s*/g, '<br>• ');
+            text = text.replace(/\n\n/g, '<br><br>');
+            text = text.replace(/\n/g, '<br>');
+            return text;
+        }
+
+        // ============================================
+        // API ВЫЗОВЫ
+        // ============================================
+        async function apiCall(endpoint, options = {}) {
+            const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers: { 'Content-Type': 'application/json', ...options.headers }
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                return data;
+            } catch (error) {
+                console.error(`API Error: ${endpoint}`, error);
+                throw error;
+            }
+        }
+
+        async function isTestCompleted() {
+            try {
+                const data = await apiCall(`/api/user-status?user_id=${USER_ID}`);
+                if (data.has_profile) return true;
+                const stored = localStorage.getItem(`test_results_${USER_ID}`);
+                if (stored) {
+                    const results = JSON.parse(stored);
+                    if (results.profile || results.aiProfile) return true;
+                }
+                return false;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        async function getAIGeneratedProfile() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/generated-profile/${USER_ID}`);
+                const data = await response.json();
+                if (data.success && data.ai_profile) return data.ai_profile;
+                return null;
+            } catch (error) {
+                console.error('Error fetching AI profile:', error);
+                return null;
+            }
+        }
+
+        async function getPsychologistThought() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/psychologist-thought/${USER_ID}`);
+                const data = await response.json();
+                return data.success ? data.thought : null;
+            } catch (error) {
+                console.error('Error fetching thought:', error);
+                return null;
+            }
+        }
+
+        async function getWeekendIdeas() {
+            try {
+                const data = await apiCall(`/api/ideas/${USER_ID}`);
+                return data.ideas || [];
+            } catch (error) {
+                return [];
+            }
+        }
+
+        // ============================================
+        // UI ФУНКЦИИ
+        // ============================================
+        function showToast(message) {
+            const toast = document.getElementById('toastMessage');
+            const textEl = document.getElementById('toastText');
+            if (!toast || !textEl) return;
+            textEl.innerHTML = message;
+            toast.style.display = 'flex';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+            if (document.getElementById('toastClose')) {
+                document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
+            }
+        }
+
+        function showLoading(message) {
+            const container = document.getElementById('screenContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="loading-screen">
+                        <div class="loading-spinner">🧠</div>
+                        <div class="loading-text">${message}</div>
+                    </div>
+                `;
+            }
+        }
+
+        function showFullContentScreen(title, content, contentType) {
+            const container = document.getElementById('screenContainer');
+            let formattedContent = content;
+            if (contentType === 'profile') formattedContent = formatProfileText(content);
+            else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
+            else formattedContent = (content || '').replace(/\n/g, '<br>');
+           
+            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
+           
+            container.innerHTML = `
+                <div class="full-content-page">
+                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                    <div class="content-header">
+                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
+                        <h1>${title}</h1>
+                    </div>
+                    <div class="content-body">
+                        ${formattedContent || 'Данные не найдены'}
+                    </div>
+                </div>
+            `;
+           
+            const backBtn = document.getElementById('backBtn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => renderDashboard());
+            }
+        }
+
+        function startTest() {
+            if (window.Test && window.Test.start) {
+                if (window.Test.init) {
+                    window.Test.init(USER_ID);
+                }
+                window.Test.start();
+            } else {
+                showToast('📊 Тест загружается...');
+            }
+        }
+
+        // ============================================
+        // ОСНОВНЫЕ ОБРАБОТЧИКИ
+        // ============================================
+        async function handleProfileClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            showLoading('Загружаю психологический портрет...');
+            const profile = await getAIGeneratedProfile();
+            if (profile) {
+                showFullContentScreen('Мой портрет', profile, 'profile');
+            } else {
+                showFullContentScreen('Мой портрет', '🧠 Психологический портрет формируется. Подождите немного.', 'profile');
+            }
+        }
+
+        async function handleThoughtsClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            showLoading('Загружаю мысли психолога...');
+            const thought = await getPsychologistThought();
+            if (thought) {
+                showFullContentScreen('Мысли психолога', thought, 'thoughts');
+            } else {
+                showFullContentScreen('Мысли психолога', '💭 Мысли психолога появятся после завершения теста.', 'thoughts');
+            }
+        }
+
+        async function handleWeekendClick() {
+            const completed = await isTestCompleted();
+            if (!completed) {
+                showToast('📊 Сначала пройдите психологический тест');
+                return;
+            }
+            showLoading('Подбираю идеи...');
+            const ideas = await getWeekendIdeas();
+            if (ideas && ideas.length > 0) {
+                const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
+                showFullContentScreen('Идеи на выходные', ideasText, 'goals');
+            } else {
+                showFullContentScreen('Идеи на выходные', '🎨 Идеи появятся после завершения теста.', 'goals');
+            }
+        }
+
+        function renderDashboard() {
+            const container = document.getElementById('screenContainer');
+            const userName = localStorage.getItem('fredi_user_name') || 'друг';
+           
+            container.innerHTML = `
+                <div class="dashboard-container">
+                    <div class="hero-section">
+                        <div class="user-greeting">
+                            <div class="greeting-text">
+                                <h2>🧠 Привет, ${userName}!</h2>
+                                <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
+                            </div>
+                            <div class="profile-badge">
+                                <div class="profile-code" id="profileCode">🎭</div>
+                                <div style="font-size: 10px;">ваш психотип</div>
+                            </div>
+                        </div>
+                    </div>
+                   
+                    <div class="mode-selector">
+                        <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                    </div>
+                   
+                    <div class="voice-section">
+                        <div class="voice-card">
+                            <div class="voice-record-btn-premium" id="voiceBtn">
+                                <span class="voice-icon">🎤</span>
+                                <span class="voice-text">Расскажите, что вас беспокоит</span>
+                            </div>
+                        </div>
+                    </div>
+                   
+                    <div class="modules-grid">
+                        <div class="module-card" data-module="analysis">
+                            <div class="module-icon">🧠</div>
+                            <div class="module-name">Анализ</div>
+                            <div class="module-desc">Глубинные паттерны</div>
+                        </div>
+                        <div class="module-card" data-module="emotions">
+                            <div class="module-icon">💭</div>
+                            <div class="module-name">Эмоции</div>
+                            <div class="module-desc">Работа с чувствами</div>
+                        </div>
+                        <div class="module-card" data-module="healing">
+                            <div class="module-icon">🕊️</div>
+                            <div class="module-name">Исцеление</div>
+                            <div class="module-desc">Проработка опыта</div>
+                        </div>
+                        <div class="module-card" data-module="relationships">
+                            <div class="module-icon">💕</div>
+                            <div class="module-name">Отношения</div>
+                            <div class="module-desc">Коммуникация</div>
+                        </div>
+                    </div>
+                   
+                    <div class="quick-actions">
+                        <div class="quick-actions-title">⚡ Быстрые действия</div>
+                        <div class="quick-actions-grid">
+                            <div class="quick-action" data-action="profile">
+                                <div class="action-icon">🧠</div>
+                                <div class="action-name">Мой портрет</div>
+                            </div>
+                            <div class="quick-action" data-action="thoughts">
+                                <div class="action-icon">💭</div>
+                                <div class="action-name">Мысли психолога</div>
+                            </div>
+                            <div class="quick-action" data-action="weekend">
+                                <div class="action-icon">🎨</div>
+                                <div class="action-name">Идеи на выходные</div>
+                            </div>
+                            <div class="quick-action" data-action="test">
+                                <div class="action-icon">📊</div>
+                                <div class="action-name">Пройти тест</div>
+                            </div>
+                            <div class="quick-action" data-action="doubles">
+                                <div class="action-icon">👥</div>
+                                <div class="action-name">Двойники</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+           
+            // Обработчики быстрых действий
+            document.querySelectorAll('.quick-action').forEach(el => {
+                el.addEventListener('click', async () => {
+                    const action = el.dataset.action;
+                    if (action === 'profile') await handleProfileClick();
+                    else if (action === 'thoughts') await handleThoughtsClick();
+                    else if (action === 'weekend') await handleWeekendClick();
+                    else if (action === 'test') startTest();
+                    else if (action === 'doubles') {
+                        if (typeof showDoublesScreen === 'function') {
+                            showDoublesScreen();
+                        } else {
+                            showToast('👥 Модуль двойников загружается...');
+                        }
+                    }
+                });
+            });
+           
+            // Обработчики модулей
+            document.querySelectorAll('.module-card').forEach((card) => {
+                const moduleName = card.dataset.module;
+                card.addEventListener('click', () => {
+                    if (moduleName === 'analysis') {
+                        if (typeof openAnalysisScreen === 'function') {
+                            openAnalysisScreen();
+                        } else {
+                            showToast('📊 Модуль анализа загружается...');
+                            const script = document.createElement('script');
+                            script.src = 'analysis.js';
+                            script.onload = () => openAnalysisScreen();
+                            document.head.appendChild(script);
+                        }
+                    } else {
+                        showToast(`Модуль "${card.querySelector('.module-name')?.textContent}" скоро будет доступен`);
+                    }
+                });
+            });
+           
+            // Обработчик голосовой кнопки
+            document.getElementById('voiceBtn')?.addEventListener('click', () => {
+                if (window.VoiceManager && window.VoiceManager.startRecording) {
+                    window.VoiceManager.startRecording();
+                } else {
+                    showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
+                }
+            });
+           
+            // Загружаем статус профиля
+            isTestCompleted().then(completed => {
+                const codeEl = document.getElementById('profileCode');
+                if (completed && codeEl) {
+                    codeEl.textContent = '✨';
+                }
+            });
+        }
+
+        // ============================================
+        // МОБИЛЬНОЕ МЕНЮ
+        // ============================================
+        function initMobileMenu() {
+            const mobileBtn = document.getElementById('mobileMenuBtn');
+            const panel = document.getElementById('chatsPanel');
+            
+            if (!mobileBtn || !panel) return;
+            
+            const newBtn = mobileBtn.cloneNode(true);
+            mobileBtn.parentNode.replaceChild(newBtn, mobileBtn);
+            
+            newBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                panel.classList.toggle('open');
+            });
+            
+            document.addEventListener('click', function(e) {
+                if (panel.classList.contains('open')) {
+                    if (!panel.contains(e.target) && !newBtn.contains(e.target)) {
+                        panel.classList.remove('open');
+                    }
+                }
+            });
+            
+            let touchStartX = 0;
+            panel.addEventListener('touchstart', function(e) {
+                touchStartX = e.touches[0].clientX;
+            }, { passive: true });
+            
+            panel.addEventListener('touchend', function(e) {
+                const touchEndX = e.changedTouches[0].clientX;
+                if (touchEndX - touchStartX < -80) {
+                    panel.classList.remove('open');
+                }
+            });
+            
+            // Закрытие при клике на пункт меню
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    if (window.innerWidth <= 768) {
+                        panel.classList.remove('open');
+                    }
+                });
+            });
+        }
+
+        function setupMenuHandlers() {
+            document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
+           
+            document.getElementById('chatSearchInput')?.addEventListener('input', (e) => {
+                const search = e.target.value.toLowerCase();
+                document.querySelectorAll('.chat-item').forEach(item => {
+                    const name = item.querySelector('.chat-name')?.textContent.toLowerCase();
+                    item.style.display = name?.includes(search) ? 'flex' : 'none';
+                });
+            });
+        }
+
+        function init() {
+            console.log('🚀 FREDI запущен');
+            initMobileMenu();
+            setupMenuHandlers();
+            renderDashboard();
+           
+            const userName = localStorage.getItem('fredi_user_name');
+            if (!userName) {
+                setTimeout(() => {
+                    const name = prompt('Как мне к вам обращаться?', '');
+                    if (name && name.trim()) {
+                        localStorage.setItem('fredi_user_name', name.trim());
+                        document.getElementById('userName').textContent = name;
+                        document.getElementById('userMiniAvatar').textContent = name.charAt(0).toUpperCase();
+                        renderDashboard();
+                    }
+                }, 500);
+            } else {
+                document.getElementById('userName').textContent = userName;
+                document.getElementById('userMiniAvatar').textContent = userName.charAt(0).toUpperCase();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+
+    <!-- SEO-текст для поисковиков (скрыт от пользователей, но виден роботам) -->
     <div style="display: none; position: absolute; visibility: hidden; height: 0; width: 0; overflow: hidden;">
         <h1>Фреди — виртуальный психолог на базе искусственного интеллекта</h1>
         <p>Фреди — это премиум виртуальный психолог, созданный на основе технологий искусственного интеллекта. Сервис предоставляет психологическую поддержку 24/7, глубинный анализ личности, работу с паттернами поведения, тревогой, стрессом и межличностными отношениями.</p>
