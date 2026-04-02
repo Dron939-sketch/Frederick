@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 7.2 — с поддержкой кэширования анализа в БД
+// Версия 7.3 — с фиксированными кнопками и улучшенным UI
 // ============================================
 
 // ========== ГЛОБАЛЬНАЯ ФУНКЦИЯ ПРОВЕРКИ ТЕСТА ==========
@@ -138,8 +138,7 @@ async function openAnalysisScreen() {
         const thoughtData = await thoughtRes.json();
         cachedAIAnalysis.thought = thoughtData.success ? thoughtData.thought : '';
         
-        // ========== НОВЫЙ КОД: ПРОВЕРЯЕМ СОХРАНЕННЫЙ АНАЛИЗ ==========
-        // Сначала пробуем получить сохраненный анализ из БД
+        // Проверяем сохраненный анализ в БД
         const savedAnalysisRes = await fetch(`${apiUrl}/api/deep-analysis/${userId}`);
         const savedAnalysisData = await savedAnalysisRes.json();
         
@@ -184,7 +183,7 @@ async function generateDeepAnalysis() {
     
     showAnalysisLoading('🧠 Провожу глубинный анализ...', 'Это занимает 20-40 секунд');
     
-    const loadingContainer = document.querySelector('.screen-container > div');
+    const loadingContainer = document.querySelector('#screenContainer > div');
     let timeElement = null;
     if (loadingContainer) {
         timeElement = document.createElement('div');
@@ -256,11 +255,8 @@ async function generateDeepAnalysis() {
 // ============================================
 
 async function regenerateDeepAnalysis() {
-    // Спрашиваем подтверждение
     const confirmed = confirm('⚠️ Внимание! Новый анализ заменит предыдущий. Продолжить?');
     if (!confirmed) return;
-    
-    // Генерируем новый анализ
     await generateDeepAnalysis();
 }
 
@@ -269,15 +265,22 @@ async function regenerateDeepAnalysis() {
 // ============================================
 
 function renderFallbackAnalysis() {
-    const fallbackText = `
-<div style="text-align: center; padding: 40px 20px;">
-    <div style="font-size: 64px; margin-bottom: 16px;">🧠</div>
-    <div style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">Анализ формируется</div>
-    <button onclick="regenerateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Попробовать снова</button>
-</div>
-`;
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
     
-    document.getElementById('analysisTabContent').innerHTML = fallbackText;
+    container.innerHTML = `
+        <div style="max-width: 900px; margin: 0 auto; padding: 40px 20px; text-align: center;">
+            <div style="font-size: 64px; margin-bottom: 16px;">🧠</div>
+            <div style="font-size: 20px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Анализ формируется</div>
+            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 24px;">Попробуйте снова через несколько секунд</div>
+            <button onclick="regenerateDeepAnalysis()" style="background: rgba(255,107,59,0.15); border: 1px solid rgba(255,107,59,0.3); padding: 10px 24px; border-radius: 40px; font-size: 14px; font-weight: 500; color: #ff6b3b; cursor: pointer;">
+                🔄 Попробовать снова
+            </button>
+            <button onclick="goToDashboard()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); padding: 10px 24px; border-radius: 40px; font-size: 14px; font-weight: 500; color: #a0a3b0; cursor: pointer; margin-left: 12px;">
+                🏠 На главную
+            </button>
+        </div>
+    `;
 }
 
 // ============================================
@@ -289,27 +292,38 @@ function renderAnalysisWithTabs() {
     if (!container) return;
 
     container.innerHTML = `
-        <div style="max-width: 900px; margin: 0 auto; padding: 16px;">
-            <button class="back-btn" id="backToDashboard" style="margin-bottom: 16px; padding: 8px 16px;">◀️ НАЗАД</button>
+        <div style="max-width: 900px; margin: 0 auto; padding: 16px; padding-bottom: 100px;">
+            <!-- Кнопка назад -->
+            <button id="backToDashboard" style="margin-bottom: 20px; padding: 8px 16px; background: rgba(255,107,59,0.1); border: none; border-radius: 30px; color: white; cursor: pointer; font-size: 14px;">
+                ◀️ НАЗАД
+            </button>
 
-            <div style="margin-bottom: 16px;">
-                <div style="font-size: 24px; font-weight: 700;">🧠 Глубинный анализ паттернов</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">Системный AI-анализ</div>
+            <!-- Заголовок -->
+            <div style="margin-bottom: 24px;">
+                <div style="font-size: 28px; font-weight: 700; margin-bottom: 4px;">🧠 Глубинный анализ паттернов</div>
+                <div style="font-size: 13px; color: var(--text-secondary);">Системный AI-анализ на основе теста</div>
             </div>
 
-            <div class="analysis-tabs" style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+            <!-- Табы -->
+            <div class="analysis-tabs" style="display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; border-bottom: 1px solid rgba(255,107,59,0.2); padding-bottom: 12px;">
                 <button class="analysis-tab active" data-tab="overview">📊 Полный анализ</button>
                 <button class="analysis-tab" data-tab="patterns">🔄 Петли и механизмы</button>
                 <button class="analysis-tab" data-tab="recommendations">🌱 Точки роста</button>
                 <button class="analysis-tab" data-tab="thought">🧠 Мысли психолога</button>
             </div>
 
-            <div id="analysisTabContent"></div>
-
-            <div style="margin-top: 24px; display: flex; gap: 12px; justify-content: center;">
-                <button id="regenerateAnalysisBtn" class="analysis-btn">🔄 Провести новый анализ</button>
-                <button id="backToDashboardBtn" class="analysis-btn">🏠 Вернуться</button>
-            </div>
+            <!-- Контент табов -->
+            <div id="analysisTabContent" style="min-height: 400px;"></div>
+        </div>
+        
+        <!-- ФИКСИРОВАННЫЕ КНОПКИ ВНИЗУ (всегда видны) -->
+        <div style="position: sticky; bottom: 0; background: linear-gradient(to top, #0a0a0f 85%, transparent); padding: 20px 16px 30px; margin-top: 20px; display: flex; gap: 16px; justify-content: center; border-top: 1px solid rgba(255,107,59,0.2); backdrop-filter: blur(10px); z-index: 100;">
+            <button id="regenerateAnalysisBtn" style="background: rgba(255,107,59,0.15); border: 1px solid rgba(255,107,59,0.3); padding: 10px 28px; border-radius: 40px; font-size: 14px; font-weight: 500; color: #ff6b3b; cursor: pointer; transition: all 0.2s;">
+                🔄 Провести новый анализ
+            </button>
+            <button id="backToDashboardBtn" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); padding: 10px 28px; border-radius: 40px; font-size: 14px; font-weight: 500; color: #a0a3b0; cursor: pointer; transition: all 0.2s;">
+                🏠 Вернуться
+            </button>
         </div>
     `;
 
@@ -321,62 +335,67 @@ function renderAnalysisWithTabs() {
             .analysis-tab {
                 background: rgba(255,107,59,0.1);
                 border: none;
-                padding: 6px 14px;
+                padding: 8px 18px;
                 border-radius: 30px;
-                font-size: 12px;
+                font-size: 13px;
                 font-weight: 500;
                 color: #a0a3b0;
                 cursor: pointer;
                 transition: all 0.2s;
             }
+            .analysis-tab:hover {
+                background: rgba(255,107,59,0.2);
+                color: #ff6b3b;
+            }
             .analysis-tab.active {
                 background: #ff6b3b;
                 color: white;
             }
-            .analysis-btn {
-                background: rgba(255,107,59,0.1);
-                border: none;
-                padding: 8px 20px;
-                border-radius: 30px;
-                font-size: 13px;
-                color: white;
-                cursor: pointer;
-                transition: all 0.2s;
-            }
-            .analysis-btn:hover {
-                background: rgba(255,107,59,0.2);
-            }
             .fredi-analysis .analysis-section-title {
-                font-size: 15px;
+                font-size: 16px;
                 font-weight: 700;
-                margin: 16px 0 6px;
+                margin: 24px 0 10px 0;
                 color: #ff6b3b;
+                padding-bottom: 6px;
+                border-bottom: 1px solid rgba(255,107,59,0.2);
+            }
+            .fredi-analysis .analysis-section-title:first-child {
+                margin-top: 0;
             }
             .fredi-analysis .analysis-text {
-                font-size: 13px;
-                line-height: 1.45;
+                font-size: 14px;
+                line-height: 1.5;
                 color: #c0c0c0;
-                margin: 4px 0;
+                margin: 8px 0;
             }
             .fredi-analysis .analysis-bold {
                 color: #ff6b3b;
                 font-weight: 600;
             }
             .fredi-analysis .analysis-list-item {
-                font-size: 13px;
-                line-height: 1.45;
+                font-size: 14px;
+                line-height: 1.5;
                 color: #c0c0c0;
-                margin: 3px 0 3px 16px;
+                margin: 6px 0 6px 20px;
             }
             .fredi-analysis .analysis-list-item.numbered {
-                margin-left: 20px;
+                margin-left: 24px;
+            }
+            #regenerateAnalysisBtn:hover, #backToDashboardBtn:hover {
+                transform: translateY(-2px);
+                opacity: 0.9;
+            }
+            #backToDashboard:hover {
+                opacity: 0.8;
             }
         `;
         document.head.appendChild(style);
     }
 
+    // Отображаем активную вкладку
     switchTab('overview');
 
+    // Навешиваем обработчики
     document.getElementById('backToDashboard')?.addEventListener('click', () => goToDashboard());
     document.getElementById('backToDashboardBtn')?.addEventListener('click', () => goToDashboard());
     document.getElementById('regenerateAnalysisBtn')?.addEventListener('click', () => regenerateDeepAnalysis());
@@ -424,27 +443,35 @@ function switchTab(tab) {
 function renderOverviewTab() {
     let content = '';
     
-    if (cachedAIAnalysis.portrait) {
-        content += `<div class="analysis-section-title">📊 ГЛУБИННЫЙ ПОРТРЕТ</div>${formatText(cachedAIAnalysis.portrait)}`;
-    }
-    if (cachedAIAnalysis.loops) {
-        content += `<div class="analysis-section-title">🔄 СИСТЕМНЫЕ ПЕТЛИ</div>${formatText(cachedAIAnalysis.loops)}`;
-    }
-    if (cachedAIAnalysis.mechanisms) {
-        content += `<div class="analysis-section-title">🧠 СКРЫТЫЕ МЕХАНИЗМЫ</div>${formatText(cachedAIAnalysis.mechanisms)}`;
-    }
-    if (cachedAIAnalysis.growth) {
-        content += `<div class="analysis-section-title">🌱 ТОЧКИ РОСТА</div>${formatText(cachedAIAnalysis.growth)}`;
-    }
-    if (cachedAIAnalysis.forecast) {
-        content += `<div class="analysis-section-title">📊 ПРОГНОЗ</div>${formatText(cachedAIAnalysis.forecast)}`;
-    }
-    if (cachedAIAnalysis.keys) {
-        content += `<div class="analysis-section-title">🔑 ПЕРСОНАЛЬНЫЕ КЛЮЧИ</div>${formatText(cachedAIAnalysis.keys)}`;
+    const sections = [
+        { key: 'portrait', title: '📊 ГЛУБИННЫЙ ПОРТРЕТ', icon: '📊' },
+        { key: 'loops', title: '🔄 СИСТЕМНЫЕ ПЕТЛИ', icon: '🔄' },
+        { key: 'mechanisms', title: '🧠 СКРЫТЫЕ МЕХАНИЗМЫ', icon: '🧠' },
+        { key: 'growth', title: '🌱 ТОЧКИ РОСТА', icon: '🌱' },
+        { key: 'forecast', title: '📊 ПРОГНОЗ', icon: '📊' },
+        { key: 'keys', title: '🔑 ПЕРСОНАЛЬНЫЕ КЛЮЧИ', icon: '🔑' }
+    ];
+    
+    let hasContent = false;
+    for (const section of sections) {
+        if (cachedAIAnalysis[section.key]) {
+            hasContent = true;
+            content += `<div class="analysis-section-title">${section.title}</div>`;
+            content += formatText(cachedAIAnalysis[section.key]);
+        }
     }
     
-    if (!content) {
-        content = '<div style="text-align: center; padding: 40px;">Анализ ещё не выполнен. Нажмите "Провести новый анализ".</div>';
+    if (!hasContent) {
+        content = `
+            <div style="text-align: center; padding: 60px 20px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
+                <div style="font-size: 18px; font-weight: 500; margin-bottom: 8px;">Анализ ещё не выполнен</div>
+                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 24px;">Нажмите "Провести новый анализ" для генерации</div>
+                <button onclick="regenerateDeepAnalysis()" style="background: rgba(255,107,59,0.15); border: 1px solid rgba(255,107,59,0.3); padding: 10px 24px; border-radius: 40px; font-size: 14px; color: #ff6b3b; cursor: pointer;">
+                    🔄 Провести анализ
+                </button>
+            </div>
+        `;
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
@@ -469,7 +496,12 @@ function renderPatternsTab() {
     }
     
     if (!content) {
-        content = '<div style="text-align: center; padding: 40px;">Раздел будет доступен после анализа</div>';
+        content = `
+            <div style="text-align: center; padding: 60px 20px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">🔄</div>
+                <div style="font-size: 16px; color: var(--text-secondary);">Раздел будет доступен после прохождения анализа</div>
+            </div>
+        `;
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
@@ -494,7 +526,12 @@ function renderRecommendationsTab() {
     }
     
     if (!content) {
-        content = '<div style="text-align: center; padding: 40px;">Раздел будет доступен после анализа</div>';
+        content = `
+            <div style="text-align: center; padding: 60px 20px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">🌱</div>
+                <div style="font-size: 16px; color: var(--text-secondary);">Раздел будет доступен после прохождения анализа</div>
+            </div>
+        `;
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
@@ -513,10 +550,13 @@ function renderThoughtTab() {
     
     if (!thought) {
         document.getElementById('analysisTabContent').innerHTML = `
-            <div style="text-align: center; padding: 40px;">
-                <div style="font-size: 40px; margin-bottom: 12px;">🧠</div>
-                <div style="font-size: 16px; font-weight: 600;">Мысли психолога появятся позже</div>
-                <button onclick="regenerateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Провести анализ</button>
+            <div style="text-align: center; padding: 60px 20px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">🧠</div>
+                <div style="font-size: 18px; font-weight: 500; margin-bottom: 8px;">Мысли психолога</div>
+                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 24px;">Появятся после завершения теста</div>
+                <button onclick="regenerateDeepAnalysis()" style="background: rgba(255,107,59,0.15); border: 1px solid rgba(255,107,59,0.3); padding: 10px 24px; border-radius: 40px; font-size: 14px; color: #ff6b3b; cursor: pointer;">
+                    🔄 Обновить
+                </button>
             </div>
         `;
         return;
@@ -528,15 +568,15 @@ function renderThoughtTab() {
     
     document.getElementById('analysisTabContent').innerHTML = `
         <div class="fredi-analysis">
-            <div style="background: rgba(255,107,59,0.05); border-radius: 16px; padding: 16px;">
-                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
-                    <div style="font-size: 28px;">🧠</div>
+            <div style="background: linear-gradient(135deg, rgba(255,107,59,0.08) 0%, rgba(255,107,59,0.02) 100%); border-radius: 20px; padding: 24px;">
+                <div style="display: flex; gap: 12px; margin-bottom: 16px; align-items: center;">
+                    <div style="font-size: 32px;">🧠</div>
                     <div>
-                        <div style="font-size: 10px; color: var(--text-secondary);">ФРЕДИ ГОВОРИТ</div>
-                        <div style="font-size: 16px; font-weight: 600;">Мысли психолога</div>
+                        <div style="font-size: 11px; color: #ff6b3b; text-transform: uppercase; letter-spacing: 1px;">ФРЕДИ ГОВОРИТ</div>
+                        <div style="font-size: 18px; font-weight: 600;">Мысли психолога</div>
                     </div>
                 </div>
-                <div style="font-size: 14px; line-height: 1.5; font-style: italic; color: #c0c0c0;">
+                <div style="font-size: 15px; line-height: 1.6; font-style: italic; color: #d0d0d0; padding-left: 8px; border-left: 3px solid #ff6b3b;">
                     ${formattedThought}
                 </div>
             </div>
@@ -552,5 +592,6 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.regenerateDeepAnalysis = regenerateDeepAnalysis;
 window.switchTab = switchTab;
+window.goToDashboard = goToDashboard;
 
-console.log('✅ Модуль анализа загружен (версия 7.2 — с поддержкой кэширования анализа в БД)');
+console.log('✅ Модуль анализа загружен (версия 7.3 — с фиксированными кнопками)');
