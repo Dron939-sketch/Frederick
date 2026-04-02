@@ -498,6 +498,17 @@
             font-weight: 500;
         }
         
+        .voice-record-btn-premium.recording {
+            background: linear-gradient(135deg, rgba(255, 59, 59, 0.25), rgba(239, 68, 68, 0.15));
+            border-color: var(--amg-red);
+            animation: pulseRed 1s infinite;
+        }
+        
+        @keyframes pulseRed {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 59, 0.3); }
+            50% { box-shadow: 0 0 0 15px rgba(255, 59, 59, 0); }
+        }
+        
         .modules-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -1124,6 +1135,18 @@
         console.log('👤 User ID:', USER_ID);
 
         // ============================================
+        // РЕЖИМЫ
+        // ============================================
+        let currentMode = 'psychologist';
+        let voiceManager = null;
+        
+        const MODES = {
+            coach: { name: 'КОУЧ', emoji: '🔮', color: '#3b82ff', voicePrompt: 'Задай вопрос — я помогу найти решение' },
+            psychologist: { name: 'ПСИХОЛОГ', emoji: '🧠', color: '#ff6b3b', voicePrompt: 'Расскажите, что вас беспокоит' },
+            trainer: { name: 'ТРЕНЕР', emoji: '⚡', color: '#ff3b3b', voicePrompt: 'Сформулируй задачу — получишь чёткий план' }
+        };
+
+        // ============================================
         // ФУНКЦИИ ФОРМАТИРОВАНИЯ
         // ============================================
         function formatProfileText(text) {
@@ -1260,7 +1283,7 @@
             else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
             else formattedContent = (content || '').replace(/\n/g, '<br>');
            
-            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯' };
+            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯', questions: '❓', challenges: '🏆' };
            
             container.innerHTML = `
                 <div class="full-content-page">
@@ -1289,6 +1312,50 @@
                 window.Test.start();
             } else {
                 showToast('📊 Тест загружается...');
+            }
+        }
+
+        // ============================================
+        // ПЕРЕКЛЮЧЕНИЕ РЕЖИМА
+        // ============================================
+        async function switchMode(mode) {
+            if (mode === currentMode) return;
+            currentMode = mode;
+            const config = MODES[mode];
+            showToast(`Режим "${config.name}" активирован`, 'success');
+            
+            // Обновляем UI
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                if (btn.dataset.mode === mode) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            
+            // Обновляем индикатор в шапке
+            const modeIndicator = document.getElementById('modeIndicator');
+            const modeLabel = document.getElementById('modeLabel');
+            if (modeIndicator) modeIndicator.style.background = config.color;
+            if (modeLabel) modeLabel.textContent = config.name;
+            
+            // Обновляем текст голосовой кнопки
+            const voiceText = document.querySelector('#voiceBtn .voice-text');
+            if (voiceText) voiceText.textContent = config.voicePrompt;
+            
+            // Сохраняем режим на сервере
+            try {
+                await apiCall('/api/save-mode', { 
+                    method: 'POST', 
+                    body: JSON.stringify({ user_id: USER_ID, mode: mode }) 
+                });
+            } catch(e) {
+                console.warn('Failed to save mode:', e);
+            }
+            
+            // Обновляем режим в голосовом менеджере
+            if (voiceManager && voiceManager.setMode) {
+                voiceManager.setMode(mode);
             }
         }
 
@@ -1348,11 +1415,18 @@
                 return;
             }
             showLoading('Генерирую свежую мысль...');
-            const thought = await generateNewThought();
-            if (thought) {
-                showFullContentScreen('Свежая мысль', thought, 'thoughts');
-            } else {
-                showToast('💭 Не удалось сгенерировать мысль', 'error');
+            try {
+                const data = await apiCall('/api/psychologist-thoughts/generate', {
+                    method: 'POST',
+                    body: JSON.stringify({ user_id: USER_ID })
+                });
+                if (data.thought) {
+                    showFullContentScreen('Свежая мысль', data.thought, 'thoughts');
+                } else {
+                    showToast('💭 Не удалось сгенерировать мысль', 'error');
+                }
+            } catch(e) {
+                showToast('💭 Ошибка генерации мысли', 'error');
             }
         }
         
@@ -1363,12 +1437,16 @@
                 return;
             }
             showLoading('Загружаю цели...');
-            const goals = await getUserGoals();
-            if (goals && goals.length) {
-                const goalsText = goals.map(g => `**${g.name}**\n⏱ ${g.time || '?'}  |  🎯 ${g.difficulty || 'medium'}`).join('\n\n');
-                showFullContentScreen('Мои цели', goalsText, 'goals');
-            } else {
-                showToast('🎯 Цели появятся после прохождения теста', 'info');
+            try {
+                const data = await apiCall(`/api/goals/with-confinement?user_id=${USER_ID}&mode=${currentMode}`);
+                if (data.goals && data.goals.length) {
+                    const goalsText = data.goals.map(g => `**${g.name}**\n⏱ ${g.time || '?'}  |  🎯 ${g.difficulty || 'medium'}`).join('\n\n');
+                    showFullContentScreen('Мои цели', goalsText, 'goals');
+                } else {
+                    showToast('🎯 Цели появятся после прохождения теста', 'info');
+                }
+            } catch(e) {
+                showToast('🎯 Ошибка загрузки целей', 'error');
             }
         }
         
@@ -1379,12 +1457,16 @@
                 return;
             }
             showLoading('Подбираю вопросы...');
-            const questions = await getSmartQuestions();
-            if (questions && questions.length) {
-                const questionsText = questions.map((q, i) => `${i+1}. ${q}`).join('\n\n');
-                showFullContentScreen('Вопросы для размышления', questionsText, 'questions');
-            } else {
-                showToast('❓ Вопросы появятся после прохождения теста', 'info');
+            try {
+                const data = await apiCall(`/api/smart-questions?user_id=${USER_ID}`);
+                if (data.questions && data.questions.length) {
+                    const questionsText = data.questions.map((q, i) => `${i+1}. ${q}`).join('\n\n');
+                    showFullContentScreen('Вопросы для размышления', questionsText, 'questions');
+                } else {
+                    showToast('❓ Вопросы появятся после прохождения теста', 'info');
+                }
+            } catch(e) {
+                showToast('❓ Ошибка загрузки вопросов', 'error');
             }
         }
         
@@ -1395,12 +1477,16 @@
                 return;
             }
             showLoading('Загружаю челленджи...');
-            const challenges = await getChallenges();
-            if (challenges && challenges.length) {
-                const challengesText = challenges.map(c => `**${c.name}**\n${c.description}\n🎁 Награда: ${c.reward} очков`).join('\n\n');
-                showFullContentScreen('Челленджи', challengesText, 'challenges');
-            } else {
-                showToast('🏆 Челленджи появятся после прохождения теста', 'info');
+            try {
+                const data = await apiCall(`/api/challenges?user_id=${USER_ID}`);
+                if (data.challenges && data.challenges.length) {
+                    const challengesText = data.challenges.map(c => `**${c.name}**\n${c.description}\n🎁 Награда: ${c.reward} очков`).join('\n\n');
+                    showFullContentScreen('Челленджи', challengesText, 'challenges');
+                } else {
+                    showToast('🏆 Челленджи появятся после прохождения теста', 'info');
+                }
+            } catch(e) {
+                showToast('🏆 Ошибка загрузки челленджей', 'error');
             }
         }
         
@@ -1416,55 +1502,77 @@
                 showToast('👥 Загрузка модуля двойников...', 'info');
                 const script = document.createElement('script');
                 script.src = 'doubles.js';
-                script.onload = () => showDoublesScreen();
+                script.onload = () => {
+                    if (typeof showDoublesScreen === 'function') showDoublesScreen();
+                };
                 document.head.appendChild(script);
             }
         }
-        
-        // Дополнительные API функции
-        async function generateNewThought() {
-            try {
-                const data = await apiCall('/api/psychologist-thoughts/generate', {
-                    method: 'POST',
-                    body: JSON.stringify({ user_id: USER_ID })
+
+        // ============================================
+        // НАСТРОЙКА ГОЛОСОВОЙ КНОПКИ
+        // ============================================
+        function setupVoiceButton(buttonElement) {
+            if (!buttonElement) return;
+            
+            // Инициализируем VoiceManager если ещё нет
+            if (!voiceManager && typeof VoiceManager !== 'undefined') {
+                voiceManager = new VoiceManager(USER_ID, {
+                    useWebSocket: true,
+                    apiBaseUrl: API_BASE_URL
                 });
-                return data.thought;
-            } catch (error) {
-                console.error('Error generating thought:', error);
-                return null;
+                voiceManager.setMode(currentMode);
+                voiceManager.onTranscript = (text) => console.log('🎤:', text);
+                voiceManager.onAIResponse = (answer) => console.log('🤖:', answer);
+                voiceManager.onError = (error) => showToast(error, 'error');
             }
-        }
-        
-        async function getUserGoals() {
-            try {
-                const data = await apiCall(`/api/goals/with-confinement?user_id=${USER_ID}&mode=psychologist`);
-                return data.goals || [];
-            } catch (error) {
-                console.error('Error getting goals:', error);
-                return [];
+            
+            if (!voiceManager) {
+                buttonElement.addEventListener('click', () => {
+                    showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
+                });
+                return;
             }
-        }
-        
-        async function getSmartQuestions() {
-            try {
-                const data = await apiCall(`/api/smart-questions?user_id=${USER_ID}`);
-                return data.questions || [];
-            } catch (error) {
-                console.error('Error getting questions:', error);
-                return [];
-            }
-        }
-        
-        async function getChallenges() {
-            try {
-                const data = await apiCall(`/api/challenges?user_id=${USER_ID}`);
-                return data.challenges || [];
-            } catch (error) {
-                console.error('Error getting challenges:', error);
-                return [];
-            }
+            
+            let pressTimer = null;
+            const LONG_PRESS_DURATION = 150;
+            
+            const onPressStart = (e) => {
+                e.preventDefault();
+                pressTimer = setTimeout(() => {
+                    voiceManager.startRecording();
+                    buttonElement.classList.add('recording');
+                    const textSpan = buttonElement.querySelector('.voice-text');
+                    if (textSpan) textSpan.textContent = '🎙️ Запись... Отпустите для отправки';
+                }, LONG_PRESS_DURATION);
+            };
+            
+            const onPressEnd = (e) => {
+                e.preventDefault();
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+                if (voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
+                    voiceManager.stopRecording();
+                    buttonElement.classList.remove('recording');
+                    const config = MODES[currentMode];
+                    const textSpan = buttonElement.querySelector('.voice-text');
+                    if (textSpan) textSpan.textContent = config.voicePrompt;
+                }
+            };
+            
+            buttonElement.addEventListener('mousedown', onPressStart);
+            buttonElement.addEventListener('mouseup', onPressEnd);
+            buttonElement.addEventListener('mouseleave', onPressEnd);
+            buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
+            buttonElement.addEventListener('touchend', onPressEnd, { passive: false });
+            buttonElement.addEventListener('touchcancel', onPressEnd, { passive: false });
         }
 
+        // ============================================
+        // ОСНОВНАЯ ФУНКЦИЯ РЕНДЕРА
+        // ============================================
         function renderDashboard() {
             const container = document.getElementById('screenContainer');
             const userName = localStorage.getItem('fredi_user_name') || 'друг';
@@ -1485,14 +1593,16 @@
                     </div>
                    
                     <div class="mode-selector">
-                        <button class="mode-btn active" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                        <button class="mode-btn ${currentMode === 'coach' ? 'active' : ''}" data-mode="coach">🔮 КОУЧ</button>
+                        <button class="mode-btn ${currentMode === 'psychologist' ? 'active' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
+                        <button class="mode-btn ${currentMode === 'trainer' ? 'active' : ''}" data-mode="trainer">⚡ ТРЕНЕР</button>
                     </div>
                    
                     <div class="voice-section">
                         <div class="voice-card">
                             <div class="voice-record-btn-premium" id="voiceBtn">
                                 <span class="voice-icon">🎤</span>
-                                <span class="voice-text">Расскажите, что вас беспокоит</span>
+                                <span class="voice-text">${MODES[currentMode].voicePrompt}</span>
                             </div>
                         </div>
                     </div>
@@ -1555,21 +1665,16 @@
                                 <div class="action-icon">👥</div>
                                 <div class="action-name">Двойники</div>
                             </div>
-                            <div class="quick-action" data-action="test">
-                                <div class="action-icon">📊</div>
-                                <div class="action-name">Пройти тест</div>
-                            </div>
                         </div>
                     </div>
                 </div>
             `;
-           
+            
             // Обновляем статус профиля в шапке
             isTestCompleted().then(completed => {
                 const codeEl = document.getElementById('profileCode');
                 const statusEl = document.getElementById('profileStatus');
                 if (completed) {
-                    // Получаем код профиля
                     apiCall(`/api/user-status?user_id=${USER_ID}`).then(data => {
                         if (codeEl) codeEl.textContent = data.profile_code || '✨';
                         if (statusEl) statusEl.textContent = 'ваш психотип';
@@ -1583,18 +1688,23 @@
                 }
             });
             
-            // Обработчик клика на профиль (для быстрого перехода к тесту)
+            // Обработчик клика на профиль
             document.getElementById('profileBadge')?.addEventListener('click', () => {
                 isTestCompleted().then(completed => {
-                    if (!completed) {
-                        startTest();
-                    } else {
-                        handleProfileClick();
-                    }
+                    if (!completed) startTest();
+                    else handleProfileClick();
                 });
             });
-           
-            // Обработчики быстрых действий (9 кнопок)
+            
+            // Обработчики режимов
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const mode = btn.dataset.mode;
+                    if (mode) switchMode(mode);
+                });
+            });
+            
+            // Обработчики быстрых действий
             document.querySelectorAll('.quick-action').forEach(el => {
                 el.addEventListener('click', async () => {
                     const action = el.dataset.action;
@@ -1606,10 +1716,9 @@
                     else if (action === 'questions') await handleShowQuestions();
                     else if (action === 'challenges') await handleShowChallenges();
                     else if (action === 'doubles') await handleShowDoubles();
-                    else if (action === 'test') startTest();
                 });
             });
-           
+            
             // Обработчики модулей
             document.querySelectorAll('.module-card').forEach((card) => {
                 const moduleName = card.dataset.module;
@@ -1629,15 +1738,10 @@
                     }
                 });
             });
-           
-            // Обработчик голосовой кнопки
-            document.getElementById('voiceBtn')?.addEventListener('click', () => {
-                if (window.VoiceManager && window.VoiceManager.startRecording) {
-                    window.VoiceManager.startRecording();
-                } else {
-                    showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
-                }
-            });
+            
+            // Настройка голосовой кнопки
+            const voiceBtn = document.getElementById('voiceBtn');
+            if (voiceBtn) setupVoiceButton(voiceBtn);
         }
 
         // ============================================
@@ -1678,7 +1782,6 @@
                 }
             });
             
-            // Закрытие при клике на пункт меню
             document.querySelectorAll('.chat-item').forEach(item => {
                 item.addEventListener('click', () => {
                     if (window.innerWidth <= 768) {
@@ -1727,22 +1830,9 @@
     })();
     </script>
 
-    <!-- SEO-текст для поисковиков (скрыт от пользователей, но виден роботам) -->
     <div style="display: none; position: absolute; visibility: hidden; height: 0; width: 0; overflow: hidden;">
         <h1>Фреди — виртуальный психолог на базе искусственного интеллекта</h1>
         <p>Фреди — это премиум виртуальный психолог, созданный на основе технологий искусственного интеллекта. Сервис предоставляет психологическую поддержку 24/7, глубинный анализ личности, работу с паттернами поведения, тревогой, стрессом и межличностными отношениями.</p>
-        
-        <h2>Возможности Фреди:</h2>
-        <ul>
-            <li>Глубинный психологический анализ личности</li>
-            <li>Работа с поведенческими паттернами</li>
-            <li>Помощь в преодолении тревоги и стресса</li>
-            <li>Развитие эмоционального интеллекта</li>
-            <li>Терапевтические сказки и гипнотические техники</li>
-            <li>Персональные рекомендации по развитию</li>
-        </ul>
-        
-        <p>Виртуальный психолог Фреди — это доступная психологическая помощь онлайн. Искусственный интеллект анализирует ваши ответы, выявляет глубинные паттерны и помогает найти точки роста.</p>
     </div>
 </body>
 </html>
