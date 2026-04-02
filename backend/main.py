@@ -2810,47 +2810,6 @@ async def get_challenges(user_id: int):
         logger.error(f"Error in challenges: {e}")
         return {"success": False, "error": str(e), "challenges": []}
 
-
-@app.get("/api/psychometric/find-doubles")
-async def find_doubles(user_id: int, limit: int = 10):
-    """Найти психометрических двойников"""
-    try:
-        profile = await user_repo.get_profile(user_id) or {}
-        profile_data = profile.get('profile_data', {})
-        profile_code = profile_data.get('display_name', '')
-        
-        doubles = []
-        
-        if profile_code:
-            async with db.get_connection() as conn:
-                rows = await conn.fetch("""
-                    SELECT user_id, profile->'profile_data'->>'display_name' as profile_code
-                    FROM users
-                    WHERE profile->'profile_data'->>'display_name' = $1
-                    AND user_id != $2
-                    LIMIT $3
-                """, profile_code, user_id, limit)
-                
-                for row in rows:
-                    doubles.append({
-                        "user_id": row['user_id'],
-                        "name": f"Пользователь {row['user_id']}",
-                        "profile_code": row['profile_code'],
-                        "similarity": 0.85,
-                        "common_traits": ["Аналитическое мышление", "Эмоциональный интеллект"]
-                    })
-        
-        return {
-            "success": True,
-            "doubles": doubles,
-            "total": len(doubles),
-            "profile_code": profile_code
-        }
-    except Exception as e:
-        logger.error(f"Error in find doubles: {e}")
-        return {"success": False, "error": str(e), "doubles": []}
-
-
 # ============================================
 # ТЕСТ ЭНДПОИНТЫ
 # ============================================
