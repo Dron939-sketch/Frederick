@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.7 — универсальное форматирование
+// Версия 4.0 — универсальное форматирование для любого текста
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -24,6 +24,122 @@ if (typeof window.isTestCompleted === 'undefined' && typeof isTestCompleted === 
 let currentTab = 'overview';
 let cachedProfile = null;
 let cachedAIAnalysis = null;
+
+// ========== УНИВЕРСАЛЬНОЕ ФОРМАТИРОВАНИЕ ТЕКСТА ==========
+function formatAnalysisText(text) {
+    if (!text) return '';
+    
+    let processed = text;
+    
+    // 1. Жирный текст — обрабатываем оба варианта (**текст** и *текст*)
+    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong class="analysis-bold">$1</strong>');
+    processed = processed.replace(/\*(.*?)\*/g, '<strong class="analysis-bold">$1</strong>');
+    
+    // 2. Заголовки с ## (с пробелом и без)
+    processed = processed.replace(/^##\s*(.+)$/gm, '\n\n<h3 class="analysis-header">$1</h3>\n\n');
+    processed = processed.replace(/^##(.+)$/gm, '\n\n<h3 class="analysis-header">$1</h3>\n\n');
+    
+    // 3. Заголовки с эмодзи в начале (например "🔍 ГЛУБИННЫЙ ПОРТРЕТ")
+    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑💡⚠️🎯💪])\s*(.+)$/gm, '\n\n<h3 class="analysis-header">$1 $2</h3>\n\n');
+    
+    // 4. Заголовки ЗАГЛАВНЫМИ БУКВАМИ (без эмодзи)
+    const uppercaseHeaders = ['ГЛУБИННЫЙ ПОРТРЕТ', 'СИСТЕМНЫЕ ПЕТЛИ', 'СКРЫТЫЕ МЕХАНИЗМЫ', 'ТОЧКИ РОСТА', 'ПРОГНОЗ', 'ПЕРСОНАЛЬНЫЕ КЛЮЧИ'];
+    for (const header of uppercaseHeaders) {
+        const regex = new RegExp(`^${header}\\s*$`, 'gm');
+        processed = processed.replace(regex, `\n\n<h3 class="analysis-header">${header}</h3>\n\n`);
+    }
+    
+    // 5. Маркированные списки (* или • в начале строки)
+    processed = processed.replace(/^[\*\•]\s+(.+)$/gm, '<li class="analysis-list-item">$1</li>');
+    
+    // 6. Нумерованные списки
+    processed = processed.replace(/^(\d+)\.\s+(.+)$/gm, '<li class="analysis-list-item numbered">$1. $2</li>');
+    
+    // 7. Блоки с подписями (Триггер:, Действие:, Цена:, Выгода: и т.д.)
+    processed = processed.replace(/^([А-ЯЁ][а-яё]+):\s+(.+)$/gm, '<div class="analysis-block"><span class="block-label">$1:</span> $2</div>');
+    
+    // 8. Добавляем переносы строк после знаков препинания для читаемости
+    processed = processed.replace(/([.!?])\s*(?=[А-ЯЁA-Z])/g, '$1\n\n');
+    
+    // 9. Убираем лишние пустые строки
+    processed = processed.replace(/\n{3,}/g, '\n\n');
+    
+    // 10. Разбиваем на параграфы
+    const lines = processed.split('\n');
+    let result = '';
+    let inList = false;
+    let listItems = [];
+    let inParagraph = false;
+    let paragraphText = '';
+    
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (!line) continue;
+        
+        // Начало списка
+        if (line.startsWith('<li')) {
+            if (inParagraph && paragraphText) {
+                result += `<p class="analysis-paragraph">${paragraphText}</p>`;
+                paragraphText = '';
+                inParagraph = false;
+            }
+            listItems.push(line);
+            inList = true;
+        }
+        // Конец списка
+        else if (inList && !line.startsWith('<li')) {
+            result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
+            listItems = [];
+            inList = false;
+            // Добавляем текущую строку как обычный текст
+            if (line && !line.startsWith('<h3') && !line.startsWith('<div')) {
+                if (inParagraph) {
+                    paragraphText += ' ' + line;
+                } else {
+                    paragraphText = line;
+                    inParagraph = true;
+                }
+            } else {
+                result += line;
+            }
+        }
+        // Заголовки и блоки
+        else if (line.startsWith('<h3') || line.startsWith('<div')) {
+            if (inList && listItems.length > 0) {
+                result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
+                listItems = [];
+                inList = false;
+            }
+            if (inParagraph && paragraphText) {
+                result += `<p class="analysis-paragraph">${paragraphText}</p>`;
+                paragraphText = '';
+                inParagraph = false;
+            }
+            result += line;
+        }
+        // Обычный текст
+        else {
+            if (inParagraph) {
+                paragraphText += ' ' + line;
+            } else {
+                paragraphText = line;
+                inParagraph = true;
+            }
+        }
+    }
+    
+    // Закрываем последний параграф
+    if (inParagraph && paragraphText) {
+        result += `<p class="analysis-paragraph">${paragraphText}</p>`;
+    }
+    
+    // Закрываем последний список
+    if (inList && listItems.length > 0) {
+        result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
+    }
+    
+    return result;
+}
 
 // ========== ФУНКЦИЯ ПОКАЗА ЗАГРУЗКИ ==========
 function showAnalysisLoading(message) {
@@ -58,78 +174,6 @@ function showAnalysisLoading(message) {
         `;
         document.head.appendChild(style);
     }
-}
-
-// ========== УНИВЕРСАЛЬНОЕ ФОРМАТИРОВАНИЕ ТЕКСТА ==========
-function formatUniversalText(text) {
-    if (!text) return '';
-    
-    let processed = text;
-    
-    // 1. Жирный текст (только **две звездочки**)
-    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>');
-    
-    // 2. Заголовки с ## (и без пробела)
-    processed = processed.replace(/^##([^\n]+)/gm, '\n\n<h3 class="analysis-header">$1</h3>\n\n');
-    
-    // 3. Заголовки с эмодзи в начале
-    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑💡⚠️🎯💪])\s*(.+)$/gm, '\n\n<h3 class="analysis-header">$1 $2</h3>\n\n');
-    
-    // 4. Маркированные списки со звездочкой
-    processed = processed.replace(/^\*\s+(.+)$/gm, '<li class="analysis-list-item">$1</li>');
-    
-    // 5. Нумерованные списки
-    processed = processed.replace(/^(\d+)\.\s+(.+)$/gm, '<li class="analysis-list-item"><strong>$1.</strong> $2</li>');
-    
-    // 6. Обработка блоков "Триггер:", "Действие:", "Цена:" и т.д.
-    processed = processed.replace(/^([А-ЯЁ][а-яё]+):\s+(.+)$/gm, '<div class="analysis-block"><strong class="block-label">$1:</strong> $2</div>');
-    
-    // 7. Убираем пустые строки
-    processed = processed.replace(/\n{3,}/g, '\n\n');
-    
-    // 8. Разбиваем на параграфы
-    const lines = processed.split('\n');
-    let result = '';
-    let inList = false;
-    let listItems = [];
-    
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i].trim();
-        if (!line) continue;
-        
-        if (line.startsWith('<li')) {
-            listItems.push(line);
-            inList = true;
-        } else if (inList && !line.startsWith('<li')) {
-            if (listItems.length > 0) {
-                result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
-                listItems = [];
-                inList = false;
-            }
-            result += line;
-        } else if (line.startsWith('<h3') || line.startsWith('<div')) {
-            if (inList) {
-                result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
-                listItems = [];
-                inList = false;
-            }
-            result += line;
-        } else if (!line.startsWith('<h3') && !line.startsWith('<div') && !line.startsWith('<ul')) {
-            if (inList) {
-                listItems.push(`<li class="analysis-list-item">${line}</li>`);
-            } else {
-                result += `<p class="analysis-paragraph">${line}</p>`;
-            }
-        } else {
-            result += line;
-        }
-    }
-    
-    if (inList && listItems.length > 0) {
-        result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
-    }
-    
-    return result;
 }
 
 // ============================================
@@ -339,6 +383,76 @@ function renderAnalysisWithTabs() {
             btn.classList.add('active');
         });
     });
+    
+    // Добавляем стили для анализа
+    if (!document.querySelector('#analysis-final-styles')) {
+        const style = document.createElement('style');
+        style.id = 'analysis-final-styles';
+        style.textContent = `
+            .analysis-header {
+                margin: 24px 0 12px;
+                font-size: 18px;
+                font-weight: 600;
+                color: #ff6b3b;
+                border-left: 3px solid #ff6b3b;
+                padding-left: 12px;
+            }
+            .analysis-paragraph {
+                margin: 12px 0;
+                line-height: 1.7;
+                color: var(--text-secondary);
+                font-size: 14px;
+            }
+            .analysis-list {
+                margin: 10px 0;
+                list-style: none;
+                padding: 0;
+            }
+            .analysis-list-item {
+                margin: 6px 0 6px 24px;
+                line-height: 1.6;
+                color: var(--text-secondary);
+                font-size: 14px;
+                position: relative;
+            }
+            .analysis-list-item::before {
+                content: '•';
+                color: #ff6b3b;
+                font-weight: bold;
+                position: absolute;
+                left: -16px;
+            }
+            .analysis-bold {
+                color: #ff6b3b;
+                font-weight: 600;
+            }
+            .analysis-block {
+                margin: 12px 0;
+                padding: 8px 12px;
+                background: rgba(255, 107, 59, 0.05);
+                border-radius: 8px;
+            }
+            .block-label {
+                color: #ff8c4a;
+                font-weight: 600;
+                margin-right: 6px;
+            }
+            @media (max-width: 768px) {
+                .analysis-header {
+                    font-size: 16px;
+                    margin: 20px 0 10px;
+                }
+                .analysis-paragraph {
+                    font-size: 13px;
+                }
+                .analysis-list-item {
+                    font-size: 13px;
+                    margin-left: 20px;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
 }
 
 function goToDashboard() {
@@ -392,57 +506,13 @@ function renderOverviewTab() {
         return;
     }
     
-    const formattedHtml = formatUniversalText(analysis);
+    const formattedHtml = formatAnalysisText(analysis);
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div class="analysis-content" style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
+        <div class="analysis-content">
             ${formattedHtml}
         </div>
     `;
-    
-    // Добавляем стили для элементов анализа
-    if (!document.querySelector('#analysis-styles')) {
-        const style = document.createElement('style');
-        style.id = 'analysis-styles';
-        style.textContent = `
-            .analysis-header {
-                margin: 28px 0 12px;
-                font-size: 18px;
-                font-weight: 600;
-                color: #ff6b3b;
-                border-left: 3px solid #ff6b3b;
-                padding-left: 12px;
-            }
-            .analysis-paragraph {
-                margin: 12px 0;
-                line-height: 1.7;
-                color: var(--text-secondary);
-                font-size: 14px;
-            }
-            .analysis-list {
-                margin: 10px 0;
-                list-style: none;
-                padding: 0;
-            }
-            .analysis-list-item {
-                margin: 6px 0 6px 24px;
-                line-height: 1.6;
-                color: var(--text-secondary);
-                font-size: 14px;
-            }
-            .analysis-block {
-                margin: 12px 0;
-                padding: 8px 12px;
-                background: rgba(255,107,59,0.05);
-                border-radius: 8px;
-            }
-            .block-label {
-                color: #ff8c4a;
-                font-weight: 600;
-            }
-        `;
-        document.head.appendChild(style);
-    }
 }
 
 // ============================================
@@ -458,42 +528,44 @@ function renderPatternsTab() {
     }
     
     // Извлекаем секции
-    let patternsMatch = analysis.match(/(?:🔄|СИСТЕМНЫЕ ПЕТЛИ)[\s\S]*?(?=(?:🧠|СКРЫТЫЕ МЕХАНИЗМЫ|🌱|ТОЧКИ РОСТА|$))/i);
-    let hiddenMatch = analysis.match(/(?:🧠|СКРЫТЫЕ МЕХАНИЗМЫ)[\s\S]*?(?=(?:🌱|ТОЧКИ РОСТА|🔑|ПЕРСОНАЛЬНЫЕ|$))/i);
+    let patternsSection = '';
+    let hiddenSection = '';
     
-    let content = '';
+    const patternsMatch = analysis.match(/(?:СИСТЕМНЫЕ ПЕТЛИ)[\s\S]*?(?=(?:СКРЫТЫЕ МЕХАНИЗМЫ|ТОЧКИ РОСТА|ПРОГНОЗ|$))/i);
+    const hiddenMatch = analysis.match(/(?:СКРЫТЫЕ МЕХАНИЗМЫ)[\s\S]*?(?=(?:ТОЧКИ РОСТА|ПРОГНОЗ|$))/i);
     
     if (patternsMatch) {
         let text = patternsMatch[0];
-        text = text.replace(/^СИСТЕМНЫЕ ПЕТЛИ\s*/i, '');
-        text = text.replace(/^##\s*/gm, '');
-        text = formatUniversalText(text);
-        
-        content += `<div style="margin-bottom: 28px;">
-            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🔄 Системные петли</h3>
-            <div>${text}</div>
-        </div>`;
+        text = text.replace(/СИСТЕМНЫЕ ПЕТЛИ\s*/i, '');
+        text = formatAnalysisText(text);
+        patternsSection = `
+            <div style="margin-bottom: 28px;">
+                <h3 class="analysis-header">🔄 Системные петли</h3>
+                <div>${text}</div>
+            </div>
+        `;
     }
     
     if (hiddenMatch) {
         let text = hiddenMatch[0];
-        text = text.replace(/^СКРЫТЫЕ МЕХАНИЗМЫ\s*/i, '');
-        text = text.replace(/^##\s*/gm, '');
-        text = formatUniversalText(text);
-        
-        content += `<div style="margin-bottom: 28px;">
-            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🧠 Скрытые механизмы</h3>
-            <div>${text}</div>
-        </div>`;
+        text = text.replace(/СКРЫТЫЕ МЕХАНИЗМЫ\s*/i, '');
+        text = formatAnalysisText(text);
+        hiddenSection = `
+            <div style="margin-bottom: 28px;">
+                <h3 class="analysis-header">🧠 Скрытые механизмы</h3>
+                <div>${text}</div>
+            </div>
+        `;
     }
     
-    if (!content) {
-        content = '<p style="color: var(--text-secondary); text-align: center; padding: 40px; font-size: 14px;">Специальный раздел с петлями и механизмами будет доступен после проведения анализа.</p>';
+    if (!patternsSection && !hiddenSection) {
+        patternsSection = '<p style="color: var(--text-secondary); text-align: center; padding: 40px;">Специальный раздел с петлями и механизмами будет доступен после проведения анализа.</p>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
-            ${content}
+        <div class="analysis-content">
+            ${patternsSection}
+            ${hiddenSection}
         </div>
         <div style="margin-top: 20px; background: rgba(255,107,59,0.08); border-radius: 20px; padding: 18px;">
             <div style="display: flex; gap: 12px;">
@@ -519,55 +591,44 @@ function renderRecommendationsTab() {
         return;
     }
     
-    let growthMatch = analysis.match(/(?:🌱|ТОЧКИ РОСТА)[\s\S]*?(?=(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|📊|ПРОГНОЗ|$))/i);
-    let keysMatch = analysis.match(/(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ)[\s\S]*?(?=(?:$))/i);
-    let forecastMatch = analysis.match(/(?:📊|ПРОГНОЗ)[\s\S]*?(?=(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|$))/i);
+    let growthSection = '';
+    let keysSection = '';
     
-    let content = '';
+    const growthMatch = analysis.match(/(?:ТОЧКИ РОСТА)[\s\S]*?(?=(?:ПРОГНОЗ|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|$))/i);
+    const keysMatch = analysis.match(/(?:ПЕРСОНАЛЬНЫЕ КЛЮЧИ)[\s\S]*?(?=(?:$))/i);
     
     if (growthMatch) {
         let text = growthMatch[0];
-        text = text.replace(/^ТОЧКИ РОСТА\s*/i, '');
-        text = text.replace(/^##\s*/gm, '');
-        text = formatUniversalText(text);
-        
-        content += `<div style="margin-bottom: 28px;">
-            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🌱 Точки роста</h3>
-            <div>${text}</div>
-        </div>`;
-    }
-    
-    if (forecastMatch && !keysMatch) {
-        let text = forecastMatch[0];
-        text = text.replace(/^ПРОГНОЗ\s*/i, '');
-        text = text.replace(/^##\s*/gm, '');
-        text = formatUniversalText(text);
-        
-        content += `<div style="margin-bottom: 28px;">
-            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">📊 Прогноз</h3>
-            <div>${text}</div>
-        </div>`;
+        text = text.replace(/ТОЧКИ РОСТА\s*/i, '');
+        text = formatAnalysisText(text);
+        growthSection = `
+            <div style="margin-bottom: 28px;">
+                <h3 class="analysis-header">🌱 Точки роста</h3>
+                <div>${text}</div>
+            </div>
+        `;
     }
     
     if (keysMatch) {
         let text = keysMatch[0];
-        text = text.replace(/^ПЕРСОНАЛЬНЫЕ КЛЮЧИ\s*/i, '');
-        text = text.replace(/^##\s*/gm, '');
-        text = formatUniversalText(text);
-        
-        content += `<div style="margin-bottom: 28px;">
-            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🔑 Персональные ключи</h3>
-            <div>${text}</div>
-        </div>`;
+        text = text.replace(/ПЕРСОНАЛЬНЫЕ КЛЮЧИ\s*/i, '');
+        text = formatAnalysisText(text);
+        keysSection = `
+            <div style="margin-bottom: 28px;">
+                <h3 class="analysis-header">🔑 Персональные ключи</h3>
+                <div>${text}</div>
+            </div>
+        `;
     }
     
-    if (!content) {
-        content = '<p style="color: var(--text-secondary); text-align: center; padding: 40px; font-size: 14px;">Персональные рекомендации появятся после проведения анализа.</p>';
+    if (!growthSection && !keysSection) {
+        growthSection = '<p style="color: var(--text-secondary); text-align: center; padding: 40px;">Персональные рекомендации появятся после проведения анализа.</p>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
-            ${content}
+        <div class="analysis-content">
+            ${growthSection}
+            ${keysSection}
         </div>
         
         <div style="margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;">
@@ -610,12 +671,15 @@ function renderThoughtTab() {
         return;
     }
     
-    let formattedThought = formatUniversalText(thought);
+    let formattedThought = thought
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="analysis-bold">$1</strong>')
+        .replace(/\*(.*?)\*/g, '<strong class="analysis-bold">$1</strong>')
+        .replace(/\n/g, '<br>');
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div style="background: linear-gradient(135deg, rgba(255,107,59,0.05), rgba(255,59,59,0.02)); border-radius: 24px; padding: 28px;">
+        <div class="psychologist-thought">
             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
-                <div style="font-size: 28px;">🧠</div>
+                <div style="font-size: 32px;">🧠</div>
                 <div>
                     <div style="font-size: 11px; color: var(--text-secondary);">ФРЕДИ ГОВОРИТ</div>
                     <div style="font-size: 18px; font-weight: 500;">Мысли психолога</div>
@@ -639,4 +703,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.7 — универсальное форматирование)');
+console.log('✅ Модуль анализа загружен (версия 4.0 — универсальное форматирование)');
