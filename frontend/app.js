@@ -596,6 +596,32 @@ function navigateTo(screen, params = {}) {
             renderDashboard();
     }
 }
+// ========== ЗАПУСК ТЕСТА ==========
+function startTest() {
+    if (window.Test && window.Test.start) {
+        if (window.Test.init) {
+            window.Test.init(CONFIG.USER_ID);
+        }
+        window.Test.start();
+    } else {
+        showToast('📊 Тест загружается...', 'info');
+        const script = document.createElement('script');
+        script.src = 'test.js';
+        script.onload = () => {
+            if (window.Test && window.Test.init) {
+                window.Test.init(CONFIG.USER_ID);
+            }
+            if (window.Test && window.Test.start) {
+                window.Test.start();
+            }
+        };
+        script.onerror = () => showToast('❌ Не удалось загрузить тест', 'error');
+        document.head.appendChild(script);
+    }
+}
+
+// ========== ДАШБОРД ==========
+function updateModeUI() {
 
 function showFullContentScreen(title, content, contentType, rawText = null) {
     const container = document.getElementById('screenContainer');
