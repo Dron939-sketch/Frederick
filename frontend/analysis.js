@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 4.0 — универсальное форматирование для любого текста
+// Версия 5.0 — КОМПАКТНОЕ ОФОРМЛЕНИЕ БЕЗ ЛИНИЙ
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -25,137 +25,15 @@ let currentTab = 'overview';
 let cachedProfile = null;
 let cachedAIAnalysis = null;
 
-// ========== УНИВЕРСАЛЬНОЕ ФОРМАТИРОВАНИЕ ТЕКСТА ==========
-function formatAnalysisText(text) {
-    if (!text) return '';
-    
-    let processed = text;
-    
-    // 1. Жирный текст — обрабатываем оба варианта (**текст** и *текст*)
-    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong class="analysis-bold">$1</strong>');
-    processed = processed.replace(/\*(.*?)\*/g, '<strong class="analysis-bold">$1</strong>');
-    
-    // 2. Заголовки с ## (с пробелом и без)
-    processed = processed.replace(/^##\s*(.+)$/gm, '\n\n<h3 class="analysis-header">$1</h3>\n\n');
-    processed = processed.replace(/^##(.+)$/gm, '\n\n<h3 class="analysis-header">$1</h3>\n\n');
-    
-    // 3. Заголовки с эмодзи в начале (например "🔍 ГЛУБИННЫЙ ПОРТРЕТ")
-    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑💡⚠️🎯💪])\s*(.+)$/gm, '\n\n<h3 class="analysis-header">$1 $2</h3>\n\n');
-    
-    // 4. Заголовки ЗАГЛАВНЫМИ БУКВАМИ (без эмодзи)
-    const uppercaseHeaders = ['ГЛУБИННЫЙ ПОРТРЕТ', 'СИСТЕМНЫЕ ПЕТЛИ', 'СКРЫТЫЕ МЕХАНИЗМЫ', 'ТОЧКИ РОСТА', 'ПРОГНОЗ', 'ПЕРСОНАЛЬНЫЕ КЛЮЧИ'];
-    for (const header of uppercaseHeaders) {
-        const regex = new RegExp(`^${header}\\s*$`, 'gm');
-        processed = processed.replace(regex, `\n\n<h3 class="analysis-header">${header}</h3>\n\n`);
-    }
-    
-    // 5. Маркированные списки (* или • в начале строки)
-    processed = processed.replace(/^[\*\•]\s+(.+)$/gm, '<li class="analysis-list-item">$1</li>');
-    
-    // 6. Нумерованные списки
-    processed = processed.replace(/^(\d+)\.\s+(.+)$/gm, '<li class="analysis-list-item numbered">$1. $2</li>');
-    
-    // 7. Блоки с подписями (Триггер:, Действие:, Цена:, Выгода: и т.д.)
-    processed = processed.replace(/^([А-ЯЁ][а-яё]+):\s+(.+)$/gm, '<div class="analysis-block"><span class="block-label">$1:</span> $2</div>');
-    
-    // 8. Добавляем переносы строк после знаков препинания для читаемости
-    processed = processed.replace(/([.!?])\s*(?=[А-ЯЁA-Z])/g, '$1\n\n');
-    
-    // 9. Убираем лишние пустые строки
-    processed = processed.replace(/\n{3,}/g, '\n\n');
-    
-    // 10. Разбиваем на параграфы
-    const lines = processed.split('\n');
-    let result = '';
-    let inList = false;
-    let listItems = [];
-    let inParagraph = false;
-    let paragraphText = '';
-    
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i].trim();
-        if (!line) continue;
-        
-        // Начало списка
-        if (line.startsWith('<li')) {
-            if (inParagraph && paragraphText) {
-                result += `<p class="analysis-paragraph">${paragraphText}</p>`;
-                paragraphText = '';
-                inParagraph = false;
-            }
-            listItems.push(line);
-            inList = true;
-        }
-        // Конец списка
-        else if (inList && !line.startsWith('<li')) {
-            result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
-            listItems = [];
-            inList = false;
-            // Добавляем текущую строку как обычный текст
-            if (line && !line.startsWith('<h3') && !line.startsWith('<div')) {
-                if (inParagraph) {
-                    paragraphText += ' ' + line;
-                } else {
-                    paragraphText = line;
-                    inParagraph = true;
-                }
-            } else {
-                result += line;
-            }
-        }
-        // Заголовки и блоки
-        else if (line.startsWith('<h3') || line.startsWith('<div')) {
-            if (inList && listItems.length > 0) {
-                result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
-                listItems = [];
-                inList = false;
-            }
-            if (inParagraph && paragraphText) {
-                result += `<p class="analysis-paragraph">${paragraphText}</p>`;
-                paragraphText = '';
-                inParagraph = false;
-            }
-            result += line;
-        }
-        // Обычный текст
-        else {
-            if (inParagraph) {
-                paragraphText += ' ' + line;
-            } else {
-                paragraphText = line;
-                inParagraph = true;
-            }
-        }
-    }
-    
-    // Закрываем последний параграф
-    if (inParagraph && paragraphText) {
-        result += `<p class="analysis-paragraph">${paragraphText}</p>`;
-    }
-    
-    // Закрываем последний список
-    if (inList && listItems.length > 0) {
-        result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
-    }
-    
-    return result;
-}
-
 // ========== ФУНКЦИЯ ПОКАЗА ЗАГРУЗКИ ==========
 function showAnalysisLoading(message) {
     const container = document.getElementById('screenContainer');
     if (!container) return;
     
     container.innerHTML = `
-        <div class="loading-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 500px; gap: 24px;">
-            <div class="loading-spinner" style="font-size: 72px; animation: spin 1.5s linear infinite; filter: drop-shadow(0 0 10px rgba(255,107,59,0.3));">🧠</div>
-            <div class="loading-text" style="font-size: 20px; font-weight: 500; color: var(--text-primary); text-align: center; max-width: 400px;">${message}</div>
-            <div class="loading-subtext" style="font-size: 13px; color: var(--text-secondary); opacity: 0.7; text-align: center;">Анализ занимает 20-30 секунд<br>Пожалуйста, подождите</div>
-            <div class="loading-dots" style="display: flex; gap: 8px; margin-top: 16px;">
-                <span style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1s ease-in-out infinite;"></span>
-                <span style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1s ease-in-out infinite 0.2s;"></span>
-                <span style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1s ease-in-out infinite 0.4s;"></span>
-            </div>
+        <div class="loading-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; gap: 16px;">
+            <div class="loading-spinner" style="font-size: 48px; animation: spin 1s linear infinite;">🧠</div>
+            <div class="loading-text" style="font-size: 14px; color: var(--text-secondary);">${message}</div>
         </div>
     `;
     
@@ -167,13 +45,121 @@ function showAnalysisLoading(message) {
                 from { transform: rotate(0deg); }
                 to { transform: rotate(360deg); }
             }
-            @keyframes pulse {
-                0%, 100% { opacity: 0.3; transform: scale(0.8); }
-                50% { opacity: 1; transform: scale(1.2); }
-            }
         `;
         document.head.appendChild(style);
     }
+}
+
+// ========== НОРМАЛИЗАЦИЯ ТЕКСТА ОТ AI ==========
+function normalizeAIText(text) {
+    if (!text) return '';
+    
+    let processed = text;
+    
+    // 1. Добавляем пробел после ##
+    processed = processed.replace(/##([^#\s])/g, '## $1');
+    
+    // 2. Добавляем перенос строки после заголовков
+    processed = processed.replace(/(## [^\n]+)(?=[^\n])/g, '$1\n');
+    
+    // 3. Добавляем перенос перед маркерами списков
+    processed = processed.replace(/(\* |• |\d+\. )/g, '\n$1');
+    
+    // 4. Убираем дублирование заголовков
+    const lines = processed.split('\n');
+    const uniqueLines = [];
+    let lastHeader = '';
+    
+    for (const line of lines) {
+        const isHeader = line.includes('СИСТЕМНЫЕ ПЕТЛИ') || line.includes('СКРЫТЫЕ МЕХАНИЗМЫ') || 
+                         line.includes('ТОЧКИ РОСТА') || line.includes('ПРОГНОЗ') || 
+                         line.includes('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') || line.includes('ГЛУБИННЫЙ ПОРТРЕТ');
+        if (isHeader) {
+            if (lastHeader !== line.trim()) {
+                uniqueLines.push(line);
+                lastHeader = line.trim();
+            }
+        } else {
+            uniqueLines.push(line);
+        }
+    }
+    processed = uniqueLines.join('\n');
+    
+    // 5. Убираем множественные переносы
+    processed = processed.replace(/\n{3,}/g, '\n\n');
+    
+    return processed;
+}
+
+// ========== КОМПАКТНОЕ ФОРМАТИРОВАНИЕ ==========
+function formatAnalysisText(text) {
+    if (!text) return '';
+    
+    let processed = normalizeAIText(text);
+    
+    // 1. Заголовки разделов (без линий)
+    const headers = ['ГЛУБИННЫЙ ПОРТРЕТ', 'СИСТЕМНЫЕ ПЕТЛИ', 'СКРЫТЫЕ МЕХАНИЗМЫ', 'ТОЧКИ РОСТА', 'ПРОГНОЗ', 'ПЕРСОНАЛЬНЫЕ КЛЮЧИ'];
+    for (const header of headers) {
+        processed = processed.replace(
+            new RegExp(`##?\\s*${header}`, 'gi'),
+            `\n<div class="analysis-section-title">${header}</div>\n`
+        );
+    }
+    
+    // 2. Заголовки с эмодзи
+    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑💡⚠️🎯💪])\s*(.+)$/gm, '<div class="analysis-header">$1 $2</div>');
+    
+    // 3. Жирный текст
+    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong class="analysis-bold">$1</strong>');
+    processed = processed.replace(/\*(.*?)\*/g, '<strong class="analysis-bold">$1</strong>');
+    
+    // 4. Маркированные списки
+    processed = processed.replace(/^[\*\•]\s+(.+)$/gm, '<div class="analysis-list-item">• $1</div>');
+    
+    // 5. Нумерованные списки
+    processed = processed.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="analysis-list-item numbered">$1. $2</div>');
+    
+    // 6. Блоки с подписями (Триггер, Действие, Цена)
+    processed = processed.replace(/^([А-ЯЁ][а-яё]+):\s+(.+)$/gm, '<div class="analysis-block"><span class="block-label">$1:</span> $2</div>');
+    
+    // 7. Прогноз с двумя вариантами
+    processed = processed.replace(/Без изменений:/g, '<div class="forecast-bad">▸ Без изменений:');
+    processed = processed.replace(/При работе над собой:/g, '<div class="forecast-good">▸ При работе над собой:');
+    processed = processed.replace(/<\/div><div class="forecast-good">/g, '</div><div class="forecast-good">');
+    
+    // 8. Обычные параграфы (всё остальное)
+    const lines = processed.split('\n');
+    let result = '';
+    let inParagraph = false;
+    let paragraphText = '';
+    
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (!line) continue;
+        
+        const isSpecial = line.startsWith('<div') || line.startsWith('<strong') || line.startsWith('▸');
+        
+        if (isSpecial) {
+            if (inParagraph && paragraphText) {
+                result += `<div class="analysis-text">${paragraphText}</div>`;
+                paragraphText = '';
+                inParagraph = false;
+            }
+            result += line;
+        } else {
+            if (inParagraph) {
+                paragraphText += ' ' + line;
+            } else {
+                paragraphText = line;
+                inParagraph = true;
+            }
+        }
+    }
+    if (inParagraph && paragraphText) {
+        result += `<div class="analysis-text">${paragraphText}</div>`;
+    }
+    
+    return result;
 }
 
 // ============================================
@@ -184,14 +170,14 @@ async function openAnalysisScreen() {
     const completed = await window.isTestCompleted();
     if (!completed) {
         if (window.showToast) {
-            window.showToast('📊 Сначала пройдите психологический тест, чтобы увидеть анализ');
+            window.showToast('📊 Сначала пройдите психологический тест');
         } else {
-            alert('📊 Сначала пройдите психологический тест, чтобы увидеть анализ');
+            alert('📊 Сначала пройдите психологический тест');
         }
         return;
     }
 
-    showAnalysisLoading('🔍 Загружаю данные для анализа...');
+    showAnalysisLoading('🔍 Загружаю данные...');
 
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -212,7 +198,7 @@ async function openAnalysisScreen() {
         
     } catch (error) {
         console.error('Analysis error:', error);
-        if (window.showToast) window.showToast('❌ Не удалось загрузить данные для анализа');
+        if (window.showToast) window.showToast('❌ Ошибка загрузки');
         if (typeof renderDashboard === 'function') renderDashboard();
         else if (window.renderDashboard) window.renderDashboard();
     }
@@ -223,7 +209,7 @@ async function openAnalysisScreen() {
 // ============================================
 
 async function generateDeepAnalysis() {
-    showAnalysisLoading('🧠 Провожу глубинный психологический анализ...');
+    showAnalysisLoading('🧠 Анализирую...');
     
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -246,80 +232,30 @@ async function generateDeepAnalysis() {
             cachedAIAnalysis.profile = data.analysis;
             renderAnalysisWithTabs();
         } else {
-            if (window.showToast) window.showToast('⚠️ Не удалось сгенерировать глубокий анализ');
+            if (window.showToast) window.showToast('⚠️ Ошибка генерации');
             renderFallbackAnalysis();
         }
         
     } catch (error) {
         console.error('Generate deep analysis error:', error);
-        if (window.showToast) window.showToast('❌ Ошибка при генерации анализа');
+        if (window.showToast) window.showToast('❌ Ошибка');
         renderFallbackAnalysis();
     }
 }
 
 // ============================================
-// КРАСИВАЯ ЗАГЛУШКА
+// ЗАГЛУШКА
 // ============================================
 
 function renderFallbackAnalysis() {
     const userName = window.CONFIG?.USER_NAME || localStorage.getItem('fredi_user_name') || 'друг';
     
     const fallbackText = `
-<div style="text-align: center; margin-bottom: 32px;">
-    <div style="font-size: 64px; margin-bottom: 16px;">🧠✨</div>
-    <h2 style="font-size: 26px; background: linear-gradient(135deg, #ff6b3b, #ff3b3b); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 12px;">Анализ формируется</h2>
-    <p style="color: var(--text-secondary); font-size: 15px;">${userName}, ваш уникальный психологический портрет создаётся прямо сейчас</p>
-</div>
-
-<div style="background: linear-gradient(135deg, rgba(255,107,59,0.08), rgba(255,59,59,0.03)); border-radius: 28px; padding: 28px; margin: 24px 0;">
-    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
-        <div style="font-size: 42px;">🔍</div>
-        <div>
-            <h3 style="color: #ff6b3b; margin: 0; font-size: 18px;">Что происходит сейчас?</h3>
-            <p style="color: var(--text-secondary); margin: 4px 0 0; font-size: 14px;">AI анализирует ваши паттерны</p>
-        </div>
-    </div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 20px;">
-        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 16px; text-align: center;">
-            <div style="font-size: 28px; margin-bottom: 10px;">📊</div>
-            <div style="font-weight: 500; font-size: 14px;">${cachedProfile?.profile?.behavioral_levels ? '✅' : '⏳'} Поведенческие векторы</div>
-            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">СБ, ТФ, УБ, ЧВ</div>
-        </div>
-        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 16px; text-align: center;">
-            <div style="font-size: 28px; margin-bottom: 10px;">🧬</div>
-            <div style="font-weight: 500; font-size: 14px;">${cachedProfile?.profile?.deep_patterns ? '✅' : '⏳'} Глубинные паттерны</div>
-            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Привязанность, защиты, убеждения</div>
-        </div>
-        <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 16px; text-align: center;">
-            <div style="font-size: 28px; margin-bottom: 10px;">🔄</div>
-            <div style="font-weight: 500; font-size: 14px;">⏳ Системные петли</div>
-            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Повторяющиеся сценарии</div>
-        </div>
-    </div>
-</div>
-
-<div style="background: rgba(255,107,59,0.08); border-radius: 20px; padding: 24px; margin: 24px 0;">
-    <div style="display: flex; gap: 14px; align-items: flex-start;">
-        <div style="font-size: 26px;">💡</div>
-        <div>
-            <div style="font-weight: 600; margin-bottom: 8px; font-size: 15px;">Пока анализ готовится...</div>
-            <p style="color: var(--text-secondary); margin-bottom: 14px; font-size: 14px;">Вот что вы можете сделать:</p>
-            <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.6; font-size: 14px;">
-                <li>🗣️ <strong>Продолжить диалог с Фреди</strong> — каждый разговор добавляет новые данные</li>
-                <li>📝 <strong>Вести дневник мыслей</strong> — записывайте повторяющиеся ситуации</li>
-                <li>🧘 <strong>Попробовать практики</strong> — в разделе "Практики" есть упражнения</li>
-            </ul>
-        </div>
-    </div>
-</div>
-
-<div style="text-align: center; margin-top: 32px;">
-    <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="background: linear-gradient(135deg, #ff6b3b, #ff3b3b); border: none; padding: 12px 28px; font-size: 14px;">
-        🔄 Попробовать снова
-    </button>
-    <p style="color: var(--text-secondary); font-size: 11px; margin-top: 14px;">
-        ✨ Чем больше вы общаетесь с Фреди, тем точнее становится анализ
-    </p>
+<div style="text-align: center; padding: 40px 20px;">
+    <div style="font-size: 48px; margin-bottom: 12px;">🧠</div>
+    <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">Анализ формируется</div>
+    <div style="font-size: 13px; color: var(--text-secondary);">${userName}, ваш портрет создаётся</div>
+    <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 20px;">🔄 Попробовать снова</button>
 </div>
 `;
     
@@ -336,35 +272,26 @@ function renderAnalysisWithTabs() {
     if (!container) return;
 
     container.innerHTML = `
-        <div class="full-content-page" style="max-width: 1100px; padding: 20px;">
-            <button class="back-btn" id="backToDashboard" style="margin-bottom: 20px;">
-                ◀️ НАЗАД К ДАШБОРДУ
-            </button>
+        <div style="max-width: 900px; margin: 0 auto; padding: 16px;">
+            <button class="back-btn" id="backToDashboard" style="margin-bottom: 16px; padding: 8px 16px;">◀️ НАЗАД</button>
 
-            <div class="content-header">
-                <div class="content-emoji" style="font-size: 56px;">🧠</div>
-                <h1 style="font-size: 28px; margin: 12px 0 8px;">Глубинный анализ паттернов</h1>
-                <p style="color: var(--text-secondary); margin-top: 8px; font-size: 14px;">
-                    Системный AI-анализ вашей психологической конфигурации
-                </p>
+            <div style="margin-bottom: 16px;">
+                <div style="font-size: 24px; font-weight: 700;">🧠 Глубинный анализ паттернов</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Системный AI-анализ</div>
             </div>
 
-            <div class="analysis-tabs" style="display: flex; gap: 8px; margin: 28px 0 20px; border-bottom: 1px solid rgba(224,224,224,0.2); padding-bottom: 12px; flex-wrap: wrap;">
-                <button class="analysis-tab active" data-tab="overview" style="padding: 8px 20px; font-size: 14px;">📊 Полный анализ</button>
-                <button class="analysis-tab" data-tab="patterns" style="padding: 8px 20px; font-size: 14px;">🔄 Петли и механизмы</button>
-                <button class="analysis-tab" data-tab="recommendations" style="padding: 8px 20px; font-size: 14px;">🌱 Точки роста</button>
-                <button class="analysis-tab" data-tab="thought" style="padding: 8px 20px; font-size: 14px;">🧠 Мысли психолога</button>
+            <div class="analysis-tabs" style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+                <button class="analysis-tab active" data-tab="overview">📊 Полный анализ</button>
+                <button class="analysis-tab" data-tab="patterns">🔄 Петли и механизмы</button>
+                <button class="analysis-tab" data-tab="recommendations">🌱 Точки роста</button>
+                <button class="analysis-tab" data-tab="thought">🧠 Мысли психолога</button>
             </div>
 
-            <div id="analysisTabContent"></div>
+            <div id="analysisTabContent" class="fredi-analysis"></div>
 
-            <div style="margin-top: 40px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; border-top: 1px solid rgba(224,224,224,0.1); padding-top: 28px;">
-                <button id="regenerateAnalysisBtn" class="voice-record-btn-premium" style="background: rgba(255,107,59,0.15); border-color: #ff6b3b; padding: 10px 24px; font-size: 13px;">
-                    🔄 Провести новый анализ
-                </button>
-                <button id="backToDashboardBtn" class="back-btn" style="min-width: 130px; padding: 10px 20px; font-size: 13px;">
-                    Вернуться в дашборд
-                </button>
+            <div style="margin-top: 24px; display: flex; gap: 12px; justify-content: center;">
+                <button id="regenerateAnalysisBtn" class="analysis-btn">🔄 Провести новый анализ</button>
+                <button id="backToDashboardBtn" class="analysis-btn">🏠 Вернуться</button>
             </div>
         </div>
     `;
@@ -384,71 +311,93 @@ function renderAnalysisWithTabs() {
         });
     });
     
-    // Добавляем стили для анализа
-    if (!document.querySelector('#analysis-final-styles')) {
+    // Добавляем стили если нет
+    if (!document.querySelector('#analysis-compact-styles')) {
         const style = document.createElement('style');
-        style.id = 'analysis-final-styles';
+        style.id = 'analysis-compact-styles';
         style.textContent = `
-            .analysis-header {
-                margin: 24px 0 12px;
-                font-size: 18px;
-                font-weight: 600;
-                color: #ff6b3b;
-                border-left: 3px solid #ff6b3b;
-                padding-left: 12px;
+            .analysis-tab {
+                background: rgba(255,107,59,0.1);
+                border: none;
+                padding: 6px 14px;
+                border-radius: 30px;
+                font-size: 12px;
+                font-weight: 500;
+                color: #a0a3b0;
+                cursor: pointer;
+                transition: all 0.2s;
             }
-            .analysis-paragraph {
-                margin: 12px 0;
-                line-height: 1.7;
-                color: var(--text-secondary);
+            .analysis-tab.active {
+                background: #ff6b3b;
+                color: white;
+            }
+            .analysis-btn {
+                background: rgba(255,107,59,0.1);
+                border: none;
+                padding: 8px 20px;
+                border-radius: 30px;
+                font-size: 13px;
+                color: white;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .analysis-btn:hover {
+                background: rgba(255,107,59,0.2);
+            }
+            .fredi-analysis .analysis-section-title {
+                font-size: 15px;
+                font-weight: 700;
+                margin: 16px 0 6px;
+                color: #ff6b3b;
+            }
+            .fredi-analysis .analysis-header {
                 font-size: 14px;
+                font-weight: 600;
+                margin: 10px 0 4px;
+                color: #ff8c4a;
             }
-            .analysis-list {
-                margin: 10px 0;
-                list-style: none;
-                padding: 0;
+            .fredi-analysis .analysis-text {
+                font-size: 13px;
+                line-height: 1.45;
+                color: #c0c0c0;
+                margin: 4px 0;
             }
-            .analysis-list-item {
-                margin: 6px 0 6px 24px;
-                line-height: 1.6;
-                color: var(--text-secondary);
-                font-size: 14px;
-                position: relative;
-            }
-            .analysis-list-item::before {
-                content: '•';
-                color: #ff6b3b;
-                font-weight: bold;
-                position: absolute;
-                left: -16px;
-            }
-            .analysis-bold {
+            .fredi-analysis .analysis-bold {
                 color: #ff6b3b;
                 font-weight: 600;
             }
-            .analysis-block {
-                margin: 12px 0;
-                padding: 8px 12px;
-                background: rgba(255, 107, 59, 0.05);
-                border-radius: 8px;
+            .fredi-analysis .analysis-list-item {
+                font-size: 13px;
+                line-height: 1.45;
+                color: #c0c0c0;
+                margin: 3px 0 3px 16px;
             }
-            .block-label {
+            .fredi-analysis .analysis-list-item.numbered {
+                margin-left: 20px;
+            }
+            .fredi-analysis .analysis-block {
+                margin: 6px 0;
+                padding: 4px 0 4px 10px;
+                background: rgba(255,107,59,0.05);
+                border-radius: 6px;
+            }
+            .fredi-analysis .block-label {
                 color: #ff8c4a;
                 font-weight: 600;
                 margin-right: 6px;
             }
-            @media (max-width: 768px) {
-                .analysis-header {
-                    font-size: 16px;
-                    margin: 20px 0 10px;
-                }
-                .analysis-paragraph {
-                    font-size: 13px;
-                }
-                .analysis-list-item {
-                    font-size: 13px;
-                    margin-left: 20px;
-                }
+            .fredi-analysis .forecast-bad,
+            .fredi-analysis .forecast-good {
+                margin: 6px 0;
+                font-size: 13px;
+                line-height: 1.45;
+                color: #c0c0c0;
+            }
+            .fredi-analysis .forecast-bad {
+                color: #ef4444;
+            }
+            .fredi-analysis .forecast-good {
+                color: #10b981;
             }
         `;
         document.head.appendChild(style);
@@ -494,13 +443,10 @@ function renderOverviewTab() {
     
     if (!analysis) {
         document.getElementById('analysisTabContent').innerHTML = `
-            <div style="text-align: center; padding: 60px 20px;">
-                <div style="font-size: 48px; margin-bottom: 20px;">🧠</div>
-                <h3 style="font-size: 18px;">Анализ формируется</h3>
-                <p style="color: var(--text-secondary); font-size: 14px;">Нажмите "Провести новый анализ"</p>
-                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px; padding: 10px 24px; font-size: 14px;">
-                    🔄 Провести анализ
-                </button>
+            <div style="text-align: center; padding: 40px;">
+                <div style="font-size: 40px; margin-bottom: 12px;">🧠</div>
+                <div style="font-size: 16px; font-weight: 600;">Анализ формируется</div>
+                <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Провести анализ</button>
             </div>
         `;
         return;
@@ -509,7 +455,7 @@ function renderOverviewTab() {
     const formattedHtml = formatAnalysisText(analysis);
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div class="analysis-content">
+        <div class="fredi-analysis">
             ${formattedHtml}
         </div>
     `;
@@ -527,54 +473,37 @@ function renderPatternsTab() {
         return;
     }
     
-    // Извлекаем секции
-    let patternsSection = '';
-    let hiddenSection = '';
+    let patternsText = '';
+    let hiddenText = '';
     
     const patternsMatch = analysis.match(/(?:СИСТЕМНЫЕ ПЕТЛИ)[\s\S]*?(?=(?:СКРЫТЫЕ МЕХАНИЗМЫ|ТОЧКИ РОСТА|ПРОГНОЗ|$))/i);
     const hiddenMatch = analysis.match(/(?:СКРЫТЫЕ МЕХАНИЗМЫ)[\s\S]*?(?=(?:ТОЧКИ РОСТА|ПРОГНОЗ|$))/i);
     
     if (patternsMatch) {
-        let text = patternsMatch[0];
-        text = text.replace(/СИСТЕМНЫЕ ПЕТЛИ\s*/i, '');
-        text = formatAnalysisText(text);
-        patternsSection = `
-            <div style="margin-bottom: 28px;">
-                <h3 class="analysis-header">🔄 Системные петли</h3>
-                <div>${text}</div>
-            </div>
-        `;
+        let text = patternsMatch[0].replace(/СИСТЕМНЫЕ ПЕТЛИ/i, '');
+        patternsText = formatAnalysisText(text);
     }
     
     if (hiddenMatch) {
-        let text = hiddenMatch[0];
-        text = text.replace(/СКРЫТЫЕ МЕХАНИЗМЫ\s*/i, '');
-        text = formatAnalysisText(text);
-        hiddenSection = `
-            <div style="margin-bottom: 28px;">
-                <h3 class="analysis-header">🧠 Скрытые механизмы</h3>
-                <div>${text}</div>
-            </div>
-        `;
+        let text = hiddenMatch[0].replace(/СКРЫТЫЕ МЕХАНИЗМЫ/i, '');
+        hiddenText = formatAnalysisText(text);
     }
     
-    if (!patternsSection && !hiddenSection) {
-        patternsSection = '<p style="color: var(--text-secondary); text-align: center; padding: 40px;">Специальный раздел с петлями и механизмами будет доступен после проведения анализа.</p>';
+    let content = '';
+    if (patternsText) {
+        content += `<div class="analysis-section-title">🔄 Системные петли</div>${patternsText}`;
+    }
+    if (hiddenText) {
+        content += `<div class="analysis-section-title" style="margin-top: 16px;">🧠 Скрытые механизмы</div>${hiddenText}`;
+    }
+    
+    if (!content) {
+        content = '<div style="text-align: center; padding: 40px;">Раздел будет доступен после анализа</div>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div class="analysis-content">
-            ${patternsSection}
-            ${hiddenSection}
-        </div>
-        <div style="margin-top: 20px; background: rgba(255,107,59,0.08); border-radius: 20px; padding: 18px;">
-            <div style="display: flex; gap: 12px;">
-                <span style="font-size: 22px;">💡</span>
-                <div>
-                    <strong style="font-size: 14px;">Осознание петли — первый шаг к её разрыву</strong>
-                    <p style="color: var(--text-secondary); margin-top: 6px; font-size: 13px;">Обсудите эти наблюдения с Фреди в диалоге.</p>
-                </div>
-            </div>
+        <div class="fredi-analysis">
+            ${content}
         </div>
     `;
 }
@@ -591,62 +520,37 @@ function renderRecommendationsTab() {
         return;
     }
     
-    let growthSection = '';
-    let keysSection = '';
+    let growthText = '';
+    let keysText = '';
     
     const growthMatch = analysis.match(/(?:ТОЧКИ РОСТА)[\s\S]*?(?=(?:ПРОГНОЗ|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|$))/i);
     const keysMatch = analysis.match(/(?:ПЕРСОНАЛЬНЫЕ КЛЮЧИ)[\s\S]*?(?=(?:$))/i);
     
     if (growthMatch) {
-        let text = growthMatch[0];
-        text = text.replace(/ТОЧКИ РОСТА\s*/i, '');
-        text = formatAnalysisText(text);
-        growthSection = `
-            <div style="margin-bottom: 28px;">
-                <h3 class="analysis-header">🌱 Точки роста</h3>
-                <div>${text}</div>
-            </div>
-        `;
+        let text = growthMatch[0].replace(/ТОЧКИ РОСТА/i, '');
+        growthText = formatAnalysisText(text);
     }
     
     if (keysMatch) {
-        let text = keysMatch[0];
-        text = text.replace(/ПЕРСОНАЛЬНЫЕ КЛЮЧИ\s*/i, '');
-        text = formatAnalysisText(text);
-        keysSection = `
-            <div style="margin-bottom: 28px;">
-                <h3 class="analysis-header">🔑 Персональные ключи</h3>
-                <div>${text}</div>
-            </div>
-        `;
+        let text = keysMatch[0].replace(/ПЕРСОНАЛЬНЫЕ КЛЮЧИ/i, '');
+        keysText = formatAnalysisText(text);
     }
     
-    if (!growthSection && !keysSection) {
-        growthSection = '<p style="color: var(--text-secondary); text-align: center; padding: 40px;">Персональные рекомендации появятся после проведения анализа.</p>';
+    let content = '';
+    if (growthText) {
+        content += `<div class="analysis-section-title">🌱 Точки роста</div>${growthText}`;
+    }
+    if (keysText) {
+        content += `<div class="analysis-section-title" style="margin-top: 16px;">🔑 Персональные ключи</div>${keysText}`;
+    }
+    
+    if (!content) {
+        content = '<div style="text-align: center; padding: 40px;">Раздел будет доступен после анализа</div>';
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div class="analysis-content">
-            ${growthSection}
-            ${keysSection}
-        </div>
-        
-        <div style="margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;">
-            <div style="background: rgba(224,224,224,0.05); border-radius: 18px; padding: 16px; text-align: center;">
-                <div style="font-size: 28px;">🧘</div>
-                <div style="font-weight: 500; margin: 10px 0 6px; font-size: 14px;">Практика</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">5 минут осознанности</div>
-            </div>
-            <div style="background: rgba(224,224,224,0.05); border-radius: 18px; padding: 16px; text-align: center;">
-                <div style="font-size: 28px;">📝</div>
-                <div style="font-weight: 500; margin: 10px 0 6px; font-size: 14px;">Дневник</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">Записывайте сценарии</div>
-            </div>
-            <div style="background: rgba(224,224,224,0.05); border-radius: 18px; padding: 16px; text-align: center;">
-                <div style="font-size: 28px;">💬</div>
-                <div style="font-weight: 500; margin: 10px 0 6px; font-size: 14px;">Диалог</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">Обсудите с Фреди</div>
-            </div>
+        <div class="fredi-analysis">
+            ${content}
         </div>
     `;
 }
@@ -660,12 +564,10 @@ function renderThoughtTab() {
     
     if (!thought) {
         document.getElementById('analysisTabContent').innerHTML = `
-            <div style="text-align: center; padding: 60px 20px;">
-                <div style="font-size: 48px; margin-bottom: 20px;">🧠</div>
-                <h3 style="font-size: 18px;">Мысли психолога появятся после анализа</h3>
-                <button onclick="generateDeepAnalysis()" class="voice-record-btn-premium" style="margin-top: 24px; padding: 10px 24px; font-size: 14px;">
-                    🔄 Провести анализ
-                </button>
+            <div style="text-align: center; padding: 40px;">
+                <div style="font-size: 40px; margin-bottom: 12px;">🧠</div>
+                <div style="font-size: 16px; font-weight: 600;">Мысли психолога появятся позже</div>
+                <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Провести анализ</button>
             </div>
         `;
         return;
@@ -673,23 +575,21 @@ function renderThoughtTab() {
     
     let formattedThought = thought
         .replace(/\*\*(.*?)\*\*/g, '<strong class="analysis-bold">$1</strong>')
-        .replace(/\*(.*?)\*/g, '<strong class="analysis-bold">$1</strong>')
         .replace(/\n/g, '<br>');
     
     document.getElementById('analysisTabContent').innerHTML = `
-        <div class="psychologist-thought">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
-                <div style="font-size: 32px;">🧠</div>
-                <div>
-                    <div style="font-size: 11px; color: var(--text-secondary);">ФРЕДИ ГОВОРИТ</div>
-                    <div style="font-size: 18px; font-weight: 500;">Мысли психолога</div>
+        <div class="fredi-analysis">
+            <div style="background: rgba(255,107,59,0.05); border-radius: 16px; padding: 16px;">
+                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                    <div style="font-size: 28px;">🧠</div>
+                    <div>
+                        <div style="font-size: 10px; color: var(--text-secondary);">ФРЕДИ ГОВОРИТ</div>
+                        <div style="font-size: 16px; font-weight: 600;">Мысли психолога</div>
+                    </div>
                 </div>
-            </div>
-            <div style="font-size: 15px; line-height: 1.7; font-style: italic; color: var(--text-secondary);">
-                ${formattedThought}
-            </div>
-            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,107,59,0.2);">
-                <p style="font-size: 12px; color: var(--text-secondary);">✨ Этот анализ сформирован на основе ваших ответов и глубинных паттернов</p>
+                <div style="font-size: 14px; line-height: 1.5; font-style: italic; color: #c0c0c0;">
+                    ${formattedThought}
+                </div>
             </div>
         </div>
     `;
@@ -703,4 +603,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 4.0 — универсальное форматирование)');
+console.log('✅ Модуль анализа загружен (версия 5.0 — компактное оформление)');
