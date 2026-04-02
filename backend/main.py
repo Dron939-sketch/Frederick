@@ -17,7 +17,7 @@ import base64
 import re
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 import signal
 import traceback
 
