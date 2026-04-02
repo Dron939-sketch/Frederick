@@ -878,6 +878,24 @@ async def init_database_tables():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
+
+        # Таблица глубоких анализов
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS deep_analyses (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                analysis_text TEXT NOT NULL,
+                analysis_type TEXT DEFAULT 'deep_analysis',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        """)
+        
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_deep_analyses_user_id 
+            ON deep_analyses(user_id, created_at DESC)
+        """)
         
         # ========== ИНДЕКСЫ ==========
         
