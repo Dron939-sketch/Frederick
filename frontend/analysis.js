@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 5.1 — компактное форматирование без лишних символов
+// Версия 6.0 — с анимацией загрузки, сохранением в БД и компактным форматированием
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -25,78 +25,79 @@ let currentTab = 'overview';
 let cachedProfile = null;
 let cachedAIAnalysis = null;
 
-// ========== ФУНКЦИЯ ПОКАЗА ЗАГРУЗКИ ==========
-function showAnalysisLoading(message) {
+// ========== ФУНКЦИЯ ПОКАЗА ЗАГРУЗКИ С АНИМАЦИЕЙ ==========
+function showAnalysisLoading(message, subMessage = '') {
     const container = document.getElementById('screenContainer');
     if (!container) return;
     
     container.innerHTML = `
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; gap: 16px;">
-            <div style="font-size: 48px; animation: spin 1s linear infinite;">🧠</div>
-            <div style="font-size: 14px; color: var(--text-secondary);">${message}</div>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 400px; gap: 24px; padding: 20px;">
+            <div style="position: relative; width: 80px; height: 80px;">
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 3px solid rgba(255,107,59,0.1); border-radius: 50%;"></div>
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 3px solid #ff6b3b; border-radius: 50%; border-top-color: transparent; animation: spin 1s linear infinite;"></div>
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 32px;">🧠</div>
+            </div>
+            <div style="font-size: 18px; font-weight: 500; color: var(--text-primary);">${message}</div>
+            <div style="font-size: 13px; color: var(--text-secondary); text-align: center; max-width: 280px;">${subMessage}</div>
+            <div style="display: flex; gap: 6px; margin-top: 8px;">
+                <div style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1.2s ease-in-out infinite;"></div>
+                <div style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1.2s ease-in-out infinite 0.2s;"></div>
+                <div style="width: 8px; height: 8px; background: #ff6b3b; border-radius: 50%; animation: pulse 1.2s ease-in-out infinite 0.4s;"></div>
+            </div>
         </div>
-        <style>@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }</style>
+        <style>
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            @keyframes pulse {
+                0%, 100% { opacity: 0.3; transform: scale(0.8); }
+                50% { opacity: 1; transform: scale(1.2); }
+            }
+        </style>
     `;
 }
 
-// ========== ОСНОВНАЯ ФУНКЦИЯ ФОРМАТИРОВАНИЯ ==========
+// ========== ФОРМАТИРОВАНИЕ ТЕКСТА ==========
 function formatAnalysisText(text) {
     if (!text) return '';
     
     let processed = text;
     
-    // 1. Удаляем все ## и маркдаун
-    processed = processed.replace(/##\s*/g, '');
-    processed = processed.replace(/```/g, '');
-    
-    // 2. Добавляем перенос после заголовков разделов
-    const mainHeaders = ['ГЛУБИННЫЙ ПОРТРЕТ', 'СИСТЕМНЫЕ ПЕТЛИ', 'СКРЫТЫЕ МЕХАНИЗМЫ', 'ТОЧКИ РОСТА', 'ПРОГНОЗ', 'ПЕРСОНАЛЬНЫЕ КЛЮЧИ'];
-    for (const header of mainHeaders) {
-        processed = processed.replace(new RegExp(`(${header})([^\\n])`, 'g'), `$1\n\n$2`);
-    }
-    
-    // 3. Добавляем перенос перед маркерами списков
-    processed = processed.replace(/(\* |• |\d+\. )/g, '\n$1');
-    
-    // 4. Преобразуем заголовки разделов
-    for (const header of mainHeaders) {
-        processed = processed.replace(new RegExp(`${header}`, 'g'), `<div class="analysis-section-title">${header}</div>`);
-    }
-    
-    // 5. Преобразуем подзаголовки с эмодзи
-    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑])\s*(.+)$/gm, '<div class="analysis-header">$1 $2</div>');
-    
-    // 6. Жирный текст
+    // 1. Жирный текст
     processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong class="analysis-bold">$1</strong>');
-    processed = processed.replace(/\*(.*?)\*/g, '<strong class="analysis-bold">$1</strong>');
     
-    // 7. Маркированные списки
-    processed = processed.replace(/^[\*\•]\s+(.+)$/gm, '<div class="analysis-list-item">• $1</div>');
+    // 2. Заголовки разделов
+    const headers = ['ГЛУБИННЫЙ ПОРТРЕТ', 'СИСТЕМНЫЕ ПЕТЛИ', 'СКРЫТЫЕ МЕХАНИЗМЫ', 'ТОЧКИ РОСТА', 'ПРОГНОЗ', 'ПЕРСОНАЛЬНЫЕ КЛЮЧИ'];
+    for (const header of headers) {
+        processed = processed.replace(new RegExp(`^${header}$`, 'gm'), `<div class="analysis-section-title">${header}</div>`);
+    }
     
-    // 8. Нумерованные списки
+    // 3. Маркированные списки (•)
+    processed = processed.replace(/^•\s+(.+)$/gm, '<div class="analysis-list-item">• $1</div>');
+    
+    // 4. Нумерованные списки
     processed = processed.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="analysis-list-item numbered">$1. $2</div>');
     
-    // 9. Специальные блоки (Триггер, Действие, Цена, Выгода, Ожидание)
-    const blockLabels = ['Триггер', 'Действие', 'Цена', 'Выгода', 'Ожидание', 'Сбой системы', 'Награда'];
-    for (const label of blockLabels) {
-        processed = processed.replace(new RegExp(`^${label}:\\s+(.+)$`, 'gm'), `<div class="analysis-block"><span class="block-label">${label}:</span> $1</div>`);
-    }
+    // 5. Прогноз (▸)
+    processed = processed.replace(/^▸\s+(.+)$/gm, '<div class="forecast-item">▸ $1</div>');
     
-    // 10. Прогноз с двумя вариантами
-    processed = processed.replace(/Без изменений:/g, '<div class="forecast-bad">▸ Без изменений:');
-    processed = processed.replace(/При работе над собой:/g, '<div class="forecast-good">▸ При работе над собой:');
-    
-    // 11. Разбиваем на параграфы
+    // 6. Обычные абзацы
     const lines = processed.split('\n');
     let result = '';
     let paragraph = '';
     
     for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed) continue;
+        if (!trimmed) {
+            if (paragraph) {
+                result += `<div class="analysis-text">${paragraph}</div>`;
+                paragraph = '';
+            }
+            continue;
+        }
         
-        const isTag = trimmed.startsWith('<div') || trimmed.startsWith('<strong') || trimmed.startsWith('▸');
-        
+        const isTag = trimmed.startsWith('<div');
         if (isTag) {
             if (paragraph) {
                 result += `<div class="analysis-text">${paragraph}</div>`;
@@ -130,7 +131,8 @@ async function openAnalysisScreen() {
         return;
     }
 
-    showAnalysisLoading('🔍 Загружаю данные...');
+    // Показываем загрузку
+    showAnalysisLoading('🔍 Загружаю данные...', 'Получение профиля');
 
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -151,18 +153,54 @@ async function openAnalysisScreen() {
         
     } catch (error) {
         console.error('Analysis error:', error);
-        if (window.showToast) window.showToast('❌ Ошибка загрузки');
+        if (window.showToast) window.showToast('❌ Ошибка загрузки данных');
         if (typeof renderDashboard === 'function') renderDashboard();
         else if (window.renderDashboard) window.renderDashboard();
     }
 }
 
 // ============================================
-// ГЛУБОКИЙ AI-АНАЛИЗ
+// ГЛУБОКИЙ AI-АНАЛИЗ С СОХРАНЕНИЕМ В БД
 // ============================================
 
 async function generateDeepAnalysis() {
-    showAnalysisLoading('🧠 Анализирую...');
+    let timerInterval = null;
+    let seconds = 0;
+    
+    // Показываем загрузку с таймером
+    showAnalysisLoading('🧠 Провожу глубинный анализ...', 'Это занимает 20-40 секунд');
+    
+    // Запускаем таймер для информирования
+    const timerDiv = document.createElement('div');
+    timerDiv.style.cssText = 'font-size: 24px; font-weight: 600; color: #ff6b3b; margin-top: 8px;';
+    
+    const loadingContainer = document.querySelector('.screen-container > div');
+    if (loadingContainer) {
+        const timeElement = document.createElement('div');
+        timeElement.style.cssText = 'font-size: 24px; font-weight: 600; color: #ff6b3b; margin-top: 8px;';
+        loadingContainer.appendChild(timeElement);
+        
+        timerInterval = setInterval(() => {
+            seconds++;
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            if (minutes > 0) {
+                timeElement.textContent = `${minutes}м ${secs}с`;
+            } else {
+                timeElement.textContent = `${secs}с`;
+            }
+            
+            // Меняем сообщение при долгой загрузке
+            if (seconds === 15) {
+                const msgDiv = loadingContainer.querySelector('div:nth-child(2)');
+                if (msgDiv) msgDiv.textContent = '🧠 Анализирую глубинные паттерны...';
+            }
+            if (seconds === 30) {
+                const msgDiv = loadingContainer.querySelector('div:nth-child(2)');
+                if (msgDiv) msgDiv.textContent = '✨ Формирую персональные рекомендации...';
+            }
+        }, 1000);
+    }
     
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -181,17 +219,39 @@ async function generateDeepAnalysis() {
         
         const data = await response.json();
         
+        // Останавливаем таймер
+        if (timerInterval) clearInterval(timerInterval);
+        
         if (data.success && data.analysis) {
             cachedAIAnalysis.profile = data.analysis;
+            
+            // Сохраняем анализ в localStorage
+            try {
+                const savedAnalyses = JSON.parse(localStorage.getItem(`deep_analyses_${userId}`) || '[]');
+                savedAnalyses.unshift({
+                    text: data.analysis,
+                    timestamp: Date.now(),
+                    date: new Date().toISOString()
+                });
+                // Оставляем только последние 5 анализов
+                while (savedAnalyses.length > 5) savedAnalyses.pop();
+                localStorage.setItem(`deep_analyses_${userId}`, JSON.stringify(savedAnalyses));
+                localStorage.setItem(`last_analysis_${userId}`, data.analysis);
+                console.log('✅ Анализ сохранён в localStorage');
+            } catch (e) {
+                console.warn('Не удалось сохранить анализ локально:', e);
+            }
+            
             renderAnalysisWithTabs();
         } else {
-            if (window.showToast) window.showToast('⚠️ Ошибка генерации');
+            if (window.showToast) window.showToast('⚠️ Не удалось сгенерировать анализ');
             renderFallbackAnalysis();
         }
         
     } catch (error) {
         console.error('Generate deep analysis error:', error);
-        if (window.showToast) window.showToast('❌ Ошибка');
+        if (timerInterval) clearInterval(timerInterval);
+        if (window.showToast) window.showToast('❌ Ошибка при генерации анализа');
         renderFallbackAnalysis();
     }
 }
@@ -205,10 +265,10 @@ function renderFallbackAnalysis() {
     
     const fallbackText = `
 <div style="text-align: center; padding: 40px 20px;">
-    <div style="font-size: 48px; margin-bottom: 12px;">🧠</div>
-    <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">Анализ формируется</div>
-    <div style="font-size: 13px; color: var(--text-secondary);">${userName}, ваш портрет создаётся</div>
-    <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 20px;">🔄 Попробовать снова</button>
+    <div style="font-size: 64px; margin-bottom: 16px;">🧠</div>
+    <div style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">Анализ формируется</div>
+    <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 24px;">${userName}, ваш портрет создаётся</div>
+    <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 8px;">🔄 Попробовать снова</button>
 </div>
 `;
     
@@ -303,12 +363,6 @@ function renderAnalysisWithTabs() {
                 margin: 16px 0 6px;
                 color: #ff6b3b;
             }
-            .fredi-analysis .analysis-header {
-                font-size: 14px;
-                font-weight: 600;
-                margin: 10px 0 4px;
-                color: #ff8c4a;
-            }
             .fredi-analysis .analysis-text {
                 font-size: 13px;
                 line-height: 1.45;
@@ -328,28 +382,11 @@ function renderAnalysisWithTabs() {
             .fredi-analysis .analysis-list-item.numbered {
                 margin-left: 20px;
             }
-            .fredi-analysis .analysis-block {
-                margin: 6px 0;
-                padding: 4px 0 4px 10px;
-                background: rgba(255,107,59,0.05);
-                border-radius: 6px;
-            }
-            .fredi-analysis .block-label {
-                color: #ff8c4a;
-                font-weight: 600;
-                margin-right: 6px;
-            }
-            .fredi-analysis .forecast-bad,
-            .fredi-analysis .forecast-good {
+            .fredi-analysis .forecast-item {
                 margin: 6px 0;
                 font-size: 13px;
                 line-height: 1.45;
-            }
-            .fredi-analysis .forecast-bad {
-                color: #ef4444;
-            }
-            .fredi-analysis .forecast-good {
-                color: #10b981;
+                color: #c0c0c0;
             }
         `;
         document.head.appendChild(style);
@@ -396,7 +433,7 @@ function renderOverviewTab() {
     if (!analysis) {
         document.getElementById('analysisTabContent').innerHTML = `
             <div style="text-align: center; padding: 40px;">
-                <div style="font-size: 40px; margin-bottom: 12px;">🧠</div>
+                <div style="font-size: 48px; margin-bottom: 12px;">🧠</div>
                 <div style="font-size: 16px; font-weight: 600;">Анализ формируется</div>
                 <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Провести анализ</button>
             </div>
@@ -548,11 +585,33 @@ function renderThoughtTab() {
 }
 
 // ============================================
+// ДОПОЛНИТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ СОХРАНЁННОГО АНАЛИЗА
+// ============================================
+
+function getLastAnalysis() {
+    const userId = window.CONFIG?.USER_ID || window.USER_ID;
+    if (!userId) return null;
+    return localStorage.getItem(`last_analysis_${userId}`);
+}
+
+function getAllAnalyses() {
+    const userId = window.CONFIG?.USER_ID || window.USER_ID;
+    if (!userId) return [];
+    try {
+        return JSON.parse(localStorage.getItem(`deep_analyses_${userId}`) || '[]');
+    } catch {
+        return [];
+    }
+}
+
+// ============================================
 // ГЛОБАЛЬНЫЙ ЭКСПОРТ
 // ============================================
 
 window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
+window.getLastAnalysis = getLastAnalysis;
+window.getAllAnalyses = getAllAnalyses;
 
-console.log('✅ Модуль анализа загружен (версия 5.1 — компактное форматирование)');
+console.log('✅ Модуль анализа загружен (версия 6.0 — с анимацией и сохранением в БД)');
