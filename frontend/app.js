@@ -1453,6 +1453,8 @@ function updateModeUI() {
     document.getElementById('modeIndicator').style.background = config.color;
 }
 
+function showFullContentScreen(title, content, contentType, rawText = null) {
+
 async function switchMode(mode) {
     if (mode === currentMode) return;
     currentMode = mode;
