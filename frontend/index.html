@@ -9,9 +9,9 @@
     <meta name="theme-color" content="#0a0a0a">
     <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
-   
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
-    
+
     <style>
         * {
             margin: 0;
@@ -19,7 +19,7 @@
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
         }
-        
+
         :root {
             --black-obsidian: #0a0a0a;
             --black-matte: #111111;
@@ -34,14 +34,13 @@
             --amg-blue: #3b82ff;
             --amber: #ffb83b;
             --shadow-premium: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            --glow-iphone: 0 0 20px rgba(255, 255, 255, 0.5), 0 0 40px rgba(255, 255, 255, 0.3);
             --text-primary: #ffffff;
             --text-secondary: #a0a3b0;
             --success: #10b981;
             --error: #ef4444;
             --warning: #f59e0b;
         }
-        
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--black-obsidian);
@@ -54,37 +53,32 @@
             top: 0;
             left: 0;
         }
-        
+
         @supports (height: 100dvh) {
             body, .app, .chat-panel, .screen-container, .test-chat-container {
                 height: 100dvh !important;
                 min-height: 100dvh !important;
             }
         }
-        
+
         body::before {
             content: '';
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(circle at 30% 40%, rgba(224, 224, 224, 0.03) 0%, transparent 60%),
-                        radial-gradient(circle at 70% 80%, rgba(255, 59, 59, 0.02) 0%, transparent 60%);
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(circle at 30% 40%, rgba(224, 224, 224, 0.03) 0%, transparent 60%),
+                radial-gradient(circle at 70% 80%, rgba(255, 59, 59, 0.02) 0%, transparent 60%);
             pointer-events: none;
         }
-        
+
         body::after {
             content: '';
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             background: repeating-linear-gradient(45deg, rgba(224, 224, 224, 0.008) 0px, rgba(224, 224, 224, 0.008) 2px, transparent 2px, transparent 8px);
             pointer-events: none;
         }
-        
+
         .app {
             display: flex;
             height: 100%;
@@ -92,8 +86,8 @@
             overflow: hidden;
             position: relative;
         }
-        
-        /* Левая панель */
+
+        /* ===== ЛЕВАЯ ПАНЕЛЬ ===== */
         .chats-panel {
             width: 280px;
             background: rgba(10, 10, 10, 0.85);
@@ -106,7 +100,7 @@
             z-index: 20;
             position: relative;
         }
-        
+
         @media (max-width: 768px) {
             .chats-panel {
                 position: fixed;
@@ -123,12 +117,12 @@
                 box-shadow: 5px 0 30px rgba(0, 0, 0, 0.5);
             }
         }
-        
+
         .chats-header {
             padding: 20px 16px;
             border-bottom: 1px solid rgba(224, 224, 224, 0.1);
         }
-        
+
         .chats-title {
             font-size: 24px;
             font-weight: 600;
@@ -137,11 +131,11 @@
             background-clip: text;
             color: transparent;
         }
-        
+
         .chats-search {
             padding: 12px 16px;
         }
-        
+
         .chats-search input {
             width: 100%;
             padding: 10px 16px;
@@ -150,20 +144,22 @@
             border-radius: 30px;
             color: var(--text-primary);
             font-size: 14px;
+            font-family: inherit;
+            outline: none;
         }
-        
+
         .chats-list {
             flex: 1;
             overflow-y: auto;
             padding: 8px;
         }
-        
+
         .menu-divider {
             height: 1px;
             background: rgba(224, 224, 224, 0.1);
             margin: 12px 16px;
         }
-        
+
         .menu-section-title {
             font-size: 11px;
             font-weight: 600;
@@ -172,7 +168,7 @@
             padding: 8px 20px;
             text-transform: uppercase;
         }
-        
+
         .chat-item {
             display: flex;
             align-items: center;
@@ -185,17 +181,17 @@
             border: 1px solid transparent;
             min-height: 44px;
         }
-        
+
         .chat-item:hover {
             background: rgba(224, 224, 224, 0.08);
             border-color: rgba(224, 224, 224, 0.2);
         }
-        
+
         .chat-item.active {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.1), rgba(192, 192, 192, 0.05));
             border-color: rgba(224, 224, 224, 0.3);
         }
-        
+
         .chat-avatar {
             width: 44px;
             height: 44px;
@@ -205,9 +201,10 @@
             align-items: center;
             justify-content: center;
             font-size: 22px;
+            flex-shrink: 0;
             position: relative;
         }
-        
+
         .chat-avatar::after {
             content: '';
             position: absolute;
@@ -219,31 +216,17 @@
             border-radius: 50%;
             border: 2px solid var(--black-obsidian);
         }
-        
-        .chat-info {
-            flex: 1;
-        }
-        
-        .chat-name {
-            font-weight: 600;
-            font-size: 14px;
-        }
-        
-        .chat-preview {
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-        
-        .chat-time {
-            font-size: 10px;
-            color: var(--text-secondary);
-        }
-        
+
+        .chat-info { flex: 1; min-width: 0; }
+        .chat-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-preview { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-time { font-size: 10px; color: var(--text-secondary); flex-shrink: 0; }
+
         .chats-footer {
             padding: 12px 16px;
             border-top: 1px solid rgba(224, 224, 224, 0.1);
         }
-        
+
         .user-mini-profile {
             display: flex;
             align-items: center;
@@ -253,7 +236,7 @@
             background: rgba(224, 224, 224, 0.05);
             cursor: pointer;
         }
-        
+
         .user-mini-avatar {
             width: 40px;
             height: 40px;
@@ -265,19 +248,13 @@
             font-size: 18px;
             font-weight: 600;
             color: var(--black-obsidian);
+            flex-shrink: 0;
         }
-        
-        .user-mini-name {
-            font-weight: 600;
-            font-size: 14px;
-        }
-        
-        .user-mini-status {
-            font-size: 10px;
-            color: var(--text-secondary);
-        }
-        
-        /* Правая панель */
+
+        .user-mini-name { font-weight: 600; font-size: 14px; }
+        .user-mini-status { font-size: 10px; color: var(--text-secondary); }
+
+        /* ===== ПРАВАЯ ПАНЕЛЬ ===== */
         .chat-panel {
             flex: 1;
             display: flex;
@@ -286,7 +263,7 @@
             background: rgba(10, 10, 10, 0.5);
             height: 100%;
         }
-        
+
         .chat-header {
             display: flex;
             justify-content: space-between;
@@ -295,14 +272,15 @@
             background: rgba(10, 10, 10, 0.8);
             backdrop-filter: blur(20px);
             border-bottom: 1px solid rgba(224, 224, 224, 0.1);
+            flex-shrink: 0;
         }
-        
+
         .chat-header-left {
             display: flex;
             align-items: center;
             gap: 12px;
         }
-        
+
         .mobile-menu-btn {
             display: none;
             background: rgba(224, 224, 224, 0.1);
@@ -313,19 +291,15 @@
             width: 44px;
             height: 44px;
             border-radius: 50%;
-            z-index: 1001;
-            position: relative;
+            align-items: center;
+            justify-content: center;
             touch-action: manipulation;
         }
-        
+
         @media (max-width: 768px) {
-            .mobile-menu-btn {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
+            .mobile-menu-btn { display: flex; }
         }
-        
+
         .chat-header-avatar {
             width: 44px;
             height: 44px;
@@ -336,12 +310,9 @@
             justify-content: center;
             font-size: 24px;
         }
-        
-        .chat-header-name {
-            font-weight: 700;
-            font-size: 18px;
-        }
-        
+
+        .chat-header-name { font-weight: 700; font-size: 18px; }
+
         .chat-header-status {
             font-size: 11px;
             color: var(--text-secondary);
@@ -349,33 +320,33 @@
             align-items: center;
             gap: 6px;
         }
-        
+
         .mode-indicator {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            animation: pulseMode 2s infinite;
             background: #ff6b3b;
+            animation: pulseMode 2s infinite;
         }
-        
+
         @keyframes pulseMode {
             0%, 100% { opacity: 0.5; }
             50% { opacity: 1; }
         }
-        
+
         .screen-container {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
             -webkit-overflow-scrolling: touch;
         }
-        
-        /* Dashboard Styles */
+
+        /* ===== ДАШБОРД ===== */
         .dashboard-container {
             max-width: 800px;
             margin: 0 auto;
         }
-        
+
         .hero-section {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.05), rgba(192, 192, 192, 0.02));
             border-radius: 28px;
@@ -383,7 +354,7 @@
             margin-bottom: 24px;
             border: 1px solid rgba(224, 224, 224, 0.15);
         }
-        
+
         .user-greeting {
             display: flex;
             justify-content: space-between;
@@ -391,18 +362,10 @@
             flex-wrap: wrap;
             gap: 16px;
         }
-        
-        .greeting-text h2 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 6px;
-        }
-        
-        .greeting-text p {
-            color: var(--text-secondary);
-            font-size: 13px;
-        }
-        
+
+        .greeting-text h2 { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
+        .greeting-text p { color: var(--text-secondary); font-size: 13px; }
+
         .profile-badge {
             background: rgba(224, 224, 224, 0.08);
             border-radius: 30px;
@@ -410,12 +373,11 @@
             text-align: center;
             border: 1px solid rgba(224, 224, 224, 0.2);
             cursor: pointer;
+            transition: background 0.2s;
         }
-        
-        .profile-badge:hover {
-            background: rgba(224, 224, 224, 0.15);
-        }
-        
+
+        .profile-badge:hover { background: rgba(224, 224, 224, 0.15); }
+
         .profile-code {
             font-family: monospace;
             font-size: 11px;
@@ -426,7 +388,7 @@
             background-clip: text;
             color: transparent;
         }
-        
+
         .mode-selector {
             display: flex;
             gap: 8px;
@@ -437,7 +399,7 @@
             padding: 4px;
             border: 1px solid rgba(224, 224, 224, 0.2);
         }
-        
+
         .mode-btn {
             flex: 1;
             padding: 10px 16px;
@@ -454,26 +416,24 @@
             justify-content: center;
             gap: 6px;
             min-height: 44px;
+            font-family: inherit;
         }
-        
+
         .mode-btn.active {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.2), rgba(192, 192, 192, 0.1));
             color: var(--text-primary);
         }
-        
-        .voice-section {
-            margin-bottom: 32px;
-        }
-        
+
+        .voice-section { margin-bottom: 24px; }
+
         .voice-card {
             background: linear-gradient(135deg, rgba(10, 10, 10, 0.7), rgba(26, 26, 26, 0.6));
             backdrop-filter: blur(20px);
             border-radius: 60px;
             padding: 6px;
             border: 1px solid rgba(224, 224, 224, 0.2);
-            cursor: pointer;
         }
-        
+
         .voice-record-btn-premium {
             width: 100%;
             padding: 20px 24px;
@@ -489,26 +449,27 @@
             transition: all 0.2s;
             font-size: 16px;
             font-weight: 500;
+            font-family: inherit;
         }
-        
+
         .voice-record-btn-premium.recording {
             background: linear-gradient(135deg, rgba(255, 59, 59, 0.25), rgba(239, 68, 68, 0.15));
-            border-color: var(--amg-red);
             animation: pulseRed 1s infinite;
         }
-        
+
         @keyframes pulseRed {
             0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 59, 0.3); }
             50% { box-shadow: 0 0 0 15px rgba(255, 59, 59, 0); }
         }
-        
+
+        /* ===== МОДУЛИ — 2 КОЛОНКИ ===== */
         .modules-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
             margin-bottom: 24px;
         }
-        
+
         .module-card {
             background: rgba(224, 224, 224, 0.05);
             border-radius: 16px;
@@ -517,40 +478,26 @@
             transition: all 0.2s;
             border: 1px solid transparent;
         }
-        
+
         .module-card:hover {
             border-color: #ff6b3b;
             transform: translateY(-2px);
         }
-        
-        .module-icon {
-            font-size: 28px;
-            margin-bottom: 8px;
-        }
-        
-        .module-name {
-            font-weight: 600;
-            font-size: 14px;
-            margin-bottom: 4px;
-        }
-        
-        .module-desc {
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-        
-        .quick-actions-title {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-        
+
+        .module-icon { font-size: 28px; margin-bottom: 8px; }
+        .module-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+        .module-desc { font-size: 11px; color: var(--text-secondary); }
+
+        /* ===== БЫСТРЫЕ ДЕЙСТВИЯ — 4 КОЛОНКИ ===== */
+        .quick-actions { margin-bottom: 24px; }
+        .quick-actions-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+
         .quick-actions-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 12px;
         }
-        
+
         .quick-action {
             background: rgba(224, 224, 224, 0.05);
             border-radius: 12px;
@@ -560,24 +507,17 @@
             transition: all 0.2s;
             border: 1px solid transparent;
         }
-        
+
         .quick-action:hover {
-            background: rgba(255,107,59,0.15);
+            background: rgba(255, 107, 59, 0.15);
             transform: translateY(-2px);
-            border-color: rgba(255,107,59,0.3);
+            border-color: rgba(255, 107, 59, 0.3);
         }
-        
-        .action-icon {
-            font-size: 24px;
-            margin-bottom: 4px;
-        }
-        
-        .action-name {
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-        
-        /* Content Pages */
+
+        .action-icon { font-size: 24px; margin-bottom: 4px; }
+        .action-name { font-size: 11px; color: var(--text-secondary); }
+
+        /* ===== КОНТЕНТНЫЕ СТРАНИЦЫ ===== */
         .full-content-page {
             max-width: 800px;
             margin: 0 auto;
@@ -588,18 +528,12 @@
             border: 1px solid rgba(224, 224, 224, 0.2);
             animation: contentAppear 0.3s ease-out;
         }
-        
+
         @keyframes contentAppear {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .back-btn {
             background: rgba(224, 224, 224, 0.1);
             border: 1px solid rgba(224, 224, 224, 0.2);
@@ -612,25 +546,21 @@
             transition: all 0.2s;
             font-size: 14px;
             min-height: 44px;
+            font-family: inherit;
         }
-        
-        .back-btn:hover {
-            background: rgba(224, 224, 224, 0.2);
-        }
-        
+
+        .back-btn:hover { background: rgba(224, 224, 224, 0.2); }
+
         .content-header {
             text-align: center;
             margin-bottom: 24px;
             padding-bottom: 16px;
             border-bottom: 1px solid rgba(224, 224, 224, 0.2);
         }
-        
-        .content-emoji {
-            font-size: 48px;
-            margin-bottom: 12px;
-        }
-        
-        .content-header h1 {
+
+        .content-emoji { font-size: 48px; margin-bottom: 12px; }
+
+        .content-title {
             font-size: 24px;
             font-weight: 600;
             background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
@@ -638,33 +568,19 @@
             background-clip: text;
             color: transparent;
         }
-        
+
         .content-body {
             font-size: 15px;
             line-height: 1.6;
             color: var(--text-secondary);
         }
-        
-        .profile-section-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
-        }
-        
-        .thoughts-section-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
-        }
-        
+
+        .content-body p { margin-bottom: 12px; }
+        .content-body ul, .content-body .styled-list { margin: 8px 0 12px 16px; }
+        .content-body li { margin-bottom: 4px; }
+        .content-body strong { color: var(--text-primary); }
+
+        /* ===== ЗАГРУЗКА ===== */
         .loading-screen {
             display: flex;
             flex-direction: column;
@@ -673,37 +589,27 @@
             height: 100%;
             gap: 20px;
         }
-        
+
         .loading-spinner {
             font-size: 48px;
             animation: spin 1s linear infinite;
         }
-        
+
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
-        
+
+        /* ===== TOAST ===== */
         .floating-message {
             position: fixed;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 1000;
-            animation: slideUp 0.2s ease;
+            z-index: 9999;
+            display: none;
         }
-        
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateX(-50%) translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(-50%) translateY(0);
-            }
-        }
-        
+
         .floating-message-content {
             background: rgba(10, 10, 10, 0.95);
             backdrop-filter: blur(20px);
@@ -713,19 +619,13 @@
             align-items: center;
             gap: 10px;
             border: 1px solid rgba(224, 224, 224, 0.2);
+            white-space: nowrap;
         }
-        
-        .floating-message-text {
-            font-size: 13px;
-        }
-        
-        .floating-message-close {
-            cursor: pointer;
-            opacity: 0.7;
-            font-size: 16px;
-        }
-        
-        /* Test Styles */
+
+        .floating-message-text { font-size: 13px; }
+        .floating-message-close { cursor: pointer; opacity: 0.7; font-size: 16px; }
+
+        /* ===== ЧАТ ТЕСТА ===== */
         .test-chat-container {
             position: relative;
             height: 100%;
@@ -735,7 +635,7 @@
             background: transparent;
             overflow: hidden;
         }
-        
+
         .test-chat-messages {
             flex: 1;
             overflow-y: auto;
@@ -745,73 +645,48 @@
             flex-direction: column;
             gap: 12px;
         }
-        
+
         .test-message {
             display: flex;
             animation: messageAppear 0.2s ease-out;
         }
-        
+
         @keyframes messageAppear {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        
-        .test-message-bot {
-            justify-content: flex-start;
-        }
-        
-        .test-message-user {
-            justify-content: flex-end;
-        }
-        
+
+        .test-message-bot { justify-content: flex-start; }
+        .test-message-user { justify-content: flex-end; }
+
         .test-message-bubble {
             max-width: 85%;
             padding: 12px 16px;
             border-radius: 20px;
-            position: relative;
         }
-        
+
         .test-message-bubble-bot {
             background: linear-gradient(135deg, rgba(224, 224, 224, 0.08), rgba(192, 192, 192, 0.03));
             border: 1px solid rgba(224, 224, 224, 0.2);
             border-bottom-left-radius: 4px;
         }
-        
+
         .test-message-bubble-user {
             background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
             border-bottom-right-radius: 4px;
         }
-        
-        .test-message-text {
-            font-size: 15px;
-            line-height: 1.5;
-            word-wrap: break-word;
-        }
-        
-        .test-message-text strong {
-            color: #ff6b3b;
-        }
-        
-        .test-message-time {
-            font-size: 10px;
-            opacity: 0.6;
-            margin-top: 6px;
-            text-align: right;
-        }
-        
+
+        .test-message-text { font-size: 15px; line-height: 1.5; word-wrap: break-word; }
+        .test-message-text strong { color: #ff6b3b; }
+        .test-message-time { font-size: 10px; opacity: 0.6; margin-top: 6px; text-align: right; }
+
         .test-message-buttons {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
             margin-top: 12px;
         }
-        
+
         .test-message-button {
             background: rgba(255, 107, 59, 0.15);
             border: 1px solid rgba(255, 107, 59, 0.3);
@@ -823,18 +698,205 @@
             transition: all 0.2s;
             font-family: inherit;
         }
-        
-        .test-message-button:active {
-            transform: scale(0.96);
+
+        .test-message-button:active { transform: scale(0.96); }
+
+        /* ===== КОМПОНЕНТЫ КОНТЕНТА ===== */
+        .action-btn {
+            background: rgba(255, 107, 59, 0.15);
+            border: 1px solid rgba(255, 107, 59, 0.3);
+            border-radius: 30px;
+            padding: 10px 20px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-family: inherit;
+            transition: all 0.2s;
+            margin-right: 8px;
+            margin-bottom: 8px;
         }
-        
-        /* Analysis Styles */
+
+        .action-btn:hover { background: rgba(255, 107, 59, 0.3); }
+
+        .primary-btn {
+            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
+            border-color: transparent;
+        }
+
+        .intervention-card, .practice-card, .daily-practice, .quote-card {
+            background: rgba(224, 224, 224, 0.04);
+            border: 1px solid rgba(224, 224, 224, 0.1);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .intervention-card h3, .practice-card h3, .daily-practice h3, .quote-card h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #ff6b3b;
+            margin-bottom: 10px;
+        }
+
+        .intervention-text {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+
+        .loop-card, .anchor-card {
+            background: rgba(224, 224, 224, 0.04);
+            border: 1px solid rgba(224, 224, 224, 0.1);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .loop-type { font-weight: 600; font-size: 13px; color: #ff6b3b; margin-bottom: 4px; }
+        .loop-desc { font-size: 13px; color: var(--text-secondary); }
+        .loop-strength { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+        .key-confinement {
+            background: rgba(255, 107, 59, 0.06);
+            border: 1px solid rgba(255, 107, 59, 0.2);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .key-icon { font-size: 32px; margin-bottom: 8px; }
+        .key-title { font-size: 13px; font-weight: 600; color: #ff6b3b; margin-bottom: 8px; }
+        .key-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat-card {
+            background: rgba(224, 224, 224, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            border: 1px solid rgba(224, 224, 224, 0.1);
+        }
+
+        .stat-value { font-size: 28px; font-weight: 700; color: var(--chrome); }
+        .stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+        .elements-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .confinement-element {
+            background: rgba(224, 224, 224, 0.04);
+            border: 1px solid rgba(224, 224, 224, 0.1);
+            border-radius: 12px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .confinement-element:hover { border-color: #ff6b3b; }
+        .element-number { font-size: 20px; font-weight: 700; color: #ff6b3b; }
+        .element-name { font-size: 12px; font-weight: 600; margin: 4px 0; }
+        .element-desc { font-size: 11px; color: var(--text-secondary); }
+        .element-meta { display: flex; gap: 8px; margin-top: 6px; }
+        .element-strength, .element-vak { font-size: 10px; color: var(--text-secondary); }
+
+        .hypno-topics { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+
+        .topic-btn {
+            background: rgba(224, 224, 224, 0.08);
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            border-radius: 30px;
+            padding: 8px 16px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+
+        .topic-btn:hover { background: rgba(255, 107, 59, 0.2); border-color: rgba(255, 107, 59, 0.4); }
+
+        .hypno-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(224, 224, 224, 0.05);
+            border: 1px solid rgba(224, 224, 224, 0.2);
+            border-radius: 16px;
+            color: white;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            margin-bottom: 12px;
+            outline: none;
+        }
+
+        .tale-card {
+            background: rgba(224, 224, 224, 0.04);
+            border: 1px solid rgba(224, 224, 224, 0.1);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tale-card:hover { border-color: #ff6b3b; }
+
+        .anchor-phrase { font-size: 13px; color: var(--text-secondary); margin: 4px 0; font-style: italic; }
+
+        /* ===== МОБИЛЬНАЯ АДАПТАЦИЯ ===== */
+        @media (max-width: 768px) {
+            .quick-actions-grid {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
+            }
+
+            .action-name { font-size: 10px; }
+            .action-icon { font-size: 20px; }
+
+            .modules-grid { gap: 8px; }
+            .hero-section { padding: 16px; }
+            .greeting-text h2 { font-size: 20px; }
+            .full-content-page { padding: 16px; }
+
+            .test-message-bubble { max-width: 90%; }
+            .test-message-button { padding: 8px 16px; font-size: 13px; }
+            .test-message-text { font-size: 14px; }
+
+            .elements-grid { grid-template-columns: repeat(2, 1fr); }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 400px) {
+            .quick-actions-grid {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 6px;
+            }
+            .quick-action { padding: 8px 4px; }
+            .action-name { font-size: 9px; }
+        }
+
+        /* ===== АНАЛИЗ ===== */
         .analysis-content {
             background: rgba(224, 224, 224, 0.03);
             border-radius: 24px;
             padding: 28px;
         }
-        
+
         .analysis-header {
             margin: 28px 0 12px;
             font-size: 18px;
@@ -843,117 +905,56 @@
             border-left: 3px solid #ff6b3b;
             padding-left: 12px;
         }
-        
+
         .analysis-paragraph {
             margin: 12px 0;
             line-height: 1.7;
             color: var(--text-secondary);
             font-size: 14px;
         }
-        
-        .analysis-list {
-            margin: 10px 0;
-            list-style: none;
-            padding: 0;
-        }
-        
+
+        .analysis-list { margin: 10px 0; list-style: none; padding: 0; }
+
         .analysis-list-item {
             margin: 6px 0 6px 24px;
             line-height: 1.6;
             color: var(--text-secondary);
             font-size: 14px;
         }
-        
-        .analysis-block {
-            margin: 12px 0;
-            padding: 8px 12px;
-            background: rgba(255, 107, 59, 0.05);
-            border-radius: 8px;
-        }
-        
-        .block-label {
-            color: #ff8c4a;
-            font-weight: 600;
-        }
-        
+
         @media (max-width: 768px) {
-            .quick-actions-grid {
-                grid-template-columns: repeat(4, 1fr);
-                gap: 8px;
-            }
-            
-            .action-name {
-                font-size: 10px;
-            }
-            
-            .modules-grid {
-                gap: 8px;
-            }
-            
-            .hero-section {
-                padding: 16px;
-            }
-            
-            .greeting-text h2 {
-                font-size: 20px;
-            }
-            
-            .full-content-page {
-                padding: 16px;
-            }
-            
-            .test-message-bubble {
-                max-width: 90%;
-            }
-            
-            .test-message-button {
-                padding: 8px 16px;
-                font-size: 13px;
-            }
-            
-            .test-message-text {
-                font-size: 14px;
-            }
-            
-            .analysis-content {
-                padding: 16px;
-            }
-            
-            .analysis-header {
-                font-size: 16px;
-            }
-            
-            .analysis-list-item {
-                margin-left: 16px;
-            }
+            .analysis-content { padding: 16px; }
+            .analysis-header { font-size: 16px; }
+            .analysis-list-item { margin-left: 16px; }
         }
     </style>
 </head>
 <body>
     <div class="app" id="appRoot">
+
+        <!-- ===== ЛЕВАЯ ПАНЕЛЬ ===== -->
         <div class="chats-panel" id="chatsPanel">
             <div class="chats-header">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display:flex;justify-content:space-between;align-items:center">
                     <div class="chats-title">FREDI</div>
-                    <button class="mode-btn" id="newChatBtn" style="width: 36px; height: 36px; padding: 0; border-radius: 50%;">✎</button>
                 </div>
             </div>
-           
+
             <div class="chats-search">
                 <input type="text" placeholder="Поиск" id="chatSearchInput">
             </div>
-           
+
             <div class="chats-list" id="chatsList">
                 <div class="chat-item active" data-chat="fredi">
                     <div class="chat-avatar">⭐</div>
                     <div class="chat-info">
                         <div class="chat-name">Фреди</div>
-                        <div class="chat-preview" id="chatPreview">Чем могу помочь?</div>
+                        <div class="chat-preview">Чем могу помочь?</div>
                     </div>
                     <div class="chat-time">сейчас</div>
                 </div>
-               
-                <div class="chat-item" data-chat="test" id="testChatItem">
+
+                <div class="chat-item" data-chat="test">
                     <div class="chat-avatar">📊</div>
                     <div class="chat-info">
                         <div class="chat-name">Психологический тест</div>
@@ -961,11 +962,10 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-               
+
                 <div class="menu-divider"></div>
-               
                 <div class="menu-section-title">РАСШИРЕННЫЕ ФУНКЦИИ</div>
-               
+
                 <div class="chat-item" data-chat="confinement">
                     <div class="chat-avatar">🔐</div>
                     <div class="chat-info">
@@ -974,7 +974,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-               
+
                 <div class="chat-item" data-chat="practices">
                     <div class="chat-avatar">🧘</div>
                     <div class="chat-info">
@@ -983,7 +983,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-               
+
                 <div class="chat-item" data-chat="hypnosis">
                     <div class="chat-avatar">🌙</div>
                     <div class="chat-info">
@@ -992,7 +992,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-               
+
                 <div class="chat-item" data-chat="tales">
                     <div class="chat-avatar">📚</div>
                     <div class="chat-info">
@@ -1001,7 +1001,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-               
+
                 <div class="chat-item" data-chat="anchors">
                     <div class="chat-avatar">⚓</div>
                     <div class="chat-info">
@@ -1010,7 +1010,7 @@
                     </div>
                     <div class="chat-time"></div>
                 </div>
-               
+
                 <div class="chat-item" data-chat="statistics">
                     <div class="chat-avatar">📊</div>
                     <div class="chat-info">
@@ -1020,17 +1020,19 @@
                     <div class="chat-time"></div>
                 </div>
             </div>
-           
+
             <div class="chats-footer">
-                <div class="user-mini-profile" id="userMiniProfile">
+                <div class="user-mini-profile">
                     <div class="user-mini-avatar" id="userMiniAvatar">А</div>
-                    <div class="user-mini-info">
+                    <div>
                         <div class="user-mini-name" id="userName">Пользователь</div>
-                        <div class="user-mini-status" id="userStatus">⚡ активен</div>
+                        <div class="user-mini-status">⚡ активен</div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- ===== ПРАВАЯ ПАНЕЛЬ ===== -->
         <div class="chat-panel" id="chatPanel">
             <div class="chat-header">
                 <div class="chat-header-left">
@@ -1038,866 +1040,57 @@
                     <div class="chat-header-avatar">⭐</div>
                     <div>
                         <div class="chat-header-name">Фреди</div>
-                        <div class="chat-header-status" id="botStatus">
+                        <div class="chat-header-status">
                             <span class="mode-indicator" id="modeIndicator"></span>
                             <span id="modeLabel">Психолог</span>
                         </div>
                     </div>
                 </div>
-                <div class="chat-header-right">
+                <div>
                     <button class="mode-btn" id="menuBtn">⋮</button>
                 </div>
             </div>
-           
+
             <div id="screenContainer" class="screen-container">
                 <div class="loading-screen">
                     <div class="loading-spinner">⭐</div>
-                    <div class="loading-text">Инициализация Фреди...</div>
+                    <div>Инициализация Фреди...</div>
                 </div>
             </div>
         </div>
     </div>
-    <div id="toastMessage" class="floating-message" style="display: none;">
+
+    <!-- ===== TOAST ===== -->
+    <div id="toastMessage" class="floating-message">
         <div class="floating-message-content">
             <div class="floating-message-text" id="toastText"></div>
             <div class="floating-message-close" id="toastClose">✕</div>
         </div>
     </div>
 
-    <!-- ========== СКРИПТЫ ========== -->
+    <!-- ===== СКРИПТЫ ===== -->
+    <!-- USER_ID инициализируется один раз здесь -->
     <script>
-        // ============================================
-        // МИГРАЦИЯ USER_ID (строковый → числовой)
-        // ============================================
-        window.API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
-        
-        let userId = localStorage.getItem('fredi_user_id');
-        
-        if (!userId) {
-            userId = Date.now();
-            localStorage.setItem('fredi_user_id', userId);
-            window.USER_ID = userId;
-            console.log('✅ Новый пользователь, ID:', userId);
-        } else if (!isNaN(parseInt(userId))) {
-            window.USER_ID = parseInt(userId);
-            console.log('✅ Существующий числовой ID:', window.USER_ID);
-        } else {
-            const oldUserId = userId;
-            userId = Date.now();
-            localStorage.setItem('fredi_user_id', userId);
-            window.USER_ID = userId;
-            
-            console.log('🔄 Миграция ID:', oldUserId, '→', userId);
-            
-            fetch(`${window.API_BASE_URL}/api/migrate-user`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    old_user_id: oldUserId,
-                    new_user_id: userId
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    console.log('✅ Миграция успешна');
-                } else {
-                    console.warn('⚠️ Миграция не удалась:', data.error);
-                }
-            })
-            .catch(err => console.warn('Migration error:', err));
-        }
-        
-        console.log('✅ USER_ID установлен:', window.USER_ID);
+        (function() {
+            window.API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+            var stored = localStorage.getItem('fredi_user_id');
+            var uid = stored && !isNaN(parseInt(stored)) ? parseInt(stored) : Date.now();
+            localStorage.setItem('fredi_user_id', uid);
+            window.USER_ID = uid;
+            console.log('✅ USER_ID установлен:', window.USER_ID);
+        })();
     </script>
-    
+
     <script src="test.js"></script>
     <script src="voice.js"></script>
     <script src="analysis.js"></script>
     <script src="doubles.js"></script>
-   
-    <script>
-    (function() {
-        // ============================================
-        // КОНФИГУРАЦИЯ
-        // ============================================
-        const API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
-        const USER_ID = window.USER_ID;
+    <script src="app.js"></script>
 
-        console.log('👤 User ID:', USER_ID);
-        
-        // ============================================
-        // РЕЖИМЫ
-        // ============================================
-        let currentMode = 'psychologist';
-        let voiceManager = null;
-        
-        const MODES = {
-            coach: { name: 'КОУЧ', emoji: '🔮', color: '#3b82ff', voicePrompt: 'Задай вопрос — я помогу найти решение' },
-            psychologist: { name: 'ПСИХОЛОГ', emoji: '🧠', color: '#ff6b3b', voicePrompt: 'Расскажите, что вас беспокоит' },
-            trainer: { name: 'ТРЕНЕР', emoji: '⚡', color: '#ff3b3b', voicePrompt: 'Сформулируй задачу — получишь чёткий план' }
-        };
-        
-        // ============================================
-        // МОДУЛИ ПО РЕЖИМАМ
-        // ============================================
-        const MODULES_BY_MODE = {
-            coach: [
-                { id: 'goals', name: 'Цели', icon: '🎯', desc: 'Постановка и достижение' },
-                { id: 'strategy', name: 'Стратегия', icon: '📊', desc: 'План действий' },
-                { id: 'motivation', name: 'Мотивация', icon: '⚡', desc: 'Энергия для движения' },
-                { id: 'habits', name: 'Привычки', icon: '🔄', desc: 'Формирование привычек' }
-            ],
-            psychologist: [
-                { id: 'analysis', name: 'Анализ', icon: '🧠', desc: 'Глубинные паттерны' },
-                { id: 'emotions', name: 'Эмоции', icon: '💭', desc: 'Работа с чувствами' },
-                { id: 'healing', name: 'Исцеление', icon: '🕊️', desc: 'Проработка опыта' },
-                { id: 'relationships', name: 'Отношения', icon: '💕', desc: 'Коммуникация' }
-            ],
-            trainer: [
-                { id: 'workout', name: 'Тренировки', icon: '💪', desc: 'Физическая активность' },
-                { id: 'discipline', name: 'Дисциплина', icon: '⏰', desc: 'Режим и порядок' },
-                { id: 'results', name: 'Результаты', icon: '🏆', desc: 'Достижения' },
-                { id: 'challenges', name: 'Челленджи', icon: '🔥', desc: 'Испытания' }
-            ]
-        };
-
-        // ============================================
-        // ФУНКЦИИ ФОРМАТИРОВАНИЯ
-        // ============================================
-        function formatProfileText(text) {
-            if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
-            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
-            const emojis = ['🔑', '💪', '🎯', '🌱', '⚠️'];
-            headers.forEach((header, i) => {
-                const regex = new RegExp(header, 'gi');
-                text = text.replace(regex, `<div class="profile-section-title">${emojis[i]} ${header}</div>`);
-            });
-            text = text.replace(/•\s*/g, '<br>• ');
-            text = text.replace(/-\s*/g, '<br>• ');
-            text = text.replace(/\n\n/g, '<br><br>');
-            text = text.replace(/\n/g, '<br>');
-            return text;
-        }
-       
-        function formatThoughtText(text) {
-            if (!text) return '💭 Мысли психолога появятся после завершения теста.';
-            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            const headers = ['КЛЮЧЕВОЙ ЭЛЕМЕНТ', 'ПЕТЛЯ', 'ТОЧКА ВХОДА', 'ПРОГНОЗ', 'РЕКОМЕНДАЦИИ'];
-            const emojis = ['🔐', '🔄', '🚪', '📊', '💡'];
-            headers.forEach((header, i) => {
-                const regex = new RegExp(header, 'gi');
-                text = text.replace(regex, `<div class="thoughts-section-title">${emojis[i]} ${header}</div>`);
-            });
-            text = text.replace(/•\s*/g, '<br>• ');
-            text = text.replace(/-\s*/g, '<br>• ');
-            text = text.replace(/\n\n/g, '<br><br>');
-            text = text.replace(/\n/g, '<br>');
-            return text;
-        }
-
-        // ============================================
-        // API ВЫЗОВЫ
-        // ============================================
-        async function apiCall(endpoint, options = {}) {
-            const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
-            try {
-                const response = await fetch(url, {
-                    ...options,
-                    headers: { 'Content-Type': 'application/json', ...options.headers }
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-                return data;
-            } catch (error) {
-                console.error(`API Error: ${endpoint}`, error);
-                throw error;
-            }
-        }
-
-        async function isTestCompleted() {
-            try {
-                const data = await apiCall(`/api/user-status?user_id=${USER_ID}`);
-                return data.has_profile === true;
-            } catch (error) {
-                console.warn('isTestCompleted error:', error);
-                return false;
-            }
-        }
-
-        async function getAIGeneratedProfile() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/generated-profile/${USER_ID}`);
-                const data = await response.json();
-                if (data.success && data.ai_profile) return data.ai_profile;
-                return null;
-            } catch (error) {
-                console.error('Error fetching AI profile:', error);
-                return null;
-            }
-        }
-
-        async function getPsychologistThought() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/psychologist-thought/${USER_ID}`);
-                const data = await response.json();
-                return data.success ? data.thought : null;
-            } catch (error) {
-                console.error('Error fetching thought:', error);
-                return null;
-            }
-        }
-
-        async function getWeekendIdeas() {
-            try {
-                const data = await apiCall(`/api/ideas/${USER_ID}`);
-                return data.ideas || [];
-            } catch (error) {
-                return [];
-            }
-        }
-        
-        async function generateNewThought() {
-            try {
-                const data = await apiCall('/api/psychologist-thoughts/generate', {
-                    method: 'POST',
-                    body: JSON.stringify({ user_id: USER_ID })
-                });
-                return data.thought;
-            } catch (error) {
-                console.error('Error generating thought:', error);
-                return null;
-            }
-        }
-        
-        async function getUserGoals() {
-            try {
-                const data = await apiCall(`/api/goals/with-confinement?user_id=${USER_ID}&mode=${currentMode}`);
-                return data.goals || [];
-            } catch (error) {
-                console.error('Error getting goals:', error);
-                return [];
-            }
-        }
-        
-        async function getSmartQuestions() {
-            try {
-                const data = await apiCall(`/api/smart-questions?user_id=${USER_ID}`);
-                return data.questions || [];
-            } catch (error) {
-                console.error('Error getting questions:', error);
-                return [];
-            }
-        }
-        
-        async function getChallenges() {
-            try {
-                const data = await apiCall(`/api/challenges?user_id=${USER_ID}`);
-                return data.challenges || [];
-            } catch (error) {
-                console.error('Error getting challenges:', error);
-                return [];
-            }
-        }
-
-        // ============================================
-        // UI ФУНКЦИИ
-        // ============================================
-        function showToast(message, type = 'info') {
-            const toast = document.getElementById('toastMessage');
-            const textEl = document.getElementById('toastText');
-            if (!toast || !textEl) return;
-            textEl.innerHTML = message;
-            toast.style.display = 'flex';
-            setTimeout(() => { toast.style.display = 'none'; }, 3000);
-            if (document.getElementById('toastClose')) {
-                document.getElementById('toastClose').onclick = () => toast.style.display = 'none';
-            }
-        }
-
-        function showLoading(message) {
-            const container = document.getElementById('screenContainer');
-            if (container) {
-                container.innerHTML = `
-                    <div class="loading-screen">
-                        <div class="loading-spinner">🧠</div>
-                        <div class="loading-text">${message}</div>
-                    </div>
-                `;
-            }
-        }
-
-        function showFullContentScreen(title, content, contentType) {
-            const container = document.getElementById('screenContainer');
-            let formattedContent = content;
-            if (contentType === 'profile') formattedContent = formatProfileText(content);
-            else if (contentType === 'thoughts') formattedContent = formatThoughtText(content);
-            else formattedContent = (content || '').replace(/\n/g, '<br>');
-           
-            const emojiMap = { profile: '🧠', thoughts: '💭', goals: '🎯', questions: '❓', challenges: '🏆' };
-           
-            container.innerHTML = `
-                <div class="full-content-page">
-                    <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                    <div class="content-header">
-                        <div class="content-emoji">${emojiMap[contentType] || '📄'}</div>
-                        <h1>${title}</h1>
-                    </div>
-                    <div class="content-body">
-                        ${formattedContent || 'Данные не найдены'}
-                    </div>
-                </div>
-            `;
-           
-            const backBtn = document.getElementById('backBtn');
-            if (backBtn) {
-                backBtn.addEventListener('click', () => renderDashboard());
-            }
-        }
-
-        function startTest() {
-            if (window.Test && window.Test.start) {
-                if (window.Test.init) {
-                    window.Test.init(USER_ID);
-                }
-                window.Test.start();
-            } else {
-                showToast('📊 Тест загружается...');
-            }
-        }
-
-        // ============================================
-        // ОБНОВЛЕНИЕ МОДУЛЕЙ ПРИ СМЕНЕ РЕЖИМА
-        // ============================================
-        function updateModulesByMode(mode) {
-            const modulesGrid = document.querySelector('.modules-grid');
-            if (!modulesGrid) return;
-            
-            const modules = MODULES_BY_MODE[mode] || MODULES_BY_MODE.psychologist;
-            
-            modulesGrid.innerHTML = modules.map(module => `
-                <div class="module-card" data-module="${module.id}">
-                    <div class="module-icon">${module.icon}</div>
-                    <div class="module-name">${module.name}</div>
-                    <div class="module-desc">${module.desc}</div>
-                </div>
-            `);
-            
-            // Навешиваем обработчики на новые модули
-            document.querySelectorAll('.module-card').forEach(card => {
-                const newCard = card.cloneNode(true);
-                card.parentNode.replaceChild(newCard, card);
-                newCard.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const moduleId = newCard.dataset.module;
-                    
-                    if (moduleId === 'analysis') {
-                        if (typeof openAnalysisScreen === 'function') {
-                            openAnalysisScreen();
-                        } else {
-                            showToast('📊 Модуль анализа загружается...');
-                            const script = document.createElement('script');
-                            script.src = 'analysis.js';
-                            script.onload = () => openAnalysisScreen();
-                            document.head.appendChild(script);
-                        }
-                    } else if (moduleId === 'goals') {
-                        handleShowGoals();
-                    } else if (moduleId === 'challenges') {
-                        handleShowChallenges();
-                    } else {
-                        showToast(`Модуль "${newCard.querySelector('.module-name')?.textContent}" скоро будет доступен`);
-                    }
-                });
-            });
-        }
-
-        // ============================================
-        // ПЕРЕКЛЮЧЕНИЕ РЕЖИМА
-        // ============================================
-        async function switchMode(mode) {
-            if (mode === currentMode) return;
-            currentMode = mode;
-            const config = MODES[mode];
-            showToast(`Режим "${config.name}" активирован`, 'success');
-            
-            // Обновляем кнопки режимов
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                if (btn.dataset.mode === mode) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
-            });
-            
-            // Обновляем индикатор в шапке
-            const modeIndicator = document.getElementById('modeIndicator');
-            const modeLabel = document.getElementById('modeLabel');
-            if (modeIndicator) modeIndicator.style.background = config.color;
-            if (modeLabel) modeLabel.textContent = config.name;
-            
-            // Обновляем текст голосовой кнопки
-            const voiceText = document.querySelector('#voiceBtn .voice-text');
-            if (voiceText) voiceText.textContent = config.voicePrompt;
-            
-            // Обновляем модули
-            updateModulesByMode(mode);
-            
-            // Обновляем режим в голосовом менеджере
-            if (voiceManager && voiceManager.setMode) {
-                voiceManager.setMode(mode);
-            }
-            
-            // Сохраняем режим на сервере
-            try {
-                await apiCall('/api/save-mode', { 
-                    method: 'POST', 
-                    body: JSON.stringify({ user_id: USER_ID, mode: mode }) 
-                });
-            } catch(e) {
-                console.warn('Failed to save mode:', e);
-            }
-        }
-
-        // ============================================
-        // ОСНОВНЫЕ ОБРАБОТЧИКИ
-        // ============================================
-        async function handleProfileClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('Загружаю психологический портрет...');
-            const profile = await getAIGeneratedProfile();
-            if (profile) {
-                showFullContentScreen('Мой портрет', profile, 'profile');
-            } else {
-                showFullContentScreen('Мой портрет', '🧠 Психологический портрет формируется. Подождите немного.', 'profile');
-            }
-        }
-
-        async function handleThoughtsClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('Загружаю мысли психолога...');
-            const thought = await getPsychologistThought();
-            if (thought) {
-                showFullContentScreen('Мысли психолога', thought, 'thoughts');
-            } else {
-                showFullContentScreen('Мысли психолога', '💭 Мысли психолога появятся после завершения теста.', 'thoughts');
-            }
-        }
-
-        async function handleWeekendClick() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('Подбираю идеи...');
-            const ideas = await getWeekendIdeas();
-            if (ideas && ideas.length > 0) {
-                const ideasText = ideas.map((idea, i) => `${i+1}. ${idea}`).join('\n\n');
-                showFullContentScreen('Идеи на выходные', ideasText, 'goals');
-            } else {
-                showFullContentScreen('Идеи на выходные', '🎨 Идеи появятся после завершения теста.', 'goals');
-            }
-        }
-        
-        async function handleShowNewThought() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('Генерирую свежую мысль...');
-            const thought = await generateNewThought();
-            if (thought) {
-                showFullContentScreen('Свежая мысль', thought, 'thoughts');
-            } else {
-                showToast('💭 Не удалось сгенерировать мысль', 'error');
-            }
-        }
-        
-        async function handleShowGoals() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('Загружаю цели...');
-            const goals = await getUserGoals();
-            if (goals && goals.length) {
-                const goalsText = goals.map(g => `**${g.name}**\n⏱ ${g.time || '?'}  |  🎯 ${g.difficulty || 'medium'}`).join('\n\n');
-                showFullContentScreen('Мои цели', goalsText, 'goals');
-            } else {
-                showToast('🎯 Цели появятся после прохождения теста', 'info');
-            }
-        }
-        
-        async function handleShowQuestions() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('Подбираю вопросы...');
-            const questions = await getSmartQuestions();
-            if (questions && questions.length) {
-                const questionsText = questions.map((q, i) => `${i+1}. ${q}`).join('\n\n');
-                showFullContentScreen('Вопросы для размышления', questionsText, 'questions');
-            } else {
-                showToast('❓ Вопросы появятся после прохождения теста', 'info');
-            }
-        }
-        
-        async function handleShowChallenges() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            showLoading('Загружаю челленджи...');
-            const challenges = await getChallenges();
-            if (challenges && challenges.length) {
-                const challengesText = challenges.map(c => `**${c.name}**\n${c.description}\n🎁 Награда: ${c.reward} очков`).join('\n\n');
-                showFullContentScreen('Челленджи', challengesText, 'challenges');
-            } else {
-                showToast('🏆 Челленджи появятся после прохождения теста', 'info');
-            }
-        }
-        
-        async function handleShowDoubles() {
-            const completed = await isTestCompleted();
-            if (!completed) {
-                showToast('📊 Сначала пройдите психологический тест');
-                return;
-            }
-            if (typeof showDoublesScreen === 'function') {
-                showDoublesScreen();
-            } else {
-                showToast('👥 Загрузка модуля двойников...', 'info');
-                const script = document.createElement('script');
-                script.src = 'doubles.js';
-                script.onload = () => {
-                    if (typeof showDoublesScreen === 'function') showDoublesScreen();
-                };
-                document.head.appendChild(script);
-            }
-        }
-
-        // ============================================
-        // НАСТРОЙКА ГОЛОСОВОЙ КНОПКИ
-        // ============================================
-        function setupVoiceButton(buttonElement) {
-            if (!buttonElement) return;
-            
-            if (!voiceManager && typeof VoiceManager !== 'undefined') {
-                voiceManager = new VoiceManager(USER_ID, {
-                    useWebSocket: true,
-                    apiBaseUrl: API_BASE_URL
-                });
-                voiceManager.setMode(currentMode);
-                voiceManager.onError = (error) => showToast(error, 'error');
-                voiceManager.onAIResponse = (answer) => {
-                    console.log('🤖 AI ответ:', answer);
-                    const container = document.getElementById('screenContainer');
-                    if (container) {
-                        let messagesContainer = container.querySelector('.chat-messages');
-                        if (!messagesContainer) {
-                            messagesContainer = document.createElement('div');
-                            messagesContainer.className = 'chat-messages';
-                            container.appendChild(messagesContainer);
-                        }
-                        const messageDiv = document.createElement('div');
-                        messageDiv.className = 'message bot';
-                        messageDiv.innerHTML = `<div class="message-text">${answer}</div>`;
-                        messagesContainer.appendChild(messageDiv);
-                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                    }
-                };
-                voiceManager.onTranscript = (text) => console.log('🎤 Распознано:', text);
-            }
-            
-            if (!voiceManager) {
-                buttonElement.addEventListener('click', () => {
-                    showToast('🎤 Голосовой ввод будет доступен в следующем обновлении');
-                });
-                return;
-            }
-            
-            let pressTimer = null;
-            const LONG_PRESS_DURATION = 150;
-            
-            const onPressStart = (e) => {
-                e.preventDefault();
-                pressTimer = setTimeout(() => {
-                    voiceManager.startRecording();
-                    buttonElement.classList.add('recording');
-                    const textSpan = buttonElement.querySelector('.voice-text');
-                    if (textSpan) textSpan.textContent = '🎙️ Запись... Отпустите для отправки';
-                }, LONG_PRESS_DURATION);
-            };
-            
-            const onPressEnd = (e) => {
-                e.preventDefault();
-                if (pressTimer) {
-                    clearTimeout(pressTimer);
-                    pressTimer = null;
-                }
-                if (voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
-                    voiceManager.stopRecording();
-                    buttonElement.classList.remove('recording');
-                    const config = MODES[currentMode];
-                    const textSpan = buttonElement.querySelector('.voice-text');
-                    if (textSpan) textSpan.textContent = config.voicePrompt;
-                }
-            };
-            
-            const newButton = buttonElement.cloneNode(true);
-            buttonElement.parentNode.replaceChild(newButton, buttonElement);
-            
-            newButton.addEventListener('mousedown', onPressStart);
-            newButton.addEventListener('mouseup', onPressEnd);
-            newButton.addEventListener('mouseleave', onPressEnd);
-            newButton.addEventListener('touchstart', onPressStart, { passive: false });
-            newButton.addEventListener('touchend', onPressEnd, { passive: false });
-            newButton.addEventListener('touchcancel', onPressEnd, { passive: false });
-        }
-
-        // ============================================
-        // ОСНОВНАЯ ФУНКЦИЯ РЕНДЕРА
-        // ============================================
-        function renderDashboard() {
-            const container = document.getElementById('screenContainer');
-            const userName = localStorage.getItem('fredi_user_name') || 'друг';
-           
-            container.innerHTML = `
-                <div class="dashboard-container">
-                    <div class="hero-section">
-                        <div class="user-greeting">
-                            <div class="greeting-text">
-                                <h2>🧠 Привет, ${userName}!</h2>
-                                <p>Я здесь, чтобы помочь разобраться в глубинных паттернах</p>
-                            </div>
-                            <div class="profile-badge" id="profileBadge">
-                                <div class="profile-code" id="profileCode">🎭</div>
-                                <div style="font-size: 10px;" id="profileStatus">загрузка...</div>
-                            </div>
-                        </div>
-                    </div>
-                   
-                    <div class="mode-selector">
-                        <button class="mode-btn ${currentMode === 'coach' ? 'active' : ''}" data-mode="coach">🔮 КОУЧ</button>
-                        <button class="mode-btn ${currentMode === 'psychologist' ? 'active' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
-                        <button class="mode-btn ${currentMode === 'trainer' ? 'active' : ''}" data-mode="trainer">⚡ ТРЕНЕР</button>
-                    </div>
-                   
-                    <div class="voice-section">
-                        <div class="voice-card">
-                            <div class="voice-record-btn-premium" id="voiceBtn">
-                                <span class="voice-icon">🎤</span>
-                                <span class="voice-text">${MODES[currentMode].voicePrompt}</span>
-                            </div>
-                        </div>
-                    </div>
-                   
-                    <div class="modules-grid"></div>
-                   
-                    <div class="quick-actions">
-                        <div class="quick-actions-title">⚡ Быстрые действия</div>
-                        <div class="quick-actions-grid">
-                            <div class="quick-action" data-action="profile">
-                                <div class="action-icon">🧠</div>
-                                <div class="action-name">Мой портрет</div>
-                            </div>
-                            <div class="quick-action" data-action="thoughts">
-                                <div class="action-icon">💭</div>
-                                <div class="action-name">Мысли психолога</div>
-                            </div>
-                            <div class="quick-action" data-action="newThought">
-                                <div class="action-icon">✨</div>
-                                <div class="action-name">Свежая мысль</div>
-                            </div>
-                            <div class="quick-action" data-action="weekend">
-                                <div class="action-icon">🎨</div>
-                                <div class="action-name">Идеи на выходные</div>
-                            </div>
-                            <div class="quick-action" data-action="goals">
-                                <div class="action-icon">🎯</div>
-                                <div class="action-name">Цели</div>
-                            </div>
-                            <div class="quick-action" data-action="questions">
-                                <div class="action-icon">❓</div>
-                                <div class="action-name">Вопросы</div>
-                            </div>
-                            <div class="quick-action" data-action="challenges">
-                                <div class="action-icon">🏆</div>
-                                <div class="action-name">Челленджи</div>
-                            </div>
-                            <div class="quick-action" data-action="doubles">
-                                <div class="action-icon">👥</div>
-                                <div class="action-name">Двойники</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Обновляем статус профиля
-            isTestCompleted().then(completed => {
-                const codeEl = document.getElementById('profileCode');
-                const statusEl = document.getElementById('profileStatus');
-                if (completed) {
-                    apiCall(`/api/user-status?user_id=${USER_ID}`).then(data => {
-                        if (codeEl) codeEl.textContent = data.profile_code || '✨';
-                        if (statusEl) statusEl.textContent = 'ваш психотип';
-                    }).catch(() => {
-                        if (codeEl) codeEl.textContent = '✨';
-                        if (statusEl) statusEl.textContent = 'профиль готов';
-                    });
-                } else {
-                    if (codeEl) codeEl.textContent = '🎭';
-                    if (statusEl) statusEl.textContent = 'пройдите тест';
-                }
-            });
-            
-            // Клик по профилю
-            document.getElementById('profileBadge')?.addEventListener('click', () => {
-                isTestCompleted().then(completed => {
-                    if (!completed) startTest();
-                    else handleProfileClick();
-                });
-            });
-            
-            // Переключение режимов
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const mode = btn.dataset.mode;
-                    if (mode) switchMode(mode);
-                });
-            });
-            
-            // Загружаем модули для текущего режима
-            updateModulesByMode(currentMode);
-            
-            // Быстрые действия
-            document.querySelectorAll('.quick-action').forEach(el => {
-                el.addEventListener('click', async () => {
-                    const action = el.dataset.action;
-                    if (action === 'profile') await handleProfileClick();
-                    else if (action === 'thoughts') await handleThoughtsClick();
-                    else if (action === 'newThought') await handleShowNewThought();
-                    else if (action === 'weekend') await handleWeekendClick();
-                    else if (action === 'goals') await handleShowGoals();
-                    else if (action === 'questions') await handleShowQuestions();
-                    else if (action === 'challenges') await handleShowChallenges();
-                    else if (action === 'doubles') await handleShowDoubles();
-                });
-            });
-            
-            // Голосовая кнопка
-            const voiceBtn = document.getElementById('voiceBtn');
-            if (voiceBtn) setupVoiceButton(voiceBtn);
-        }
-
-        // ============================================
-        // МОБИЛЬНОЕ МЕНЮ
-        // ============================================
-        function initMobileMenu() {
-            const mobileBtn = document.getElementById('mobileMenuBtn');
-            const panel = document.getElementById('chatsPanel');
-            
-            if (!mobileBtn || !panel) return;
-            
-            const newBtn = mobileBtn.cloneNode(true);
-            mobileBtn.parentNode.replaceChild(newBtn, mobileBtn);
-            
-            newBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                panel.classList.toggle('open');
-            });
-            
-            document.addEventListener('click', function(e) {
-                if (panel.classList.contains('open')) {
-                    if (!panel.contains(e.target) && !newBtn.contains(e.target)) {
-                        panel.classList.remove('open');
-                    }
-                }
-            });
-            
-            let touchStartX = 0;
-            panel.addEventListener('touchstart', function(e) {
-                touchStartX = e.touches[0].clientX;
-            }, { passive: true });
-            
-            panel.addEventListener('touchend', function(e) {
-                const touchEndX = e.changedTouches[0].clientX;
-                if (touchEndX - touchStartX < -80) {
-                    panel.classList.remove('open');
-                }
-            });
-            
-            document.querySelectorAll('.chat-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    if (window.innerWidth <= 768) {
-                        panel.classList.remove('open');
-                    }
-                });
-            });
-        }
-
-        function setupMenuHandlers() {
-            document.getElementById('testChatItem')?.addEventListener('click', () => startTest());
-           
-            document.getElementById('chatSearchInput')?.addEventListener('input', (e) => {
-                const search = e.target.value.toLowerCase();
-                document.querySelectorAll('.chat-item').forEach(item => {
-                    const name = item.querySelector('.chat-name')?.textContent.toLowerCase();
-                    item.style.display = name?.includes(search) ? 'flex' : 'none';
-                });
-            });
-        }
-
-        function init() {
-            console.log('🚀 FREDI запущен');
-            initMobileMenu();
-            setupMenuHandlers();
-            renderDashboard();
-           
-            const userName = localStorage.getItem('fredi_user_name');
-            if (!userName) {
-                setTimeout(() => {
-                    const name = prompt('Как мне к вам обращаться?', '');
-                    if (name && name.trim()) {
-                        localStorage.setItem('fredi_user_name', name.trim());
-                        document.getElementById('userName').textContent = name;
-                        document.getElementById('userMiniAvatar').textContent = name.charAt(0).toUpperCase();
-                        renderDashboard();
-                    }
-                }, 500);
-            } else {
-                document.getElementById('userName').textContent = userName;
-                document.getElementById('userMiniAvatar').textContent = userName.charAt(0).toUpperCase();
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', init);
-    })();
-    </script>
-
-    <div style="display: none; position: absolute; visibility: hidden; height: 0; width: 0; overflow: hidden;">
+    <!-- SEO (скрыто) -->
+    <div style="display:none;position:absolute;visibility:hidden;height:0;width:0;overflow:hidden">
         <h1>Фреди — виртуальный психолог на базе искусственного интеллекта</h1>
-        <p>Фреди — это премиум виртуальный психолог, созданный на основе технологий искусственного интеллекта. Сервис предоставляет психологическую поддержку 24/7, глубинный анализ личности, работу с паттернами поведения, тревогой, стрессом и межличностными отношениями.</p>
+        <p>Фреди — это премиум виртуальный психолог, созданный на основе технологий искусственного интеллекта.</p>
     </div>
 </body>
 </html>
