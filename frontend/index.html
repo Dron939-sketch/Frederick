@@ -1137,13 +1137,36 @@
             psychologist: { name: 'ПСИХОЛОГ', emoji: '🧠', color: '#ff6b3b', voicePrompt: 'Расскажите, что вас беспокоит' },
             trainer: { name: 'ТРЕНЕР', emoji: '⚡', color: '#ff3b3b', voicePrompt: 'Сформулируй задачу — получишь чёткий план' }
         };
+        
+        // ============================================
+        // МОДУЛИ ПО РЕЖИМАМ
+        // ============================================
+        const MODULES_BY_MODE = {
+            coach: [
+                { id: 'goals', name: 'Цели', icon: '🎯', desc: 'Постановка и достижение' },
+                { id: 'strategy', name: 'Стратегия', icon: '📊', desc: 'План действий' },
+                { id: 'motivation', name: 'Мотивация', icon: '⚡', desc: 'Энергия для движения' },
+                { id: 'habits', name: 'Привычки', icon: '🔄', desc: 'Формирование привычек' }
+            ],
+            psychologist: [
+                { id: 'analysis', name: 'Анализ', icon: '🧠', desc: 'Глубинные паттерны' },
+                { id: 'emotions', name: 'Эмоции', icon: '💭', desc: 'Работа с чувствами' },
+                { id: 'healing', name: 'Исцеление', icon: '🕊️', desc: 'Проработка опыта' },
+                { id: 'relationships', name: 'Отношения', icon: '💕', desc: 'Коммуникация' }
+            ],
+            trainer: [
+                { id: 'workout', name: 'Тренировки', icon: '💪', desc: 'Физическая активность' },
+                { id: 'discipline', name: 'Дисциплина', icon: '⏰', desc: 'Режим и порядок' },
+                { id: 'results', name: 'Результаты', icon: '🏆', desc: 'Достижения' },
+                { id: 'challenges', name: 'Челленджи', icon: '🔥', desc: 'Испытания' }
+            ]
+        };
 
         // ============================================
-        // ФУНКЦИИ ФОРМАТИРОВАНИЯ (исправленные)
+        // ФУНКЦИИ ФОРМАТИРОВАНИЯ
         // ============================================
         function formatProfileText(text) {
             if (!text) return '📊 Данные не найдены. Пройдите тест, чтобы получить психологический портрет.';
-            // Сохраняем ** для жирного текста
             text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
             const headers = ['КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', 'СИЛЬНЫЕ СТОРОНЫ', 'ЗОНЫ РОСТА', 'КАК ЭТО СФОРМИРОВАЛОСЬ', 'ГЛАВНАЯ ЛОВУШКА'];
@@ -1347,6 +1370,53 @@
         }
 
         // ============================================
+        // ОБНОВЛЕНИЕ МОДУЛЕЙ ПРИ СМЕНЕ РЕЖИМА
+        // ============================================
+        function updateModulesByMode(mode) {
+            const modulesGrid = document.querySelector('.modules-grid');
+            if (!modulesGrid) return;
+            
+            const modules = MODULES_BY_MODE[mode] || MODULES_BY_MODE.psychologist;
+            
+            modulesGrid.innerHTML = modules.map(module => `
+                <div class="module-card" data-module="${module.id}">
+                    <div class="module-icon">${module.icon}</div>
+                    <div class="module-name">${module.name}</div>
+                    <div class="module-desc">${module.desc}</div>
+                </div>
+            `);
+            
+            // Навешиваем обработчики на новые модули
+            document.querySelectorAll('.module-card').forEach(card => {
+                const newCard = card.cloneNode(true);
+                card.parentNode.replaceChild(newCard, card);
+                newCard.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const moduleId = newCard.dataset.module;
+                    
+                    if (moduleId === 'analysis') {
+                        if (typeof openAnalysisScreen === 'function') {
+                            openAnalysisScreen();
+                        } else {
+                            showToast('📊 Модуль анализа загружается...');
+                            const script = document.createElement('script');
+                            script.src = 'analysis.js';
+                            script.onload = () => openAnalysisScreen();
+                            document.head.appendChild(script);
+                        }
+                    } else if (moduleId === 'goals') {
+                        handleShowGoals();
+                    } else if (moduleId === 'challenges') {
+                        handleShowChallenges();
+                    } else {
+                        showToast(`Модуль "${newCard.querySelector('.module-name')?.textContent}" скоро будет доступен`);
+                    }
+                });
+            });
+        }
+
+        // ============================================
         // ПЕРЕКЛЮЧЕНИЕ РЕЖИМА
         // ============================================
         async function switchMode(mode) {
@@ -1374,38 +1444,8 @@
             const voiceText = document.querySelector('#voiceBtn .voice-text');
             if (voiceText) voiceText.textContent = config.voicePrompt;
             
-            // ========== ОБНОВЛЯЕМ ЛЕВОЕ МЕНЮ ==========
-            const menuItems = {
-                confinement: document.querySelector('.chat-item[data-chat="confinement"]'),
-                practices: document.querySelector('.chat-item[data-chat="practices"]'),
-                hypnosis: document.querySelector('.chat-item[data-chat="hypnosis"]'),
-                tales: document.querySelector('.chat-item[data-chat="tales"]'),
-                anchors: document.querySelector('.chat-item[data-chat="anchors"]'),
-                statistics: document.querySelector('.chat-item[data-chat="statistics"]')
-            };
-            
-            if (mode === 'coach') {
-                if (menuItems.confinement) menuItems.confinement.style.display = 'none';
-                if (menuItems.practices) menuItems.practices.style.display = 'none';
-                if (menuItems.hypnosis) menuItems.hypnosis.style.display = 'none';
-                if (menuItems.tales) menuItems.tales.style.display = 'none';
-                if (menuItems.anchors) menuItems.anchors.style.display = 'none';
-                if (menuItems.statistics) menuItems.statistics.style.display = 'flex';
-            } else if (mode === 'psychologist') {
-                if (menuItems.confinement) menuItems.confinement.style.display = 'flex';
-                if (menuItems.practices) menuItems.practices.style.display = 'flex';
-                if (menuItems.hypnosis) menuItems.hypnosis.style.display = 'flex';
-                if (menuItems.tales) menuItems.tales.style.display = 'flex';
-                if (menuItems.anchors) menuItems.anchors.style.display = 'flex';
-                if (menuItems.statistics) menuItems.statistics.style.display = 'flex';
-            } else if (mode === 'trainer') {
-                if (menuItems.confinement) menuItems.confinement.style.display = 'none';
-                if (menuItems.practices) menuItems.practices.style.display = 'flex';
-                if (menuItems.hypnosis) menuItems.hypnosis.style.display = 'none';
-                if (menuItems.tales) menuItems.tales.style.display = 'none';
-                if (menuItems.anchors) menuItems.anchors.style.display = 'flex';
-                if (menuItems.statistics) menuItems.statistics.style.display = 'flex';
-            }
+            // Обновляем модули
+            updateModulesByMode(mode);
             
             // Обновляем режим в голосовом менеджере
             if (voiceManager && voiceManager.setMode) {
@@ -1569,7 +1609,6 @@
                 voiceManager.onError = (error) => showToast(error, 'error');
                 voiceManager.onAIResponse = (answer) => {
                     console.log('🤖 AI ответ:', answer);
-                    // Показываем ответ в чате
                     const container = document.getElementById('screenContainer');
                     if (container) {
                         let messagesContainer = container.querySelector('.chat-messages');
@@ -1623,7 +1662,6 @@
                 }
             };
             
-            // Удаляем старые обработчики
             const newButton = buttonElement.cloneNode(true);
             buttonElement.parentNode.replaceChild(newButton, buttonElement);
             
@@ -1672,28 +1710,7 @@
                         </div>
                     </div>
                    
-                    <div class="modules-grid">
-                        <div class="module-card" data-module="analysis">
-                            <div class="module-icon">🧠</div>
-                            <div class="module-name">Анализ</div>
-                            <div class="module-desc">Глубинные паттерны</div>
-                        </div>
-                        <div class="module-card" data-module="emotions">
-                            <div class="module-icon">💭</div>
-                            <div class="module-name">Эмоции</div>
-                            <div class="module-desc">Работа с чувствами</div>
-                        </div>
-                        <div class="module-card" data-module="healing">
-                            <div class="module-icon">🕊️</div>
-                            <div class="module-name">Исцеление</div>
-                            <div class="module-desc">Проработка опыта</div>
-                        </div>
-                        <div class="module-card" data-module="relationships">
-                            <div class="module-icon">💕</div>
-                            <div class="module-name">Отношения</div>
-                            <div class="module-desc">Коммуникация</div>
-                        </div>
-                    </div>
+                    <div class="modules-grid"></div>
                    
                     <div class="quick-actions">
                         <div class="quick-actions-title">⚡ Быстрые действия</div>
@@ -1769,7 +1786,10 @@
                 });
             });
             
-            // Быстрые действия (8 кнопок)
+            // Загружаем модули для текущего режима
+            updateModulesByMode(currentMode);
+            
+            // Быстрые действия
             document.querySelectorAll('.quick-action').forEach(el => {
                 el.addEventListener('click', async () => {
                     const action = el.dataset.action;
@@ -1781,30 +1801,6 @@
                     else if (action === 'questions') await handleShowQuestions();
                     else if (action === 'challenges') await handleShowChallenges();
                     else if (action === 'doubles') await handleShowDoubles();
-                });
-            });
-            
-            // Модули
-            document.querySelectorAll('.module-card').forEach(card => {
-                const newCard = card.cloneNode(true);
-                card.parentNode.replaceChild(newCard, card);
-                newCard.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const moduleName = newCard.dataset.module;
-                    if (moduleName === 'analysis') {
-                        if (typeof openAnalysisScreen === 'function') {
-                            openAnalysisScreen();
-                        } else {
-                            showToast('📊 Модуль анализа загружается...');
-                            const script = document.createElement('script');
-                            script.src = 'analysis.js';
-                            script.onload = () => openAnalysisScreen();
-                            document.head.appendChild(script);
-                        }
-                    } else {
-                        showToast(`Модуль "${newCard.querySelector('.module-name')?.textContent}" скоро будет доступен`);
-                    }
                 });
             });
             
