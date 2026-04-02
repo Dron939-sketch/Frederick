@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.5 — с исправленным форматированием для читаемости
+// Версия 3.6 — с исправленным форматированием для "слипшегося" текста
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -58,6 +58,24 @@ function showAnalysisLoading(message) {
         `;
         document.head.appendChild(style);
     }
+}
+
+// ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+function formatInlineText(text) {
+    if (!text) return '';
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+        .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>');
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // ============================================
@@ -320,57 +338,85 @@ function renderOverviewTab() {
         return;
     }
     
-    // Форматирование без изменения цвета всего текста
-    let formattedText = analysis
-        // Жирный текст (только он будет оранжевым)
-        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-        // Заголовки ## — нормальный размер
-        .replace(/^##\s+(.*)$/gm, '<h3 style="margin: 24px 0 12px; font-size: 18px; font-weight: 600; color: #ff6b3b; border-left: 3px solid #ff6b3b; padding-left: 12px;">$1</h3>')
-        // Заголовки ###
-        .replace(/^###\s+(.*)$/gm, '<h4 style="margin: 16px 0 8px; font-size: 16px; font-weight: 500; color: #ff8c4a;">$1</h4>')
-        // Маркированные списки
-        .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px; line-height: 1.6;">$1</li>')
-        .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px; line-height: 1.6;">$1</li>');
+    // 1. Добавляем переносы строк после заголовков с ##
+    let processed = analysis.replace(/(##\s*[^#\n]+)/g, '\n\n$1\n\n');
     
-    // Оборачиваем списки в ul
-    formattedText = formattedText.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+    // 2. Добавляем переносы после маркеров списков
+    processed = processed.replace(/(\d+\.\s+)/g, '\n$1');
+    processed = processed.replace(/(•\s+)/g, '\n$1');
+    processed = processed.replace(/(\*\s+)/g, '\n$1');
     
-    // Разбиваем на параграфы
-    const lines = formattedText.split('\n');
-    let result = '';
-    let inParagraph = false;
+    // 3. Убираем дублирование заголовков
+    const lines = processed.split('\n');
+    const uniqueLines = [];
+    let lastHeader = '';
     
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) {
-            if (inParagraph) {
-                result += '</p>';
-                inParagraph = false;
+    for (const line of lines) {
+        if (line.startsWith('##')) {
+            const headerText = line.replace(/^##+\s*/, '');
+            if (headerText !== lastHeader) {
+                uniqueLines.push(line);
+                lastHeader = headerText;
             }
-            continue;
-        }
-        
-        if (line.startsWith('<h3') || line.startsWith('<h4') || line.startsWith('<ul') || line.startsWith('<li')) {
-            if (inParagraph) {
-                result += '</p>';
-                inParagraph = false;
-            }
-            result += line;
         } else {
-            if (!inParagraph) {
-                result += '<p style="margin: 12px 0; line-height: 1.7; color: var(--text-secondary); font-size: 14px;">';
-                inParagraph = true;
-            }
-            result += line;
+            uniqueLines.push(line);
         }
     }
-    if (inParagraph) {
-        result += '</p>';
+    processed = uniqueLines.join('\n');
+    
+    // 4. Форматируем
+    let formattedHtml = '';
+    const sectionLines = processed.split('\n');
+    let inList = false;
+    let listItems = [];
+    
+    for (let i = 0; i < sectionLines.length; i++) {
+        let line = sectionLines[i].trim();
+        if (!line) continue;
+        
+        // Заголовок ##
+        if (line.startsWith('##')) {
+            if (inList) {
+                formattedHtml += `<ul style="margin: 10px 0; list-style: none; padding: 0;">${listItems.join('')}</ul>`;
+                listItems = [];
+                inList = false;
+            }
+            let title = line.replace(/^##+\s*/, '');
+            formattedHtml += `<h3 style="margin: 28px 0 12px; font-size: 18px; font-weight: 600; color: #ff6b3b; border-left: 3px solid #ff6b3b; padding-left: 12px;">${escapeHtml(title)}</h3>`;
+        }
+        // Маркированный список с *
+        else if (line.startsWith('*') || line.startsWith('•')) {
+            let content = line.substring(1).trim();
+            content = formatInlineText(content);
+            listItems.push(`<li style="margin: 6px 0 6px 24px; line-height: 1.6;">${content}</li>`);
+            inList = true;
+        }
+        // Нумерованный список
+        else if (line.match(/^\d+\./)) {
+            let content = line.replace(/^\d+\.\s*/, '');
+            content = formatInlineText(content);
+            listItems.push(`<li style="margin: 6px 0 6px 24px; line-height: 1.6;">${content}</li>`);
+            inList = true;
+        }
+        // Обычный текст
+        else if (line.length > 0 && !line.startsWith('```')) {
+            if (inList) {
+                formattedHtml += `<ul style="margin: 10px 0; list-style: none; padding: 0;">${listItems.join('')}</ul>`;
+                listItems = [];
+                inList = false;
+            }
+            let content = formatInlineText(line);
+            formattedHtml += `<p style="margin: 12px 0; line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${content}</p>`;
+        }
+    }
+    
+    if (inList && listItems.length > 0) {
+        formattedHtml += `<ul style="margin: 10px 0; list-style: none; padding: 0;">${listItems.join('')}</ul>`;
     }
     
     document.getElementById('analysisTabContent').innerHTML = `
         <div class="analysis-content" style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
-            ${result}
+            ${formattedHtml}
         </div>
     `;
 }
@@ -387,16 +433,30 @@ function renderPatternsTab() {
         return;
     }
     
-    let patternsSection = '';
-    const systemMatch = analysis.match(/(?:🔄|СИСТЕМНЫЕ ПЕТЛИ)[\s\S]*?(?=(?:🌱|ТОЧКИ РОСТА|🧠|СКРЫТЫЕ МЕХАНИЗМЫ|$))/i);
-    const hiddenMatch = analysis.match(/(?:🧠|СКРЫТЫЕ МЕХАНИЗМЫ)[\s\S]*?(?=(?:🌱|ТОЧКИ РОСТА|🔑|ПЕРСОНАЛЬНЫЕ|$))/i);
+    // Извлекаем секции
+    let patternsMatch = analysis.match(/(?:🔄|СИСТЕМНЫЕ ПЕТЛИ)[\s\S]*?(?=(?:🧠|СКРЫТЫЕ МЕХАНИЗМЫ|🌱|ТОЧКИ РОСТА|$))/i);
+    let hiddenMatch = analysis.match(/(?:🧠|СКРЫТЫЕ МЕХАНИЗМЫ)[\s\S]*?(?=(?:🌱|ТОЧКИ РОСТА|🔑|ПЕРСОНАЛЬНЫЕ|$))/i);
     
     let content = '';
-    if (systemMatch) {
-        let text = systemMatch[0]
+    
+    if (patternsMatch) {
+        let text = patternsMatch[0];
+        // Очищаем от дублирования
+        if (text.includes('СИСТЕМНЫЕ ПЕТЛИ') && text.indexOf('СИСТЕМНЫЕ ПЕТЛИ') !== text.lastIndexOf('СИСТЕМНЫЕ ПЕТЛИ')) {
+            text = text.substring(text.indexOf('СИСТЕМНЫЕ ПЕТЛИ') + 20);
+        }
+        if (text.includes('СИСТЕМНЫЕ ПЕТЛИ') && text.includes('##')) {
+            text = text.replace(/##/g, '');
+        }
+        
+        text = text
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
-            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^(\d+\.)\s*/gm, '<li style="margin: 6px 0 6px 24px;"><strong>$1</strong> ')
+            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
+            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">')
+            .replace(/<\/li>\s*<li/g, '</li><li');
+        
         text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
         
         content += `<div style="margin-bottom: 28px;">
@@ -406,10 +466,20 @@ function renderPatternsTab() {
     }
     
     if (hiddenMatch) {
-        let text = hiddenMatch[0]
+        let text = hiddenMatch[0];
+        if (text.includes('СКРЫТЫЕ МЕХАНИЗМЫ') && text.indexOf('СКРЫТЫЕ МЕХАНИЗМЫ') !== text.lastIndexOf('СКРЫТЫЕ МЕХАНИЗМЫ')) {
+            text = text.substring(text.indexOf('СКРЫТЫЕ МЕХАНИЗМЫ') + 20);
+        }
+        if (text.includes('СКРЫТЫЕ МЕХАНИЗМЫ') && text.includes('##')) {
+            text = text.replace(/##/g, '');
+        }
+        
+        text = text
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
-            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
+            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">');
+        
         text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
         
         content += `<div style="margin-bottom: 28px;">
@@ -431,7 +501,7 @@ function renderPatternsTab() {
                 <span style="font-size: 22px;">💡</span>
                 <div>
                     <strong style="font-size: 14px;">Осознание петли — первый шаг к её разрыву</strong>
-                    <p style="color: var(--text-secondary); margin-top: 6px; font-size: 13px;">Обсудите эти наблюдения с Фреди в диалоге. Каждый разговор помогает увидеть новые связи.</p>
+                    <p style="color: var(--text-secondary); margin-top: 6px; font-size: 13px;">Обсудите эти наблюдения с Фреди в диалоге.</p>
                 </div>
             </div>
         </div>
@@ -450,16 +520,27 @@ function renderRecommendationsTab() {
         return;
     }
     
-    let growthSection = '';
-    const growthMatch = analysis.match(/(?:🌱|ТОЧКИ РОСТА)[\s\S]*?(?=(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|📊|ПРОГНОЗ|$))/i);
-    const keysMatch = analysis.match(/(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ)[\s\S]*?(?=(?:$))/i);
+    let growthMatch = analysis.match(/(?:🌱|ТОЧКИ РОСТА)[\s\S]*?(?=(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|📊|ПРОГНОЗ|$))/i);
+    let keysMatch = analysis.match(/(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ)[\s\S]*?(?=(?:$))/i);
     
     let content = '';
+    
     if (growthMatch) {
-        let text = growthMatch[0]
+        let text = growthMatch[0];
+        if (text.includes('ТОЧКИ РОСТА') && text.indexOf('ТОЧКИ РОСТА') !== text.lastIndexOf('ТОЧКИ РОСТА')) {
+            text = text.substring(text.indexOf('ТОЧКИ РОСТА') + 15);
+        }
+        if (text.includes('ТОЧКИ РОСТА') && text.includes('##')) {
+            text = text.replace(/##/g, '');
+        }
+        
+        text = text
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
-            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^(\d+\.)\s*/gm, '<li style="margin: 6px 0 6px 24px;"><strong>$1</strong> ')
+            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
+            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">');
+        
         text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
         
         content += `<div style="margin-bottom: 28px;">
@@ -469,10 +550,20 @@ function renderRecommendationsTab() {
     }
     
     if (keysMatch) {
-        let text = keysMatch[0]
+        let text = keysMatch[0];
+        if (text.includes('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') && text.indexOf('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') !== text.lastIndexOf('ПЕРСОНАЛЬНЫЕ КЛЮЧИ')) {
+            text = text.substring(text.indexOf('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') + 20);
+        }
+        if (text.includes('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') && text.includes('##')) {
+            text = text.replace(/##/g, '');
+        }
+        
+        text = text
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^\*\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>')
-            .replace(/^-\s+(.*)$/gm, '<li style="margin: 6px 0 6px 24px;">$1</li>');
+            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
+            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">');
+        
         text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
         
         content += `<div style="margin-bottom: 28px;">
@@ -532,6 +623,7 @@ function renderThoughtTab() {
     
     let formattedThought = thought
         .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
+        .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
         .replace(/\n/g, '<br>');
     
     document.getElementById('analysisTabContent').innerHTML = `
@@ -561,4 +653,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.5 — исправленное форматирование)');
+console.log('✅ Модуль анализа загружен (версия 3.6 — исправленное форматирование для "слипшегося" текста)');
