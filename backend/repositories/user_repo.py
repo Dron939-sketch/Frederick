@@ -118,6 +118,100 @@ class UserRepository:
             return False
     
     # ============================================
+    # ГЛУБОКИЙ АНАЛИЗ
+    # ============================================
+    
+    async def save_deep_analysis(
+        self, 
+        user_id: Union[int, str], 
+        analysis_data: Dict[str, Any]
+    ) -> Optional[int]:
+        """
+        Сохраняет глубокий анализ пользователя в БД
+        """
+        try:
+            condition, value = self._get_id_condition(user_id)
+            
+            # Деактивируем старые анализы
+            await self.db.execute(f"""
+                UPDATE deep_analyses SET is_active = FALSE WHERE {condition}
+            """, value)
+            
+            # Сохраняем новый анализ
+            analysis_id = await self.db.fetchval("""
+                INSERT INTO deep_analyses (user_id, analysis_text, analysis_type, created_at, updated_at, is_active)
+                VALUES ($1, $2, $3, NOW(), NOW(), TRUE)
+                RETURNING id
+            """, value, json.dumps(analysis_data, ensure_ascii=False), 'deep_analysis')
+            
+            logger.info(f"✅ Deep analysis saved for user {user_id}, id={analysis_id}")
+            return analysis_id
+            
+        except Exception as e:
+            logger.error(f"Error saving deep analysis for user {user_id}: {e}")
+            return None
+    
+    async def get_last_deep_analysis(
+        self, 
+        user_id: Union[int, str]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Получает последний активный глубокий анализ пользователя из БД
+        """
+        try:
+            condition, value = self._get_id_condition(user_id)
+            
+            row = await self.db.fetchrow(f"""
+                SELECT analysis_text FROM deep_analyses
+                WHERE {condition} AND is_active = TRUE
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, value)
+            
+            if row and row['analysis_text']:
+                return json.loads(row['analysis_text'])
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting deep analysis for user {user_id}: {e}")
+            return None
+    
+    async def get_deep_analyses_history(
+        self, 
+        user_id: Union[int, str], 
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Получает историю глубоких анализов пользователя
+        """
+        try:
+            condition, value = self._get_id_condition(user_id)
+            
+            rows = await self.db.fetch(f"""
+                SELECT id, analysis_text, analysis_type, created_at, is_active
+                FROM deep_analyses
+                WHERE {condition}
+                ORDER BY created_at DESC
+                LIMIT $2
+            """, value, limit)
+            
+            analyses = []
+            for row in rows:
+                analyses.append({
+                    "id": row['id'],
+                    "analysis": json.loads(row['analysis_text']),
+                    "type": row['analysis_type'],
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                    "is_active": row['is_active']
+                })
+            
+            return analyses
+            
+        except Exception as e:
+            logger.error(f"Error getting deep analyses history for user {user_id}: {e}")
+            return []
+    
+    # ============================================
     # ТЕСТЫ
     # ============================================
     
