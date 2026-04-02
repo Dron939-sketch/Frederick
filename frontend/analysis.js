@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 5.0 — КОМПАКТНОЕ ОФОРМЛЕНИЕ БЕЗ ЛИНИЙ
+// Версия 5.1 — компактное форматирование без лишних символов
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -31,132 +31,85 @@ function showAnalysisLoading(message) {
     if (!container) return;
     
     container.innerHTML = `
-        <div class="loading-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; gap: 16px;">
-            <div class="loading-spinner" style="font-size: 48px; animation: spin 1s linear infinite;">🧠</div>
-            <div class="loading-text" style="font-size: 14px; color: var(--text-secondary);">${message}</div>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; gap: 16px;">
+            <div style="font-size: 48px; animation: spin 1s linear infinite;">🧠</div>
+            <div style="font-size: 14px; color: var(--text-secondary);">${message}</div>
         </div>
+        <style>@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }</style>
     `;
-    
-    if (!document.querySelector('#analysis-loading-styles')) {
-        const style = document.createElement('style');
-        style.id = 'analysis-loading-styles';
-        style.textContent = `
-            @keyframes spin {
-                from { transform: rotate(0deg); }
-                to { transform: rotate(360deg); }
-            }
-        `;
-        document.head.appendChild(style);
-    }
 }
 
-// ========== НОРМАЛИЗАЦИЯ ТЕКСТА ОТ AI ==========
-function normalizeAIText(text) {
+// ========== ОСНОВНАЯ ФУНКЦИЯ ФОРМАТИРОВАНИЯ ==========
+function formatAnalysisText(text) {
     if (!text) return '';
     
     let processed = text;
     
-    // 1. Добавляем пробел после ##
-    processed = processed.replace(/##([^#\s])/g, '## $1');
+    // 1. Удаляем все ## и маркдаун
+    processed = processed.replace(/##\s*/g, '');
+    processed = processed.replace(/```/g, '');
     
-    // 2. Добавляем перенос строки после заголовков
-    processed = processed.replace(/(## [^\n]+)(?=[^\n])/g, '$1\n');
+    // 2. Добавляем перенос после заголовков разделов
+    const mainHeaders = ['ГЛУБИННЫЙ ПОРТРЕТ', 'СИСТЕМНЫЕ ПЕТЛИ', 'СКРЫТЫЕ МЕХАНИЗМЫ', 'ТОЧКИ РОСТА', 'ПРОГНОЗ', 'ПЕРСОНАЛЬНЫЕ КЛЮЧИ'];
+    for (const header of mainHeaders) {
+        processed = processed.replace(new RegExp(`(${header})([^\\n])`, 'g'), `$1\n\n$2`);
+    }
     
     // 3. Добавляем перенос перед маркерами списков
     processed = processed.replace(/(\* |• |\d+\. )/g, '\n$1');
     
-    // 4. Убираем дублирование заголовков
-    const lines = processed.split('\n');
-    const uniqueLines = [];
-    let lastHeader = '';
-    
-    for (const line of lines) {
-        const isHeader = line.includes('СИСТЕМНЫЕ ПЕТЛИ') || line.includes('СКРЫТЫЕ МЕХАНИЗМЫ') || 
-                         line.includes('ТОЧКИ РОСТА') || line.includes('ПРОГНОЗ') || 
-                         line.includes('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') || line.includes('ГЛУБИННЫЙ ПОРТРЕТ');
-        if (isHeader) {
-            if (lastHeader !== line.trim()) {
-                uniqueLines.push(line);
-                lastHeader = line.trim();
-            }
-        } else {
-            uniqueLines.push(line);
-        }
-    }
-    processed = uniqueLines.join('\n');
-    
-    // 5. Убираем множественные переносы
-    processed = processed.replace(/\n{3,}/g, '\n\n');
-    
-    return processed;
-}
-
-// ========== КОМПАКТНОЕ ФОРМАТИРОВАНИЕ ==========
-function formatAnalysisText(text) {
-    if (!text) return '';
-    
-    let processed = normalizeAIText(text);
-    
-    // 1. Заголовки разделов (без линий)
-    const headers = ['ГЛУБИННЫЙ ПОРТРЕТ', 'СИСТЕМНЫЕ ПЕТЛИ', 'СКРЫТЫЕ МЕХАНИЗМЫ', 'ТОЧКИ РОСТА', 'ПРОГНОЗ', 'ПЕРСОНАЛЬНЫЕ КЛЮЧИ'];
-    for (const header of headers) {
-        processed = processed.replace(
-            new RegExp(`##?\\s*${header}`, 'gi'),
-            `\n<div class="analysis-section-title">${header}</div>\n`
-        );
+    // 4. Преобразуем заголовки разделов
+    for (const header of mainHeaders) {
+        processed = processed.replace(new RegExp(`${header}`, 'g'), `<div class="analysis-section-title">${header}</div>`);
     }
     
-    // 2. Заголовки с эмодзи
-    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑💡⚠️🎯💪])\s*(.+)$/gm, '<div class="analysis-header">$1 $2</div>');
+    // 5. Преобразуем подзаголовки с эмодзи
+    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑])\s*(.+)$/gm, '<div class="analysis-header">$1 $2</div>');
     
-    // 3. Жирный текст
+    // 6. Жирный текст
     processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong class="analysis-bold">$1</strong>');
     processed = processed.replace(/\*(.*?)\*/g, '<strong class="analysis-bold">$1</strong>');
     
-    // 4. Маркированные списки
+    // 7. Маркированные списки
     processed = processed.replace(/^[\*\•]\s+(.+)$/gm, '<div class="analysis-list-item">• $1</div>');
     
-    // 5. Нумерованные списки
+    // 8. Нумерованные списки
     processed = processed.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="analysis-list-item numbered">$1. $2</div>');
     
-    // 6. Блоки с подписями (Триггер, Действие, Цена)
-    processed = processed.replace(/^([А-ЯЁ][а-яё]+):\s+(.+)$/gm, '<div class="analysis-block"><span class="block-label">$1:</span> $2</div>');
+    // 9. Специальные блоки (Триггер, Действие, Цена, Выгода, Ожидание)
+    const blockLabels = ['Триггер', 'Действие', 'Цена', 'Выгода', 'Ожидание', 'Сбой системы', 'Награда'];
+    for (const label of blockLabels) {
+        processed = processed.replace(new RegExp(`^${label}:\\s+(.+)$`, 'gm'), `<div class="analysis-block"><span class="block-label">${label}:</span> $1</div>`);
+    }
     
-    // 7. Прогноз с двумя вариантами
+    // 10. Прогноз с двумя вариантами
     processed = processed.replace(/Без изменений:/g, '<div class="forecast-bad">▸ Без изменений:');
     processed = processed.replace(/При работе над собой:/g, '<div class="forecast-good">▸ При работе над собой:');
-    processed = processed.replace(/<\/div><div class="forecast-good">/g, '</div><div class="forecast-good">');
     
-    // 8. Обычные параграфы (всё остальное)
+    // 11. Разбиваем на параграфы
     const lines = processed.split('\n');
     let result = '';
-    let inParagraph = false;
-    let paragraphText = '';
+    let paragraph = '';
     
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i].trim();
-        if (!line) continue;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
         
-        const isSpecial = line.startsWith('<div') || line.startsWith('<strong') || line.startsWith('▸');
+        const isTag = trimmed.startsWith('<div') || trimmed.startsWith('<strong') || trimmed.startsWith('▸');
         
-        if (isSpecial) {
-            if (inParagraph && paragraphText) {
-                result += `<div class="analysis-text">${paragraphText}</div>`;
-                paragraphText = '';
-                inParagraph = false;
+        if (isTag) {
+            if (paragraph) {
+                result += `<div class="analysis-text">${paragraph}</div>`;
+                paragraph = '';
             }
-            result += line;
+            result += trimmed;
         } else {
-            if (inParagraph) {
-                paragraphText += ' ' + line;
-            } else {
-                paragraphText = line;
-                inParagraph = true;
-            }
+            paragraph += (paragraph ? ' ' : '') + trimmed;
         }
     }
-    if (inParagraph && paragraphText) {
-        result += `<div class="analysis-text">${paragraphText}</div>`;
+    
+    if (paragraph) {
+        result += `<div class="analysis-text">${paragraph}</div>`;
     }
     
     return result;
@@ -311,10 +264,10 @@ function renderAnalysisWithTabs() {
         });
     });
     
-    // Добавляем стили если нет
-    if (!document.querySelector('#analysis-compact-styles')) {
+    // Инжектим стили если их нет
+    if (!document.querySelector('#analysis-styles')) {
         const style = document.createElement('style');
-        style.id = 'analysis-compact-styles';
+        style.id = 'analysis-styles';
         style.textContent = `
             .analysis-tab {
                 background: rgba(255,107,59,0.1);
@@ -391,7 +344,6 @@ function renderAnalysisWithTabs() {
                 margin: 6px 0;
                 font-size: 13px;
                 line-height: 1.45;
-                color: #c0c0c0;
             }
             .fredi-analysis .forecast-bad {
                 color: #ef4444;
@@ -603,4 +555,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 5.0 — компактное оформление)');
+console.log('✅ Модуль анализа загружен (версия 5.1 — компактное форматирование)');
