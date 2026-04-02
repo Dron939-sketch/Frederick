@@ -1362,7 +1362,7 @@ async def deep_analysis(request: Request, data: ChatRequest):
         behavioral_levels = profile.get('behavioral_levels', {})
         deep_patterns = profile.get('deep_patterns', {})
         
-        # УВЕЛИЧЕННЫЙ ПРОМПТ
+        # УВЕЛИЧЕННЫЙ ПРОМПТ (max_tokens теперь 4000)
         system_prompt = """Ты — психолог Фреди. Проведи ГЛУБОКИЙ психологический анализ личности пользователя.
 
 ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON:
@@ -1417,7 +1417,8 @@ AI-профиль:
 Проведи глубокий психологический анализ. Верни ответ строго в формате JSON. Пиши содержательно, 5-6 предложений в каждом разделе.
 """
         
-        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=3000, temperature=0.7)
+        # УВЕЛИЧИЛИ max_tokens С 3000 ДО 4000
+        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=4000, temperature=0.7)
         
         if response:
             # Парсим JSON
@@ -1425,7 +1426,7 @@ AI-профиль:
             cleaned = re.sub(r'\s*```$', '', cleaned)
             analysis_data = json.loads(cleaned)
             
-            # Сохраняем в БД
+            # Сохраняем в БД (используем обновленный метод)
             await user_repo.save_deep_analysis(data.user_id, analysis_data)
             
             return {"success": True, "analysis": analysis_data}
@@ -1435,6 +1436,82 @@ AI-профиль:
     except Exception as e:
         logger.error(f"Deep analysis error: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ========== НОВЫЙ ЭНДПОИНТ: ПОЛУЧИТЬ СОХРАНЕННЫЙ АНАЛИЗ ==========
+@app.get("/api/deep-analysis/{user_id}")
+@limiter.limit("30/minute")
+async def get_saved_deep_analysis(request: Request, user_id: Union[int, str]):
+    """
+    Получить последний сохраненный глубокий анализ пользователя
+    Поддерживает оба формата user_id: int и str
+    """
+    try:
+        # Нормализуем user_id
+        if isinstance(user_id, str):
+            try:
+                # Пробуем преобразовать в int для старого формата
+                user_id_int = int(user_id)
+                user_id_for_db = user_id_int
+            except ValueError:
+                # Оставляем как строку для нового формата
+                user_id_for_db = user_id
+        else:
+            user_id_for_db = user_id
+        
+        # Получаем сохраненный анализ
+        saved_analysis = await user_repo.get_last_deep_analysis(user_id_for_db)
+        
+        if saved_analysis:
+            return {
+                "success": True, 
+                "analysis": saved_analysis["analysis"],
+                "cached": True,
+                "created_at": saved_analysis.get("created_at"),
+                "updated_at": saved_analysis.get("updated_at")
+            }
+        else:
+            return {
+                "success": False, 
+                "analysis": None,
+                "cached": False,
+                "message": "Анализ ещё не выполнен. Вызовите POST /api/deep-analysis для генерации."
+            }
+        
+    except Exception as e:
+        logger.error(f"Error getting saved deep analysis for user {user_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ========== ДОПОЛНИТЕЛЬНЫЙ ЭНДПОИНТ: ИСТОРИЯ АНАЛИЗОВ ==========
+@app.get("/api/deep-analysis/{user_id}/history")
+@limiter.limit("20/minute")
+async def get_deep_analysis_history(request: Request, user_id: Union[int, str], limit: int = 10):
+    """
+    Получить историю всех глубоких анализов пользователя
+    """
+    try:
+        # Нормализуем user_id
+        if isinstance(user_id, str):
+            try:
+                user_id_int = int(user_id)
+                user_id_for_db = user_id_int
+            except ValueError:
+                user_id_for_db = user_id
+        else:
+            user_id_for_db = user_id
+        
+        history = await user_repo.get_deep_analyses_history(user_id_for_db, limit)
+        
+        return {
+            "success": True,
+            "history": history,
+            "total": len(history)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting deep analysis history for user {user_id}: {e}")
+        return {"success": False, "error": str(e), "history": []}
         
 # ---------- ГОЛОС ----------
 @app.post("/api/voice/process")
