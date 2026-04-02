@@ -1355,6 +1355,7 @@
             const config = MODES[mode];
             showToast(`Режим "${config.name}" активирован`, 'success');
             
+            // Обновляем кнопки режимов
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 if (btn.dataset.mode === mode) {
                     btn.classList.add('active');
@@ -1363,18 +1364,55 @@
                 }
             });
             
+            // Обновляем индикатор в шапке
             const modeIndicator = document.getElementById('modeIndicator');
             const modeLabel = document.getElementById('modeLabel');
             if (modeIndicator) modeIndicator.style.background = config.color;
             if (modeLabel) modeLabel.textContent = config.name;
             
+            // Обновляем текст голосовой кнопки
             const voiceText = document.querySelector('#voiceBtn .voice-text');
             if (voiceText) voiceText.textContent = config.voicePrompt;
             
+            // ========== ОБНОВЛЯЕМ ЛЕВОЕ МЕНЮ ==========
+            const menuItems = {
+                confinement: document.querySelector('.chat-item[data-chat="confinement"]'),
+                practices: document.querySelector('.chat-item[data-chat="practices"]'),
+                hypnosis: document.querySelector('.chat-item[data-chat="hypnosis"]'),
+                tales: document.querySelector('.chat-item[data-chat="tales"]'),
+                anchors: document.querySelector('.chat-item[data-chat="anchors"]'),
+                statistics: document.querySelector('.chat-item[data-chat="statistics"]')
+            };
+            
+            if (mode === 'coach') {
+                if (menuItems.confinement) menuItems.confinement.style.display = 'none';
+                if (menuItems.practices) menuItems.practices.style.display = 'none';
+                if (menuItems.hypnosis) menuItems.hypnosis.style.display = 'none';
+                if (menuItems.tales) menuItems.tales.style.display = 'none';
+                if (menuItems.anchors) menuItems.anchors.style.display = 'none';
+                if (menuItems.statistics) menuItems.statistics.style.display = 'flex';
+            } else if (mode === 'psychologist') {
+                if (menuItems.confinement) menuItems.confinement.style.display = 'flex';
+                if (menuItems.practices) menuItems.practices.style.display = 'flex';
+                if (menuItems.hypnosis) menuItems.hypnosis.style.display = 'flex';
+                if (menuItems.tales) menuItems.tales.style.display = 'flex';
+                if (menuItems.anchors) menuItems.anchors.style.display = 'flex';
+                if (menuItems.statistics) menuItems.statistics.style.display = 'flex';
+            } else if (mode === 'trainer') {
+                if (menuItems.confinement) menuItems.confinement.style.display = 'none';
+                if (menuItems.practices) menuItems.practices.style.display = 'flex';
+                if (menuItems.hypnosis) menuItems.hypnosis.style.display = 'none';
+                if (menuItems.tales) menuItems.tales.style.display = 'none';
+                if (menuItems.anchors) menuItems.anchors.style.display = 'flex';
+                if (menuItems.statistics) menuItems.statistics.style.display = 'flex';
+            }
+            
+            // Обновляем режим в голосовом менеджере
             if (voiceManager && voiceManager.setMode) {
                 voiceManager.setMode(mode);
             }
             
+            // Сохраняем режим на сервере
             try {
                 await apiCall('/api/save-mode', { 
                     method: 'POST', 
@@ -1529,8 +1567,25 @@
                 });
                 voiceManager.setMode(currentMode);
                 voiceManager.onError = (error) => showToast(error, 'error');
-                voiceManager.onAIResponse = (answer) => console.log('🤖:', answer);
-                voiceManager.onTranscript = (text) => console.log('🎤:', text);
+                voiceManager.onAIResponse = (answer) => {
+                    console.log('🤖 AI ответ:', answer);
+                    // Показываем ответ в чате
+                    const container = document.getElementById('screenContainer');
+                    if (container) {
+                        let messagesContainer = container.querySelector('.chat-messages');
+                        if (!messagesContainer) {
+                            messagesContainer = document.createElement('div');
+                            messagesContainer.className = 'chat-messages';
+                            container.appendChild(messagesContainer);
+                        }
+                        const messageDiv = document.createElement('div');
+                        messageDiv.className = 'message bot';
+                        messageDiv.innerHTML = `<div class="message-text">${answer}</div>`;
+                        messagesContainer.appendChild(messageDiv);
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    }
+                };
+                voiceManager.onTranscript = (text) => console.log('🎤 Распознано:', text);
             }
             
             if (!voiceManager) {
@@ -1568,12 +1623,16 @@
                 }
             };
             
-            buttonElement.addEventListener('mousedown', onPressStart);
-            buttonElement.addEventListener('mouseup', onPressEnd);
-            buttonElement.addEventListener('mouseleave', onPressEnd);
-            buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
-            buttonElement.addEventListener('touchend', onPressEnd, { passive: false });
-            buttonElement.addEventListener('touchcancel', onPressEnd, { passive: false });
+            // Удаляем старые обработчики
+            const newButton = buttonElement.cloneNode(true);
+            buttonElement.parentNode.replaceChild(newButton, buttonElement);
+            
+            newButton.addEventListener('mousedown', onPressStart);
+            newButton.addEventListener('mouseup', onPressEnd);
+            newButton.addEventListener('mouseleave', onPressEnd);
+            newButton.addEventListener('touchstart', onPressStart, { passive: false });
+            newButton.addEventListener('touchend', onPressEnd, { passive: false });
+            newButton.addEventListener('touchcancel', onPressEnd, { passive: false });
         }
 
         // ============================================
