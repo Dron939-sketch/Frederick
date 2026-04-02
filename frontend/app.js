@@ -1447,7 +1447,6 @@ async function handleShowDoubles() {
 }
 
 // ========== ДАШБОРД ==========
-
 function updateModeUI() {
     const config = MODES[currentMode];
     document.getElementById('modeLabel').textContent = config.name;
