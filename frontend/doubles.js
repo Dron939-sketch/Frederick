@@ -1,6 +1,6 @@
 // ============================================
 // doubles.js — Психометрические двойники
-// Версия 2.0 — исправленная
+// Версия 2.1 — исправленная рекурсия
 // ============================================
 
 let doublesState = {
@@ -20,13 +20,12 @@ let userDoublesProfile = {
 };
 
 // ============================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ИСПРАВЛЕННЫЕ)
 // ============================================
 function showToastMessage(message, type = 'info') {
+    // Прямой вызов без рекурсии
     if (window.showToast) {
         window.showToast(message, type);
-    } else if (window.showToastMessage) {
-        window.showToastMessage(message, type);
     } else {
         console.log(`[${type}] ${message}`);
     }
@@ -40,7 +39,6 @@ function goBackToDashboard() {
     } else if (typeof window.goToDashboard === 'function') {
         window.goToDashboard();
     } else {
-        // Fallback: перезагружаем страницу
         location.reload();
     }
 }
@@ -53,19 +51,16 @@ async function loadUserProfileForDoubles() {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
         
-        // Получаем контекст пользователя
         const contextRes = await fetch(`${apiUrl}/api/get-context/${userId}`);
         const contextData = await contextRes.json();
         const context = contextData.context || {};
         
-        // Получаем профиль
         const profileRes = await fetch(`${apiUrl}/api/get-profile/${userId}`);
         const profileData = await profileRes.json();
         const profile = profileData.profile || {};
         const profileDataObj = profile.profile_data || {};
         const behavioralLevels = profile.behavioral_levels || {};
         
-        // Получаем векторы
         const vectors = {
             СБ: behavioralLevels.СБ ? (Array.isArray(behavioralLevels.СБ) ? behavioralLevels.СБ[behavioralLevels.СБ.length - 1] : behavioralLevels.СБ) : 4,
             ТФ: behavioralLevels.ТФ ? (Array.isArray(behavioralLevels.ТФ) ? behavioralLevels.ТФ[behavioralLevels.ТФ.length - 1] : behavioralLevels.ТФ) : 4,
@@ -98,19 +93,16 @@ async function searchDoublesAPI() {
         
         showToastMessage('🔍 Поиск двойников...', 'info');
         
-        // Реальный API запрос
         const response = await fetch(`${apiUrl}/api/psychometric/find-doubles?user_id=${userId}&limit=10`);
         const data = await response.json();
         
         if (data.success && data.doubles && data.doubles.length > 0) {
-            // Обогащаем данные двойников инсайтами
             return data.doubles.map(d => ({
                 ...d,
                 insight: getInsightBySimilarity(d.similarity, d.diff)
             }));
         }
         
-        // Если нет двойников, пробуем найти близкие профили
         if (data.success && data.nearby && data.nearby.length > 0) {
             return data.nearby.map(d => ({
                 ...d,
@@ -126,7 +118,6 @@ async function searchDoublesAPI() {
     }
 }
 
-// Генерация инсайта на основе схожести
 function getInsightBySimilarity(similarity, diff, isNearby = false) {
     if (isNearby) {
         return 'Ваш профиль уникален. Этот пользователь близок к вам по психотипу.';
@@ -152,17 +143,17 @@ function getDevelopmentTrajectory() {
     let trajectory20 = '';
     
     if (avgLevel >= 5) {
-        trajectory5 = '🔮 Через 5 лет: Вы реализуете свой потенциал в лидерских позициях. Ваш эмоциональный интеллект и стратегическое мышление откроют двери в управление.';
-        trajectory10 = '🌟 Через 10 лет: Вы станете экспертом, к мнению которого прислушиваются. Возможно создание собственного дела или менторство.';
-        trajectory20 = '🏆 Через 20 лет: Ваше наследие — это люди, которых вы вдохновили. Глубокое понимание человеческой природы сделает вас мудрым наставником.';
+        trajectory5 = '🔮 Через 5 лет: Вы реализуете свой потенциал в лидерских позициях.';
+        trajectory10 = '🌟 Через 10 лет: Вы станете экспертом, к мнению которого прислушиваются.';
+        trajectory20 = '🏆 Через 20 лет: Ваше наследие — это люди, которых вы вдохновили.';
     } else if (avgLevel >= 3) {
-        trajectory5 = '🔮 Через 5 лет: Вы найдёте свою нишу, где ваши сильные стороны будут востребованы. Начнёте строить профессиональную репутацию.';
-        trajectory10 = '🌟 Через 10 лет: Стабильность и признание. Вы будете уверенно двигаться к своим целям, опираясь на накопленный опыт.';
-        trajectory20 = '🏆 Через 20 лет: Гармония и удовлетворённость. Вы создадите пространство, где вам комфортно, и сможете передать знания другим.';
+        trajectory5 = '🔮 Через 5 лет: Вы найдёте свою нишу, где ваши сильные стороны будут востребованы.';
+        trajectory10 = '🌟 Через 10 лет: Стабильность и признание.';
+        trajectory20 = '🏆 Через 20 лет: Гармония и удовлетворённость.';
     } else {
-        trajectory5 = '🔮 Через 5 лет: Вы раскроете свои таланты в непривычных сферах. Возможна смена деятельности или переезд.';
-        trajectory10 = '🌟 Через 10 лет: Глубокое самопознание приведёт к нестандартным решениям. Вы найдёте свой уникальный путь.';
-        trajectory20 = '🏆 Через 20 лет: Вы станете источником вдохновения для окружающих. Ваш опыт будет уникален и ценен.';
+        trajectory5 = '🔮 Через 5 лет: Вы раскроете свои таланты в непривычных сферах.';
+        trajectory10 = '🌟 Через 10 лет: Глубокое самопознание приведёт к нестандартным решениям.';
+        trajectory20 = '🏆 Через 20 лет: Вы станете источником вдохновения для окружающих.';
     }
     
     return { trajectory5, trajectory10, trajectory20 };
@@ -172,7 +163,6 @@ function getDevelopmentTrajectory() {
 // РЕНДЕР ЭКРАНОВ
 // ============================================
 
-// Экран согласия
 function renderDoublesConsentScreen(container) {
     const trajectory = getDevelopmentTrajectory();
     
@@ -188,13 +178,12 @@ function renderDoublesConsentScreen(container) {
             <div class="content-body">
                 <div style="margin-bottom: 20px;">
                     <div style="font-size: 15px; font-weight: 600; margin-bottom: 10px; color: var(--chrome);">🤔 ОДИН ПРОФИЛЬ — МНОГО ЖИЗНЕЙ</div>
-                    <div style="font-size: 13px; line-height: 1.5; color: var(--text-secondary);">Ваш психологический профиль — это ваша "внутренняя ОС". Но одинаковый "процессор" может работать в разных "компьютерах" — с разным окружением и возможностями.</div>
+                    <div style="font-size: 13px; line-height: 1.5; color: var(--text-secondary);">Ваш психологический профиль — это ваша "внутренняя ОС". Но одинаковый "процессор" может работать в разных "компьютерах".</div>
                 </div>
                 
                 <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 14px; margin-bottom: 20px;">
-                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--chrome);">🧬 ЗНАЯ СВОИХ ДВОЙНИКОВ — ВЫ ЗНАЕТЕ ВОЗМОЖНЫЕ ВАРИАЦИИ СВОЕЙ ЖИЗНИ</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">Какой ещё могла быть ваша жизнь? Какие пути вы не выбрали? Узнайте у тех, кто сделал другой выбор, но имеет ТАКОЙ ЖЕ психотип.</div>
-                    <div style="font-size: 12px; color: var(--amg-orange); margin-top: 10px; font-style: italic;">✨ Вы можете подсмотреть, какая траектория развития ждёт ваш профиль через 5, 10 и 20 лет.</div>
+                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--chrome);">🧬 ЗНАЯ ДВОЙНИКОВ — ЗНАЕТЕ ВАРИАЦИИ СВОЕЙ ЖИЗНИ</div>
+                    <div style="font-size: 12px; color: var(--text-secondary);">Какой ещё могла быть ваша жизнь? Узнайте у тех, кто имеет ТАКОЙ ЖЕ психотип.</div>
                 </div>
                 
                 <div style="margin-bottom: 20px;">
@@ -210,21 +199,12 @@ function renderDoublesConsentScreen(container) {
                     <div style="display: inline-block; background: rgba(224,224,224,0.08); border-radius: 30px; padding: 4px 12px; font-family: monospace; font-size: 10px; margin-bottom: 10px;">${userDoublesProfile.profile} | ${userDoublesProfile.profileType}</div>
                     <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">${userDoublesProfile.age ? userDoublesProfile.age + ' лет, ' : ''}${userDoublesProfile.city || ''}</div>
                     
-                    <!-- Блок с траекторией развития -->
                     <div style="background: rgba(255,107,59,0.08); border-radius: 16px; padding: 12px; margin: 12px 0;">
-                        <div style="font-size: 11px; font-weight: 600; margin-bottom: 8px; color: var(--amg-orange);">📈 ВОЗМОЖНАЯ ТРАЕКТОРИЯ ВАШЕГО ПРОФИЛЯ</div>
+                        <div style="font-size: 11px; font-weight: 600; margin-bottom: 8px; color: var(--amg-orange);">📈 ВОЗМОЖНАЯ ТРАЕКТОРИЯ</div>
                         <div style="font-size: 11px; line-height: 1.4; color: var(--text-secondary); margin-bottom: 6px;">${trajectory.trajectory5}</div>
                         <div style="font-size: 11px; line-height: 1.4; color: var(--text-secondary); margin-bottom: 6px;">${trajectory.trajectory10}</div>
                         <div style="font-size: 11px; line-height: 1.4; color: var(--text-secondary);">${trajectory.trajectory20}</div>
                     </div>
-                    
-                    <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;">
-                        <span style="background: rgba(224,224,224,0.08); border-radius: 30px; padding: 3px 10px; font-size: 10px;">🧠 Психолог</span>
-                        <span style="background: rgba(224,224,224,0.08); border-radius: 30px; padding: 3px 10px; font-size: 10px;">🎨 Креативный директор</span>
-                        <span style="background: rgba(224,224,224,0.08); border-radius: 30px; padding: 3px 10px; font-size: 10px;">💬 Social manager</span>
-                        <span style="background: rgba(224,224,224,0.08); border-radius: 30px; padding: 3px 10px; font-size: 10px;">📚 Преподаватель</span>
-                    </div>
-                    <div style="font-size: 11px; color: var(--chrome);">Какой путь выбрали ВАШИ ДВОЙНИКИ? Узнайте, посмотрев на их жизненные траектории.</div>
                 </div>
                 
                 <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 16px;">
@@ -240,10 +220,8 @@ function renderDoublesConsentScreen(container) {
         </div>
     `;
     
-    // Исправленная кнопка НАЗАД
     const backBtn = document.getElementById('doublesBackBtn');
     if (backBtn) {
-        // Удаляем старые обработчики
         const newBackBtn = backBtn.cloneNode(true);
         backBtn.parentNode.replaceChild(newBackBtn, backBtn);
         newBackBtn.addEventListener('click', (e) => {
@@ -260,7 +238,6 @@ function renderDoublesConsentScreen(container) {
     document.getElementById('doublesDenyBtn')?.addEventListener('click', () => renderDoublesNoConsentScreen(container));
 }
 
-// Экран отказа
 function renderDoublesNoConsentScreen(container) {
     container.innerHTML = `
         <div class="full-content-page">
@@ -272,14 +249,12 @@ function renderDoublesNoConsentScreen(container) {
             <div class="content-body" style="text-align: center; padding: 20px;">
                 <div style="font-size: 48px; margin-bottom: 16px;">🔒</div>
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 10px; color: var(--chrome);">ВЫ НЕ РАЗРЕШИЛИ ИСПОЛЬЗОВАТЬ ПРОФИЛЬ</div>
-                <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">Чтобы найти психометрических двойников, нужно разрешить использовать ваш профиль для поиска совпадений.</div>
-                <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 20px;">⚠️ Ваши данные НИКОГДА не передаются. Другие увидят только имя, город, возраст и % схожести.</div>
+                <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">Чтобы найти психометрических двойников, нужно разрешить использовать ваш профиль.</div>
                 <button id="doublesRetryBtn" class="action-btn">✅ РАЗРЕШИТЬ</button>
             </div>
         </div>
     `;
     
-    // Исправленная кнопка НАЗАД
     const backBtn = document.getElementById('doublesBackBtn');
     if (backBtn) {
         const newBackBtn = backBtn.cloneNode(true);
@@ -297,7 +272,6 @@ function renderDoublesNoConsentScreen(container) {
     });
 }
 
-// Экран поиска
 function renderDoublesSearchScreen(container) {
     container.innerHTML = `
         <div class="full-content-page">
@@ -310,12 +284,10 @@ function renderDoublesSearchScreen(container) {
                 <div style="font-size: 48px; animation: spin 1s linear infinite; margin-bottom: 16px;">🔄</div>
                 <div style="font-size: 13px; color: var(--chrome); margin-bottom: 6px;">ИЩЕМ ВАШИХ ДВОЙНИКОВ...</div>
                 <div style="font-size: 11px; color: var(--text-secondary);">Анализируем профиль: ${userDoublesProfile.profile}</div>
-                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">Ищем людей с таким же психотипом в нашей базе</div>
             </div>
         </div>
     `;
     
-    // Исправленная кнопка НАЗАД
     const backBtn = document.getElementById('doublesBackBtn');
     if (backBtn) {
         const newBackBtn = backBtn.cloneNode(true);
@@ -333,7 +305,6 @@ function renderDoublesSearchScreen(container) {
     });
 }
 
-// Экран результатов
 function renderDoublesResultsScreen(container) {
     let doublesHtml = '';
     
@@ -343,7 +314,6 @@ function renderDoublesResultsScreen(container) {
                 <div style="font-size: 48px; margin-bottom: 12px;">🔍</div>
                 <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--chrome);">ПОКА НЕТ ТОЧНЫХ СОВПАДЕНИЙ</div>
                 <div style="font-size: 12px; color: var(--text-secondary);">Ваш профиль уникален в нашей базе на данный момент.</div>
-                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 12px;">Но вы всегда можете вернуться позже — база пополняется.</div>
             </div>
         `;
     } else {
@@ -356,10 +326,10 @@ function renderDoublesResultsScreen(container) {
                     </div>
                     <div style="display: inline-block; background: rgba(224,224,224,0.08); border-radius: 30px; padding: 3px 10px; font-family: monospace; font-size: 9px; margin-bottom: 8px;">${d.profile_code || d.profile || userDoublesProfile.profile} | ${d.profile_type || userDoublesProfile.profileType}</div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span style="font-size: 16px; font-weight: 700; color: var(--chrome);">✨ СХОЖЕСТЬ: ${d.similarity || Math.floor(Math.random() * 30) + 70}%</span>
+                        <span style="font-size: 16px; font-weight: 700; color: var(--chrome);">✨ СХОЖЕСТЬ: ${d.similarity}%</span>
                     </div>
                     ${d.diff ? `<div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;">📊 ${d.diff}</div>` : ''}
-                    <div style="font-size: 11px; color: var(--text-secondary); font-style: italic;">💡 "${d.insight || 'Общение с психометрическим двойником может открыть новые перспективы.'}"</div>
+                    <div style="font-size: 11px; color: var(--text-secondary); font-style: italic;">💡 "${d.insight}"</div>
                 </div>
             `;
         });
@@ -382,19 +352,16 @@ function renderDoublesResultsScreen(container) {
                 
                 ${doublesHtml}
                 
-                <!-- Блок с траекторией развития -->
                 <div style="background: rgba(255,107,59,0.08); border-radius: 20px; padding: 14px; margin-top: 16px;">
-                    <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--amg-orange);">📈 ВОЗМОЖНАЯ ТРАЕКТОРИЯ ВАШЕГО ПРОФИЛЯ</div>
+                    <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--amg-orange);">📈 ВОЗМОЖНАЯ ТРАЕКТОРИЯ</div>
                     <div style="font-size: 11px; line-height: 1.4; color: var(--text-secondary); margin-bottom: 6px;">${trajectory.trajectory5}</div>
                     <div style="font-size: 11px; line-height: 1.4; color: var(--text-secondary); margin-bottom: 6px;">${trajectory.trajectory10}</div>
                     <div style="font-size: 11px; line-height: 1.4; color: var(--text-secondary);">${trajectory.trajectory20}</div>
-                    <div style="font-size: 11px; color: var(--chrome); margin-top: 10px;">✨ ЗНАЯ СВОИХ ДВОЙНИКОВ — ВЫ ЗНАЕТЕ ВОЗМОЖНЫЕ ВАРИАЦИИ СВОЕЙ ЖИЗНИ</div>
                 </div>
                 
                 <div style="background: rgba(224,224,224,0.03); border-radius: 20px; padding: 14px; margin-top: 16px;">
                     <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--chrome);">💡 ПОЧЕМУ ЭТО ВАЖНО?</div>
-                    <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.5;">Люди с похожими психометрическими профилями лучше понимают друг друга. Общение с двойником помогает увидеть свои паттерны со стороны и найти новые решения.</div>
-                    <div style="font-size: 11px; color: var(--chrome); margin-top: 8px;">✨ ОДИН ПРОФИЛЬ — МНОГО ЖИЗНЕЙ. УЗНАЙТЕ СВОИ ВАРИАНТЫ.</div>
+                    <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.5;">Люди с похожими психометрическими профилями лучше понимают друг друга. Общение с двойником помогает увидеть свои паттерны со стороны.</div>
                 </div>
                 
                 <div style="margin-top: 16px; text-align: center;">
@@ -404,7 +371,6 @@ function renderDoublesResultsScreen(container) {
         </div>
     `;
     
-    // Исправленная кнопка НАЗАД
     const backBtn = document.getElementById('doublesBackBtn');
     if (backBtn) {
         const newBackBtn = backBtn.cloneNode(true);
@@ -423,14 +389,12 @@ function renderDoublesResultsScreen(container) {
 // ГЛАВНАЯ ФУНКЦИЯ
 // ============================================
 async function showDoublesScreen() {
-    // Проверяем, прошел ли пользователь тест
     const isTestCompletedFn = window.isTestCompleted || (window.CONFIG && window.CONFIG.isTestCompleted);
     let completed = false;
     
     if (typeof isTestCompletedFn === 'function') {
         completed = await isTestCompletedFn();
     } else {
-        // Fallback проверка
         try {
             const userId = window.CONFIG?.USER_ID || window.USER_ID;
             const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -461,4 +425,4 @@ async function showDoublesScreen() {
 window.showDoublesScreen = showDoublesScreen;
 window.goBackToDashboard = goBackToDashboard;
 
-console.log('✅ Модуль двойников загружен (версия 2.0 — с реальным поиском в БД)');
+console.log('✅ Модуль двойников загружен (версия 2.1 — исправлена рекурсия)');
