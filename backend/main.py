@@ -1975,6 +1975,116 @@ async def get_psychologist_thought(request: Request, user_id: int):
         logger.error(f"Error getting psychologist thought: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ========== ПСИХОМЕТРИЧЕСКИЕ ДВОЙНИКИ ==========
+@app.get("/api/psychometric/find-doubles")
+@limiter.limit("10/minute")
+async def find_psychometric_doubles(
+    request: Request, 
+    user_id: str,
+    limit: int = 10
+):
+    """
+    Поиск психометрических двойников пользователя
+    Без проверки согласия — если ищем, значит пользователь дал согласие
+    """
+    try:
+        # Нормализуем user_id
+        try:
+            user_id_int = int(user_id)
+            user_id_for_db = user_id_int
+        except ValueError:
+            user_id_for_db = user_id
+        
+        # 1. Получаем профиль текущего пользователя
+        profile = await user_repo.get_profile(user_id_for_db) or {}
+        profile_data = profile.get('profile_data', {})
+        behavioral_levels = profile.get('behavioral_levels', {})
+        
+        # Получаем векторы текущего пользователя
+        vectors = {
+            'СБ': behavioral_levels.get('СБ', [4])[-1] if behavioral_levels.get('СБ') else 4,
+            'ТФ': behavioral_levels.get('ТФ', [4])[-1] if behavioral_levels.get('ТФ') else 4,
+            'УБ': behavioral_levels.get('УБ', [4])[-1] if behavioral_levels.get('УБ') else 4,
+            'ЧВ': behavioral_levels.get('ЧВ', [4])[-1] if behavioral_levels.get('ЧВ') else 4
+        }
+        
+        # 2. Ищем других пользователей с профилем
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT DISTINCT u.user_id, u.profile, u.username
+                FROM users u
+                WHERE u.user_id::text != $1
+                AND u.profile IS NOT NULL
+                AND u.profile != '{}'
+                LIMIT $2
+            """, user_id_for_db, limit * 3)
+        
+        doubles = []
+        
+        for row in rows:
+            other_profile = row['profile'] if isinstance(row['profile'], dict) else json.loads(row['profile'])
+            other_behavioral = other_profile.get('behavioral_levels', {})
+            
+            # Получаем векторы другого пользователя
+            other_vectors = {
+                'СБ': other_behavioral.get('СБ', [4])[-1] if other_behavioral.get('СБ') else 4,
+                'ТФ': other_behavioral.get('ТФ', [4])[-1] if other_behavioral.get('ТФ') else 4,
+                'УБ': other_behavioral.get('УБ', [4])[-1] if other_behavioral.get('УБ') else 4,
+                'ЧВ': other_behavioral.get('ЧВ', [4])[-1] if other_behavioral.get('ЧВ') else 4
+            }
+            
+            # Вычисляем схожесть
+            total_diff = 0
+            differences = []
+            
+            for key in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+                current_val = vectors.get(key, 4)
+                other_val = other_vectors.get(key, 4)
+                diff = abs(current_val - other_val)
+                total_diff += diff
+                if diff > 0:
+                    differences.append(f"{key}: {current_val} → {other_val}")
+            
+            # Схожесть в процентах (макс разница 4 вектора * 6 уровней = 24)
+            similarity = max(0, min(100, int((1 - total_diff / 24) * 100)))
+            
+            # Показываем всех, сортируем по схожести позже
+            other_context = await context_repo.get(row['user_id']) or {}
+            
+            doubles.append({
+                "user_id": row['user_id'],
+                "name": other_context.get('name') or f"User_{row['user_id']}",
+                "age": other_context.get('age'),
+                "city": other_context.get('city'),
+                "profile_code": other_profile.get('display_name', ''),
+                "profile_type": other_profile.get('perception_type', ''),
+                "similarity": similarity,
+                "diff": ", ".join(differences) if differences else None
+            })
+        
+        # Сортируем по схожести (убывание)
+        doubles.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        # Отделяем точных двойников (>=80%) и близкие профили (50-79%)
+        exact_doubles = [d for d in doubles if d['similarity'] >= 80]
+        nearby_profiles = [d for d in doubles if 50 <= d['similarity'] < 80]
+        
+        return {
+            "success": True,
+            "doubles": exact_doubles[:limit],
+            "nearby": nearby_profiles[:limit],
+            "total_found": len(doubles),
+            "your_profile": {
+                "profile_code": profile_data.get('display_name'),
+                "vectors": vectors,
+                "profile_type": profile.get('perception_type')
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error finding doubles for user {user_id}: {e}")
+        return {"success": False, "error": str(e), "doubles": []}
+
 
 # ---------- СТАТИСТИКА ----------
 @app.get("/api/stats/{user_id}")
