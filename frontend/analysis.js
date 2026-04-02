@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 7.1 — с глобальной функцией isTestCompleted
+// Версия 7.2 — с поддержкой кэширования анализа в БД
 // ============================================
 
 // ========== ГЛОБАЛЬНАЯ ФУНКЦИЯ ПРОВЕРКИ ТЕСТА ==========
@@ -123,21 +123,48 @@ async function openAnalysisScreen() {
         return;
     }
 
-    showAnalysisLoading('🔍 Загружаю данные...', 'Получение профиля');
+    showAnalysisLoading('🔍 Загружаю данные...', 'Проверка сохраненного анализа');
 
     try {
         const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
         
+        // Получаем профиль
         const profileRes = await fetch(`${apiUrl}/api/get-profile/${userId}`);
         cachedProfile = await profileRes.json();
         
+        // Получаем мысль психолога
         const thoughtRes = await fetch(`${apiUrl}/api/psychologist-thought/${userId}`);
         const thoughtData = await thoughtRes.json();
-        
         cachedAIAnalysis.thought = thoughtData.success ? thoughtData.thought : '';
         
-        await generateDeepAnalysis();
+        // ========== НОВЫЙ КОД: ПРОВЕРЯЕМ СОХРАНЕННЫЙ АНАЛИЗ ==========
+        // Сначала пробуем получить сохраненный анализ из БД
+        const savedAnalysisRes = await fetch(`${apiUrl}/api/deep-analysis/${userId}`);
+        const savedAnalysisData = await savedAnalysisRes.json();
+        
+        if (savedAnalysisData.success && savedAnalysisData.analysis) {
+            // Используем сохраненный анализ из БД
+            console.log('📦 Используем сохраненный анализ из БД от', savedAnalysisData.created_at);
+            cachedAIAnalysis = {
+                ...cachedAIAnalysis,
+                ...savedAnalysisData.analysis
+            };
+            
+            // Сохраняем в localStorage для кэша
+            try {
+                localStorage.setItem(`analysis_${userId}`, JSON.stringify(cachedAIAnalysis));
+                console.log('✅ Анализ сохранён в localStorage');
+            } catch (e) {
+                console.warn('Local save failed:', e);
+            }
+            
+            renderAnalysisWithTabs();
+        } else {
+            // Нет сохраненного анализа - генерируем новый
+            console.log('🆕 Сохраненного анализа нет, генерируем...');
+            await generateDeepAnalysis();
+        }
         
     } catch (error) {
         console.error('Analysis error:', error);
@@ -225,6 +252,19 @@ async function generateDeepAnalysis() {
 }
 
 // ============================================
+// ПРИНУДИТЕЛЬНАЯ РЕГЕНЕРАЦИЯ АНАЛИЗА
+// ============================================
+
+async function regenerateDeepAnalysis() {
+    // Спрашиваем подтверждение
+    const confirmed = confirm('⚠️ Внимание! Новый анализ заменит предыдущий. Продолжить?');
+    if (!confirmed) return;
+    
+    // Генерируем новый анализ
+    await generateDeepAnalysis();
+}
+
+// ============================================
 // ЗАГЛУШКА
 // ============================================
 
@@ -233,7 +273,7 @@ function renderFallbackAnalysis() {
 <div style="text-align: center; padding: 40px 20px;">
     <div style="font-size: 64px; margin-bottom: 16px;">🧠</div>
     <div style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">Анализ формируется</div>
-    <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Попробовать снова</button>
+    <button onclick="regenerateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Попробовать снова</button>
 </div>
 `;
     
@@ -339,7 +379,7 @@ function renderAnalysisWithTabs() {
 
     document.getElementById('backToDashboard')?.addEventListener('click', () => goToDashboard());
     document.getElementById('backToDashboardBtn')?.addEventListener('click', () => goToDashboard());
-    document.getElementById('regenerateAnalysisBtn')?.addEventListener('click', () => generateDeepAnalysis());
+    document.getElementById('regenerateAnalysisBtn')?.addEventListener('click', () => regenerateDeepAnalysis());
     
     document.querySelectorAll('.analysis-tab').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -476,7 +516,7 @@ function renderThoughtTab() {
             <div style="text-align: center; padding: 40px;">
                 <div style="font-size: 40px; margin-bottom: 12px;">🧠</div>
                 <div style="font-size: 16px; font-weight: 600;">Мысли психолога появятся позже</div>
-                <button onclick="generateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Провести анализ</button>
+                <button onclick="regenerateDeepAnalysis()" class="analysis-btn" style="margin-top: 16px;">🔄 Провести анализ</button>
             </div>
         `;
         return;
@@ -510,6 +550,7 @@ function renderThoughtTab() {
 
 window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
+window.regenerateDeepAnalysis = regenerateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 7.1 — с глобальной функцией isTestCompleted)');
+console.log('✅ Модуль анализа загружен (версия 7.2 — с поддержкой кэширования анализа в БД)');
