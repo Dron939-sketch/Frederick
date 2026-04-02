@@ -9,6 +9,60 @@
     <meta name="theme-color" content="#0a0a0a">
     <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- ========== SEO МЕТАТЕГИ ========== -->
+    <title>Фреди | Виртуальный психолог на базе ИИ — психологическая помощь онлайн</title>
+    <meta name="description" content="Фреди — премиум виртуальный психолог на базе искусственного интеллекта. Глубинный анализ личности, психологическая поддержка 24/7, работа с паттернами поведения, тревогой и отношениями. Персональные рекомендации и терапевтические практики.">
+    <meta name="keywords" content="виртуальный психолог, ИИ психолог, психологическая помощь онлайн, искусственный интеллект психолог, Фреди, психолог AI, анализ личности, работа с тревогой, психологические тесты, консультация психолога, психолог 24/7, эмоциональная поддержка, глубинный анализ">
+    <meta name="author" content="Фреди — виртуальный психолог">
+    <meta name="robots" content="index, follow">
+    <meta name="language" content="Russian">
+    <meta name="revisit-after" content="7 days">
+    
+    <!-- ========== Open Graph (для соцсетей) ========== -->
+    <meta property="og:title" content="Фреди — виртуальный психолог на базе ИИ">
+    <meta property="og:description" content="Глубинный анализ личности, психологическая поддержка 24/7, работа с паттернами поведения. Персональные рекомендации от AI-психолога.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://meysternlp.ru/fredi/">
+    <meta property="og:image" content="https://meysternlp.ru/fredi/og-image.png">
+    <meta property="og:site_name" content="Фреди — виртуальный психолог">
+    <meta property="og:locale" content="ru_RU">
+    
+    <!-- ========== Twitter Card ========== -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Фреди — виртуальный психолог на базе ИИ">
+    <meta name="twitter:description" content="Глубинный анализ личности, психологическая поддержка 24/7, работа с паттернами поведения.">
+    <meta name="twitter:image" content="https://meysternlp.ru/fredi/og-image.png">
+    
+    <!-- ========== Структурированные данные JSON-LD (Schema.org) ========== -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Фреди — виртуальный психолог",
+        "description": "Премиум виртуальный психолог на базе искусственного интеллекта. Помощь в работе с глубинными паттернами, тревогой, отношениями. Психологическая поддержка 24/7.",
+        "url": "https://meysternlp.ru/fredi/",
+        "applicationCategory": "Health",
+        "operatingSystem": "All",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "RUB"
+        },
+        "author": {
+            "@type": "Person",
+            "name": "Андрей Мейстер"
+        },
+        "provider": {
+            "@type": "Organization",
+            "name": "Фреди",
+            "url": "https://meysternlp.ru"
+        }
+    }
+    </script>
+    
+    <!-- ========== Альтернативная версия для поисковиков ========== -->
+    <link rel="canonical" href="https://meysternlp.ru/fredi/">
    
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     
@@ -1095,11 +1149,12 @@
         console.log('✅ USER_ID установлен:', window.USER_ID);
     </script>
     
+    <script src="app.js"></script>
     <script src="test.js"></script>
     <script src="voice.js"></script>
     <script src="analysis.js"></script>
     <script src="doubles.js"></script>
-    
+   
     <script>
     (function() {
         // ============================================
@@ -1402,10 +1457,6 @@
                                 <div class="action-icon">📊</div>
                                 <div class="action-name">Пройти тест</div>
                             </div>
-                            <div class="quick-action" data-action="doubles">
-                                <div class="action-icon">👥</div>
-                                <div class="action-name">Двойники</div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1419,13 +1470,6 @@
                     else if (action === 'thoughts') await handleThoughtsClick();
                     else if (action === 'weekend') await handleWeekendClick();
                     else if (action === 'test') startTest();
-                    else if (action === 'doubles') {
-                        if (typeof showDoublesScreen === 'function') {
-                            showDoublesScreen();
-                        } else {
-                            showToast('👥 Модуль двойников загружается...');
-                        }
-                    }
                 });
             });
            
@@ -1503,15 +1547,6 @@
                 if (touchEndX - touchStartX < -80) {
                     panel.classList.remove('open');
                 }
-            });
-            
-            // Закрытие при клике на пункт меню
-            document.querySelectorAll('.chat-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    if (window.innerWidth <= 768) {
-                        panel.classList.remove('open');
-                    }
-                });
             });
         }
 
