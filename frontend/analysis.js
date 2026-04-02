@@ -1,7 +1,24 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 7.0 — JSON формат от AI
+// Версия 7.1 — с глобальной функцией isTestCompleted
 // ============================================
+
+// ========== ГЛОБАЛЬНАЯ ФУНКЦИЯ ПРОВЕРКИ ТЕСТА ==========
+// Объявляем ДО ВСЕГО, чтобы она точно была доступна
+window.isTestCompleted = window.isTestCompleted || async function() {
+    try {
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const userId = window.CONFIG?.USER_ID || window.USER_ID;
+        const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
+        const data = await response.json();
+        return data.has_profile === true;
+    } catch (error) {
+        console.warn('isTestCompleted error, checking localStorage:', error);
+        const userId = window.CONFIG?.USER_ID || window.USER_ID;
+        const stored = localStorage.getItem(`test_results_${userId}`);
+        return !!stored;
+    }
+};
 
 let currentTab = 'overview';
 let cachedProfile = null;
@@ -188,7 +205,7 @@ async function generateDeepAnalysis() {
             // Сохраняем в localStorage
             try {
                 localStorage.setItem(`analysis_${userId}`, JSON.stringify(cachedAIAnalysis));
-                console.log('✅ Анализ сохранён');
+                console.log('✅ Анализ сохранён локально');
             } catch (e) {
                 console.warn('Local save failed:', e);
             }
@@ -495,4 +512,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 7.0 — JSON формат)');
+console.log('✅ Модуль анализа загружен (версия 7.1 — с глобальной функцией isTestCompleted)');
