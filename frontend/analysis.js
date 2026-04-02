@@ -1,6 +1,6 @@
 // ============================================
 // analysis.js — Модуль "Анализ глубинных паттернов"
-// Версия 3.6 — с исправленным форматированием для "слипшегося" текста
+// Версия 3.7 — универсальное форматирование
 // ============================================
 
 // ========== АВТОНОМНАЯ ПРОВЕРКА ПРОХОЖДЕНИЯ ТЕСТА ==========
@@ -60,22 +60,76 @@ function showAnalysisLoading(message) {
     }
 }
 
-// ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
-function formatInlineText(text) {
+// ========== УНИВЕРСАЛЬНОЕ ФОРМАТИРОВАНИЕ ТЕКСТА ==========
+function formatUniversalText(text) {
     if (!text) return '';
-    return text
-        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-        .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>');
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+    
+    let processed = text;
+    
+    // 1. Жирный текст (только **две звездочки**)
+    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>');
+    
+    // 2. Заголовки с ## (и без пробела)
+    processed = processed.replace(/^##([^\n]+)/gm, '\n\n<h3 class="analysis-header">$1</h3>\n\n');
+    
+    // 3. Заголовки с эмодзи в начале
+    processed = processed.replace(/^([🔍🔄🧠🌱📊🔑💡⚠️🎯💪])\s*(.+)$/gm, '\n\n<h3 class="analysis-header">$1 $2</h3>\n\n');
+    
+    // 4. Маркированные списки со звездочкой
+    processed = processed.replace(/^\*\s+(.+)$/gm, '<li class="analysis-list-item">$1</li>');
+    
+    // 5. Нумерованные списки
+    processed = processed.replace(/^(\d+)\.\s+(.+)$/gm, '<li class="analysis-list-item"><strong>$1.</strong> $2</li>');
+    
+    // 6. Обработка блоков "Триггер:", "Действие:", "Цена:" и т.д.
+    processed = processed.replace(/^([А-ЯЁ][а-яё]+):\s+(.+)$/gm, '<div class="analysis-block"><strong class="block-label">$1:</strong> $2</div>');
+    
+    // 7. Убираем пустые строки
+    processed = processed.replace(/\n{3,}/g, '\n\n');
+    
+    // 8. Разбиваем на параграфы
+    const lines = processed.split('\n');
+    let result = '';
+    let inList = false;
+    let listItems = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (!line) continue;
+        
+        if (line.startsWith('<li')) {
+            listItems.push(line);
+            inList = true;
+        } else if (inList && !line.startsWith('<li')) {
+            if (listItems.length > 0) {
+                result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
+                listItems = [];
+                inList = false;
+            }
+            result += line;
+        } else if (line.startsWith('<h3') || line.startsWith('<div')) {
+            if (inList) {
+                result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
+                listItems = [];
+                inList = false;
+            }
+            result += line;
+        } else if (!line.startsWith('<h3') && !line.startsWith('<div') && !line.startsWith('<ul')) {
+            if (inList) {
+                listItems.push(`<li class="analysis-list-item">${line}</li>`);
+            } else {
+                result += `<p class="analysis-paragraph">${line}</p>`;
+            }
+        } else {
+            result += line;
+        }
+    }
+    
+    if (inList && listItems.length > 0) {
+        result += `<ul class="analysis-list">${listItems.join('')}</ul>`;
+    }
+    
+    return result;
 }
 
 // ============================================
@@ -318,7 +372,7 @@ function switchTab(tab) {
 }
 
 // ============================================
-// ВКЛАДКА 1: ПОЛНЫЙ АНАЛИЗ (исправленное форматирование)
+// ВКЛАДКА 1: ПОЛНЫЙ АНАЛИЗ
 // ============================================
 
 function renderOverviewTab() {
@@ -338,87 +392,57 @@ function renderOverviewTab() {
         return;
     }
     
-    // 1. Добавляем переносы строк после заголовков с ##
-    let processed = analysis.replace(/(##\s*[^#\n]+)/g, '\n\n$1\n\n');
-    
-    // 2. Добавляем переносы после маркеров списков
-    processed = processed.replace(/(\d+\.\s+)/g, '\n$1');
-    processed = processed.replace(/(•\s+)/g, '\n$1');
-    processed = processed.replace(/(\*\s+)/g, '\n$1');
-    
-    // 3. Убираем дублирование заголовков
-    const lines = processed.split('\n');
-    const uniqueLines = [];
-    let lastHeader = '';
-    
-    for (const line of lines) {
-        if (line.startsWith('##')) {
-            const headerText = line.replace(/^##+\s*/, '');
-            if (headerText !== lastHeader) {
-                uniqueLines.push(line);
-                lastHeader = headerText;
-            }
-        } else {
-            uniqueLines.push(line);
-        }
-    }
-    processed = uniqueLines.join('\n');
-    
-    // 4. Форматируем
-    let formattedHtml = '';
-    const sectionLines = processed.split('\n');
-    let inList = false;
-    let listItems = [];
-    
-    for (let i = 0; i < sectionLines.length; i++) {
-        let line = sectionLines[i].trim();
-        if (!line) continue;
-        
-        // Заголовок ##
-        if (line.startsWith('##')) {
-            if (inList) {
-                formattedHtml += `<ul style="margin: 10px 0; list-style: none; padding: 0;">${listItems.join('')}</ul>`;
-                listItems = [];
-                inList = false;
-            }
-            let title = line.replace(/^##+\s*/, '');
-            formattedHtml += `<h3 style="margin: 28px 0 12px; font-size: 18px; font-weight: 600; color: #ff6b3b; border-left: 3px solid #ff6b3b; padding-left: 12px;">${escapeHtml(title)}</h3>`;
-        }
-        // Маркированный список с *
-        else if (line.startsWith('*') || line.startsWith('•')) {
-            let content = line.substring(1).trim();
-            content = formatInlineText(content);
-            listItems.push(`<li style="margin: 6px 0 6px 24px; line-height: 1.6;">${content}</li>`);
-            inList = true;
-        }
-        // Нумерованный список
-        else if (line.match(/^\d+\./)) {
-            let content = line.replace(/^\d+\.\s*/, '');
-            content = formatInlineText(content);
-            listItems.push(`<li style="margin: 6px 0 6px 24px; line-height: 1.6;">${content}</li>`);
-            inList = true;
-        }
-        // Обычный текст
-        else if (line.length > 0 && !line.startsWith('```')) {
-            if (inList) {
-                formattedHtml += `<ul style="margin: 10px 0; list-style: none; padding: 0;">${listItems.join('')}</ul>`;
-                listItems = [];
-                inList = false;
-            }
-            let content = formatInlineText(line);
-            formattedHtml += `<p style="margin: 12px 0; line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${content}</p>`;
-        }
-    }
-    
-    if (inList && listItems.length > 0) {
-        formattedHtml += `<ul style="margin: 10px 0; list-style: none; padding: 0;">${listItems.join('')}</ul>`;
-    }
+    const formattedHtml = formatUniversalText(analysis);
     
     document.getElementById('analysisTabContent').innerHTML = `
         <div class="analysis-content" style="background: rgba(224,224,224,0.03); border-radius: 24px; padding: 28px;">
             ${formattedHtml}
         </div>
     `;
+    
+    // Добавляем стили для элементов анализа
+    if (!document.querySelector('#analysis-styles')) {
+        const style = document.createElement('style');
+        style.id = 'analysis-styles';
+        style.textContent = `
+            .analysis-header {
+                margin: 28px 0 12px;
+                font-size: 18px;
+                font-weight: 600;
+                color: #ff6b3b;
+                border-left: 3px solid #ff6b3b;
+                padding-left: 12px;
+            }
+            .analysis-paragraph {
+                margin: 12px 0;
+                line-height: 1.7;
+                color: var(--text-secondary);
+                font-size: 14px;
+            }
+            .analysis-list {
+                margin: 10px 0;
+                list-style: none;
+                padding: 0;
+            }
+            .analysis-list-item {
+                margin: 6px 0 6px 24px;
+                line-height: 1.6;
+                color: var(--text-secondary);
+                font-size: 14px;
+            }
+            .analysis-block {
+                margin: 12px 0;
+                padding: 8px 12px;
+                background: rgba(255,107,59,0.05);
+                border-radius: 8px;
+            }
+            .block-label {
+                color: #ff8c4a;
+                font-weight: 600;
+            }
+        `;
+        document.head.appendChild(style);
+    }
 }
 
 // ============================================
@@ -441,50 +465,25 @@ function renderPatternsTab() {
     
     if (patternsMatch) {
         let text = patternsMatch[0];
-        // Очищаем от дублирования
-        if (text.includes('СИСТЕМНЫЕ ПЕТЛИ') && text.indexOf('СИСТЕМНЫЕ ПЕТЛИ') !== text.lastIndexOf('СИСТЕМНЫЕ ПЕТЛИ')) {
-            text = text.substring(text.indexOf('СИСТЕМНЫЕ ПЕТЛИ') + 20);
-        }
-        if (text.includes('СИСТЕМНЫЕ ПЕТЛИ') && text.includes('##')) {
-            text = text.replace(/##/g, '');
-        }
-        
-        text = text
-            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^(\d+\.)\s*/gm, '<li style="margin: 6px 0 6px 24px;"><strong>$1</strong> ')
-            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
-            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">')
-            .replace(/<\/li>\s*<li/g, '</li><li');
-        
-        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        text = text.replace(/^СИСТЕМНЫЕ ПЕТЛИ\s*/i, '');
+        text = text.replace(/^##\s*/gm, '');
+        text = formatUniversalText(text);
         
         content += `<div style="margin-bottom: 28px;">
             <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🔄 Системные петли</h3>
-            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
+            <div>${text}</div>
         </div>`;
     }
     
     if (hiddenMatch) {
         let text = hiddenMatch[0];
-        if (text.includes('СКРЫТЫЕ МЕХАНИЗМЫ') && text.indexOf('СКРЫТЫЕ МЕХАНИЗМЫ') !== text.lastIndexOf('СКРЫТЫЕ МЕХАНИЗМЫ')) {
-            text = text.substring(text.indexOf('СКРЫТЫЕ МЕХАНИЗМЫ') + 20);
-        }
-        if (text.includes('СКРЫТЫЕ МЕХАНИЗМЫ') && text.includes('##')) {
-            text = text.replace(/##/g, '');
-        }
-        
-        text = text
-            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
-            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">');
-        
-        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        text = text.replace(/^СКРЫТЫЕ МЕХАНИЗМЫ\s*/i, '');
+        text = text.replace(/^##\s*/gm, '');
+        text = formatUniversalText(text);
         
         content += `<div style="margin-bottom: 28px;">
             <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🧠 Скрытые механизмы</h3>
-            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
+            <div>${text}</div>
         </div>`;
     }
     
@@ -522,53 +521,43 @@ function renderRecommendationsTab() {
     
     let growthMatch = analysis.match(/(?:🌱|ТОЧКИ РОСТА)[\s\S]*?(?=(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|📊|ПРОГНОЗ|$))/i);
     let keysMatch = analysis.match(/(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ)[\s\S]*?(?=(?:$))/i);
+    let forecastMatch = analysis.match(/(?:📊|ПРОГНОЗ)[\s\S]*?(?=(?:🔑|ПЕРСОНАЛЬНЫЕ КЛЮЧИ|$))/i);
     
     let content = '';
     
     if (growthMatch) {
         let text = growthMatch[0];
-        if (text.includes('ТОЧКИ РОСТА') && text.indexOf('ТОЧКИ РОСТА') !== text.lastIndexOf('ТОЧКИ РОСТА')) {
-            text = text.substring(text.indexOf('ТОЧКИ РОСТА') + 15);
-        }
-        if (text.includes('ТОЧКИ РОСТА') && text.includes('##')) {
-            text = text.replace(/##/g, '');
-        }
-        
-        text = text
-            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^(\d+\.)\s*/gm, '<li style="margin: 6px 0 6px 24px;"><strong>$1</strong> ')
-            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
-            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">');
-        
-        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        text = text.replace(/^ТОЧКИ РОСТА\s*/i, '');
+        text = text.replace(/^##\s*/gm, '');
+        text = formatUniversalText(text);
         
         content += `<div style="margin-bottom: 28px;">
             <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🌱 Точки роста</h3>
-            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
+            <div>${text}</div>
+        </div>`;
+    }
+    
+    if (forecastMatch && !keysMatch) {
+        let text = forecastMatch[0];
+        text = text.replace(/^ПРОГНОЗ\s*/i, '');
+        text = text.replace(/^##\s*/gm, '');
+        text = formatUniversalText(text);
+        
+        content += `<div style="margin-bottom: 28px;">
+            <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">📊 Прогноз</h3>
+            <div>${text}</div>
         </div>`;
     }
     
     if (keysMatch) {
         let text = keysMatch[0];
-        if (text.includes('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') && text.indexOf('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') !== text.lastIndexOf('ПЕРСОНАЛЬНЫЕ КЛЮЧИ')) {
-            text = text.substring(text.indexOf('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') + 20);
-        }
-        if (text.includes('ПЕРСОНАЛЬНЫЕ КЛЮЧИ') && text.includes('##')) {
-            text = text.replace(/##/g, '');
-        }
-        
-        text = text
-            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-            .replace(/^\*\s*/gm, '<li style="margin: 6px 0 6px 24px;">')
-            .replace(/•\s*/g, '<li style="margin: 6px 0 6px 24px;">');
-        
-        text = text.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 10px 0; list-style: none; padding: 0;">$&</ul>');
+        text = text.replace(/^ПЕРСОНАЛЬНЫЕ КЛЮЧИ\s*/i, '');
+        text = text.replace(/^##\s*/gm, '');
+        text = formatUniversalText(text);
         
         content += `<div style="margin-bottom: 28px;">
             <h3 style="color: #ff6b3b; margin-bottom: 14px; font-size: 18px;">🔑 Персональные ключи</h3>
-            <div style="line-height: 1.7; color: var(--text-secondary); font-size: 14px;">${text}</div>
+            <div>${text}</div>
         </div>`;
     }
     
@@ -621,10 +610,7 @@ function renderThoughtTab() {
         return;
     }
     
-    let formattedThought = thought
-        .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-        .replace(/\*(.*?)\*/g, '<strong style="color: #ff6b3b;">$1</strong>')
-        .replace(/\n/g, '<br>');
+    let formattedThought = formatUniversalText(thought);
     
     document.getElementById('analysisTabContent').innerHTML = `
         <div style="background: linear-gradient(135deg, rgba(255,107,59,0.05), rgba(255,59,59,0.02)); border-radius: 24px; padding: 28px;">
@@ -653,4 +639,4 @@ window.openAnalysisScreen = openAnalysisScreen;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.switchTab = switchTab;
 
-console.log('✅ Модуль анализа загружен (версия 3.6 — исправленное форматирование для "слипшегося" текста)');
+console.log('✅ Модуль анализа загружен (версия 3.7 — универсальное форматирование)');
