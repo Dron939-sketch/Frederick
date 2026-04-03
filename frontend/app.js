@@ -950,56 +950,75 @@ async function showStatistics() {
 function setupVoiceButton(buttonElement) {
     if (!buttonElement || !voiceManager) return;
 
-    let pressTimer = null;
-    const LONG_PRESS_DURATION = 150;
+    let pressTimer  = null;
+    let isRecording = false;
+    const DELAY     = 100; // ms до начала записи
+
+    const getIcon = () => buttonElement.querySelector('.voice-icon');
+    const getText = () => buttonElement.querySelector('.voice-text');
 
     const onPressStart = (e) => {
         e.preventDefault();
-        pressTimer = setTimeout(() => { voiceManager.startRecording(); }, LONG_PRESS_DURATION);
+        if (pressTimer) return;
+        pressTimer = setTimeout(() => {
+            console.log('🎙️ startRecording()');
+            voiceManager.startRecording();
+        }, DELAY);
     };
 
     const onPressEnd = (e) => {
         e.preventDefault();
         if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-        if (voiceManager.isRecordingActive && voiceManager.isRecordingActive()) voiceManager.stopRecording();
+        if (voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
+            console.log('🎙️ stopRecording()');
+            voiceManager.stopRecording();
+        }
     };
 
-    buttonElement.addEventListener('mousedown', onPressStart);
-    buttonElement.addEventListener('mouseup', onPressEnd);
+    // Desktop
+    buttonElement.addEventListener('mousedown',  onPressStart);
+    buttonElement.addEventListener('mouseup',    onPressEnd);
     buttonElement.addEventListener('mouseleave', onPressEnd);
-    buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
-    buttonElement.addEventListener('touchend', onPressEnd, { passive: false });
-    buttonElement.addEventListener('touchcancel', onPressEnd, { passive: false });
-    buttonElement.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Mobile
+    buttonElement.addEventListener('touchstart',  onPressStart, { passive: false });
+    buttonElement.addEventListener('touchend',    onPressEnd,   { passive: false });
+    buttonElement.addEventListener('touchcancel', onPressEnd,   { passive: false });
+    // Блокируем контекстное меню при долгом нажатии
+    buttonElement.addEventListener('contextmenu', e => e.preventDefault());
 
     voiceManager.onStatusChange = (status) => {
-        const iconSpan = buttonElement.querySelector('.voice-icon');
-        const textSpan = buttonElement.querySelector('.voice-text');
+        console.log('📊 Status:', status);
+        const icon = getIcon();
+        const text = getText();
         switch (status) {
             case 'recording':
                 buttonElement.classList.add('recording');
-                if (iconSpan) iconSpan.textContent = '⏹️';
-                if (textSpan) textSpan.textContent = 'Отпустите для отправки';
-                break;
-            case 'ai_speaking':
-                buttonElement.style.border = '2px solid #ff6b3b';
-                if (iconSpan) iconSpan.textContent = '🔊';
+                if (icon) icon.textContent = '⏹️';
+                if (text) text.textContent = 'Отпустите для отправки';
                 break;
             case 'processing':
-                if (iconSpan) iconSpan.textContent = '🔄';
-                break;
-            default:
                 buttonElement.classList.remove('recording');
-                buttonElement.style.border = '';
-                if (iconSpan) iconSpan.textContent = '🎤';
-                if (textSpan) textSpan.textContent = MODES[currentMode].voicePrompt;
-                buttonElement.style.boxShadow = '';
+                if (icon) icon.textContent = '🔄';
+                if (text) text.textContent = 'Распознаю речь...';
+                break;
+            case 'speaking':
+                if (icon) icon.textContent = '🔊';
+                if (text) text.textContent = 'Фреди отвечает...';
+                break;
+            default: // idle, connected
+                buttonElement.classList.remove('recording');
+                buttonElement.style.border     = '';
+                buttonElement.style.boxShadow  = '';
+                if (icon) icon.textContent = '🎤';
+                if (text) text.textContent = MODES[currentMode]?.voicePrompt || 'Говорите...';
         }
     };
 
     voiceManager.onVolumeChange = (volume) => {
-        const intensity = volume / 100;
-        buttonElement.style.boxShadow = `0 0 ${20 + intensity * 30}px rgba(255, 59, 59, ${0.3 + intensity * 0.5})`;
+        if (!voiceManager.isRecordingActive()) return;
+        const i = volume / 100;
+        buttonElement.style.boxShadow =
+            `0 0 ${20 + i * 40}px rgba(255,59,59,${0.2 + i * 0.6})`;
     };
 }
 
@@ -1009,19 +1028,40 @@ function setupVoiceButton(buttonElement) {
 
 async function initVoice() {
     if (typeof VoiceManager === 'undefined') {
-        console.warn('VoiceManager не загружен');
+        console.warn('⚠️ VoiceManager не загружен');
         return false;
     }
 
     voiceManager = new VoiceManager(CONFIG.USER_ID, {
-        useWebSocket: true,
-        apiBaseUrl: CONFIG.API_BASE_URL
+        useWebSocket: false,          // HTTP надёжнее на всех устройствах
+        apiBaseUrl:   CONFIG.API_BASE_URL
     });
 
-    voiceManager.onTranscript = (text) => addMessage(`🎤 "${text}"`, 'system');
-    voiceManager.onAIResponse = (answer) => addMessage(answer, 'bot');
-    voiceManager.onError = (error) => showToast(`❌ ${error}`, 'error');
+    // Транскрипт — что распознал
+    voiceManager.onTranscript = (text) => {
+        console.log('📝 Transcript received:', text);
+        addMessage('🎤 ' + text, 'system');
+    };
+
+    // Текстовый ответ AI
+    voiceManager.onAIResponse = (answer) => {
+        console.log('🧠 AI answer received, length:', answer?.length);
+        addMessage(answer, 'bot');
+    };
+
+    // Ошибки
+    voiceManager.onError = (error) => {
+        console.error('❌ Voice error:', error);
+        showToast('❌ ' + error, 'error');
+    };
+
+    // Индикатор "думает"
+    voiceManager.onThinking = (isThinking) => {
+        console.log('💭 Thinking:', isThinking);
+    };
+
     voiceManager.setMode(currentMode);
+    console.log('✅ VoiceManager инициализирован');
     return true;
 }
 
@@ -1070,12 +1110,12 @@ function renderDashboard() {
                 </div>
             </div>
 
-            <div class="modules-grid">
+            <div class="modules-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:24px">
                 ${modules.map(m => `
-                    <div class="module-card" data-module="${m.id}">
-                        <div class="module-icon">${m.icon}</div>
-                        <div class="module-name">${m.name}</div>
-                        <div class="module-desc">${m.desc}</div>
+                    <div class="module-card" data-module="${m.id}" style="background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;cursor:pointer;border:1px solid transparent">
+                        <div class="module-icon" style="font-size:28px;margin-bottom:8px">${m.icon}</div>
+                        <div class="module-name" style="font-weight:600;font-size:14px;margin-bottom:4px">${m.name}</div>
+                        <div class="module-desc" style="font-size:11px;color:var(--text-secondary)">${m.desc}</div>
                     </div>`).join('')}
             </div>
 
