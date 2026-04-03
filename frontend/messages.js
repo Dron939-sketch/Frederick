@@ -3,6 +3,12 @@
 // Версия 2.0 — стиль проекта FREDI
 // ============================================
 
+// Guard от двойной загрузки
+if (window._msLoaded) {
+    console.warn('messages.js уже загружен, пропускаем');
+} else {
+window._msLoaded = true;
+
 // ============================================
 // CSS — один раз
 // ============================================
@@ -467,12 +473,16 @@ function _msInjectStyles() {
 // ============================================
 // СОСТОЯНИЕ
 // ============================================
-let _msState = {
-    tab:           'notifications',
-    notifications: [],
-    chats:         [],
-    unreadCount:   0
-};
+// Защита от двойной загрузки (let бросает SyntaxError при повторном объявлении)
+if (!window._msState) {
+    window._msState = {
+        tab:           'notifications',
+        notifications: [],
+        chats:         [],
+        unreadCount:   0
+    };
+}
+const _msState = window._msState;
 
 // ============================================
 // УТИЛИТЫ
@@ -1076,7 +1086,10 @@ window.showContactShared = function(contact) {
     }
 };
 
-// Инициализируем бейдж сразу при загрузке скрипта
-_initBadge();
+// НЕ вызываем _initBadge() при загрузке — /api/notifications и /api/chats
+// могут быть не реализованы на бэкенде и вызывать CORS-ошибки.
+// Бейдж обновится когда пользователь откроет экран сообщений.
 
 console.log('✅ messages.js v2.0 загружен (включает chat.js)');
+
+} // end guard
