@@ -868,105 +868,257 @@ body::after {
 .test-chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
+    padding: 20px 16px;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
     scroll-behavior: smooth;
     min-height: 0;
     scrollbar-width: thin;
-    scrollbar-color: rgba(224, 224, 224, 0.3) transparent;
+    scrollbar-color: rgba(224, 224, 224, 0.15) transparent;
 }
 
-.test-chat-messages::-webkit-scrollbar { width: 4px; }
+.test-chat-messages::-webkit-scrollbar { width: 3px; }
 .test-chat-messages::-webkit-scrollbar-track { background: transparent; }
-.test-chat-messages::-webkit-scrollbar-thumb { background: rgba(224, 224, 224, 0.3); border-radius: 4px; }
+.test-chat-messages::-webkit-scrollbar-thumb { background: rgba(224, 224, 224, 0.2); border-radius: 3px; }
 
 @supports (padding: max(0px)) {
     .test-chat-messages {
-        padding-bottom: max(16px, env(safe-area-inset-bottom));
+        padding-bottom: max(20px, env(safe-area-inset-bottom));
     }
 }
 
+/* Строка сообщения — с аватаром для бота */
 .test-message {
     display: flex;
-    animation: messageAppear 0.2s ease-out;
+    align-items: flex-end;
+    gap: 10px;
+    animation: messageAppear 0.25s ease-out;
     flex-shrink: 0;
 }
 
 @keyframes messageAppear {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
 .test-message-bot { justify-content: flex-start; }
 .test-message-user { justify-content: flex-end; }
 
+/* Аватар бота — маленький, как на дашборде */
+.test-message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    line-height: 1;
+    border: 1px solid rgba(224, 224, 224, 0.2);
+    /* Чуть приподнимаем над нижним краем пузыря */
+    margin-bottom: 4px;
+}
+
+/* Пользовательский аватар — справа, но не отображаем */
+.test-message-user .test-message-avatar { display: none; }
+
 .test-message-bubble {
-    max-width: 85%;
-    padding: 12px 16px;
+    max-width: 82%;
+    padding: 14px 18px;
     border-radius: 20px;
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-word;
 }
 
+/* Пузырь бота — стекло в стиле дашборда */
 .test-message-bubble-bot {
-    background: linear-gradient(135deg, rgba(224, 224, 224, 0.08), rgba(192, 192, 192, 0.03));
-    border: 1px solid rgba(224, 224, 224, 0.2);
-    border-bottom-left-radius: 4px;
+    background: linear-gradient(135deg, rgba(224, 224, 224, 0.07), rgba(192, 192, 192, 0.03));
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(224, 224, 224, 0.15);
+    border-bottom-left-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
+/* Пузырь пользователя — хромово-серебристый, не оранжевый */
 .test-message-bubble-user {
-    background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-    border-bottom-right-radius: 4px;
+    background: linear-gradient(135deg, rgba(224, 224, 224, 0.18), rgba(192, 192, 192, 0.1));
+    border: 1px solid rgba(224, 224, 224, 0.3);
+    border-bottom-right-radius: 6px;
 }
 
 .test-message-text {
     font-size: 15px;
-    line-height: 1.6;
+    line-height: 1.65;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    color: var(--text-primary);
 }
 
-.test-message-text strong,
-.test-message-text b { color: #ff6b3b; }
+/* Акцент в боте — оранжевый */
+.test-message-bubble-bot .test-message-text strong,
+.test-message-bubble-bot .test-message-text b { color: var(--amg-orange); }
 
-/* В пузыре пользователя жирный — белый */
+/* В пузыре пользователя — белый */
 .test-message-bubble-user .test-message-text strong,
-.test-message-bubble-user .test-message-text b { color: #fff; }
+.test-message-bubble-user .test-message-text b { color: var(--chrome); }
 
-.test-message-time { font-size: 10px; opacity: 0.6; margin-top: 6px; text-align: right; }
+.test-message-time {
+    font-size: 10px;
+    opacity: 0.4;
+    margin-top: 8px;
+    text-align: right;
+    letter-spacing: 0.3px;
+}
 
+/* Кнопки ответов — стиль module-card, не оранжевые пилюли */
 .test-message-buttons {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 14px;
 }
 
 .test-message-button {
-    background: rgba(255, 107, 59, 0.15);
-    border: 1px solid rgba(255, 107, 59, 0.3);
-    border-radius: 30px;
+    background: rgba(224, 224, 224, 0.07);
+    border: 1px solid rgba(224, 224, 224, 0.2);
+    border-radius: 14px;
     padding: 10px 16px;
-    font-size: 14px;
-    color: white;
+    font-size: 13px;
+    color: var(--chrome);
     cursor: pointer;
-    transition: background 0.2s, transform 0.15s;
+    transition: background 0.2s, border-color 0.2s, transform 0.15s, color 0.2s;
     font-family: inherit;
     min-height: 44px;
     touch-action: manipulation;
     outline: none;
-    line-height: 1.3;
+    line-height: 1.4;
+    text-align: left;
 }
 
-.test-message-button:hover { background: rgba(255, 107, 59, 0.3); }
-.test-message-button:active { transform: scale(0.96); }
-.test-message-button:disabled { opacity: 0.4; cursor: default; transform: none; }
-.test-message-button:focus-visible { outline: 2px solid rgba(255, 107, 59, 0.7); }
+.test-message-button:hover {
+    background: rgba(224, 224, 224, 0.14);
+    border-color: rgba(224, 224, 224, 0.35);
+    color: var(--text-primary);
+}
+
+.test-message-button:active { transform: scale(0.97); }
+.test-message-button:disabled { opacity: 0.35; cursor: default; transform: none; }
+.test-message-button:focus-visible { outline: 2px solid rgba(224, 224, 224, 0.4); }
+
+/* Форма контекста внутри чата */
+.test-context-form {
+    background: linear-gradient(135deg, rgba(224, 224, 224, 0.05), rgba(192, 192, 192, 0.02));
+    border: 1px solid rgba(224, 224, 224, 0.15);
+    border-radius: 20px;
+    padding: 20px;
+    margin-top: 4px;
+}
+
+.test-context-form label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.test-context-form input[type="text"],
+.test-context-form input[type="number"] {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(224, 224, 224, 0.2);
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--text-primary);
+    font-size: 16px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.test-context-form input:focus {
+    border-color: rgba(224, 224, 224, 0.4);
+}
+
+.test-context-form input::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+.test-context-radio-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.test-context-radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    border-radius: 30px;
+    border: 1px solid rgba(224, 224, 224, 0.15);
+    background: rgba(224, 224, 224, 0.05);
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+    min-height: 40px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: normal;
+    margin-bottom: 0;
+}
+
+.test-context-radio-label:hover {
+    background: rgba(224, 224, 224, 0.1);
+    border-color: rgba(224, 224, 224, 0.3);
+    color: var(--text-primary);
+}
+
+.test-context-radio-label input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--chrome);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.test-context-submit {
+    width: 100%;
+    padding: 15px;
+    border-radius: 40px;
+    border: none;
+    background: linear-gradient(135deg, rgba(224, 224, 224, 0.2), rgba(192, 192, 192, 0.1));
+    border: 1px solid rgba(224, 224, 224, 0.3);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    margin-top: 4px;
+    font-family: inherit;
+    touch-action: manipulation;
+    transition: background 0.2s, transform 0.15s;
+    letter-spacing: 0.3px;
+}
+
+.test-context-submit:hover {
+    background: linear-gradient(135deg, rgba(224, 224, 224, 0.28), rgba(192, 192, 192, 0.16));
+}
+
+.test-context-submit:active { transform: scale(0.98); }
 
 /* ===== АНАЛИЗ ===== */
 .analysis-content {
