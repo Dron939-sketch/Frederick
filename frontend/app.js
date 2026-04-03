@@ -401,14 +401,79 @@ function startTest() {
 
 function formatContentForDisplay(text) {
     if (!text) return '<p>Нет данных</p>';
-    let f = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    f = f.replace(/•\s*(.*?)(?=\n|$)/g, '<li>$1</li>');
-    const paragraphs = f.split('\n\n');
-    f = paragraphs.map(p => {
-        if (p.trim().startsWith('<li>')) return `<ul class="styled-list">${p}</ul>`;
-        return `<p>${p}</p>`;
-    }).join('');
-    return f;
+
+    // Эмодзи-заголовки блоков — превращаем в секции
+    // Поддерживаем форматы: "🔑 ЗАГОЛОВОК" в начале строки или после переноса
+    const BLOCK_HEADERS = [
+        /^(🔑[^\n]*)/gm,
+        /^(💪[^\n]*)/gm,
+        /^(🎯[^\n]*)/gm,
+        /^(🌱[^\n]*)/gm,
+        /^(⚠️[^\n]*)/gm,
+        /^(📊[^\n]*)/gm,
+        /^(🔍[^\n]*)/gm,
+        /^(🧠[^\n]*)/gm,
+        /^(⚡[^\n]*)/gm,
+    ];
+
+    let t = text;
+
+    // 1. Нормализуем переносы: один 
+ → пробел, два 
+
+ → разделитель блока
+    //    Но сначала добавляем 
+ перед известными эмодзи-заголовками
+    t = t.replace(/(💪|🎯|🌱|⚠️|📊|🔍|🧠|⚡)/g, '\n\n$1');
+
+    // 2. Жирный текст **...**
+    t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // 3. Строки начинающиеся с * или • или - — элементы списка
+    const lines = t.split('\n');
+    let out = '';
+    let inList = false;
+    let inParagraph = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const line = raw.trim();
+
+        if (!line) {
+            // Пустая строка — закрываем список/абзац
+            if (inList)      { out += '</ul>\n'; inList = false; }
+            if (inParagraph) { out += '</p>\n'; inParagraph = false; }
+            continue;
+        }
+
+        // Эмодзи-заголовок (🔑, 💪, 🎯, 🌱, ⚠️ и т.д. в начале строки)
+        if (/^[🔑💪🎯🌱⚠️📊🔍⚡🧠🏆💡🕊️🔄💎]/.test(line)) {
+            if (inList)      { out += '</ul>\n'; inList = false; }
+            if (inParagraph) { out += '</p>\n'; inParagraph = false; }
+            out += '<div class="profile-section-title">' + line + '</div>\n';
+            continue;
+        }
+
+        // Элемент списка: строки начинающиеся с •, *, -, или цифра+точка
+        if (/^[•\*\-]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
+            if (inParagraph) { out += '</p>\n'; inParagraph = false; }
+            if (!inList) { out += '<ul class="styled-list">\n'; inList = true; }
+            const itemText = line.replace(/^[•\*\-]\s+/, '').replace(/^\d+\.\s+/, '');
+            out += '<li>' + itemText + '</li>\n';
+            continue;
+        }
+
+        // Обычный текст
+        if (inList) { out += '</ul>\n'; inList = false; }
+        if (!inParagraph) { out += '<p>'; inParagraph = true; }
+        else out += ' ';
+        out += line;
+    }
+
+    if (inList)      out += '</ul>';
+    if (inParagraph) out += '</p>';
+
+    return out || '<p>Нет данных</p>';
 }
 
 function showFullContentScreen(title, content, contentType) {
