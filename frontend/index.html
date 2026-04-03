@@ -202,3 +202,208 @@
     </div>
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Фреди">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app" id="appRoot">
+
+        <!-- ===== ЛЕВАЯ ПАНЕЛЬ ===== -->
+        <div class="chats-panel" id="chatsPanel">
+            <div class="chats-header">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div class="chats-title">FREDI</div>
+                </div>
+            </div>
+
+            <div class="chats-search">
+                <input type="text" placeholder="Поиск" id="chatSearchInput">
+            </div>
+
+            <div class="chats-list" id="chatsList">
+                <div class="chat-item active" data-chat="fredi">
+                    <div class="chat-avatar">⭐</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Фреди</div>
+                        <div class="chat-preview">Чем могу помочь?</div>
+                    </div>
+                    <div class="chat-time">сейчас</div>
+                </div>
+
+                <div class="chat-item" data-chat="messages" id="messagesChatItem">
+                    <div class="chat-avatar">💬</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Сообщения</div>
+                        <div class="chat-preview">Совпадения и чаты</div>
+                    </div>
+                    <div class="chat-time" id="messagesBadge" style="display:none">
+                        <span class="msg-badge">0</span>
+                    </div>
+                </div>
+
+                <div class="chat-item" data-chat="messages" id="messagesChatItem">
+                    <div class="chat-avatar">💬</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Сообщения</div>
+                        <div class="chat-preview">Новые совпадения и чаты</div>
+                    </div>
+                    <div class="chat-time" id="messagesBadge" style="display:none">
+                        <span class="badge">0</span>
+                    </div>
+                </div>
+
+                <div class="chat-item" data-chat="test">
+                    <div class="chat-avatar">📊</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Психологический тест</div>
+                        <div class="chat-preview">15 минут, 5 этапов</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+
+                <div class="menu-divider"></div>
+                <div class="menu-section-title">РАСШИРЕННЫЕ ФУНКЦИИ</div>
+
+                <div class="chat-item" data-chat="confinement">
+                    <div class="chat-avatar">🔐</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Модель ограничений</div>
+                        <div class="chat-preview">Анализ паттернов поведения</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+
+                <div class="chat-item" data-chat="practices">
+                    <div class="chat-avatar">🧘</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Практики</div>
+                        <div class="chat-preview">Утренние и вечерние практики</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+
+                <div class="chat-item" data-chat="hypnosis">
+                    <div class="chat-avatar">🌙</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Гипноз</div>
+                        <div class="chat-preview">Гипнотические техники</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+
+                <div class="chat-item" data-chat="tales">
+                    <div class="chat-avatar">📚</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Сказки</div>
+                        <div class="chat-preview">Терапевтические сказки</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+
+                <div class="chat-item" data-chat="anchors">
+                    <div class="chat-avatar">⚓</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Якоря</div>
+                        <div class="chat-preview">Эмоциональные якоря</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+
+                <div class="chat-item" data-chat="statistics">
+                    <div class="chat-avatar">📊</div>
+                    <div class="chat-info">
+                        <div class="chat-name">Статистика</div>
+                        <div class="chat-preview">Ваша активность</div>
+                    </div>
+                    <div class="chat-time"></div>
+                </div>
+            </div>
+
+            <div class="chats-footer">
+                <div class="user-mini-profile">
+                    <div class="user-mini-avatar" id="userMiniAvatar">А</div>
+                    <div>
+                        <div class="user-mini-name" id="userName">Пользователь</div>
+                        <div class="user-mini-status">⚡ активен</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== ПРАВАЯ ПАНЕЛЬ ===== -->
+        <div class="chat-panel" id="chatPanel">
+            <div class="chat-header">
+                <div class="chat-header-left">
+                    <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+                    <div class="chat-header-avatar">⭐</div>
+                    <div>
+                        <div class="chat-header-name">Фреди</div>
+                        <div class="chat-header-status">
+                            <span class="mode-indicator" id="modeIndicator"></span>
+                            <span id="modeLabel">Психолог</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <button class="mode-btn" id="menuBtn">⋮</button>
+                </div>
+            </div>
+
+            <div id="screenContainer" class="screen-container">
+                <div class="loading-screen">
+                    <div class="loading-spinner">⭐</div>
+                    <div>Инициализация Фреди...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toastMessage" class="floating-message">
+        <div class="floating-message-content">
+            <div class="floating-message-text" id="toastText"></div>
+            <div class="floating-message-close" id="toastClose">✕</div>
+        </div>
+    </div>
+
+    <!-- ===== СКРИПТЫ ===== -->
+    <!-- USER_ID инициализируется один раз здесь -->
+    <script>
+        (function() {
+            window.API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+            var stored = localStorage.getItem('fredi_user_id');
+            var uid = stored && !isNaN(parseInt(stored)) ? parseInt(stored) : Date.now();
+            localStorage.setItem('fredi_user_id', uid);
+            window.USER_ID = uid;
+            console.log('✅ USER_ID установлен:', window.USER_ID);
+        })();
+    </script>
+
+    <script src="test.js"></script>
+    <script src="voice.js"></script>
+    <script src="analysis.js"></script>
+    <script src="doubles.js"></script>
+    <script src="brand.js"></script>
+    <script src="messages.js"></script>
+    <script src="app.js"></script>
+
+    <!-- SEO (скрыто) -->
+    <div style="display:none;position:absolute;visibility:hidden;height:0;width:0;overflow:hidden">
+        <h1>Фреди — виртуальный психолог на базе искусственного интеллекта</h1>
+        <p>Фреди — это премиум виртуальный психолог, созданный на основе технологий искусственного интеллекта.</p>
+    </div>
+</body>
+</html>
