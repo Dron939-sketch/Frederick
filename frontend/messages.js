@@ -1,1176 +1,1042 @@
 // ============================================
-// messages.js — Система сообщений и уведомлений
-// Версия 1.0
+// messages.js — Сообщения и уведомления
+// Версия 2.0 — стиль проекта FREDI
 // ============================================
 
 // ============================================
-// 1. СОСТОЯНИЕ
+// CSS — один раз
 // ============================================
-let messagesState = {
-    notifications: [],
-    chats: [],
-    unreadCount: 0,
-    activeTab: 'notifications', // 'notifications', 'chats', 'requests'
-    isLoading: false,
-    wsConnection: null,
-    isWsConnected: false
-};
-
-// ============================================
-// 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ============================================
-function showToastMessage(message, type = 'info') {
-    if (window.showToast) window.showToast(message, type);
-    else if (window.showToastMessage) window.showToastMessage(message, type);
-    else console.log(`[${type}] ${message}`);
-}
-
-function goBackToDashboard() {
-    if (typeof renderDashboard === 'function') renderDashboard();
-    else if (window.renderDashboard) window.renderDashboard();
-    else if (typeof window.goToDashboard === 'function') window.goToDashboard();
-    else location.reload();
-}
-
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'только что';
-    if (diffMins < 60) return `${diffMins} мин назад`;
-    if (diffHours < 24) return `${diffHours} ч назад`;
-    if (diffDays < 7) return `${diffDays} д назад`;
-    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-}
-
-// ============================================
-// 3. API ВЫЗОВЫ
-// ============================================
-async function apiCall(endpoint, options = {}) {
-    const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-    
-    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
-    
-    try {
-        const response = await fetch(url, {
-            ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                'X-User-Id': userId,
-                ...options.headers
-            }
-        });
-        
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-        return data;
-    } catch (error) {
-        console.error(`API Error: ${endpoint}`, error);
-        throw error;
-    }
-}
-
-// ============================================
-// 4. ЗАГРУЗКА ДАННЫХ
-// ============================================
-async function loadNotifications() {
-    try {
-        const data = await apiCall('/api/notifications');
-        if (data.success && data.notifications) {
-            messagesState.notifications = data.notifications;
-            return messagesState.notifications;
-        }
-        return [];
-    } catch (error) {
-        console.error('Failed to load notifications:', error);
-        return [];
-    }
-}
-
-async function loadChats() {
-    try {
-        const data = await apiCall('/api/chats');
-        if (data.success && data.chats) {
-            messagesState.chats = data.chats;
-            // Подсчитываем непрочитанные
-            messagesState.unreadCount = messagesState.chats.reduce((sum, chat) => sum + (chat.unreadCount || 0), 0);
-            updateMessagesBadge();
-            return messagesState.chats;
-        }
-        return [];
-    } catch (error) {
-        console.error('Failed to load chats:', error);
-        return [];
-    }
-}
-
-async function loadMessages(chatId) {
-    try {
-        const data = await apiCall(`/api/chats/${chatId}/messages`);
-        if (data.success && data.messages) {
-            return data.messages;
-        }
-        return [];
-    } catch (error) {
-        console.error('Failed to load messages:', error);
-        return [];
-    }
-}
-
-async function markChatAsRead(chatId) {
-    try {
-        await apiCall(`/api/chats/${chatId}/read`, { method: 'PUT' });
-        // Обновляем локальное состояние
-        const chat = messagesState.chats.find(c => c.id === chatId);
-        if (chat) {
-            chat.unreadCount = 0;
-            messagesState.unreadCount = messagesState.chats.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
-            updateMessagesBadge();
-        }
-    } catch (error) {
-        console.error('Failed to mark as read:', error);
-    }
-}
-
-async function sendMessage(chatId, text) {
-    if (!text.trim()) return null;
-    
-    try {
-        const data = await apiCall(`/api/chats/${chatId}/messages`, {
-            method: 'POST',
-            body: JSON.stringify({ text: text.trim() })
-        });
-        
-        if (data.success && data.message) {
-            return data.message;
-        }
-        return null;
-    } catch (error) {
-        console.error('Failed to send message:', error);
-        showToastMessage('❌ Не удалось отправить сообщение', 'error');
-        return null;
-    }
-}
-
-async function requestContact(chatId) {
-    try {
-        const data = await apiCall(`/api/chats/${chatId}/contact`, { method: 'POST' });
-        if (data.success) {
-            showToastMessage('📞 Запрос контактов отправлен', 'success');
-            return true;
-        }
-        return false;
-    } catch (error) {
-        console.error('Failed to request contact:', error);
-        showToastMessage('❌ Не удалось отправить запрос', 'error');
-        return false;
-    }
-}
-
-async function shareContact(chatId) {
-    try {
-        const data = await apiCall(`/api/chats/${chatId}/share-contact`, { method: 'POST' });
-        if (data.success && data.contact) {
-            showToastMessage('🔓 Контакты раскрыты!', 'success');
-            return data.contact;
-        }
-        return null;
-    } catch (error) {
-        console.error('Failed to share contact:', error);
-        showToastMessage('❌ Не удалось раскрыть контакты', 'error');
-        return null;
-    }
-}
-
-async function blockUser(chatId) {
-    if (!confirm('Вы уверены? Пользователь будет заблокирован, чат закрыт.')) return false;
-    
-    try {
-        const data = await apiCall(`/api/chats/${chatId}/block`, { method: 'POST' });
-        if (data.success) {
-            showToastMessage('🚫 Пользователь заблокирован', 'success');
-            // Удаляем чат из списка
-            messagesState.chats = messagesState.chats.filter(c => c.id !== chatId);
-            renderMessagesScreen();
-            return true;
-        }
-        return false;
-    } catch (error) {
-        console.error('Failed to block user:', error);
-        showToastMessage('❌ Не удалось заблокировать', 'error');
-        return false;
-    }
-}
-
-async function acceptMatch(matchId, candidateId, candidateName) {
-    try {
-        const data = await apiCall(`/api/matches/${matchId}/accept`, { method: 'POST' });
-        if (data.success && data.chatId) {
-            showToastMessage(`✅ Чат с ${candidateName} создан!`, 'success');
-            // Переходим в чат
-            openChat(data.chatId);
-            return true;
-        }
-        return false;
-    } catch (error) {
-        console.error('Failed to accept match:', error);
-        showToastMessage('❌ Не удалось создать чат', 'error');
-        return false;
-    }
-}
-
-async function declineMatch(matchId, candidateName) {
-    try {
-        const data = await apiCall(`/api/matches/${matchId}/decline`, { method: 'POST' });
-        if (data.success) {
-            showToastMessage(`❌ Запрос от ${candidateName} отклонён`, 'info');
-            // Обновляем список уведомлений
-            await loadNotifications();
-            renderNotificationsTab();
-            return true;
-        }
-        return false;
-    } catch (error) {
-        console.error('Failed to decline match:', error);
-        return false;
-    }
-}
-
-async function markAllNotificationsRead() {
-    try {
-        await apiCall('/api/notifications/read-all', { method: 'PUT' });
-        messagesState.notifications.forEach(n => n.isRead = true);
-        renderNotificationsTab();
-    } catch (error) {
-        console.error('Failed to mark all as read:', error);
-    }
-}
-
-async function deleteNotification(notificationId) {
-    try {
-        await apiCall(`/api/notifications/${notificationId}`, { method: 'DELETE' });
-        messagesState.notifications = messagesState.notifications.filter(n => n.id !== notificationId);
-        renderNotificationsTab();
-    } catch (error) {
-        console.error('Failed to delete notification:', error);
-    }
-}
-
-// ============================================
-// 5. WEBSOCKET
-// ============================================
-function initWebSocket() {
-    const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-    const wsUrl = apiUrl.replace('http', 'ws') + `/ws?user_id=${userId}`;
-    
-    messagesState.wsConnection = new WebSocket(wsUrl);
-    
-    messagesState.wsConnection.onopen = () => {
-        console.log('🔌 WebSocket connected');
-        messagesState.isWsConnected = true;
-    };
-    
-    messagesState.wsConnection.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            handleWebSocketMessage(data);
-        } catch (e) {
-            console.error('WebSocket message parse error:', e);
-        }
-    };
-    
-    messagesState.wsConnection.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        messagesState.isWsConnected = false;
-    };
-    
-    messagesState.wsConnection.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
-        messagesState.isWsConnected = false;
-        // Пытаемся переподключиться через 5 секунд
-        setTimeout(() => initWebSocket(), 5000);
-    };
-}
-
-function handleWebSocketMessage(data) {
-    switch (data.type) {
-        case 'new_match':
-            // Новое совпадение
-            showToastMessage(`🎯 Новое совпадение! ${data.candidateName} — ${data.compatibility}%`, 'info');
-            loadNotifications();
-            loadChats();
-            updateMessagesBadge();
-            // Если открыт экран сообщений, обновляем
-            if (document.getElementById('messagesScreen')) {
-                renderNotificationsTab();
-            }
-            break;
-            
-        case 'new_message':
-            // Новое сообщение
-            const chat = messagesState.chats.find(c => c.id === data.chatId);
-            if (chat) {
-                chat.lastMessage = { text: data.message, fromUserId: data.fromUserId, createdAt: data.createdAt };
-                chat.unreadCount = (chat.unreadCount || 0) + 1;
-                messagesState.unreadCount++;
-                updateMessagesBadge();
-                
-                // Если открыт этот чат, обновляем
-                if (window.currentChatId === data.chatId && window.loadChatMessages) {
-                    window.loadChatMessages();
-                    // Отмечаем прочитанным
-                    markChatAsRead(data.chatId);
-                }
-                
-                // Если открыт экран сообщений, обновляем список чатов
-                if (document.getElementById('messagesScreen')) {
-                    renderChatsTab();
-                }
-            }
-            showToastMessage(`💬 Новое сообщение от ${data.fromName || 'собеседника'}`, 'info');
-            break;
-            
-        case 'contact_request':
-            showToastMessage(`📞 ${data.fromName} запрашивает ваши контакты`, 'warning');
-            loadNotifications();
-            updateMessagesBadge();
-            if (document.getElementById('messagesScreen')) {
-                renderNotificationsTab();
-            }
-            break;
-            
-        case 'contact_shared':
-            showToastMessage(`🔓 ${data.fromName} раскрыл(а) свои контакты!`, 'success');
-            if (window.currentChatId === data.chatId && window.showContactShared) {
-                window.showContactShared(data.contact);
-            }
-            break;
-            
-        case 'message_read':
-            // Сообщение прочитано (можно обновить статус в чате)
-            if (window.updateMessageStatus) {
-                window.updateMessageStatus(data.messageId, 'read');
-            }
-            break;
-            
-        default:
-            console.log('Unknown websocket message:', data);
-    }
-}
-
-// ============================================
-// 6. UI ФУНКЦИИ
-// ============================================
-function updateMessagesBadge() {
-    const badge = document.getElementById('messagesBadge');
-    const count = messagesState.unreadCount + messagesState.notifications.filter(n => !n.isRead).length;
-    
-    if (badge && count > 0) {
-        badge.style.display = 'flex';
-        const badgeSpan = badge.querySelector('.badge');
-        if (badgeSpan) {
-            badgeSpan.textContent = count > 99 ? '99+' : count;
-        }
-    } else if (badge) {
-        badge.style.display = 'none';
-    }
-}
-
-// Главный экран сообщений
-function renderMessagesScreen() {
-    const container = document.getElementById('screenContainer');
-    if (!container) return;
-    
-    container.innerHTML = `
-        <div class="full-content-page" id="messagesScreen">
-            <button class="back-btn" id="messagesBackBtn">◀️ НАЗАД</button>
-            
-            <div class="content-header">
-                <div class="content-emoji">💬</div>
-                <h1>Сообщения</h1>
-            </div>
-            
-            <div class="messages-tabs">
-                <button class="messages-tab ${messagesState.activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">
-                    🔔 Уведомления
-                    ${messagesState.notifications.filter(n => !n.isRead).length > 0 ? 
-                        `<span class="tab-badge">${messagesState.notifications.filter(n => !n.isRead).length}</span>` : ''}
-                </button>
-                <button class="messages-tab ${messagesState.activeTab === 'chats' ? 'active' : ''}" data-tab="chats">
-                    💬 Чаты
-                    ${messagesState.unreadCount > 0 ? 
-                        `<span class="tab-badge">${messagesState.unreadCount}</span>` : ''}
-                </button>
-                <button class="messages-tab ${messagesState.activeTab === 'requests' ? 'active' : ''}" data-tab="requests">
-                    🎯 Запросы
-                </button>
-            </div>
-            
-            <div class="messages-content" id="messagesContent">
-                <div class="loading-screen" style="padding: 40px;">
-                    <div class="loading-spinner">⏳</div>
-                    <div>Загрузка...</div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Стили для табов
-    const style = document.createElement('style');
-    style.textContent = `
-        .messages-tabs {
+function _msInjectStyles() {
+    if (document.getElementById('ms-v2-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'ms-v2-styles';
+    s.textContent = `
+        /* ===== ТАБЫ ===== */
+        .ms-tabs {
             display: flex;
-            gap: 8px;
+            gap: 4px;
             margin-bottom: 20px;
-            background: rgba(224,224,224,0.05);
+            background: rgba(10,10,10,0.5);
             border-radius: 50px;
             padding: 4px;
+            border: 1px solid rgba(224,224,224,0.12);
         }
-        .messages-tab {
+        .ms-tab {
             flex: 1;
-            padding: 10px 16px;
+            padding: 9px 8px;
             border-radius: 40px;
             border: none;
             background: transparent;
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.2s, color 0.2s;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
-            position: relative;
+            gap: 5px;
+            min-height: 40px;
+            white-space: nowrap;
+            outline: none;
+            touch-action: manipulation;
         }
-        .messages-tab.active {
-            background: linear-gradient(135deg, rgba(255,107,59,0.2), rgba(255,59,59,0.1));
+        .ms-tab.active {
+            background: linear-gradient(135deg, rgba(224,224,224,0.18), rgba(192,192,192,0.08));
             color: var(--text-primary);
         }
-        .tab-badge {
-            background: #ff3b3b;
-            color: white;
-            border-radius: 30px;
-            padding: 2px 8px;
-            font-size: 10px;
-            font-weight: bold;
+        .ms-tab-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 16px;
+            height: 16px;
+            padding: 0 4px;
+            background: var(--amg-red);
+            color: #fff;
+            border-radius: 20px;
+            font-size: 9px;
+            font-weight: 700;
+            line-height: 1;
         }
-        .notification-item {
-            background: rgba(224,224,224,0.05);
+
+        /* ===== УВЕДОМЛЕНИЯ ===== */
+        .ms-notif-group-title {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin: 0 0 8px;
+        }
+        .ms-notif-item {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
             border-radius: 16px;
             padding: 14px;
-            margin-bottom: 10px;
-            transition: all 0.2s;
-            cursor: pointer;
+            margin-bottom: 8px;
+            transition: background 0.2s;
         }
-        .notification-item.unread {
-            background: rgba(255,107,59,0.1);
-            border-left: 3px solid #ff6b3b;
+        .ms-notif-item.unread {
+            background: rgba(224,224,224,0.07);
+            border-color: rgba(224,224,224,0.2);
         }
-        .notification-header {
+        .ms-notif-top {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
+            align-items: baseline;
+            margin-bottom: 4px;
+            gap: 8px;
         }
-        .notification-title {
+        .ms-notif-title {
+            font-size: 13px;
             font-weight: 600;
-            font-size: 14px;
+            color: var(--text-primary);
         }
-        .notification-time {
+        .ms-notif-time {
             font-size: 10px;
             color: var(--text-secondary);
+            flex-shrink: 0;
         }
-        .notification-body {
+        .ms-notif-body {
             font-size: 12px;
             color: var(--text-secondary);
+            line-height: 1.5;
             margin-bottom: 10px;
         }
-        .notification-actions {
+        .ms-notif-actions {
             display: flex;
-            gap: 10px;
+            gap: 8px;
         }
-        .chat-item-messages {
-            background: rgba(224,224,224,0.05);
+        .ms-notif-btn {
+            padding: 7px 14px;
+            border-radius: 30px;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.15s;
+            min-height: 36px;
+            touch-action: manipulation;
+            outline: none;
+        }
+        .ms-notif-btn:active { transform: scale(0.97); }
+        .ms-notif-btn-accept {
+            background: rgba(16,185,129,0.15);
+            border: 1px solid rgba(16,185,129,0.3);
+            color: var(--success);
+        }
+        .ms-notif-btn-accept:hover { background: rgba(16,185,129,0.25); }
+        .ms-notif-btn-decline {
+            background: rgba(239,68,68,0.12);
+            border: 1px solid rgba(239,68,68,0.25);
+            color: var(--error);
+        }
+        .ms-notif-btn-decline:hover { background: rgba(239,68,68,0.22); }
+
+        /* ===== ЧАТ-СПИСОК ===== */
+        .ms-chat-item {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
             border-radius: 16px;
             padding: 14px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.2s, border-color 0.2s, transform 0.15s;
+            touch-action: manipulation;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
-        .chat-item-messages:hover {
-            background: rgba(224,224,224,0.1);
+        .ms-chat-item:hover {
+            background: rgba(224,224,224,0.08);
+            border-color: rgba(224,224,224,0.2);
         }
-        .chat-item-messages.unread {
-            background: rgba(255,107,59,0.1);
+        .ms-chat-item:active { transform: scale(0.99); }
+        .ms-chat-item.unread { border-color: rgba(224,224,224,0.22); }
+        .ms-chat-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--chrome), var(--silver-brushed));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
         }
-        .chat-header-messages {
+        .ms-chat-info { flex: 1; min-width: 0; }
+        .ms-chat-top {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 3px;
         }
-        .chat-name-messages {
-            font-weight: 600;
+        .ms-chat-name {
             font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 6px;
+            min-width: 0;
         }
-        .compatibility-badge {
-            font-size: 10px;
+        .ms-compat-tag {
+            font-size: 9px;
             padding: 2px 6px;
             border-radius: 20px;
-            background: rgba(255,107,59,0.2);
+            background: rgba(224,224,224,0.1);
+            border: 1px solid rgba(224,224,224,0.15);
+            color: var(--text-secondary);
+            white-space: nowrap;
+            flex-shrink: 0;
         }
-        .chat-last-message {
+        .ms-chat-time { font-size: 10px; color: var(--text-secondary); flex-shrink: 0; }
+        .ms-chat-preview {
             font-size: 12px;
             color: var(--text-secondary);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
+        .ms-unread-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--chrome);
+            flex-shrink: 0;
         }
-        .empty-emoji {
-            font-size: 48px;
-            margin-bottom: 16px;
-        }
-        .empty-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .empty-desc {
-            font-size: 12px;
+
+        /* ===== ШАПКА "ОТМЕТИТЬ ВСЕ" ===== */
+        .ms-read-all-btn {
+            background: transparent;
+            border: none;
             color: var(--text-secondary);
+            font-size: 11px;
+            cursor: pointer;
+            padding: 4px 0;
+            font-family: inherit;
+            transition: color 0.2s;
         }
-    `;
-    document.head.appendChild(style);
-    
-    const backBtn = document.getElementById('messagesBackBtn');
-    if (backBtn) {
-        const newBtn = backBtn.cloneNode(true);
-        backBtn.parentNode.replaceChild(newBtn, backBtn);
-        newBtn.addEventListener('click', () => goBackToDashboard());
-    }
-    
-    document.querySelectorAll('.messages-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            messagesState.activeTab = tab.dataset.tab;
-            renderMessagesScreen();
-        });
-    });
-    
-    // Загружаем данные и рендерим активную вкладку
-    Promise.all([loadNotifications(), loadChats()]).then(() => {
-        if (messagesState.activeTab === 'notifications') renderNotificationsTab();
-        else if (messagesState.activeTab === 'chats') renderChatsTab();
-        else if (messagesState.activeTab === 'requests') renderRequestsTab();
-    });
-}
+        .ms-read-all-btn:hover { color: var(--chrome); }
 
-function renderNotificationsTab() {
-    const container = document.getElementById('messagesContent');
-    if (!container) return;
-    
-    const unreadNotifications = messagesState.notifications.filter(n => !n.isRead);
-    const readNotifications = messagesState.notifications.filter(n => n.isRead);
-    
-    if (messagesState.notifications.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-emoji">🔔</div>
-                <div class="empty-title">Нет уведомлений</div>
-                <div class="empty-desc">Когда появятся новые совпадения или сообщения, вы увидите их здесь</div>
-            </div>
-        `;
-        return;
-    }
-    
-    let html = `
-        <div style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
-            <button id="markAllReadBtn" style="background: transparent; border: none; color: #ff6b3b; font-size: 12px; cursor: pointer;">✓ Отметить всё прочитанным</button>
-        </div>
-    `;
-    
-    if (unreadNotifications.length > 0) {
-        html += `<div style="margin-bottom: 16px;"><div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">🔴 НОВЫЕ (${unreadNotifications.length})</div>`;
-        unreadNotifications.forEach(n => {
-            html += renderNotificationItem(n, true);
-        });
-        html += `</div>`;
-    }
-    
-    if (readNotifications.length > 0) {
-        html += `<div><div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">📖 ПРОЧИТАННЫЕ</div>`;
-        readNotifications.forEach(n => {
-            html += renderNotificationItem(n, false);
-        });
-        html += `</div>`;
-    }
-    
-    container.innerHTML = html;
-    
-    document.getElementById('markAllReadBtn')?.addEventListener('click', () => {
-        markAllNotificationsRead();
-    });
-}
+        /* ===== ПУСТОЕ СОСТОЯНИЕ ===== */
+        .ms-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            text-align: center;
+            gap: 10px;
+        }
+        .ms-empty-icon { font-size: 48px; line-height: 1; }
+        .ms-empty-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+        .ms-empty-sub { font-size: 13px; color: var(--text-secondary); max-width: 240px; line-height: 1.5; }
 
-function renderNotificationItem(notification, isUnread) {
-    let actionButtons = '';
-    
-    if (notification.type === 'new_match' && notification.data) {
-        actionButtons = `
-            <div class="notification-actions">
-                <button class="notification-accept-btn" data-match-id="${notification.data.matchId}" data-user-id="${notification.data.candidateId}" data-user-name="${notification.data.candidateName}" style="background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.3); border-radius: 30px; padding: 6px 12px; font-size: 11px; color: white; cursor: pointer;">✅ Написать</button>
-                <button class="notification-decline-btn" data-match-id="${notification.data.matchId}" data-user-name="${notification.data.candidateName}" style="background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.3); border-radius: 30px; padding: 6px 12px; font-size: 11px; color: white; cursor: pointer;">❌ Отклонить</button>
-            </div>
-        `;
-    } else if (notification.type === 'contact_request' && notification.data) {
-        actionButtons = `
-            <div class="notification-actions">
-                <button class="contact-share-btn" data-chat-id="${notification.data.chatId}" style="background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.3); border-radius: 30px; padding: 6px 12px; font-size: 11px; color: white; cursor: pointer;">🔓 Раскрыть контакты</button>
-                <button class="contact-decline-btn" data-notif-id="${notification.id}" style="background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.3); border-radius: 30px; padding: 6px 12px; font-size: 11px; color: white; cursor: pointer;">❌ Отказать</button>
-            </div>
-        `;
-    }
-    
-    return `
-        <div class="notification-item ${isUnread ? 'unread' : ''}" data-notif-id="${notification.id}">
-            <div class="notification-header">
-                <div class="notification-title">${notification.title}</div>
-                <div class="notification-time">${formatDate(notification.createdAt)}</div>
-            </div>
-            <div class="notification-body">${notification.body}</div>
-            ${actionButtons}
-        </div>
-    `;
-}
-
-function renderChatsTab() {
-    const container = document.getElementById('messagesContent');
-    if (!container) return;
-    
-    if (messagesState.chats.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-emoji">💬</div>
-                <div class="empty-title">Нет активных чатов</div>
-                <div class="empty-desc">Начните общение с кем-то из найденных кандидатов</div>
-            </div>
-        `;
-        return;
-    }
-    
-    let html = '';
-    messagesState.chats.forEach(chat => {
-        const isUnread = chat.unreadCount > 0;
-        const compatibilityClass = chat.compatibility >= 90 ? '🔥' : chat.compatibility >= 75 ? '💕' : '👍';
-        
-        html += `
-            <div class="chat-item-messages ${isUnread ? 'unread' : ''}" data-chat-id="${chat.id}">
-                <div class="chat-header-messages">
-                    <div class="chat-name-messages">
-                        👤 ${chat.partnerName}, ${chat.partnerAge || '?'} лет
-                        <span class="compatibility-badge">${compatibilityClass} ${chat.compatibility}%</span>
-                    </div>
-                    <div class="notification-time">${formatDate(chat.lastMessageAt)}</div>
-                </div>
-                <div class="chat-last-message">
-                    ${chat.lastMessage?.text || 'Начните диалог'}
-                </div>
-                ${isUnread ? `<div style="margin-top: 8px;"><span class="tab-badge">${chat.unreadCount} новых</span></div>` : ''}
-            </div>
-        `;
-    });
-    
-    container.innerHTML = html;
-    
-    document.querySelectorAll('.chat-item-messages').forEach(el => {
-        el.addEventListener('click', () => {
-            const chatId = el.dataset.chatId;
-            openChat(chatId);
-        });
-    });
-}
-
-function renderRequestsTab() {
-    const container = document.getElementById('messagesContent');
-    if (!container) return;
-    
-    // Здесь можно показывать активные поисковые запросы пользователя
-    container.innerHTML = `
-        <div class="empty-state">
-            <div class="empty-emoji">🎯</div>
-            <div class="empty-title">Активные запросы</div>
-            <div class="empty-desc">Здесь будут отображаться ваши активные поиски</div>
-        </div>
-    `;
-}
-
-// ============================================
-// 7. ЧАТ
-// ============================================
-async function openChat(chatId) {
-    const container = document.getElementById('screenContainer');
-    if (!container) return;
-    
-    window.currentChatId = chatId;
-    const chat = messagesState.chats.find(c => c.id === chatId);
-    
-    // Отмечаем прочитанным
-    await markChatAsRead(chatId);
-    
-    // Загружаем сообщения
-    const messages = await loadMessages(chatId);
-    
-    container.innerHTML = `
-        <div class="chat-screen" id="chatScreen">
-            <div class="chat-screen-header">
-                <button class="back-btn" id="chatBackBtn">◀️ НАЗАД</button>
-                <div class="chat-screen-info">
-                    <div class="chat-screen-name">👤 ${chat?.partnerName || 'Собеседник'}, ${chat?.partnerAge || '?'} лет</div>
-                    <div class="chat-screen-status" id="chatStatus">
-                        <span class="online-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
-                        <span>онлайн</span>
-                    </div>
-                </div>
-                <button class="chat-menu-btn" id="chatMenuBtn">⋮</button>
-            </div>
-            
-            <div class="chat-messages-container" id="chatMessagesContainer">
-                <div class="chat-messages" id="chatMessages">
-                    ${renderMessagesList(messages, chat)}
-                </div>
-            </div>
-            
-            <div class="chat-input-container">
-                <div class="chat-contact-info" id="contactInfo" style="display: none;"></div>
-                <div class="chat-input-wrapper">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Сообщение..." autocomplete="off">
-                    <button class="chat-send-btn" id="chatSendBtn">➡️</button>
-                </div>
-                <div class="chat-actions">
-                    <button class="chat-action-btn" id="contactRequestBtn" style="background: transparent; border: none; color: #ff6b3b; font-size: 12px; cursor: pointer;">📞 Запросить контакты</button>
-                    <button class="chat-action-btn" id="shareContactBtn" style="background: transparent; border: none; color: #10b981; font-size: 12px; cursor: pointer;">🔓 Раскрыть мои контакты</button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Стили для чата
-    const style = document.createElement('style');
-    style.textContent = `
-        .chat-screen {
+        /* ===== ЧАТ ===== */
+        .ms-chat-screen {
             display: flex;
             flex-direction: column;
             height: 100%;
-            background: rgba(10,10,10,0.95);
+            min-height: 0;
         }
-        .chat-screen-header {
+        .ms-chat-header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            gap: 10px;
             padding: 12px 16px;
-            background: rgba(10,10,10,0.9);
+            background: rgba(10,10,10,0.85);
+            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(20px);
             border-bottom: 1px solid rgba(224,224,224,0.1);
             flex-shrink: 0;
         }
-        .chat-screen-info {
-            text-align: center;
+        .ms-chat-header-info { flex: 1; min-width: 0; }
+        .ms-chat-header-name {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .chat-screen-name {
-            font-weight: 600;
-            font-size: 16px;
-        }
-        .chat-screen-status {
+        .ms-chat-header-sub {
             font-size: 11px;
             color: var(--text-secondary);
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 4px;
+            gap: 5px;
+            margin-top: 1px;
         }
-        .chat-messages-container {
+        .ms-online-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--success);
+            flex-shrink: 0;
+        }
+        .ms-menu-btn {
+            background: rgba(224,224,224,0.08);
+            border: none;
+            color: var(--chrome);
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            outline: none;
+            transition: background 0.2s;
+        }
+        .ms-menu-btn:hover { background: rgba(224,224,224,0.14); }
+
+        .ms-messages-list {
             flex: 1;
             overflow-y: auto;
             padding: 16px;
             display: flex;
             flex-direction: column;
+            gap: 10px;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(224,224,224,0.15) transparent;
         }
-        .chat-messages {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .chat-message {
+        .ms-messages-list::-webkit-scrollbar { width: 3px; }
+        .ms-messages-list::-webkit-scrollbar-thumb { background: rgba(224,224,224,0.2); border-radius: 3px; }
+
+        .ms-msg {
             display: flex;
             max-width: 80%;
         }
-        .chat-message-own {
-            justify-content: flex-end;
-            align-self: flex-end;
-        }
-        .chat-message-other {
-            justify-content: flex-start;
-            align-self: flex-start;
-        }
-        .chat-message-bubble {
-            padding: 10px 14px;
-            border-radius: 20px;
-            font-size: 14px;
-            line-height: 1.4;
-            word-wrap: break-word;
-        }
-        .chat-message-own .chat-message-bubble {
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            border-bottom-right-radius: 4px;
-        }
-        .chat-message-other .chat-message-bubble {
-            background: rgba(224,224,224,0.1);
-            border-bottom-left-radius: 4px;
-        }
-        .chat-message-system {
+        .ms-msg-own   { align-self: flex-end;   justify-content: flex-end; }
+        .ms-msg-other { align-self: flex-start; }
+        .ms-msg-system {
+            align-self: center;
+            max-width: 90%;
             justify-content: center;
-            max-width: 100%;
         }
-        .chat-message-system .chat-message-bubble {
-            background: rgba(255,107,59,0.1);
+        .ms-msg-bubble {
+            padding: 10px 14px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        .ms-msg-own .ms-msg-bubble {
+            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.25);
+            border-bottom-right-radius: 4px;
+            color: var(--text-primary);
+        }
+        .ms-msg-other .ms-msg-bubble {
+            background: rgba(224,224,224,0.07);
+            border: 1px solid rgba(224,224,224,0.12);
+            border-bottom-left-radius: 4px;
+            color: var(--text-primary);
+        }
+        .ms-msg-system .ms-msg-bubble {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.08);
+            border-radius: 12px;
             color: var(--text-secondary);
-            font-size: 11px;
+            font-size: 12px;
             text-align: center;
         }
-        .chat-message-time {
+        .ms-msg-time {
             font-size: 9px;
-            color: var(--text-secondary);
+            opacity: 0.5;
             margin-top: 4px;
             text-align: right;
         }
-        .chat-input-container {
+
+        .ms-chat-footer {
             flex-shrink: 0;
             padding: 12px 16px;
+            padding-bottom: max(12px, calc(env(safe-area-inset-bottom) + 8px));
             background: rgba(10,10,10,0.9);
             border-top: 1px solid rgba(224,224,224,0.1);
         }
-        .chat-input-wrapper {
+        .ms-contact-info {
+            background: rgba(16,185,129,0.08);
+            border: 1px solid rgba(16,185,129,0.2);
+            border-radius: 12px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+        .ms-input-row {
             display: flex;
             gap: 8px;
             margin-bottom: 8px;
         }
-        .chat-input {
+        .ms-input {
             flex: 1;
-            padding: 12px 16px;
-            background: rgba(224,224,224,0.1);
-            border: 1px solid rgba(224,224,224,0.2);
+            padding: 11px 16px;
+            background: rgba(224,224,224,0.07);
+            border: 1px solid rgba(224,224,224,0.18);
             border-radius: 30px;
-            color: white;
-            font-size: 14px;
-        }
-        .chat-input:focus {
+            color: var(--text-primary);
+            font-size: 15px;
+            font-family: inherit;
             outline: none;
-            border-color: #ff6b3b;
+            transition: border-color 0.2s;
+            -webkit-appearance: none;
         }
-        .chat-send-btn {
-            width: 44px;
-            height: 44px;
+        .ms-input:focus { border-color: rgba(224,224,224,0.35); }
+        .ms-input::placeholder { color: var(--text-secondary); }
+        .ms-send-btn {
+            width: 44px; height: 44px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            border: none;
-            font-size: 20px;
+            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.25);
+            color: var(--text-primary);
+            font-size: 18px;
             cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            outline: none;
+            transition: background 0.2s, transform 0.15s;
+            touch-action: manipulation;
         }
-        .chat-actions {
+        .ms-send-btn:hover { background: rgba(224,224,224,0.28); }
+        .ms-send-btn:active { transform: scale(0.95); }
+        .ms-extra-actions {
             display: flex;
             gap: 16px;
             justify-content: center;
         }
-        .chat-contact-info {
-            background: rgba(16,185,129,0.1);
-            border-radius: 12px;
-            padding: 10px;
-            margin-bottom: 10px;
-            font-size: 12px;
-            text-align: center;
-        }
-        .chat-menu-popup {
-            position: absolute;
-            right: 16px;
-            top: 60px;
-            background: rgba(26,26,26,0.95);
-            backdrop-filter: blur(20px);
-            border-radius: 16px;
-            padding: 8px;
-            border: 1px solid rgba(224,224,224,0.2);
-            z-index: 100;
-        }
-        .chat-menu-popup button {
-            display: block;
-            width: 100%;
-            padding: 10px 20px;
+        .ms-extra-btn {
             background: transparent;
             border: none;
-            color: white;
-            text-align: left;
-            cursor: pointer;
-            border-radius: 8px;
-        }
-        .chat-menu-popup button:hover {
-            background: rgba(239,68,68,0.2);
-        }
-        .typing-indicator {
-            font-size: 11px;
             color: var(--text-secondary);
-            margin-left: 12px;
-            margin-bottom: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            padding: 4px 0;
+            transition: color 0.2s;
+            touch-action: manipulation;
+        }
+        .ms-extra-btn:hover { color: var(--chrome); }
+
+        /* ===== КОНТЕКСТНОЕ МЕНЮ ЧАТА ===== */
+        .ms-ctx-menu {
+            position: absolute;
+            right: 12px;
+            top: 58px;
+            background: var(--carbon-fiber);
+            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(224,224,224,0.2);
+            border-radius: 16px;
+            padding: 6px;
+            z-index: 500;
+            min-width: 180px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .ms-ctx-btn {
+            display: block;
+            width: 100%;
+            padding: 10px 16px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            text-align: left;
+            font-size: 13px;
+            font-family: inherit;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: background 0.2s, color 0.2s;
+            touch-action: manipulation;
+        }
+        .ms-ctx-btn:hover { background: rgba(224,224,224,0.08); color: var(--text-primary); }
+        .ms-ctx-btn.danger:hover { background: rgba(239,68,68,0.15); color: var(--error); }
+
+        @media (max-width: 768px) {
+            .ms-tab { font-size: 11px; padding: 8px 6px; }
+            .ms-chat-screen { height: 100dvh; }
         }
     `;
-    document.head.appendChild(style);
-    
-    const backBtn = document.getElementById('chatBackBtn');
-    if (backBtn) {
-        backBtn.addEventListener('click', () => renderMessagesScreen());
-    }
-    
-    const sendBtn = document.getElementById('chatSendBtn');
-    const input = document.getElementById('chatInput');
-    
-    const sendMessageHandler = async () => {
-        const text = input.value.trim();
-        if (!text) return;
-        
-        input.value = '';
-        const message = await sendMessage(chatId, text);
-        if (message) {
-            appendMessage(message, true);
-            scrollToBottom();
-        }
-    };
-    
-    sendBtn?.addEventListener('click', sendMessageHandler);
-    input?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendMessageHandler();
-    });
-    
-    document.getElementById('contactRequestBtn')?.addEventListener('click', () => {
-        requestContact(chatId);
-    });
-    
-    document.getElementById('shareContactBtn')?.addEventListener('click', async () => {
-        const contact = await shareContact(chatId);
-        if (contact) {
-            showContactShared(contact);
-        }
-    });
-    
-    document.getElementById('chatMenuBtn')?.addEventListener('click', () => {
-        const existingPopup = document.querySelector('.chat-menu-popup');
-        if (existingPopup) {
-            existingPopup.remove();
-            return;
-        }
-        
-        const popup = document.createElement('div');
-        popup.className = 'chat-menu-popup';
-        popup.innerHTML = `
-            <button id="blockUserBtn">🚫 Заблокировать пользователя</button>
-            <button id="deleteChatBtn">🗑️ Удалить чат</button>
-        `;
-        document.querySelector('.chat-screen').appendChild(popup);
-        
-        document.getElementById('blockUserBtn')?.addEventListener('click', async () => {
-            popup.remove();
-            await blockUser(chatId);
-            renderMessagesScreen();
-        });
-        
-        document.getElementById('deleteChatBtn')?.addEventListener('click', () => {
-            popup.remove();
-            showToastMessage('Удаление чата будет доступно в следующей версии', 'info');
-        });
-        
-        document.addEventListener('click', function onClickOutside(e) {
-            if (!popup.contains(e.target) && e.target !== document.getElementById('chatMenuBtn')) {
-                popup.remove();
-                document.removeEventListener('click', onClickOutside);
-            }
-        });
-    });
-    
-    // Прокрутка вниз
-    setTimeout(scrollToBottom, 100);
+    document.head.appendChild(s);
 }
 
-function renderMessagesList(messages, chat) {
-    if (!messages || messages.length === 0) {
-        return `
-            <div class="chat-message chat-message-system">
-                <div class="chat-message-bubble">
-                    💬 Начните общение! Ваш первый шаг к новым отношениям.
-                </div>
-            </div>
-            <div class="chat-message chat-message-system">
-                <div class="chat-message-bubble">
-                    🔒 Чат анонимный. Контакты раскрываются только по взаимному согласию.
-                </div>
-            </div>
-            <div class="chat-message chat-message-system">
-                <div class="chat-message-bubble">
-                    🔥 Совместимость с собеседником: ${chat?.compatibility || '?'}%
-                </div>
-            </div>
-        `;
-    }
-    
-    const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    
-    return messages.map(msg => {
-        const isOwn = msg.fromUserId == userId;
-        const isSystem = msg.type === 'system';
-        
-        if (isSystem) {
-            return `
-                <div class="chat-message chat-message-system">
-                    <div class="chat-message-bubble">
-                        ${msg.text}
-                    </div>
-                    <div class="chat-message-time">${formatDate(msg.createdAt)}</div>
-                </div>
-            `;
+// ============================================
+// СОСТОЯНИЕ
+// ============================================
+let _msState = {
+    tab:           'notifications',
+    notifications: [],
+    chats:         [],
+    unreadCount:   0
+};
+
+// ============================================
+// УТИЛИТЫ
+// ============================================
+function _msApi()    { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _msUserId() { return window.CONFIG?.USER_ID; }
+function _msToast(msg, type) { if (window.showToast) window.showToast(msg, type || 'info'); }
+function _msHome()   { if (typeof renderDashboard === 'function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
+
+function _msTime(str) {
+    if (!str) return '';
+    const d = new Date(str), now = new Date();
+    const diff = Math.floor((now - d) / 1000);
+    if (diff < 60)   return 'только что';
+    if (diff < 3600) return Math.floor(diff/60) + ' мин';
+    if (diff < 86400) return Math.floor(diff/3600) + ' ч';
+    if (diff < 604800) return Math.floor(diff/86400) + ' д';
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
+
+function _msEsc(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+}
+
+async function _msFetch(endpoint, opts = {}) {
+    const url = endpoint.startsWith('http') ? endpoint : _msApi() + endpoint;
+    const uid = _msUserId();
+    const r = await fetch(url, {
+        ...opts,
+        headers: { 'Content-Type': 'application/json', 'X-User-Id': String(uid), ...opts.headers }
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+    return d;
+}
+
+// ============================================
+// ЗАГРУЗКА ДАННЫХ
+// ============================================
+async function _loadNotifications() {
+    try {
+        const d = await _msFetch('/api/notifications');
+        if (d.success) _msState.notifications = d.notifications || [];
+    } catch (e) { console.warn('notifications fetch:', e.message); }
+    return _msState.notifications;
+}
+
+async function _loadChats() {
+    try {
+        const d = await _msFetch('/api/chats');
+        if (d.success) {
+            _msState.chats = d.chats || [];
+            _msState.unreadCount = _msState.chats.reduce((s, c) => s + (c.unreadCount || 0), 0);
         }
-        
-        return `
-            <div class="chat-message ${isOwn ? 'chat-message-own' : 'chat-message-other'}">
-                <div class="chat-message-bubble">
-                    ${escapeHtml(msg.text)}
-                    <div class="chat-message-time">${formatDate(msg.createdAt)} ${isOwn && msg.isRead ? '✓✓' : isOwn ? '✓' : ''}</div>
+    } catch (e) { console.warn('chats fetch:', e.message); }
+    _updateBadge();
+    return _msState.chats;
+}
+
+async function _loadMessages(chatId) {
+    try {
+        const d = await _msFetch(`/api/chats/${chatId}/messages`);
+        return d.success ? d.messages || [] : [];
+    } catch (e) { console.warn('messages fetch:', e.message); return []; }
+}
+
+async function _sendMessage(chatId, text) {
+    try {
+        const d = await _msFetch(`/api/chats/${chatId}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ text: text.trim() })
+        });
+        return d.success ? d.message : null;
+    } catch (e) {
+        _msToast('❌ Не удалось отправить сообщение', 'error');
+        return null;
+    }
+}
+
+async function _markRead(chatId) {
+    try { await _msFetch(`/api/chats/${chatId}/read`, { method: 'PUT' }); } catch {}
+    const c = _msState.chats.find(x => x.id === chatId);
+    if (c) { c.unreadCount = 0; }
+    _msState.unreadCount = _msState.chats.reduce((s, c) => s + (c.unreadCount || 0), 0);
+    _updateBadge();
+}
+
+async function _blockUser(chatId) {
+    try {
+        const d = await _msFetch(`/api/chats/${chatId}/block`, { method: 'POST' });
+        if (d.success) {
+            _msState.chats = _msState.chats.filter(c => c.id !== chatId);
+            _msToast('🚫 Пользователь заблокирован', 'success');
+            return true;
+        }
+    } catch (e) { _msToast('❌ Ошибка блокировки', 'error'); }
+    return false;
+}
+
+async function _acceptMatch(matchId, candidateId, candidateName) {
+    try {
+        const d = await _msFetch(`/api/matches/${matchId}/accept`, { method: 'POST' });
+        if (d.success && d.chatId) {
+            _msToast(`✅ Чат с ${candidateName} создан`, 'success');
+            await _loadChats();
+            _openChat(d.chatId);
+            return true;
+        }
+    } catch (e) { _msToast('❌ Не удалось создать чат', 'error'); }
+    return false;
+}
+
+async function _declineMatch(matchId, candidateName, notifId) {
+    try {
+        await _msFetch(`/api/matches/${matchId}/decline`, { method: 'POST' });
+    } catch {}
+    _msState.notifications = _msState.notifications.filter(n => n.id !== notifId);
+    _msToast(`Запрос отклонён`, 'info');
+    _renderNotifTab();
+}
+
+async function _shareContact(chatId) {
+    try {
+        const d = await _msFetch(`/api/chats/${chatId}/share-contact`, { method: 'POST' });
+        if (d.success) return d.contact;
+    } catch {}
+    return null;
+}
+
+// ============================================
+// БЕЙДЖ
+// ============================================
+function _updateBadge() {
+    const badge = document.getElementById('messagesBadge');
+    const unread = _msState.notifications.filter(n => !n.isRead).length;
+    const total  = (_msState.unreadCount || 0) + unread;
+    if (badge) {
+        badge.style.display = total > 0 ? '' : 'none';
+        const span = badge.querySelector('.msg-badge');
+        if (span) span.textContent = total > 99 ? '99+' : String(total);
+    }
+}
+
+// ============================================
+// ГЛАВНЫЙ ЭКРАН
+// ============================================
+function _renderMain() {
+    _msInjectStyles();
+    const c = document.getElementById('screenContainer');
+    if (!c) return;
+
+    const unreadNotif = _msState.notifications.filter(n => !n.isRead).length;
+    const unreadChats = _msState.unreadCount;
+
+    c.innerHTML = `
+        <div class="full-content-page">
+            <button class="back-btn" id="msBack">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">💬</div>
+                <h1 class="content-title">Сообщения</h1>
+            </div>
+
+            <div class="ms-tabs">
+                <button class="ms-tab ${_msState.tab==='notifications'?'active':''}" data-tab="notifications">
+                    🔔 Уведомления
+                    ${unreadNotif>0?`<span class="ms-tab-badge">${unreadNotif}</span>`:''}
+                </button>
+                <button class="ms-tab ${_msState.tab==='chats'?'active':''}" data-tab="chats">
+                    💬 Чаты
+                    ${unreadChats>0?`<span class="ms-tab-badge">${unreadChats}</span>`:''}
+                </button>
+                <button class="ms-tab ${_msState.tab==='requests'?'active':''}" data-tab="requests">
+                    🎯 Запросы
+                </button>
+            </div>
+
+            <div id="msTabContent"></div>
+        </div>`;
+
+    document.getElementById('msBack').onclick = () => _msHome();
+
+    document.querySelectorAll('.ms-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _msState.tab = btn.dataset.tab;
+            _renderMain();
+        });
+    });
+
+    // Грузим данные и рендерим вкладку
+    Promise.all([_loadNotifications(), _loadChats()]).then(() => {
+        if (_msState.tab === 'notifications') _renderNotifTab();
+        else if (_msState.tab === 'chats')    _renderChatsTab();
+        else                                  _renderRequestsTab();
+    });
+}
+
+// ============================================
+// ВКЛАДКА: УВЕДОМЛЕНИЯ
+// ============================================
+function _renderNotifTab() {
+    const c = document.getElementById('msTabContent');
+    if (!c) return;
+
+    if (!_msState.notifications.length) {
+        c.innerHTML = `<div class="ms-empty">
+            <div class="ms-empty-icon">🔔</div>
+            <div class="ms-empty-title">Нет уведомлений</div>
+            <div class="ms-empty-sub">Когда появятся совпадения или запросы — они будут здесь</div>
+        </div>`;
+        return;
+    }
+
+    const unread = _msState.notifications.filter(n => !n.isRead);
+    const read   = _msState.notifications.filter(n => n.isRead);
+
+    let html = `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="ms-read-all-btn" id="msReadAll">✓ Отметить всё прочитанным</button>
+    </div>`;
+
+    if (unread.length) {
+        html += `<p class="ms-notif-group-title">🔴 Новые (${unread.length})</p>`;
+        html += unread.map(n => _notifItemHtml(n, true)).join('');
+    }
+    if (read.length) {
+        html += `<p class="ms-notif-group-title" style="margin-top:16px">📖 Прочитанные</p>`;
+        html += read.map(n => _notifItemHtml(n, false)).join('');
+    }
+
+    c.innerHTML = html;
+
+    document.getElementById('msReadAll')?.addEventListener('click', async () => {
+        try { await _msFetch('/api/notifications/read-all', { method: 'PUT' }); } catch {}
+        _msState.notifications.forEach(n => n.isRead = true);
+        _updateBadge();
+        _renderNotifTab();
+    });
+
+    c.querySelectorAll('[data-accept]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const { matchId, userId, userName, notifId } = btn.dataset;
+            _acceptMatch(matchId, userId, userName);
+        });
+    });
+
+    c.querySelectorAll('[data-decline]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const { matchId, userName, notifId } = btn.dataset;
+            _declineMatch(matchId, userName, notifId);
+        });
+    });
+
+    c.querySelectorAll('[data-share-contact]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const contact = await _shareContact(btn.dataset.chatId);
+            if (contact) _msToast('🔓 Контакты раскрыты!', 'success');
+        });
+    });
+
+    c.querySelectorAll('[data-del-notif]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.dataset.delNotif;
+            try { await _msFetch(`/api/notifications/${id}`, { method: 'DELETE' }); } catch {}
+            _msState.notifications = _msState.notifications.filter(n => n.id !== id);
+            _renderNotifTab();
+        });
+    });
+}
+
+function _notifItemHtml(n, unread) {
+    let actions = '';
+    if (n.type === 'new_match' && n.data) {
+        actions = `<div class="ms-notif-actions">
+            <button class="ms-notif-btn ms-notif-btn-accept"
+                data-accept="1" data-match-id="${n.data.matchId}"
+                data-user-id="${n.data.candidateId}" data-user-name="${n.data.candidateName||''}"
+                data-notif-id="${n.id}">✅ Написать</button>
+            <button class="ms-notif-btn ms-notif-btn-decline"
+                data-decline="1" data-match-id="${n.data.matchId}"
+                data-user-name="${n.data.candidateName||''}" data-notif-id="${n.id}">✗ Отклонить</button>
+        </div>`;
+    } else if (n.type === 'contact_request' && n.data) {
+        actions = `<div class="ms-notif-actions">
+            <button class="ms-notif-btn ms-notif-btn-accept"
+                data-share-contact="1" data-chat-id="${n.data.chatId}">🔓 Раскрыть контакты</button>
+            <button class="ms-notif-btn ms-notif-btn-decline"
+                data-del-notif="${n.id}">✗ Отказать</button>
+        </div>`;
+    }
+
+    return `<div class="ms-notif-item ${unread?'unread':''}">
+        <div class="ms-notif-top">
+            <div class="ms-notif-title">${_msEsc(n.title||'')}</div>
+            <div class="ms-notif-time">${_msTime(n.createdAt)}</div>
+        </div>
+        <div class="ms-notif-body">${_msEsc(n.body||'')}</div>
+        ${actions}
+    </div>`;
+}
+
+// ============================================
+// ВКЛАДКА: ЧАТЫ
+// ============================================
+function _renderChatsTab() {
+    const c = document.getElementById('msTabContent');
+    if (!c) return;
+
+    if (!_msState.chats.length) {
+        c.innerHTML = `<div class="ms-empty">
+            <div class="ms-empty-icon">💬</div>
+            <div class="ms-empty-title">Нет чатов</div>
+            <div class="ms-empty-sub">Начните общение с кем-то из найденных кандидатов в разделе «Двойники»</div>
+        </div>`;
+        return;
+    }
+
+    const compatIcon = s => s >= 90 ? '🔥' : s >= 75 ? '✦' : '·';
+
+    c.innerHTML = _msState.chats.map(chat => `
+        <div class="ms-chat-item ${chat.unreadCount?'unread':''}" data-chat-id="${chat.id}">
+            <div class="ms-chat-avatar">${chat.partnerGender==='female'?'👩':'👨'}</div>
+            <div class="ms-chat-info">
+                <div class="ms-chat-top">
+                    <div class="ms-chat-name">
+                        ${_msEsc(chat.partnerName||'Собеседник')}${chat.partnerAge?', '+chat.partnerAge:''}
+                        ${chat.compatibility?`<span class="ms-compat-tag">${compatIcon(chat.compatibility)} ${chat.compatibility}%</span>`:''}
+                    </div>
+                    <div class="ms-chat-time">${_msTime(chat.lastMessageAt)}</div>
+                </div>
+                <div class="ms-chat-preview">${_msEsc(chat.lastMessage?.text||'Начните диалог')}</div>
+            </div>
+            ${chat.unreadCount ? '<div class="ms-unread-dot"></div>' : ''}
+        </div>`).join('');
+
+    c.querySelectorAll('.ms-chat-item').forEach(el => {
+        el.addEventListener('click', () => _openChat(el.dataset.chatId));
+    });
+}
+
+// ============================================
+// ВКЛАДКА: ЗАПРОСЫ
+// ============================================
+function _renderRequestsTab() {
+    const c = document.getElementById('msTabContent');
+    if (!c) return;
+    c.innerHTML = `<div class="ms-empty">
+        <div class="ms-empty-icon">🎯</div>
+        <div class="ms-empty-title">Активные запросы</div>
+        <div class="ms-empty-sub">Здесь будут ваши активные поиски и их статус</div>
+    </div>`;
+}
+
+// ============================================
+// ОТКРЫТЬ ЧАТ
+// ============================================
+async function _openChat(chatId) {
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+
+    const chat = _msState.chats.find(c => c.id === chatId);
+    await _markRead(chatId);
+    const messages = await _loadMessages(chatId);
+    const uid = _msUserId();
+
+    _msInjectStyles();
+
+    container.innerHTML = `
+        <div class="ms-chat-screen" id="msChatScreen">
+            <div class="ms-chat-header">
+                <button class="back-btn" id="msChatBack" style="margin:0;padding:8px 16px;font-size:13px">◀️</button>
+                <div class="ms-chat-header-info">
+                    <div class="ms-chat-header-name">
+                        ${_msEsc(chat?.partnerName||'Собеседник')}${chat?.partnerAge?', '+chat.partnerAge:''}
+                    </div>
+                    <div class="ms-chat-header-sub">
+                        <span class="ms-online-dot"></span> онлайн
+                        ${chat?.compatibility?'&nbsp;·&nbsp;'+chat.compatibility+'% совм.':''}
+                    </div>
+                </div>
+                <button class="ms-menu-btn" id="msChatMenu">⋮</button>
+            </div>
+
+            <div class="ms-messages-list" id="msMsgList">
+                ${_msRenderMessages(messages, uid, chat)}
+            </div>
+
+            <div class="ms-chat-footer">
+                <div class="ms-contact-info" id="msContactInfo" style="display:none"></div>
+                <div class="ms-input-row">
+                    <input class="ms-input" id="msChatInput" placeholder="Сообщение..." autocomplete="off" type="text">
+                    <button class="ms-send-btn" id="msSendBtn">➤</button>
+                </div>
+                <div class="ms-extra-actions">
+                    <button class="ms-extra-btn" id="msContactReq">📞 Запросить контакты</button>
+                    <button class="ms-extra-btn" id="msShareContact">🔓 Раскрыть мои контакты</button>
                 </div>
             </div>
-        `;
+        </div>`;
+
+    // Прокрутка вниз
+    setTimeout(() => {
+        const list = document.getElementById('msMsgList');
+        if (list) list.scrollTop = list.scrollHeight;
+    }, 80);
+
+    document.getElementById('msChatBack').onclick = () => _renderMain();
+
+    // Отправка
+    const send = async () => {
+        const input = document.getElementById('msChatInput');
+        const text  = input?.value?.trim();
+        if (!text) return;
+        input.value = '';
+        const msg = await _sendMessage(chatId, text);
+        if (msg) {
+            const list = document.getElementById('msMsgList');
+            if (list) {
+                list.insertAdjacentHTML('beforeend', _msMsgHtml(msg, true));
+                list.scrollTop = list.scrollHeight;
+            }
+        }
+    };
+
+    document.getElementById('msSendBtn').onclick = send;
+    document.getElementById('msChatInput').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
+
+    document.getElementById('msContactReq').onclick = async () => {
+        try { await _msFetch(`/api/chats/${chatId}/contact`, { method: 'POST' }); _msToast('📞 Запрос отправлен', 'success'); }
+        catch { _msToast('❌ Ошибка', 'error'); }
+    };
+
+    document.getElementById('msShareContact').onclick = async () => {
+        const contact = await _shareContact(chatId);
+        if (contact) {
+            const box = document.getElementById('msContactInfo');
+            if (box) {
+                box.style.display = '';
+                box.innerHTML = `🔓 Контакты раскрыты!<br>📞 ${_msEsc(contact.phone||'—')}&nbsp;&nbsp;📧 ${_msEsc(contact.email||'—')}`;
+            }
+            _msToast('🔓 Контакты раскрыты!', 'success');
+        }
+    };
+
+    // Контекстное меню
+    document.getElementById('msChatMenu').onclick = (e) => {
+        e.stopPropagation();
+        document.querySelector('.ms-ctx-menu')?.remove();
+        const popup = document.createElement('div');
+        popup.className = 'ms-ctx-menu';
+        popup.innerHTML = `
+            <button class="ms-ctx-btn danger" id="msBlock">🚫 Заблокировать</button>
+            <button class="ms-ctx-btn" id="msDelChat">🗑️ Удалить чат</button>`;
+        document.getElementById('msChatScreen')?.appendChild(popup);
+
+        document.getElementById('msBlock').onclick = async () => {
+            popup.remove();
+            const ok = await _msConfirm('Заблокировать пользователя?', 'Чат будет закрыт.');
+            if (!ok) return;
+            const done = await _blockUser(chatId);
+            if (done) _renderMain();
+        };
+        document.getElementById('msDelChat').onclick = () => {
+            popup.remove();
+            _msToast('Удаление чата — скоро', 'info');
+        };
+
+        const closeMenu = (ev) => {
+            if (!popup.contains(ev.target)) { popup.remove(); document.removeEventListener('click', closeMenu); }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 50);
+    };
+}
+
+function _msRenderMessages(messages, uid, chat) {
+    if (!messages?.length) {
+        return `
+            <div class="ms-msg ms-msg-system"><div class="ms-msg-bubble">💬 Начните общение!</div></div>
+            <div class="ms-msg ms-msg-system"><div class="ms-msg-bubble">🔒 Чат анонимный. Контакты раскрываются по согласию.</div></div>
+            ${chat?.compatibility?`<div class="ms-msg ms-msg-system"><div class="ms-msg-bubble">✦ Совместимость: ${chat.compatibility}%</div></div>`:''}`;
+    }
+    return messages.map(m => {
+        if (m.type === 'system') return `<div class="ms-msg ms-msg-system"><div class="ms-msg-bubble">${_msEsc(m.text)}</div></div>`;
+        return _msMsgHtml(m, m.fromUserId == uid);
     }).join('');
 }
 
-function appendMessage(message, isOwn) {
-    const container = document.getElementById('chatMessages');
-    if (!container) return;
-    
-    const isSystem = message.type === 'system';
-    
-    let html = '';
-    if (isSystem) {
-        html = `
-            <div class="chat-message chat-message-system">
-                <div class="chat-message-bubble">
-                    ${escapeHtml(message.text)}
+function _msMsgHtml(msg, isOwn) {
+    const check = isOwn ? (msg.isRead ? ' ✓✓' : ' ✓') : '';
+    return `<div class="ms-msg ${isOwn?'ms-msg-own':'ms-msg-other'}">
+        <div class="ms-msg-bubble">
+            ${_msEsc(msg.text||'')}
+            <div class="ms-msg-time">${_msTime(msg.createdAt)}${check}</div>
+        </div>
+    </div>`;
+}
+
+// ============================================
+// ДИАЛОГ ПОДТВЕРЖДЕНИЯ
+// ============================================
+function _msConfirm(title, sub) {
+    return new Promise(resolve => {
+        _msInjectStyles();
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px';
+        overlay.innerHTML = `
+            <div style="background:var(--carbon-fiber);border:1px solid rgba(224,224,224,0.2);border-radius:24px;padding:28px 24px;max-width:320px;width:100%;text-align:center">
+                <div style="font-size:36px;margin-bottom:10px">⚠️</div>
+                <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:6px">${title}</div>
+                <div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;line-height:1.5">${sub}</div>
+                <div style="display:flex;gap:10px">
+                    <button id="msCancelBtn" style="flex:1;padding:12px;border-radius:30px;background:transparent;border:1px solid rgba(224,224,224,0.15);color:var(--text-secondary);font-family:inherit;font-size:13px;cursor:pointer;min-height:44px">Отмена</button>
+                    <button id="msOkBtn" style="flex:1;padding:12px;border-radius:30px;background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.35);color:var(--error);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;min-height:44px">Подтвердить</button>
                 </div>
-                <div class="chat-message-time">${formatDate(message.createdAt)}</div>
-            </div>
-        `;
-    } else {
-        html = `
-            <div class="chat-message ${isOwn ? 'chat-message-own' : 'chat-message-other'}">
-                <div class="chat-message-bubble">
-                    ${escapeHtml(message.text)}
-                    <div class="chat-message-time">${formatDate(message.createdAt)} ${isOwn ? '✓' : ''}</div>
-                </div>
-            </div>
-        `;
-    }
-    
-    container.insertAdjacentHTML('beforeend', html);
-    scrollToBottom();
+            </div>`;
+        document.body.appendChild(overlay);
+        document.getElementById('msOkBtn').onclick    = () => { overlay.remove(); resolve(true);  };
+        document.getElementById('msCancelBtn').onclick = () => { overlay.remove(); resolve(false); };
+    });
 }
 
-function scrollToBottom() {
-    setTimeout(() => {
-        const container = document.getElementById('chatMessagesContainer');
-        if (container) {
-            container.scrollTop = container.scrollHeight;
-        }
-    }, 50);
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function showContactShared(contact) {
-    const contactInfo = document.getElementById('contactInfo');
-    if (contactInfo) {
-        contactInfo.style.display = 'block';
-        contactInfo.innerHTML = `
-            🔓 Контакты раскрыты!<br>
-            📞 Телефон: ${contact.phone || 'не указан'}<br>
-            📧 Email: ${contact.email || 'не указан'}
-        `;
-        document.getElementById('contactRequestBtn')?.remove();
-        document.getElementById('shareContactBtn')?.remove();
+// ============================================
+// ИНИЦИАЛИЗАЦИЯ БЕЙДЖА (вызывается из app.js)
+// ============================================
+function _initBadge() {
+    _loadNotifications().then(_loadChats).then(_updateBadge).catch(() => {});
+    // Обновляем бейдж каждые 60 секунд
+    if (!window._msBadgeTimer) {
+        window._msBadgeTimer = setInterval(() => {
+            _loadNotifications().then(_loadChats).then(_updateBadge).catch(() => {});
+        }, 60000);
     }
 }
 
 // ============================================
-// 8. ИНИЦИАЛИЗАЦИЯ
+// ТОЧКА ВХОДА
 // ============================================
-let wsInitialized = false;
-
-function initMessagesSystem() {
-    if (!wsInitialized) {
-        initWebSocket();
-        wsInitialized = true;
-    }
-    
-    // Загружаем начальные данные
-    loadNotifications();
-    loadChats();
-    
-    // Обновляем бейдж каждые 30 секунд
-    setInterval(() => {
-        loadChats();
-    }, 30000);
-}
-
 async function showMessagesScreen() {
-    // Проверяем, прошёл ли пользователь тест
-    const completed = await checkTestCompleted();
-    if (!completed) {
-        showToastMessage('📊 Сначала пройдите психологический тест', 'info');
+    try {
+        const uid = _msUserId();
+        const r   = await fetch(`${_msApi()}/api/user-status?user_id=${uid}`);
+        const d   = await r.json();
+        if (!d.has_profile) {
+            _msToast('📊 Сначала пройдите психологический тест', 'info');
+            return;
+        }
+    } catch {
+        _msToast('⚠️ Не удалось проверить статус', 'error');
         return;
     }
-    
-    initMessagesSystem();
-    renderMessagesScreen();
-}
 
-async function checkTestCompleted() {
-    try {
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-        const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
-        const data = await response.json();
-        return data.has_profile === true;
-    } catch (e) {
-        return false;
-    }
+    _msInjectStyles();
+    _renderMain();
 }
 
 // ============================================
-// 9. ЭКСПОРТ
+// ЭКСПОРТ
 // ============================================
-window.showMessagesScreen = showMessagesScreen;
-window.messagesState = messagesState;
-window.loadChats = loadChats;
-window.loadNotifications = loadNotifications;
-window.updateMessagesBadge = updateMessagesBadge;
-window.openChat = openChat;
+window.showMessagesScreen  = showMessagesScreen;
+window.updateMessagesBadge = _updateBadge;
+window.openChat            = _openChat;
+window.messagesState       = _msState;
 
-console.log('✅ Модуль сообщений загружен (messages.js v1.0)');
+// Инициализируем бейдж сразу при загрузке скрипта
+_initBadge();
+
+console.log('✅ messages.js v2.0 загружен');
