@@ -768,13 +768,52 @@ body::after {
 /* ===== ПРОФИЛЬ / МЫСЛИ ===== */
 .profile-section-title,
 .thoughts-section-title {
-    font-size: 16px;
+    font-size: 12px;
     font-weight: 700;
-    margin-top: 20px;
-    margin-bottom: 12px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--chrome);
+    margin-top: 24px;
+    margin-bottom: 10px;
     padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 107, 59, 0.3);
-    color: var(--amg-orange);
+    border-bottom: 1px solid rgba(224, 224, 224, 0.12);
+}
+.profile-section-title:first-child,
+.thoughts-section-title:first-child {
+    margin-top: 0;
+}
+
+.content-body p {
+    margin-bottom: 10px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+}
+
+.content-body .styled-list {
+    margin: 4px 0 12px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.content-body .styled-list li {
+    position: relative;
+    padding-left: 16px;
+    margin-bottom: 8px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.content-body .styled-list li::before {
+    content: '—';
+    position: absolute;
+    left: 0;
+    color: var(--silver-brushed);
+}
+
+.content-body .styled-list li strong {
+    color: var(--chrome);
+    font-weight: 600;
 }
 
 /* ===== ЗАГРУЗКА ===== */
@@ -1120,6 +1159,29 @@ body::after {
 }
 
 .test-context-submit:active { transform: scale(0.98); }
+
+
+/* ===== БЕЙДЖ СООБЩЕНИЙ В МЕНЮ ===== */
+.msg-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    background: var(--amg-red);
+    color: #fff;
+    border-radius: 30px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    animation: badgePop 0.3s ease-out;
+}
+
+@keyframes badgePop {
+    from { transform: scale(0); }
+    to   { transform: scale(1); }
+}
 
 /* ===== АНАЛИЗ ===== */
 .analysis-content {
