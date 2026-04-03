@@ -402,59 +402,37 @@ function startTest() {
 function formatContentForDisplay(text) {
     if (!text) return '<p>Нет данных</p>';
 
-    // Эмодзи-заголовки блоков — превращаем в секции
-    // Поддерживаем форматы: "🔑 ЗАГОЛОВОК" в начале строки или после переноса
-    const BLOCK_HEADERS = [
-        /^(🔑[^\n]*)/gm,
-        /^(💪[^\n]*)/gm,
-        /^(🎯[^\n]*)/gm,
-        /^(🌱[^\n]*)/gm,
-        /^(⚠️[^\n]*)/gm,
-        /^(📊[^\n]*)/gm,
-        /^(🔍[^\n]*)/gm,
-        /^(🧠[^\n]*)/gm,
-        /^(⚡[^\n]*)/gm,
-    ];
-
     let t = text;
 
-    // 1. Нормализуем переносы: один 
- → пробел, два 
+    // Вставляем разрыв перед эмодзи-заголовками если его нет
+    t = t.replace(/([\u{1F4AA}\u{1F3AF}\u{1F331}\u26A0\uFE0F\u{1F4CA}\u{1F50D}\u{1F9E0}\u26A1])/gu, '\n\n$1');
 
- → разделитель блока
-    //    Но сначала добавляем 
- перед известными эмодзи-заголовками
-    t = t.replace(/(💪|🎯|🌱|⚠️|📊|🔍|🧠|⚡)/g, '\n\n$1');
-
-    // 2. Жирный текст **...**
+    // Жирный текст **...**
     t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-    // 3. Строки начинающиеся с * или • или - — элементы списка
     const lines = t.split('\n');
     let out = '';
     let inList = false;
     let inParagraph = false;
 
     for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i];
-        const line = raw.trim();
+        const line = lines[i].trim();
 
         if (!line) {
-            // Пустая строка — закрываем список/абзац
             if (inList)      { out += '</ul>\n'; inList = false; }
             if (inParagraph) { out += '</p>\n'; inParagraph = false; }
             continue;
         }
 
-        // Эмодзи-заголовок (🔑, 💪, 🎯, 🌱, ⚠️ и т.д. в начале строки)
-        if (/^[🔑💪🎯🌱⚠️📊🔍⚡🧠🏆💡🕊️🔄💎]/.test(line)) {
+        // Эмодзи-заголовок в начале строки
+        if (/^[\u{1F510}\u{1F4AA}\u{1F3AF}\u{1F331}\u26A0\uFE0F\u{1F4CA}\u{1F50D}\u{1F9E0}\u26A1\u{1F3C6}\u{1F4A1}\u{1F517}\u{1F54A}\uFE0F\u{1F3B8}]/u.test(line)) {
             if (inList)      { out += '</ul>\n'; inList = false; }
             if (inParagraph) { out += '</p>\n'; inParagraph = false; }
             out += '<div class="profile-section-title">' + line + '</div>\n';
             continue;
         }
 
-        // Элемент списка: строки начинающиеся с •, *, -, или цифра+точка
+        // Элемент списка
         if (/^[•\*\-]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
             if (inParagraph) { out += '</p>\n'; inParagraph = false; }
             if (!inList) { out += '<ul class="styled-list">\n'; inList = true; }
