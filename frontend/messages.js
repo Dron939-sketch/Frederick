@@ -1036,7 +1036,47 @@ window.updateMessagesBadge = _updateBadge;
 window.openChat            = _openChat;
 window.messagesState       = _msState;
 
+// ============================================
+// СОВМЕСТИМОСТЬ С chat.js (встроено)
+// ============================================
+
+// Перезагрузить сообщения в открытом чате (вызывается из WebSocket)
+window.loadChatMessages = async function(chatId) {
+    const id = chatId || _msState._chatId;
+    if (!id) return;
+    const uid      = _msUserId();
+    const messages = await _loadMessages(id);
+    const list     = document.getElementById('msMsgList');
+    const chat     = _msState.chats.find(c => c.id === id);
+    if (list) {
+        list.innerHTML = _msRenderMessages(messages, uid, chat);
+        list.scrollTop = list.scrollHeight;
+        await _markRead(id);
+    }
+};
+
+// Обновить статус прочтения конкретного сообщения
+window.updateMessageStatus = function(messageId, status) {
+    // Помечаем галочки ✓✓ если сообщение прочитано
+    const msgs = document.querySelectorAll('.ms-msg-own .ms-msg-time');
+    msgs.forEach(el => {
+        if (el.dataset.msgId === String(messageId) && status === 'read') {
+            el.textContent = el.textContent.replace('✓', '✓✓');
+        }
+    });
+    console.log('Message status updated:', messageId, status);
+};
+
+// Показать раскрытые контакты в открытом чате
+window.showContactShared = function(contact) {
+    const box = document.getElementById('msContactInfo');
+    if (box) {
+        box.style.display = '';
+        box.innerHTML = `🔓 Контакты раскрыты!<br>📞 ${contact?.phone || '—'}&nbsp;&nbsp;📧 ${contact?.email || '—'}`;
+    }
+};
+
 // Инициализируем бейдж сразу при загрузке скрипта
 _initBadge();
 
-console.log('✅ messages.js v2.0 загружен');
+console.log('✅ messages.js v2.0 загружен (включает chat.js)');
