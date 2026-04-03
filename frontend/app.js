@@ -1295,6 +1295,10 @@ async function init() {
             const actions = {
                 fredi: renderDashboard,
                 test: startTest,
+                messages: () => {
+                    if (typeof showMessagesScreen === 'function') showMessagesScreen();
+                    else { showToast('💬 Загрузка сообщений...', 'info'); const s = document.createElement('script'); s.src = 'messages.js'; s.onload = () => { if (typeof showMessagesScreen === 'function') showMessagesScreen(); }; document.head.appendChild(s); }
+                },
                 confinement: () => showConfinementModel(),
                 practices: () => showPractices(),
                 hypnosis: () => showHypnosis(),
