@@ -60,17 +60,17 @@ VOICES = {
 VOICE_SETTINGS = {
     "psychologist": {
         "speed": 0.95,
-        "emotion": "neutral",
+        "emotion": "neutral",  # ✅
         "description": "Спокойный, размеренный голос психолога"
     },
     "coach": {
         "speed": 1.0,
-        "emotion": "energetic",
+        "emotion": "good",     # ✅ good = добрый, энергичный
         "description": "Энергичный, мотивирующий голос коуча"
     },
     "trainer": {
         "speed": 1.1,
-        "emotion": "energetic",
+        "emotion": "good",     # ✅ ИСПРАВЛЕНО: good вместо energetic
         "description": "Быстрый, бодрый голос тренера"
     },
     "basic": {
