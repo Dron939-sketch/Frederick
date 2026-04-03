@@ -803,33 +803,31 @@ const Test = {
         bubble.style.cssText = 'background:rgba(224,224,224,0.05);border-radius:24px;padding:0;overflow:hidden;';
 
         bubble.innerHTML = `
-            <div style="padding:20px;">
-                <div style="margin-bottom:16px;">
-                    <label style="display:block;font-size:12px;color:#a0a3b0;margin-bottom:6px;">🏙️ В каком городе вы живёте?</label>
-                    <input type="text" id="contextCity" placeholder="Например: Москва"
-                        style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(224,224,224,0.2);background:rgba(0,0,0,0.3);color:white;font-size:16px;font-family:inherit;outline:none;box-sizing:border-box;">
+            <div class="test-context-form">
+                <div style="margin-bottom:18px;">
+                    <label>🏙️ Город</label>
+                    <input type="text" id="contextCity" placeholder="Например: Москва">
                 </div>
-                <div style="margin-bottom:16px;">
-                    <label style="display:block;font-size:12px;color:#a0a3b0;margin-bottom:8px;">👤 Ваш пол</label>
-                    <div style="display:flex;gap:16px;flex-wrap:wrap;">
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
-                            <input type="radio" name="gender" value="male" style="width:18px;height:18px;cursor:pointer;accent-color:#ff6b3b;"> Мужской
+                <div style="margin-bottom:18px;">
+                    <label>👤 Пол</label>
+                    <div class="test-context-radio-group">
+                        <label class="test-context-radio-label">
+                            <input type="radio" name="gender" value="male"> Мужской
                         </label>
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
-                            <input type="radio" name="gender" value="female" style="width:18px;height:18px;cursor:pointer;accent-color:#ff6b3b;"> Женский
+                        <label class="test-context-radio-label">
+                            <input type="radio" name="gender" value="female"> Женский
                         </label>
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
-                            <input type="radio" name="gender" value="other" style="width:18px;height:18px;cursor:pointer;accent-color:#ff6b3b;"> Другое
+                        <label class="test-context-radio-label">
+                            <input type="radio" name="gender" value="other"> Другое
                         </label>
                     </div>
                 </div>
                 <div style="margin-bottom:20px;">
-                    <label style="display:block;font-size:12px;color:#a0a3b0;margin-bottom:6px;">📅 Сколько вам лет?</label>
-                    <input type="number" id="contextAge" placeholder="Например: 28" min="1" max="120"
-                        style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(224,224,224,0.2);background:rgba(0,0,0,0.3);color:white;font-size:16px;font-family:inherit;outline:none;box-sizing:border-box;">
+                    <label>📅 Возраст</label>
+                    <input type="number" id="contextAge" placeholder="Например: 28" min="1" max="120">
                 </div>
-                <button id="saveContextBtn" style="width:100%;padding:16px;border-radius:40px;border:none;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);color:white;font-weight:600;font-size:16px;cursor:pointer;font-family:inherit;touch-action:manipulation;">
-                    ✅ СОХРАНИТЬ И ПРОДОЛЖИТЬ
+                <button id="saveContextBtn" class="test-context-submit">
+                    ✦ СОХРАНИТЬ И ПРОДОЛЖИТЬ
                 </button>
             </div>`;
 
@@ -952,6 +950,12 @@ const Test = {
 
         const msgDiv = document.createElement('div');
         msgDiv.className = 'test-message test-message-bot';
+
+        // Аватар бота
+        const avatar = document.createElement('div');
+        avatar.className = 'test-message-avatar';
+        avatar.textContent = '🧠';
+
         const bubble = document.createElement('div');
         bubble.className = 'test-message-bubble test-message-bubble-bot';
         const textDiv = document.createElement('div');
@@ -962,7 +966,9 @@ const Test = {
         timeDiv.className = 'test-message-time';
         timeDiv.textContent = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
         bubble.appendChild(textDiv); bubble.appendChild(timeDiv);
-        msgDiv.appendChild(bubble); c.appendChild(msgDiv);
+        msgDiv.appendChild(avatar);
+        msgDiv.appendChild(bubble);
+        c.appendChild(msgDiv);
         this.scrollToBottom();
         return msgDiv;
     },
@@ -991,6 +997,9 @@ const Test = {
         if (!c) return;
         const msgDiv = document.createElement('div');
         msgDiv.className = 'test-message test-message-bot';
+        const avatar = document.createElement('div');
+        avatar.className = 'test-message-avatar';
+        avatar.textContent = '🧠';
         const bubble = document.createElement('div');
         bubble.className = 'test-message-bubble test-message-bubble-bot';
         const textDiv = document.createElement('div');
@@ -1005,7 +1014,7 @@ const Test = {
             btn.textContent = optText;
             btn.addEventListener('click', () => {
                 if (btn.disabled) return;
-                btn.disabled = true; btn.style.opacity='0.5';
+                btn.disabled = true; btn.style.opacity='0.4';
                 this.addUserMessage(optText);
                 callback(idx, opt);
             });
@@ -1013,9 +1022,9 @@ const Test = {
         });
         const timeDiv = document.createElement('div');
         timeDiv.className = 'test-message-time';
-        timeDiv.textContent = '📊 Прогресс: '+Math.round((current/total)*100)+'%';
+        timeDiv.textContent = '📊 '+Math.round((current/total)*100)+'%';
         bubble.appendChild(textDiv); bubble.appendChild(buttonsDiv); bubble.appendChild(timeDiv);
-        msgDiv.appendChild(bubble); c.appendChild(msgDiv);
+        msgDiv.appendChild(avatar); msgDiv.appendChild(bubble); c.appendChild(msgDiv);
         this.scrollToBottom();
     },
 
@@ -1024,6 +1033,9 @@ const Test = {
         if (!c) return;
         const msgDiv = document.createElement('div');
         msgDiv.className = 'test-message test-message-bot';
+        const avatar = document.createElement('div');
+        avatar.className = 'test-message-avatar';
+        avatar.textContent = '🧠';
         const bubble = document.createElement('div');
         bubble.className = 'test-message-bubble test-message-bubble-bot';
         if (text) {
@@ -1040,7 +1052,7 @@ const Test = {
             button.textContent = btn.text;
             button.addEventListener('click', () => {
                 if (button.disabled) return;
-                button.disabled=true; button.style.opacity='0.5';
+                button.disabled=true; button.style.opacity='0.4';
                 btn.callback();
             });
             buttonsDiv.appendChild(button);
@@ -1048,7 +1060,7 @@ const Test = {
         const timeDiv = document.createElement('div');
         timeDiv.className='test-message-time'; timeDiv.textContent='только что';
         bubble.appendChild(buttonsDiv); bubble.appendChild(timeDiv);
-        msgDiv.appendChild(bubble); c.appendChild(msgDiv);
+        msgDiv.appendChild(avatar); msgDiv.appendChild(bubble); c.appendChild(msgDiv);
         this.scrollToBottom();
         return msgDiv;
     },
