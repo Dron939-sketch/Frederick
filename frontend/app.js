@@ -1193,7 +1193,7 @@ function renderDashboard() {
                     <div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div>
                     <div class="quick-action" data-action="goals"><div class="action-icon">🎯</div><div class="action-name">Цели</div></div>
                     <div class="quick-action" data-action="questions"><div class="action-icon">❓</div><div class="action-name">Вопросы</div></div>
-                    <div class="quick-action" data-action="challenges"><div class="action-icon">🏆</div><div class="action-name">Челленджи</div></div>
+                    <div class="quick-action" data-action="brand"><div class="action-icon">🏆</div><div class="action-name">Мой бренд</div></div>
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
                 </div>
             </div>
@@ -1246,7 +1246,7 @@ function renderDashboard() {
                 weekend: handleShowWeekend,
                 goals: handleShowGoals,
                 questions: handleShowQuestions,
-                challenges: handleShowChallenges,
+                brand: () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); else { showToast("🏆 Загрузка...", "info"); const s = document.createElement("script"); s.src = "brand.js"; s.onload = () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); }; document.head.appendChild(s); } },
                 doubles: handleShowDoubles
             };
             if (handlers[type]) await handlers[type]();
