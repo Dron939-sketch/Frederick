@@ -1255,6 +1255,7 @@ function renderDashboard() {
                     <div class="quick-action" data-action="brand"><div class="action-icon">🏆</div><div class="action-name">Мой бренд</div></div>
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
                     <div class="quick-action" data-action="interests"><div class="action-icon">🔮</div><div class="action-name">Интересы</div></div>
+                    <div class="quick-action" data-action="hormones"><div class="action-icon">🧬</div><div class="action-name">Гормоны</div></div>
                 </div>
             </div>
         </div>
@@ -1327,6 +1328,7 @@ function renderDashboard() {
                 brand: () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); else { showToast("🏆 Загрузка...", "info"); const s = document.createElement("script"); s.src = "brand.js"; s.onload = () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); }; document.head.appendChild(s); } },
                 doubles: handleShowDoubles,
                 interests: () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); else { showToast('🎯 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'interests.js'; s.onload = () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); }; document.head.appendChild(s); } },
+                hormones: () => { if (typeof showHormonesScreen==='function') showHormonesScreen(); else { const s=document.createElement('script');s.src='hormones.js';s.onload=()=>{if(typeof showHormonesScreen==='function')showHormonesScreen();};document.head.appendChild(s); } },
                 habits: () => { if (typeof showHabitsScreen === 'function') showHabitsScreen(); else { showToast('🔄 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'habits.js'; s.onload = () => { if (typeof showHabitsScreen === 'function') showHabitsScreen(); }; document.head.appendChild(s); } },
                 motivation: () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); else { showToast('🔥 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'motivation.js'; s.onload = () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); }; document.head.appendChild(s); } },
                 strategy: () => { if (typeof showStrategyScreen === 'function') showStrategyScreen(); else { showToast('🗺️ Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'strategy.js'; s.onload = () => { if (typeof showStrategyScreen === 'function') showStrategyScreen(); }; document.head.appendChild(s); } }
