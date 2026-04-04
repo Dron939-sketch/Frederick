@@ -517,17 +517,38 @@ body::after {
 
 /* CTA-состояние — нет профиля */
 .profile-badge--cta {
-    background: rgba(168, 196, 224, 0.1);
-    border-color: rgba(168, 196, 224, 0.35);
-    animation: pulse-badge 2.5s ease-in-out infinite;
+    background: linear-gradient(135deg, rgba(168,196,224,0.18), rgba(120,160,210,0.10));
+    border-color: rgba(168, 196, 224, 0.5);
+    border-radius: 40px;
+    padding: 10px 22px;
+    animation: pulse-badge 2.8s ease-in-out infinite;
+    box-shadow: 0 0 0 0 rgba(168,196,224,0.2);
 }
 .profile-badge--cta:hover {
-    background: rgba(168, 196, 224, 0.18);
-    border-color: rgba(168, 196, 224, 0.5);
+    background: linear-gradient(135deg, rgba(168,196,224,0.26), rgba(120,160,210,0.16));
+    border-color: rgba(168, 196, 224, 0.7);
+    transform: translateY(-1px);
 }
 @keyframes pulse-badge {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(168, 196, 224, 0); }
-    50% { box-shadow: 0 0 0 6px rgba(168, 196, 224, 0.12); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(168,196,224,0.0); }
+    50%       { box-shadow: 0 0 0 8px rgba(168,196,224,0.14); }
+}
+
+/* CTA: увеличенный эмодзи */
+.profile-badge--cta .profile-code {
+    font-size: 22px;
+    background: none;
+    -webkit-background-clip: unset;
+    background-clip: unset;
+    color: var(--text-primary);
+    margin-bottom: 3px;
+    line-height: 1;
+}
+.profile-badge--cta .profile-status {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: rgba(168,196,224,0.9);
 }
 
 .profile-code {
