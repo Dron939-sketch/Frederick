@@ -539,9 +539,11 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         issues.append("⚠️ ДВОЙНЫЕ ПРОБЕЛЫ")
     if _re_det.search(r'[а-яё][А-ЯЁ]', text):
         issues.append("⚠️ СКЛЕЕННЫЕ СЛОВА (строчная+заглавная)")
-    if _re_det.search(r'[.!?,;:](?!\s)', text):
+    # Точка/запятая без пробела — только если за ней идёт буква (не конец строки)
+    if _re_det.search(r'[.!?,;:][А-ЯЁа-яё]', text):
         issues.append("⚠️ ЗАПЯТАЯ/ТОЧКА БЕЗ ПРОБЕЛА")
-    long_w = _re_det.findall(r'[А-ЯЁа-яё]{12,}', text)
+    # Длинные слова — порог 15 символов (персональный=12, чтотыначинаешь=15)
+    long_w = _re_det.findall(r'[А-ЯЁа-яё]{15,}', text)
     if long_w:
         issues.append(f"⚠️ ДЛИННЫЕ СЛОВА (склейка?): {long_w[:2]}")
     if text_original != text:
