@@ -427,7 +427,7 @@ class BaseMode(ABC):
                     pass
             if hasattr(self.context, 'weather_cache') and self.context.weather_cache:
                 w = self.context.weather_cache
-                lines.append(f"Погода: {w.get('icon', '')} {w.get('description', '')}, {w.get('temp', '')}°C")
+                lines.append(f"Погода: {w.get('icon', '')} {w.get('description', '')}, {w.get('temperature', '')}°C")
         return "\n".join(lines)
 
     def get_response_context(self) -> str:
