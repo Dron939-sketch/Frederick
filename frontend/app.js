@@ -1301,7 +1301,7 @@ function renderDashboard() {
                 strategy:   () => { if (typeof showStrategyScreen==='function') showStrategyScreen(); else { const s=document.createElement('script');s.src='strategy.js';s.onload=()=>{if(typeof showStrategyScreen==='function')showStrategyScreen();};document.head.appendChild(s); } },
                 challenges:       () => showToast('Челленджи — скоро', 'info'),
                 skill_diagnosis:  () => { if (typeof showSkillDiagnosisScreen==='function') showSkillDiagnosisScreen(); else { const s=document.createElement('script');s.src='skill_diagnosis.js';s.onload=()=>{if(typeof showSkillDiagnosisScreen==='function')showSkillDiagnosisScreen();};document.head.appendChild(s); } },
-                skill_choice:     () => showToast('Выбор навыка — скоро', 'info'),
+                skill_choice:     () => { if (typeof showSkillChoiceScreen==='function') showSkillChoiceScreen(); else { const s=document.createElement('script');s.src='skill_choice.js';s.onload=()=>{if(typeof showSkillChoiceScreen==='function')showSkillChoiceScreen();};document.head.appendChild(s); } },
                 daily_training:   () => showToast('Тренировка дня — скоро', 'info'),
                 progress:         () => showToast('Прогресс и рефлексия — скоро', 'info'),
                 emotions:   () => showToast('Эмоции — скоро будут доступны', 'info'),
