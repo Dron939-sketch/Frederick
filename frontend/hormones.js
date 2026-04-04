@@ -1,1052 +1,532 @@
 // ============================================
-// hormones.js — Провокативная гормональная терапия
-// Версия 2.0 — AI-генерация заданий
+// hormones.js — Гормональный баланс
+// Версия 1.0 — Диагностика + Питание + Цикл
 // ============================================
 
-// ============================================
-// 1. СОСТОЯНИЕ
-// ============================================
-let hormonesState = {
-    isLoading: false,
-    activeTab: 'diagnostic', // 'diagnostic', 'task', 'result', 'history'
-    userVectors: { СБ: 4, ТФ: 4, УБ: 4, ЧВ: 4 },
-    thinkingLevel: 5,
-    profileType: 'АНАЛИТИК',
-    userName: 'Пользователь',
-    userGender: 'other',
-    userAge: null,
-    selectedSymptoms: [],
-    currentTask: null,
-    taskHistory: [],
-    lastTaskResult: null
-};
+function _hmInjectStyles() {
+    if (document.getElementById('hm-v1-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'hm-v1-styles';
+    s.textContent = `
+        /* ===== TABS ===== */
+        .hm-tabs {
+            display: flex; gap: 4px;
+            background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 40px; padding: 4px; margin-bottom: 20px;
+            overflow-x: auto; scrollbar-width: none;
+        }
+        .hm-tabs::-webkit-scrollbar { display: none; }
+        .hm-tab {
+            flex-shrink: 0; padding: 8px 14px; border-radius: 30px; border: none;
+            background: transparent; color: var(--text-secondary);
+            font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+            transition: background 0.2s, color 0.2s; min-height: 36px; touch-action: manipulation;
+            white-space: nowrap;
+        }
+        .hm-tab.active { background: rgba(224,224,224,0.14); color: var(--text-primary); }
+
+        /* ===== СИМПТОМЫ ===== */
+        .hm-symptoms-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;
+        }
+        .hm-symptom {
+            background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 14px; padding: 12px 14px; cursor: pointer;
+            transition: background 0.18s, border-color 0.18s; touch-action: manipulation;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .hm-symptom:active { transform: scale(0.97); }
+        .hm-symptom.sel { background: rgba(224,224,224,0.14); border-color: rgba(224,224,224,0.35); }
+        .hm-symptom-icon { font-size: 20px; flex-shrink: 0; }
+        .hm-symptom-text { font-size: 12px; font-weight: 500; color: var(--text-secondary); line-height: 1.3; }
+        .hm-symptom.sel .hm-symptom-text { color: var(--text-primary); }
+
+        /* ===== ПРОФИЛЬ ГОРМОНОВ ===== */
+        .hm-profile-card {
+            background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 18px; padding: 18px; margin-bottom: 14px;
+        }
+        .hm-profile-title { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 14px; }
+        .hm-hormone-row { margin-bottom: 12px; }
+        .hm-hormone-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .hm-hormone-name  { font-size: 13px; color: var(--text-secondary); }
+        .hm-hormone-status { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; background: rgba(224,224,224,0.08); }
+        .hm-hormone-bar   { height: 6px; background: rgba(224,224,224,0.1); border-radius: 3px; overflow: hidden; }
+        .hm-hormone-fill  { height: 100%; border-radius: 3px; transition: width 0.5s; }
+
+        /* ===== РЕКОМЕНДАЦИИ ===== */
+        .hm-rec-card {
+            background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 16px; padding: 16px; margin-bottom: 10px;
+        }
+        .hm-rec-title { font-size: 13px; font-weight: 700; color: var(--chrome); margin-bottom: 8px; }
+        .hm-rec-item  { font-size: 13px; color: var(--text-secondary); line-height: 1.7; padding: 3px 0; }
+
+        /* ===== ПИТАНИЕ ===== */
+        .hm-nutrition-card {
+            background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 16px; padding: 16px; margin-bottom: 10px;
+        }
+        .hm-food-item {
+            display: flex; align-items: center; gap: 12px; padding: 8px 0;
+            border-bottom: 1px solid rgba(224,224,224,0.06);
+        }
+        .hm-food-item:last-child { border-bottom: none; }
+        .hm-food-icon   { font-size: 24px; flex-shrink: 0; }
+        .hm-food-name   { font-size: 13px; font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
+        .hm-food-effect { font-size: 11px; color: var(--text-secondary); }
+        .hm-avoid-row   { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(224,224,224,0.08); font-size: 12px; color: var(--text-secondary); }
+
+        /* ===== ЦИКЛ ===== */
+        .hm-cycle-phases {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;
+        }
+        .hm-phase-btn {
+            padding: 12px; border-radius: 14px; border: 1px solid rgba(224,224,224,0.1);
+            background: rgba(224,224,224,0.04); cursor: pointer;
+            transition: background 0.2s, border-color 0.2s; text-align: center; touch-action: manipulation;
+        }
+        .hm-phase-btn:active { transform: scale(0.97); }
+        .hm-phase-btn.sel { background: rgba(224,224,224,0.14); border-color: rgba(224,224,224,0.35); }
+        .hm-phase-emoji { font-size: 24px; display: block; margin-bottom: 4px; }
+        .hm-phase-name  { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+        .hm-phase-btn.sel .hm-phase-name { color: var(--text-primary); }
+
+        .hm-cycle-info {
+            background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 16px; padding: 16px; margin-bottom: 10px;
+        }
+        .hm-cycle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        .hm-cycle-cell { background: rgba(224,224,224,0.05); border-radius: 10px; padding: 8px; font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+        .hm-cycle-cell strong { display: block; color: var(--text-primary); margin-bottom: 2px; }
+
+        /* ===== ОБЩЕЕ ===== */
+        .hm-section-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+            color: var(--text-secondary); margin-bottom: 10px; margin-top: 18px;
+        }
+        .hm-btn {
+            padding: 11px 20px; border-radius: 30px; font-size: 13px; font-weight: 500;
+            font-family: inherit; cursor: pointer; transition: background 0.2s, transform 0.15s;
+            min-height: 42px; touch-action: manipulation; outline: none;
+        }
+        .hm-btn:active { transform: scale(0.97); }
+        .hm-btn-primary {
+            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.3); color: var(--text-primary);
+            width: 100%; border-radius: 40px; padding: 13px;
+        }
+        .hm-btn-ghost {
+            background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.14);
+            color: var(--text-secondary);
+        }
+        .hm-btn-ghost:hover { background: rgba(224,224,224,0.1); color: var(--text-primary); }
+        .hm-btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+        .hm-tip {
+            background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.08);
+            border-radius: 14px; padding: 12px 14px; font-size: 12px;
+            color: var(--text-secondary); line-height: 1.5; margin-top: 12px;
+        }
+        .hm-tip strong { color: var(--chrome); }
+
+        @media (max-width: 480px) {
+            .hm-symptoms-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+            .hm-symptom-text  { font-size: 11px; }
+        }
+    `;
+    document.head.appendChild(s);
+}
 
 // ============================================
-// 2. БАЗА СИМПТОМОВ
+// СИМПТОМЫ
 // ============================================
-const SYMPTOMS = [
-    { id: "anxiety", emoji: "😰", name: "Тревога", description: "Беспокойство, напряжение, чувство, что что-то пойдёт не так" },
-    { id: "apathy", emoji: "😴", name: "Апатия", description: "Безразличие, отсутствие желания что-либо делать" },
-    { id: "no_motivation", emoji: "⚡", name: "Нет мотивации", description: "Не хватает энергии и желания действовать" },
-    { id: "insomnia", emoji: "🌙", name: "Бессонница", description: "Трудности с засыпанием или частые пробуждения" },
-    { id: "sadness", emoji: "😢", name: "Печаль", description: "Грусть, тоска, чувство пустоты" },
-    { id: "irritation", emoji: "🔥", name: "Раздражение", description: "Всё бесит, хочется взорваться" },
-    { id: "sugar_craving", emoji: "🍫", name: "Тяга к сладкому", description: "Постоянное желание съесть что-то сладкое" },
-    { id: "loneliness", emoji: "💔", name: "Одиночество", description: "Чувство, что ты один и никто не понимает" },
-    { id: "procrastination", emoji: "⏰", name: "Прокрастинация", description: "Откладываю дела на потом, не могу начать" },
-    { id: "bad_mood", emoji: "😞", name: "Плохое настроение", description: "Всё валится из рук, ничего не радует" },
-    { id: "fear_decision", emoji: "🤔", name: "Страх решения", description: "Боюсь сделать неправильный выбор" },
-    { id: "fatigue", emoji: "🫠", name: "Хроническая усталость", description: "Постоянно чувствую себя выжатым" }
+const HM_SYMPTOMS = [
+    { id:'anxiety',        icon:'😰', text:'Тревога' },
+    { id:'irritation',     icon:'😤', text:'Раздражение' },
+    { id:'apathy',         icon:'😶', text:'Апатия' },
+    { id:'sadness',        icon:'😔', text:'Грусть' },
+    { id:'no_motivation',  icon:'😴', text:'Нет мотивации' },
+    { id:'insomnia',       icon:'🌙', text:'Плохой сон' },
+    { id:'procrastination',icon:'⏳', text:'Прокрастинация' },
+    { id:'loneliness',     icon:'🫂', text:'Одиночество' },
+    { id:'sugar_craving',  icon:'🍬', text:'Тяга к сладкому' },
+    { id:'low_energy',     icon:'🔋', text:'Мало энергии' }
 ];
 
 // ============================================
-// 3. БАЗА ТИПОВ ПРОВОКАЦИЙ (для fallback)
+// БАЗЫ ДАННЫХ
 // ============================================
-const PROVOCATION_TYPES = {
-    anxiety: {
-        hormone: "Кортизол ↑, Дофамин ↓",
-        mechanism: "Кратковременный социальный стресс → преодоление → дофамин",
-        examples: [
-            { text: "прочитать стих вслух в общественном месте", duration: "30 сек", risk: "medium" },
-            { text: "сказать 'Привет' незнакомцу", duration: "5 сек", risk: "low" },
-            { text: "громко спеть 2 строчки из песни в лифте", duration: "10 сек", risk: "medium" }
-        ]
+const HM_NUTRITION = {
+    cortisol: {
+        hormone: 'Кортизол (стресс)',
+        foods: [
+            { emoji:'🥜', name:'Магний (орехи, семена, зелень)',    effect:'снижает кортизол' },
+            { emoji:'🐟', name:'Омега-3 (жирная рыба)',             effect:'уменьшает воспаление' },
+            { emoji:'🍊', name:'Витамин С (цитрусы, киви)',         effect:'снижает кортизол' },
+            { emoji:'🍫', name:'Тёмный шоколад 70%+',              effect:'успокаивает нервную систему' }
+        ],
+        avoid: ['Кофеин', 'Сахар', 'Алкоголь', 'Фастфуд']
     },
-    apathy: {
-        hormone: "Дофамин ↓, Серотонин ↓",
-        mechanism: "Физическая активность + маленькая победа → дофамин",
-        examples: [
-            { text: "сделать 10 приседаний в любом месте", duration: "20 сек", risk: "low" },
-            { text: "написать кому-то 'Ты классный'", duration: "10 сек", risk: "low" },
-            { text: "убрать одну вещь на место", duration: "1 мин", risk: "low" }
-        ]
+    dopamine: {
+        hormone: 'Дофамин (мотивация)',
+        foods: [
+            { emoji:'🥑', name:'Тирозин (миндаль, авокадо, бобовые)', effect:'предшественник дофамина' },
+            { emoji:'🥛', name:'Пробиотики (йогурт, кефир)',           effect:'ось кишечник-мозг' },
+            { emoji:'🍵', name:'Зелёный чай',                          effect:'L-теанин + кофеин' },
+            { emoji:'🍫', name:'Тёмный шоколад',                       effect:'фенилэтиламин' }
+        ],
+        avoid: ['Избыток сахара', 'Обработанные продукты']
     },
-    irritation: {
-        hormone: "Кортизол ↑, Тестостерон ↑",
-        mechanism: "Физическая разрядка → снижение кортизола",
-        examples: [
-            { text: "громко сказать 'Хватит!' в пустой комнате", duration: "5 сек", risk: "low" },
-            { text: "порычать как лев", duration: "10 сек", risk: "low" },
-            { text: "сжать и разжать кулаки 20 раз", duration: "15 сек", risk: "low" }
-        ]
+    serotonin: {
+        hormone: 'Серотонин (настроение)',
+        foods: [
+            { emoji:'🍌', name:'Триптофан (индейка, бананы, финики)', effect:'предшественник серотонина' },
+            { emoji:'🥣', name:'Сложные углеводы (овсянка, гречка)',  effect:'помогает усвоению триптофана' },
+            { emoji:'🥚', name:'Яйца',                                effect:'богаты триптофаном' },
+            { emoji:'🧀', name:'Сыр, творог',                        effect:'источник триптофана' }
+        ],
+        avoid: ['Алкоголь', 'Рафинированный сахар']
     },
-    insomnia: {
-        hormone: "Мелатонин ↓, Кортизол ↑",
-        mechanism: "Сенсорная стимуляция + снижение света",
-        examples: [
-            { text: "выпить тёплое молоко с мёдом", duration: "2 мин", risk: "low" },
-            { text: "помассировать мочки ушей 1 минуту", duration: "1 мин", risk: "low" },
-            { text: "посмотреть на темное небо", duration: "1 мин", risk: "low" }
-        ]
+    oxytocin: {
+        hormone: 'Окситоцин (привязанность)',
+        foods: [
+            { emoji:'🍫', name:'Тёмный шоколад',          effect:'стимулирует окситоцин' },
+            { emoji:'☕', name:'Тёплый чай с молоком',     effect:'ритуал + тепло' },
+            { emoji:'🍯', name:'Мёд',                      effect:'сладкий вкус успокаивает' }
+        ],
+        avoid: []
     },
-    sugar_craving: {
-        hormone: "Серотонин ↓, Инсулин ↑",
-        mechanism: "Вкусовая провокация (горечь/кислота) → переключение",
-        examples: [
-            { text: "съесть ломтик лимона", duration: "30 сек", risk: "low" },
-            { text: "выпить стакан воды с лимоном", duration: "1 мин", risk: "low" },
-            { text: "съесть кусочек тёмного шоколада (70%+)", duration: "30 сек", risk: "low" }
-        ]
+    melatonin: {
+        hormone: 'Мелатонин (сон)',
+        foods: [
+            { emoji:'🍒', name:'Вишня',                       effect:'природный источник мелатонина' },
+            { emoji:'🌰', name:'Орехи (грецкие, миндаль)',    effect:'содержат мелатонин' },
+            { emoji:'🍌', name:'Бананы',                      effect:'магний + триптофан' },
+            { emoji:'🥛', name:'Тёплое молоко',               effect:'триптофан + ритуал' }
+        ],
+        avoid: ['Кофеин вечером', 'Синий свет', 'Тяжёлая еда']
+    }
+};
+
+const HM_CYCLE_PHASES = {
+    follicular: {
+        name:'Фолликулярная', emoji:'🌱', days:'дни 1-14',
+        energy:'Высокая', mood:'Энергичное, творческое',
+        focus:'Новые проекты, общение', hormones:'Эстроген ↑',
+        tips:['⚡ Начинайте новые проекты', '🎨 Творческие задачи', '👥 Социализация', '🏃 Интенсивные тренировки'],
+        food:['Овощи', 'Цельнозерновые', 'Бобовые', 'Фрукты']
     },
-    procrastination: {
-        hormone: "Дофамин ↓",
-        mechanism: "Прорыв через сопротивление → дофамин",
-        examples: [
-            { text: "сделать самое страшное дело 2 минуты", duration: "2 мин", risk: "low" },
-            { text: "написать первый абзац того, что откладываете", duration: "2 мин", risk: "low" },
-            { text: "установить таймер на 5 минут и начать", duration: "5 мин", risk: "low" }
-        ]
+    ovulatory: {
+        name:'Овуляторная', emoji:'🔥', days:'дни 14-16',
+        energy:'Пик энергии', mood:'Уверенное, общительное',
+        focus:'Переговоры, публичность', hormones:'Эстроген пик, Тестостерон ↑',
+        tips:['💬 Важные переговоры', '🎤 Публичные выступления', '💕 Социализация', '🏋️ Пик физической формы'],
+        food:['Постное мясо', 'Рыба', 'Яйца', 'Ферментированные продукты']
     },
-    loneliness: {
-        hormone: "Окситоцин ↓",
-        mechanism: "Социальный контакт → окситоцин",
-        examples: [
-            { text: "улыбнуться незнакомцу", duration: "2 сек", risk: "low" },
-            { text: "написать 'Как ты?' кому-то из друзей", duration: "1 мин", risk: "low" },
-            { text: "обнять себя (самообъятие) на 30 секунд", duration: "30 сек", risk: "low" }
-        ]
+    luteal: {
+        name:'Лютеиновая', emoji:'🌙', days:'дни 16-28',
+        energy:'Снижается', mood:'Перепады, интроверсия',
+        focus:'Завершение дел, рефлексия', hormones:'Прогестерон ↑',
+        tips:['📝 Завершайте начатое', '🧘 Йога, домашние практики', '📖 Саморазвитие', '🛁 Забота о себе'],
+        food:['Сложные углеводы', 'Орехи', 'Семена', 'Тёмный шоколад']
     },
-    default: {
-        hormone: "Дисбаланс нейромедиаторов",
-        mechanism: "Действие через тело → изменение состояния",
-        examples: [
-            { text: "сделать 5 глубоких вдохов", duration: "30 сек", risk: "low" },
-            { text: "выйти на свежий воздух на 2 минуты", duration: "2 мин", risk: "low" },
-            { text: "выпить стакан воды комнатной температуры", duration: "1 мин", risk: "low" }
-        ]
+    menstrual: {
+        name:'Менструальная', emoji:'🩸', days:'дни 1-5',
+        energy:'Низкая', mood:'Чувствительность, интроверсия',
+        focus:'Восстановление, отдых', hormones:'Эстроген ↓, Прогестерон ↓',
+        tips:['😴 Больше отдыхайте', '🍲 Тёплая сытная еда', '📓 Дневник, рефлексия', '🚶 Лёгкие прогулки'],
+        food:['Железо (мясо, гречка)', 'Тёплые супы', 'Имбирный чай', 'Магний']
     }
 };
 
 // ============================================
-// 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// СОСТОЯНИЕ
 // ============================================
-function showToastMessage(message, type = 'info') {
-    if (window.showToast) window.showToast(message, type);
-    else if (window.showToastMessage) window.showToastMessage(message, type);
-    else console.log(`[${type}] ${message}`);
-}
-
-function goBackToDashboard() {
-    if (typeof renderDashboard === 'function') renderDashboard();
-    else if (window.renderDashboard) window.renderDashboard();
-    else if (typeof window.goToDashboard === 'function') window.goToDashboard();
-    else location.reload();
-}
+if (!window._hmState) window._hmState = {
+    tab:      'check',
+    selected: [],   // выбранные симптомы
+    result:   null, // { hormones, recs, nutrition }
+    phase:    null  // фаза цикла
+};
+const _hm = window._hmState;
 
 // ============================================
-// 5. ЗАГРУЗКА ПРОФИЛЯ
+// УТИЛИТЫ
 // ============================================
-async function loadUserProfileForHormones() {
-    try {
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-        
-        const contextRes = await fetch(`${apiUrl}/api/get-context/${userId}`);
-        const contextData = await contextRes.json();
-        const context = contextData.context || {};
-        
-        const profileRes = await fetch(`${apiUrl}/api/get-profile/${userId}`);
-        const profileData = await profileRes.json();
-        const profile = profileData.profile || {};
-        const behavioralLevels = profile.behavioral_levels || {};
-        
-        hormonesState.userVectors = {
-            СБ: behavioralLevels.СБ ? (Array.isArray(behavioralLevels.СБ) ? behavioralLevels.СБ[behavioralLevels.СБ.length-1] : behavioralLevels.СБ) : 4,
-            ТФ: behavioralLevels.ТФ ? (Array.isArray(behavioralLevels.ТФ) ? behavioralLevels.ТФ[behavioralLevels.ТФ.length-1] : behavioralLevels.ТФ) : 4,
-            УБ: behavioralLevels.УБ ? (Array.isArray(behavioralLevels.УБ) ? behavioralLevels.УБ[behavioralLevels.УБ.length-1] : behavioralLevels.УБ) : 4,
-            ЧВ: behavioralLevels.ЧВ ? (Array.isArray(behavioralLevels.ЧВ) ? behavioralLevels.ЧВ[behavioralLevels.ЧВ.length-1] : behavioralLevels.ЧВ) : 4
-        };
-        
-        hormonesState.thinkingLevel = profile.thinking_level || 5;
-        hormonesState.profileType = profile.perception_type || 'АНАЛИТИК';
-        hormonesState.userName = localStorage.getItem('fredi_user_name') || context.name || 'друг';
-        hormonesState.userGender = context.gender || 'other';
-        hormonesState.userAge = context.age || null;
-        
-        // Загружаем историю
-        const savedHistory = localStorage.getItem(`hormones_history_${userId}`);
-        if (savedHistory) {
-            hormonesState.taskHistory = JSON.parse(savedHistory);
-        }
-        
-        console.log('📊 Данные для гормонального модуля:', hormonesState);
-    } catch (error) {
-        console.warn('Failed to load user profile:', error);
-    }
+function _hmToast(msg, t) { if (window.showToast) window.showToast(msg, t||'info'); }
+function _hmHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
+function _hmUid()   { return window.CONFIG?.USER_ID; }
+
+function _hmCalc(selected) {
+    const ids = selected.map(s => s.id);
+    let cortisol = 50, dopamine = 50, serotonin = 50, oxytocin = 50, melatonin = 50;
+
+    if (ids.includes('anxiety') || ids.includes('irritation'))    { cortisol = 78; melatonin -= 15; }
+    if (ids.includes('insomnia'))                                  { cortisol += 10; melatonin = Math.max(20, melatonin - 20); }
+    if (ids.includes('apathy') || ids.includes('no_motivation'))  { dopamine = 28; serotonin -= 10; }
+    if (ids.includes('procrastination'))                          { dopamine = Math.min(dopamine, 35); }
+    if (ids.includes('sadness'))                                  { serotonin = 30; dopamine -= 8; }
+    if (ids.includes('loneliness'))                               { oxytocin = 30; }
+    if (ids.includes('sugar_craving'))                            { serotonin = Math.min(serotonin, 38); }
+    if (ids.includes('low_energy'))                               { dopamine -= 10; cortisol += 8; }
+
+    cortisol  = Math.min(95, Math.max(10, cortisol));
+    dopamine  = Math.min(95, Math.max(10, dopamine));
+    serotonin = Math.min(95, Math.max(10, serotonin));
+    oxytocin  = Math.min(95, Math.max(10, oxytocin));
+    melatonin = Math.min(95, Math.max(10, melatonin));
+
+    // Определяем главный гормон для питания
+    let mainHormone = 'cortisol';
+    if (ids.includes('apathy') || ids.includes('no_motivation') || ids.includes('procrastination')) mainHormone = 'dopamine';
+    else if (ids.includes('sadness') || ids.includes('sugar_craving')) mainHormone = 'serotonin';
+    else if (ids.includes('loneliness')) mainHormone = 'oxytocin';
+    else if (ids.includes('insomnia')) mainHormone = 'melatonin';
+
+    // Рекомендации
+    const recs = [];
+    if (cortisol > 65)  recs.push({ title:'😰 Снизить кортизол', items:['Дыхание 4-7-8 (3 раза)', 'Прогулка 15 мин без телефона', 'Магний вечером', 'Ограничить кофеин после 14:00'] });
+    if (dopamine < 40)  recs.push({ title:'⚡ Повысить дофамин', items:['Маленькая выполненная задача прямо сейчас', 'Физическая активность 10 мин', 'Холодный душ (30 сек)', 'Список 3 достижений за день'] });
+    if (serotonin < 40) recs.push({ title:'😊 Поднять серотонин', items:['Солнечный свет или яркий свет утром', 'Бананы или финики', 'Контакт с людьми (даже короткий)', 'Прогулка на свежем воздухе'] });
+    if (oxytocin < 40)  recs.push({ title:'💕 Повысить окситоцин', items:['Обнять кого-то (или питомца)', 'Позвонить близкому человеку', 'Тёплый душ или ванна', 'Написать кому-то тёплое сообщение'] });
+    if (melatonin < 35) recs.push({ title:'🌙 Улучшить сон', items:['За 1 час до сна — без экранов', 'Тёмная прохладная комната', 'Тёплое молоко или вишнёвый сок', 'Одинаковое время отхода ко сну'] });
+
+    return { cortisol, dopamine, serotonin, oxytocin, melatonin, mainHormone, recs };
 }
 
 // ============================================
-// 6. ОПРЕДЕЛЕНИЕ ДОМИНАНТНОГО ВЕКТОРА
+// РЕНДЕР
 // ============================================
-function getDominantVector() {
-    const v = hormonesState.userVectors;
-    const entries = Object.entries(v);
-    const maxVector = entries.reduce((max, current) => 
-        current[1] > max[1] ? current : max, entries[0]);
-    return maxVector[0];
-}
+function _hmRender() {
+    _hmInjectStyles();
+    const c = document.getElementById('screenContainer');
+    if (!c) return;
 
-// ============================================
-// 7. AI-ГЕНЕРАЦИЯ ПРОВОКАТИВНОГО ЗАДАНИЯ
-// ============================================
-async function generateProvocativeTask(symptoms) {
-    const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-    const dominantVector = getDominantVector();
-    const v = hormonesState.userVectors;
-    
-    const symptomNames = symptoms.map(s => s.name).join(', ');
-    const symptomIds = symptoms.map(s => s.id);
-    
-    // Определяем основной гормональный паттерн
-    let hormonePattern = "";
-    if (symptomIds.includes('anxiety') || symptomIds.includes('insomnia')) {
-        hormonePattern = "Кортизол ↑, Дофамин ↓";
-    } else if (symptomIds.includes('apathy') || symptomIds.includes('no_motivation') || symptomIds.includes('procrastination')) {
-        hormonePattern = "Дофамин ↓, Серотонин ↓";
-    } else if (symptomIds.includes('irritation')) {
-        hormonePattern = "Кортизол ↑, Тестостерон ↑";
-    } else if (symptomIds.includes('sugar_craving')) {
-        hormonePattern = "Серотонин ↓, Инсулин ↑";
-    } else if (symptomIds.includes('loneliness')) {
-        hormonePattern = "Окситоцин ↓";
-    } else {
-        hormonePattern = "Дисбаланс нейромедиаторов";
-    }
-    
-    const prompt = `Ты — Фреди, виртуальный психолог, специалист по провокативной терапии и гормональной регуляции.
+    const TABS = [
+        { id:'check',     label:'🔬 Диагностика' },
+        { id:'nutrition', label:'🍽️ Питание' },
+        { id:'cycle',     label:'🔄 Цикл' }
+    ];
+    const tabsHtml = TABS.map(t =>
+        `<button class="hm-tab${_hm.tab===t.id?' active':''}" data-tab="${t.id}">${t.label}</button>`
+    ).join('');
 
-ПОЛЬЗОВАТЕЛЬ:
-- Имя: ${hormonesState.userName}
-- Профиль: СБ-${v.СБ}, ТФ-${v.ТФ}, УБ-${v.УБ}, ЧВ-${v.ЧВ}
-- Доминантный вектор: ${dominantVector}
-- Уровень мышления: ${hormonesState.thinkingLevel}/9
+    let body = '';
+    if (_hm.tab === 'check')     body = _hmCheck();
+    if (_hm.tab === 'nutrition') body = _hmNutrition();
+    if (_hm.tab === 'cycle')     body = _hmCycle();
 
-СИМПТОМЫ: ${symptomNames}
-ГОРМОНАЛЬНЫЙ ПАТТЕРН: ${hormonePattern}
-
-ЗАДАНИЕ:
-Создай ПРОВОКАТИВНОЕ задание, которое поможет пользователю:
-1. Кратковременно повысить уровень стресса (для последующего снижения)
-2. Получить выброс дофамина/эндорфинов после выполнения
-3. Разорвать порочный круг симптом → избегание
-
-ТРЕБОВАНИЯ К ЗАДАНИЮ:
-- Конкретное, выполнимое за 1-2 минуты
-- Безопасное, но слегка выходящее из зоны комфорта
-- Учитывай профиль пользователя (для СБ — не слишком социально рискованное, для ЧВ — с акцентом на контакт)
-- Не используй сложные реквизиты
-
-СХЕМА ОТВЕТА (JSON):
-{
-    "task": "Конкретное задание (например: 'съесть ломтик лимона')",
-    "duration": "время в секундах/минутах",
-    "hormone_mechanism": "Краткое объяснение гормонального механизма (1 предложение)",
-    "why_it_works": "Развёрнутое объяснение, почему это работает (2-3 предложения)",
-    "instruction": "Пошаговая инструкция выполнения",
-    "risk_level": "low/medium"
-}
-
-Верни только JSON.`;
-
-    try {
-        const response = await fetch(`${apiUrl}/api/ai/generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: userId,
-                prompt: prompt,
-                model: 'deepseek',
-                max_tokens: 800,
-                temperature: 0.8
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success && data.content) {
-            let jsonStr = data.content;
-            jsonStr = jsonStr.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-            const task = JSON.parse(jsonStr);
-            return task;
-        }
-    } catch (error) {
-        console.error('Error generating task:', error);
-    }
-    
-    // Fallback
-    return getFallbackTask(symptomIds);
-}
-
-function getFallbackTask(symptomIds) {
-    if (symptomIds.includes('anxiety')) {
-        return {
-            task: "прочитать стихотворение вслух в общественном месте",
-            duration: "30 секунд",
-            hormone_mechanism: "Кратковременный стресс → преодоление → дофамин",
-            why_it_works: "Когда вы делаете то, что вызывает страх, кортизол сначала повышается, а затем резко падает. На смену приходит дофамин — гормон награды за смелость.",
-            instruction: "Выберите короткое стихотворение (2-4 строки). Найдите место, где есть люди (автобус, очередь, лифт). Громко и чётко прочитайте стих. Не ждите реакции, просто сделайте и идите дальше.",
-            risk_level: "medium"
-        };
-    } else if (symptomIds.includes('sugar_craving')) {
-        return {
-            task: "съесть ломтик лимона",
-            duration: "30 секунд",
-            hormone_mechanism: "Кислота → кратковременный стресс → эндорфины",
-            why_it_works: "Кислый вкус вызывает мгновенную реакцию нервной системы — кратковременный стресс. Организм компенсирует его выбросом эндорфинов. Тяга к сладкому снижается, так как мозг получает награду из другого источника.",
-            instruction: "Возьмите ломтик лимона. Положите в рот. Ничем не заедайте. Почувствуйте кислый вкус. Сделайте глотательное движение. Поздравьте себя.",
-            risk_level: "low"
-        };
-    } else if (symptomIds.includes('apathy') || symptomIds.includes('no_motivation')) {
-        return {
-            task: "сделать 10 приседаний",
-            duration: "20 секунд",
-            hormone_mechanism: "Физическая активность → дофамин + эндорфины",
-            why_it_works: "Движение запускает выработку дофамина (мотивация) и эндорфинов (легкость). После 10 приседаний кровь разгоняется, мозг получает сигнал 'я жив и активен'.",
-            instruction: "Встаньте прямо. Сделайте 10 приседаний в любом темпе. После последнего глубоко вдохните и скажите про себя 'Я сделал это'.",
-            risk_level: "low"
-        };
-    } else if (symptomIds.includes('loneliness')) {
-        return {
-            task: "улыбнуться незнакомцу",
-            duration: "2 секунды",
-            hormone_mechanism: "Социальный контакт → окситоцин",
-            why_it_works: "Улыбка — это социальный сигнал, который запускает зеркальные нейроны. Даже если человек не улыбнётся в ответ, ваша собственная улыбка уже стимулирует выработку окситоцина.",
-            instruction: "Выйдите на улицу или в общественное место. Выберите случайного прохожего. Поймайте его взгляд. Тепло улыбнитесь. Отведите взгляд. Не ждите реакции.",
-            risk_level: "low"
-        };
-    } else {
-        return {
-            task: "сделать 5 глубоких вдохов",
-            duration: "30 секунд",
-            hormone_mechanism: "Глубокое дыхание → снижение кортизола",
-            why_it_works: "Медленное глубокое дыхание активирует парасимпатическую нервную систему, которая отвечает за расслабление. Кортизол снижается, появляется ясность.",
-            instruction: "Сядьте удобно. Вдох на 4 счёта. Задержка на 4. Выдох на 6. Повторите 5 раз. После последнего выдоха отметьте, как изменилось состояние.",
-            risk_level: "low"
-        };
-    }
-}
-
-// ============================================
-// 8. ОСНОВНОЙ ЭКРАН
-// ============================================
-async function showHormonesScreen() {
-    const completed = await checkTestCompleted();
-    if (!completed) {
-        showToastMessage('📊 Сначала пройдите психологический тест', 'info');
-        return;
-    }
-    
-    const container = document.getElementById('screenContainer');
-    if (!container) return;
-    
-    await loadUserProfileForHormones();
-    renderDiagnosticScreen(container);
-}
-
-async function checkTestCompleted() {
-    try {
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-        const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
-        const data = await response.json();
-        return data.has_profile === true;
-    } catch (e) {
-        return false;
-    }
-}
-
-function renderDiagnosticScreen(container) {
-    let symptomsHtml = '';
-    SYMPTOMS.forEach(symptom => {
-        symptomsHtml += `
-            <div class="hormone-symptom" data-symptom-id="${symptom.id}">
-                <span class="hormone-symptom-emoji">${symptom.emoji}</span>
-                <span class="hormone-symptom-name">${symptom.name}</span>
-            </div>
-        `;
-    });
-    
-    container.innerHTML = `
-        <div class="full-content-page" id="hormonesScreen">
-            <button class="back-btn" id="hormonesBackBtn">◀️ НАЗАД</button>
-            
+    c.innerHTML = `
+        <div class="full-content-page">
+            <button class="back-btn" id="hmBack">◀️ НАЗАД</button>
             <div class="content-header">
                 <div class="content-emoji">🧬</div>
-                <h1>Гормоны</h1>
-                <div style="font-size: 12px; color: var(--text-secondary);">
-                    Биохимический детокс через действие
-                </div>
+                <h1 class="content-title">Гормоны</h1>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Баланс и самочувствие</p>
             </div>
-            
-            <div class="hormones-tabs">
-                <button class="hormones-tab ${hormonesState.activeTab === 'diagnostic' ? 'active' : ''}" data-tab="diagnostic">
-                    🔍 ДИАГНОСТИКА
-                </button>
-                <button class="hormones-tab ${hormonesState.activeTab === 'task' ? 'active' : ''}" data-tab="task">
-                    ⚡ ЗАДАНИЕ
-                </button>
-                <button class="hormones-tab ${hormonesState.activeTab === 'history' ? 'active' : ''}" data-tab="history">
-                    📜 ИСТОРИЯ
-                </button>
-                <button class="hormones-tab ${hormonesState.activeTab === 'info' ? 'active' : ''}" data-tab="info">
-                    🧠 ПРИНЦИП
-                </button>
-            </div>
-            
-            <div class="hormones-content" id="hormonesContent">
-                ${hormonesState.activeTab === 'diagnostic' ? renderSymptomsSelection(symptomsHtml) : ''}
-                ${hormonesState.activeTab === 'task' ? renderTaskScreen() : ''}
-                ${hormonesState.activeTab === 'history' ? renderHistoryScreen() : ''}
-                ${hormonesState.activeTab === 'info' ? renderInfoScreen() : ''}
-            </div>
-        </div>
-    `;
-    
-    addHormonesStyles();
-    
-    document.getElementById('hormonesBackBtn')?.addEventListener('click', () => goBackToDashboard());
-    
-    document.querySelectorAll('.hormones-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            hormonesState.activeTab = tab.dataset.tab;
-            renderDiagnosticScreen(container);
-        });
+            <div class="hm-tabs">${tabsHtml}</div>
+            <div id="hmBody">${body}</div>
+        </div>`;
+
+    document.getElementById('hmBack').onclick = () => _hmHome();
+    document.querySelectorAll('.hm-tab').forEach(btn => {
+        btn.addEventListener('click', () => { _hm.tab = btn.dataset.tab; _hmRender(); });
     });
-    
-    // Обработчики выбора симптомов
-    document.querySelectorAll('.hormone-symptom').forEach(symptom => {
-        symptom.addEventListener('click', () => {
-            symptom.classList.toggle('selected');
-            const symptomId = symptom.dataset.symptomId;
-            const symptomData = SYMPTOMS.find(s => s.id === symptomId);
-            
-            if (symptom.classList.contains('selected')) {
-                if (!hormonesState.selectedSymptoms.some(s => s.id === symptomId)) {
-                    hormonesState.selectedSymptoms.push(symptomData);
-                }
-            } else {
-                hormonesState.selectedSymptoms = hormonesState.selectedSymptoms.filter(s => s.id !== symptomId);
-            }
-            
-            const nextBtn = document.getElementById('nextToTaskBtn');
-            if (nextBtn && hormonesState.selectedSymptoms.length > 0) {
-                nextBtn.style.display = 'block';
-            } else if (nextBtn) {
-                nextBtn.style.display = 'none';
-            }
-        });
-    });
+    _hmBindHandlers();
 }
 
-function renderSymptomsSelection(symptomsHtml) {
-    return `
-        <div class="hormones-diagnostic">
-            <div class="hormones-diagnostic-title">🎯 Что вы чувствуете сейчас?</div>
-            <div class="hormones-diagnostic-desc">Выберите все симптомы, которые актуальны в данный момент</div>
-            <div class="hormones-symptoms-grid">
-                ${symptomsHtml}
-            </div>
-            <button id="nextToTaskBtn" class="hormones-next-btn" style="display: none;">
-                🎯 ПОЛУЧИТЬ ЗАДАНИЕ
-            </button>
+// ===== ДИАГНОСТИКА =====
+function _hmCheck() {
+    const sympHtml = HM_SYMPTOMS.map(s => `
+        <div class="hm-symptom${_hm.selected.find(x=>x.id===s.id)?' sel':''}" data-id="${s.id}">
+            <span class="hm-symptom-icon">${s.icon}</span>
+            <span class="hm-symptom-text">${s.text}</span>
+        </div>`).join('');
+
+    const hasSelected = _hm.selected.length > 0;
+    const r = _hm.result;
+
+    const profileHtml = r ? `
+        <div class="hm-section-label">🔬 Ваш гормональный профиль</div>
+        <div class="hm-profile-card">
+            <div class="hm-profile-title">Оценка по симптомам</div>
+            ${[
+                { name:'😰 Кортизол (стресс)',      val:r.cortisol,  inv:true,  grad:'#f59e0b, #d97706' },
+                { name:'⚡ Дофамин (мотивация)',    val:r.dopamine,  inv:false, grad:'#8b5cf6, #6d28d9' },
+                { name:'😊 Серотонин (настроение)', val:r.serotonin, inv:false, grad:'#10b981, #059669' },
+                { name:'💕 Окситоцин (привязанность)',val:r.oxytocin,inv:false, grad:'#ec4899, #be185d' },
+                { name:'🌙 Мелатонин (сон)',         val:r.melatonin,inv:false, grad:'#3b82ff, #1e3a5f' }
+            ].map(h => {
+                const isHigh = h.inv ? h.val > 65 : h.val > 65;
+                const isLow  = h.inv ? h.val < 40 : h.val < 40;
+                const label  = h.inv
+                    ? (h.val > 65 ? '⚠️ повышен' : (h.val < 35 ? '📉 понижен' : '✅ норма'))
+                    : (h.val < 40 ? '📉 понижен' : (h.val > 75 ? '🎉 отлично' : '✅ норма'));
+                return `
+                <div class="hm-hormone-row">
+                    <div class="hm-hormone-header">
+                        <span class="hm-hormone-name">${h.name}</span>
+                        <span class="hm-hormone-status">${label} ${h.val}%</span>
+                    </div>
+                    <div class="hm-hormone-bar">
+                        <div class="hm-hormone-fill" style="width:${h.val}%;background:linear-gradient(90deg,${h.grad})"></div>
+                    </div>
+                </div>`;
+            }).join('')}
         </div>
-    `;
+
+        ${r.recs.length ? `
+        <div class="hm-section-label">💊 Что делать прямо сейчас</div>
+        ${r.recs.map(rec => `
+        <div class="hm-rec-card">
+            <div class="hm-rec-title">${rec.title}</div>
+            ${rec.items.map(it => `<div class="hm-rec-item">• ${it}</div>`).join('')}
+        </div>`).join('')}` : ''}
+    ` : '';
+
+    return `
+        <div class="hm-section-label">Что сейчас беспокоит?</div>
+        <div class="hm-symptoms-grid">${sympHtml}</div>
+
+        ${hasSelected
+            ? `<button class="hm-btn hm-btn-primary" id="hmAnalyzeBtn">🔬 Показать гормональный профиль</button>`
+            : `<div class="hm-tip">👆 Выберите один или несколько симптомов чтобы увидеть что происходит с гормонами</div>`
+        }
+
+        ${profileHtml}
+
+        ${r ? `<div class="hm-btn-row">
+            <button class="hm-btn hm-btn-ghost" id="hmResetBtn">🔄 Выбрать снова</button>
+        </div>` : ''}`;
 }
 
-function renderTaskScreen() {
-    if (!hormonesState.currentTask) {
-        return `
-            <div class="hormones-empty">
-                <div class="hormones-empty-emoji">⚡</div>
-                <div class="hormones-empty-title">Нет активного задания</div>
-                <div class="hormones-empty-desc">Сначала выберите симптомы во вкладке "ДИАГНОСТИКА"</div>
-                <button class="hormones-empty-btn" data-tab="diagnostic">🔍 ПЕРЕЙТИ К ДИАГНОСТИКЕ</button>
-            </div>
-        `;
-    }
-    
-    const task = hormonesState.currentTask;
-    
-    return `
-        <div class="hormones-task">
-            <div class="hormones-task-card">
-                <div class="hormones-task-icon">🎯</div>
-                <div class="hormones-task-title">ВАШЕ ПРОВОКАТИВНОЕ ЗАДАНИЕ</div>
-                <div class="hormones-task-text">${task.task}</div>
-                <div class="hormones-task-duration">⏱️ Длительность: ${task.duration}</div>
-                <div class="hormones-task-risk ${task.risk_level === 'medium' ? 'risk-medium' : 'risk-low'}">
-                    ${task.risk_level === 'medium' ? '⚠️ Требуется немного смелости' : '🟢 Безопасно, можно выполнить прямо сейчас'}
+// ===== ПИТАНИЕ =====
+function _hmNutrition() {
+    const mainHormone = _hm.result?.mainHormone || 'cortisol';
+    const nutrition   = HM_NUTRITION[mainHormone];
+
+    const allHtml = Object.entries(HM_NUTRITION).map(([key, n]) => `
+        <div class="hm-nutrition-card">
+            <div class="hm-rec-title">🍽️ При ${n.hormone}</div>
+            ${n.foods.map(f => `
+            <div class="hm-food-item">
+                <span class="hm-food-icon">${f.emoji}</span>
+                <div>
+                    <div class="hm-food-name">${f.name}</div>
+                    <div class="hm-food-effect">✨ ${f.effect}</div>
                 </div>
-            </div>
-            
-            <div class="hormones-mechanism">
-                <div class="hormones-mechanism-title">🧠 ГОРМОНАЛЬНЫЙ МЕХАНИЗМ</div>
-                <div class="hormones-mechanism-text">${task.hormone_mechanism}</div>
-                <div class="hormones-mechanism-explanation">${task.why_it_works}</div>
-            </div>
-            
-            <div class="hormones-instruction">
-                <div class="hormones-instruction-title">📋 ИНСТРУКЦИЯ</div>
-                <div class="hormones-instruction-text">${task.instruction}</div>
-            </div>
-            
-            <div class="hormones-task-actions">
-                <button id="completeTaskBtn" class="hormones-complete-btn">
-                    ✅ ВЫПОЛНИЛ
-                </button>
-                <button id="skipTaskBtn" class="hormones-skip-btn">
-                    🔄 ДРУГОЕ ЗАДАНИЕ
-                </button>
-            </div>
+            </div>`).join('')}
+            ${n.avoid.length ? `<div class="hm-avoid-row">🚫 Избегать: ${n.avoid.join(' · ')}</div>` : ''}
+        </div>`).join('');
+
+    const personalBlock = _hm.result ? `
+        <div class="hm-section-label">🎯 По вашим симптомам — приоритет</div>
+        <div class="hm-nutrition-card" style="border-color:rgba(224,224,224,0.25)">
+            <div class="hm-rec-title">🍽️ ${HM_NUTRITION[mainHormone].hormone}</div>
+            ${HM_NUTRITION[mainHormone].foods.map(f => `
+            <div class="hm-food-item">
+                <span class="hm-food-icon">${f.emoji}</span>
+                <div>
+                    <div class="hm-food-name">${f.name}</div>
+                    <div class="hm-food-effect">✨ ${f.effect}</div>
+                </div>
+            </div>`).join('')}
         </div>
-    `;
+        <div class="hm-section-label" style="margin-top:20px">Полная база питания</div>` : `
+        <div class="hm-tip">💡 Пройдите диагностику во вкладке «Диагностика» — увидите персональные рекомендации по питанию</div>
+        <div class="hm-section-label" style="margin-top:16px">База питания по гормонам</div>`;
+
+    return personalBlock + allHtml;
 }
 
-function renderHistoryScreen() {
-    if (hormonesState.taskHistory.length === 0) {
-        return `
-            <div class="hormones-empty">
-                <div class="hormones-empty-emoji">📜</div>
-                <div class="hormones-empty-title">История пуста</div>
-                <div class="hormones-empty-desc">Выполните задания, и они появятся здесь</div>
-            </div>
-        `;
-    }
-    
-    let historyHtml = '';
-    hormonesState.taskHistory.slice().reverse().forEach(entry => {
-        const date = new Date(entry.date).toLocaleDateString('ru-RU');
-        const resultEmoji = entry.result === 'better' ? '😊' : entry.result === 'much_better' ? '🎉' : '🤔';
-        historyHtml += `
-            <div class="hormones-history-item">
-                <div class="hormones-history-date">📅 ${date}</div>
-                <div class="hormones-history-task">${entry.task}</div>
-                <div class="hormones-history-result">${resultEmoji} ${entry.result_text}</div>
-            </div>
-        `;
-    });
-    
-    return `
-        <div class="hormones-history">
-            <div class="hormones-history-title">📜 ВАШИ ПРОВОКАЦИИ</div>
-            <div class="hormones-history-list">
-                ${historyHtml}
-            </div>
-            <button id="clearHistoryBtn" class="hormones-clear-btn">
-                🗑️ ОЧИСТИТЬ ИСТОРИЮ
-            </button>
-        </div>
-    `;
-}
+// ===== ЦИКЛ =====
+function _hmCycle() {
+    const phasesHtml = Object.entries(HM_CYCLE_PHASES).map(([key, ph]) => `
+        <div class="hm-phase-btn${_hm.phase===key?' sel':''}" data-phase="${key}">
+            <span class="hm-phase-emoji">${ph.emoji}</span>
+            <span class="hm-phase-name">${ph.name}</span>
+            <div style="font-size:10px;color:var(--text-secondary);margin-top:2px">${ph.days}</div>
+        </div>`).join('');
 
-function renderInfoScreen() {
-    return `
-        <div class="hormones-info">
-            <div class="hormones-info-card">
-                <div class="hormones-info-icon">🧠</div>
-                <div class="hormones-info-title">ПРИНЦИП "ТОТ, КТО МЕШАЕТ — ПОМОЖЕТ"</div>
-                <div class="hormones-info-text">
-                    Когда вы избегаете того, что вызывает страх или дискомфорт, кортизол (гормон стресса) 
-                    остаётся повышенным, а дофамин (гормон мотивации) — пониженным.
-                    <br><br>
-                    <strong>Парадоксальный эффект:</strong> если вы намеренно делаете то, чего боитесь 
-                    (в безопасном формате), вы запускаете каскад:
-                    <br><br>
-                    1️⃣ Короткий всплеск кортизола (стресс от действия)<br>
-                    2️⃣ Преодоление сопротивления (активация префронтальной коры)<br>
-                    3️⃣ Выброс дофамина (награда за смелость)<br>
-                    4️⃣ Снижение базового уровня кортизола (эффект "я справился")<br>
-                    5️⃣ Формирование новой нейронной связи (смелость → награда)
-                </div>
+    const ph = _hm.phase ? HM_CYCLE_PHASES[_hm.phase] : null;
+    const phInfo = ph ? `
+        <div class="hm-section-label">${ph.emoji} ${ph.name} — рекомендации</div>
+        <div class="hm-cycle-info">
+            <div class="hm-cycle-grid">
+                <div class="hm-cycle-cell"><strong>Энергия</strong>${ph.energy}</div>
+                <div class="hm-cycle-cell"><strong>Настроение</strong>${ph.mood}</div>
+                <div class="hm-cycle-cell"><strong>Фокус</strong>${ph.focus}</div>
+                <div class="hm-cycle-cell"><strong>Гормоны</strong>${ph.hormones}</div>
             </div>
-            
-            <div class="hormones-info-card">
-                <div class="hormones-info-icon">⚡</div>
-                <div class="hormones-info-title">ПОЧЕМУ ЭТО РАБОТАЕТ БЫСТРЕЕ, ЧЕМ ОБЫЧНЫЕ СОВЕТЫ?</div>
-                <div class="hormones-info-text">
-                    Обычные советы ("расслабься", "не переживай") работают через сознание — медленно и слабо.
-                    <br><br>
-                    Провокативные задания работают через тело и действие — быстро и мощно. 
-                    Вы не думаете о том, как перестать тревожиться. Вы делаете то, что тревожно, 
-                    и тревога отступает сама.
-                </div>
+            <div class="hm-rec-card" style="margin:0">
+                <div class="hm-rec-title">Что делать в эту фазу</div>
+                ${ph.tips.map(t => `<div class="hm-rec-item">• ${t}</div>`).join('')}
             </div>
         </div>
-    `;
+        <div class="hm-nutrition-card">
+            <div class="hm-rec-title">🍽️ Питание в эту фазу</div>
+            <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+                ${ph.food.join(' · ')}
+            </div>
+        </div>` : '';
+
+    return `
+        <div class="hm-section-label">Выберите текущую фазу цикла</div>
+        <div class="hm-cycle-phases">${phasesHtml}</div>
+        ${phInfo}
+        <div class="hm-tip">
+            💡 <strong>Каждая фаза цикла</strong> — это разная нейрохимия. Синхронизация деятельности с фазой повышает продуктивность и снижает стресс.
+        </div>`;
 }
 
 // ============================================
-// 9. ОБРАБОТЧИКИ
+// ОБРАБОТЧИКИ
 // ============================================
-function setupHormonesHandlers() {
-    // Кнопка "Получить задание"
-    document.getElementById('nextToTaskBtn')?.addEventListener('click', async () => {
-        if (hormonesState.selectedSymptoms.length === 0) {
-            showToastMessage('Выберите хотя бы один симптом', 'warning');
-            return;
-        }
-        
-        const btn = document.getElementById('nextToTaskBtn');
-        btn.disabled = true;
-        btn.textContent = '⏳ ГЕНЕРИРУЮ ЗАДАНИЕ...';
-        
-        showToastMessage('🧠 Анализирую ваше состояние...', 'info');
-        
-        const task = await generateProvocativeTask(hormonesState.selectedSymptoms);
-        hormonesState.currentTask = task;
-        hormonesState.activeTab = 'task';
-        
-        renderDiagnosticScreen(document.getElementById('screenContainer'));
-    });
-    
-    // Выполнение задания
-    document.getElementById('completeTaskBtn')?.addEventListener('click', () => {
-        // Сохраняем в историю
-        hormonesState.taskHistory.push({
-            date: new Date().toISOString(),
-            task: hormonesState.currentTask.task,
-            symptoms: hormonesState.selectedSymptoms.map(s => s.name),
-            result: null,
-            result_text: null
+function _hmBindHandlers() {
+    // Выбор симптомов
+    document.querySelectorAll('.hm-symptom').forEach(el => {
+        el.addEventListener('click', () => {
+            const id  = el.dataset.id;
+            const sym = HM_SYMPTOMS.find(s => s.id === id);
+            const idx = _hm.selected.findIndex(s => s.id === id);
+            if (idx >= 0) _hm.selected.splice(idx, 1);
+            else _hm.selected.push(sym);
+            el.classList.toggle('sel');
+            // Показать кнопку если выбрано
+            const hasSelected = _hm.selected.length > 0;
+            const btn = document.getElementById('hmAnalyzeBtn');
+            if (!btn && hasSelected) _hmRender();
         });
-        
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        localStorage.setItem(`hormones_history_${userId}`, JSON.stringify(hormonesState.taskHistory));
-        
-        // Очищаем текущее задание и симптомы
-        hormonesState.currentTask = null;
-        hormonesState.selectedSymptoms = [];
-        
-        showToastMessage('✅ Отлично! Как изменилось состояние?', 'success');
-        
-        // Показываем форму оценки
-        showResultModal();
     });
-    
-    // Пропуск / новое задание
-    document.getElementById('skipTaskBtn')?.addEventListener('click', async () => {
-        showToastMessage('🔄 Генерирую другое задание...', 'info');
-        
-        const task = await generateProvocativeTask(hormonesState.selectedSymptoms);
-        hormonesState.currentTask = task;
-        renderDiagnosticScreen(document.getElementById('screenContainer'));
+
+    // Анализ
+    document.getElementById('hmAnalyzeBtn')?.addEventListener('click', () => {
+        if (!_hm.selected.length) { _hmToast('Выберите симптомы', 'error'); return; }
+        _hm.result = _hmCalc(_hm.selected);
+        _hmRender();
     });
-    
-    // Очистка истории
-    document.getElementById('clearHistoryBtn')?.addEventListener('click', () => {
-        if (confirm('Очистить всю историю заданий?')) {
-            hormonesState.taskHistory = [];
-            const userId = window.CONFIG?.USER_ID || window.USER_ID;
-            localStorage.setItem(`hormones_history_${userId}`, JSON.stringify([]));
-            renderDiagnosticScreen(document.getElementById('screenContainer'));
-            showToastMessage('🗑️ История очищена', 'info');
-        }
+
+    // Сброс
+    document.getElementById('hmResetBtn')?.addEventListener('click', () => {
+        _hm.selected = []; _hm.result = null; _hmRender();
     });
-    
-    // Переключение по кнопкам в пустых состояниях
-    document.querySelectorAll('.hormones-empty-btn').forEach(btn => {
+
+    // Фазы цикла
+    document.querySelectorAll('.hm-phase-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const tab = btn.dataset.tab;
-            if (tab) {
-                hormonesState.activeTab = tab;
-                renderDiagnosticScreen(document.getElementById('screenContainer'));
-            }
+            _hm.phase = _hm.phase === btn.dataset.phase ? null : btn.dataset.phase;
+            _hmRender();
         });
     });
 }
 
-function showResultModal() {
-    const modal = document.createElement('div');
-    modal.className = 'hormones-modal';
-    modal.innerHTML = `
-        <div class="hormones-modal-content">
-            <div class="hormones-modal-header">
-                <span>📊 Как вы себя чувствуете?</span>
-                <button class="hormones-modal-close">✕</button>
-            </div>
-            <div class="hormones-modal-body">
-                <div class="hormones-modal-question">После выполнения задания:</div>
-                <div class="hormones-modal-options">
-                    <button class="hormones-result-btn" data-result="much_better">🎉 Стало намного лучше</button>
-                    <button class="hormones-result-btn" data-result="better">😊 Стало немного лучше</button>
-                    <button class="hormones-result-btn" data-result="same">🤔 Ничего не изменилось</button>
-                    <button class="hormones-result-btn" data-result="worse">😟 Стало хуже</button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    modal.querySelector('.hormones-modal-close').onclick = () => modal.remove();
-    
-    modal.querySelectorAll('.hormones-result-btn').forEach(btn => {
-        btn.onclick = () => {
-            const result = btn.dataset.result;
-            const resultText = btn.textContent;
-            
-            // Обновляем последнюю запись в истории
-            if (hormonesState.taskHistory.length > 0) {
-                hormonesState.taskHistory[hormonesState.taskHistory.length - 1].result = result;
-                hormonesState.taskHistory[hormonesState.taskHistory.length - 1].result_text = resultText;
-                const userId = window.CONFIG?.USER_ID || window.USER_ID;
-                localStorage.setItem(`hormones_history_${userId}`, JSON.stringify(hormonesState.taskHistory));
-            }
-            
-            modal.remove();
-            hormonesState.activeTab = 'history';
-            renderDiagnosticScreen(document.getElementById('screenContainer'));
-            
-            if (result === 'much_better' || result === 'better') {
-                showToastMessage('🎉 Отлично! Вы использовали свой страх как топливо!', 'success');
-            } else if (result === 'worse') {
-                showToastMessage('🤔 Спасибо за честность. Попробуйте другое задание.', 'info');
-            }
-        };
-    });
+// ============================================
+// ТОЧКА ВХОДА
+// ============================================
+async function showHormonesScreen() {
+    _hm.tab = 'check';
+    _hmRender();
 }
 
-// ============================================
-// 10. СТИЛИ
-// ============================================
-function addHormonesStyles() {
-    if (document.getElementById('hormones-styles')) return;
-    
-    const style = document.createElement('style');
-    style.id = 'hormones-styles';
-    style.textContent = `
-        .hormones-tabs {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
-            background: rgba(224,224,224,0.05);
-            border-radius: 50px;
-            padding: 4px;
-        }
-        .hormones-tab {
-            flex: 1;
-            padding: 10px 12px;
-            border-radius: 40px;
-            border: none;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-        .hormones-tab.active {
-            background: linear-gradient(135deg, rgba(255,107,59,0.2), rgba(255,59,59,0.1));
-            color: var(--text-primary);
-        }
-        
-        .hormones-diagnostic-title {
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-        .hormones-diagnostic-desc {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 20px;
-        }
-        .hormones-symptoms-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 24px;
-        }
-        .hormone-symptom {
-            background: rgba(224,224,224,0.05);
-            border-radius: 50px;
-            padding: 10px 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 1px solid transparent;
-        }
-        .hormone-symptom:hover {
-            background: rgba(255,107,59,0.1);
-        }
-        .hormone-symptom.selected {
-            background: rgba(255,107,59,0.25);
-            border-color: rgba(255,107,59,0.5);
-        }
-        .hormone-symptom-emoji {
-            font-size: 18px;
-        }
-        .hormone-symptom-name {
-            font-size: 12px;
-        }
-        .hormones-next-btn {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            border: none;
-            border-radius: 50px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-        }
-        
-        .hormones-task-card {
-            background: linear-gradient(135deg, rgba(255,107,59,0.15), rgba(255,59,59,0.05));
-            border-radius: 28px;
-            padding: 24px;
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .hormones-task-icon {
-            font-size: 48px;
-            margin-bottom: 12px;
-        }
-        .hormones-task-title {
-            font-size: 12px;
-            font-weight: 600;
-            letter-spacing: 2px;
-            color: #ff6b3b;
-            margin-bottom: 12px;
-        }
-        .hormones-task-text {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-        .hormones-task-duration {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-        }
-        .hormones-task-risk {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 30px;
-            font-size: 11px;
-        }
-        .risk-low {
-            background: rgba(16,185,129,0.15);
-            color: #10b981;
-        }
-        .risk-medium {
-            background: rgba(245,158,11,0.15);
-            color: #f59e0b;
-        }
-        
-        .hormones-mechanism, .hormones-instruction {
-            background: rgba(224,224,224,0.05);
-            border-radius: 20px;
-            padding: 18px;
-            margin-bottom: 16px;
-        }
-        .hormones-mechanism-title, .hormones-instruction-title {
-            font-size: 12px;
-            font-weight: 600;
-            letter-spacing: 1px;
-            color: #ff6b3b;
-            margin-bottom: 10px;
-        }
-        .hormones-mechanism-text {
-            font-size: 13px;
-            font-weight: 500;
-            margin-bottom: 10px;
-        }
-        .hormones-mechanism-explanation {
-            font-size: 12px;
-            color: var(--text-secondary);
-            line-height: 1.5;
-        }
-        .hormones-instruction-text {
-            font-size: 13px;
-            line-height: 1.5;
-        }
-        
-        .hormones-task-actions {
-            display: flex;
-            gap: 12px;
-        }
-        .hormones-complete-btn, .hormones-skip-btn {
-            flex: 1;
-            padding: 14px;
-            border-radius: 50px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-        .hormones-complete-btn {
-            background: linear-gradient(135deg, #10b981, #059669);
-            border: none;
-            color: white;
-        }
-        .hormones-skip-btn {
-            background: rgba(224,224,224,0.1);
-            border: 1px solid rgba(224,224,224,0.2);
-            color: white;
-        }
-        
-        .hormones-history-item {
-            background: rgba(224,224,224,0.05);
-            border-radius: 16px;
-            padding: 14px;
-            margin-bottom: 10px;
-        }
-        .hormones-history-date {
-            font-size: 10px;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
-        }
-        .hormones-history-task {
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 6px;
-        }
-        .hormones-history-result {
-            font-size: 12px;
-        }
-        .hormones-clear-btn {
-            width: 100%;
-            padding: 12px;
-            background: rgba(239,68,68,0.15);
-            border: 1px solid rgba(239,68,68,0.3);
-            border-radius: 50px;
-            color: #ef4444;
-            cursor: pointer;
-        }
-        
-        .hormones-info-card {
-            background: rgba(224,224,224,0.05);
-            border-radius: 24px;
-            padding: 20px;
-            margin-bottom: 16px;
-        }
-        .hormones-info-icon {
-            font-size: 40px;
-            margin-bottom: 12px;
-        }
-        .hormones-info-title {
-            font-size: 16px;
-            font-weight: 700;
-            margin-bottom: 12px;
-        }
-        .hormones-info-text {
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--text-secondary);
-        }
-        
-        .hormones-empty {
-            text-align: center;
-            padding: 60px 20px;
-        }
-        .hormones-empty-emoji {
-            font-size: 56px;
-            margin-bottom: 16px;
-        }
-        .hormones-empty-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .hormones-empty-desc {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 20px;
-        }
-        .hormones-empty-btn {
-            padding: 12px 24px;
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            border: none;
-            border-radius: 50px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-        }
-        
-        .hormones-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 2000;
-        }
-        .hormones-modal-content {
-            background: #1a1a1a;
-            border-radius: 28px;
-            max-width: 400px;
-            width: 90%;
-            border: 1px solid rgba(224,224,224,0.2);
-        }
-        .hormones-modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid rgba(224,224,224,0.1);
-            font-weight: 600;
-        }
-        .hormones-modal-body {
-            padding: 20px;
-        }
-        .hormones-modal-question {
-            font-size: 14px;
-            margin-bottom: 16px;
-        }
-        .hormones-modal-options {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .hormones-result-btn {
-            padding: 12px;
-            background: rgba(224,224,224,0.1);
-            border: 1px solid rgba(224,224,224,0.2);
-            border-radius: 50px;
-            color: white;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        .hormones-modal-close {
-            background: transparent;
-            border: none;
-            color: white;
-            font-size: 20px;
-            cursor: pointer;
-        }
-        
-        @media (max-width: 768px) {
-            .hormones-symptoms-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            .hormones-task-text {
-                font-size: 16px;
-            }
-        }
-    `;
-    document.head.appendChild(style);
-}
-
-// ============================================
-// 11. ЗАПУСК ОБРАБОТЧИКОВ
-// ============================================
-function setupHormonesHandlersDelayed() {
-    setTimeout(setupHormonesHandlers, 100);
-}
-
-const originalHormonesRender = renderDiagnosticScreen;
-window.renderDiagnosticScreen = function(container) {
-    originalHormonesRender(container);
-    setupHormonesHandlersDelayed();
-};
-
-// ============================================
-// 12. ЭКСПОРТ
-// ============================================
 window.showHormonesScreen = showHormonesScreen;
-
-console.log('✅ Модуль "Гормоны" загружен (hormones.js v2.0)');
+console.log('✅ hormones.js v1.0 загружен');
