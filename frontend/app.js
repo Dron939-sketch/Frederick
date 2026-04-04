@@ -362,7 +362,7 @@ function navigateTo(screen, params = {}) {
         case 'confinement-model': showConfinementModel(); break;
         case 'confinement-loops': showConfinementLoops(params); break;
         case 'intervention': showIntervention(params); break;
-        case 'practices': showPractices(); break;
+        case 'practices': if (typeof showPracticesScreen==='function') showPracticesScreen(); else { const s=document.createElement('script');s.src='practices.js';s.onload=()=>{if(typeof showPracticesScreen==='function')showPracticesScreen();};document.head.appendChild(s); } break;
         case 'hypnosis': if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};document.head.appendChild(s); } break;
         case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } break;
         case 'anchors': showAnchors(); break;
@@ -1462,7 +1462,7 @@ async function init() {
                     else { showToast('💬 Загрузка сообщений...', 'info'); const s = document.createElement('script'); s.src = 'messages.js'; s.onload = () => { if (typeof showMessagesScreen === 'function') showMessagesScreen(); }; document.head.appendChild(s); }
                 },
                 confinement: () => showConfinementModel(),
-                practices: () => showPractices(),
+                practices: () => { if (typeof showPracticesScreen==='function') showPracticesScreen(); else { const s=document.createElement('script');s.src='practices.js';s.onload=()=>{if(typeof showPracticesScreen==='function')showPracticesScreen();};document.head.appendChild(s); } },
                 hypnosis: () => { if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};document.head.appendChild(s); } },
                 diary: () => { if (typeof showDiaryScreen==='function') showDiaryScreen(); else { const s=document.createElement('script');s.src='diary.js';s.onload=()=>{if(typeof showDiaryScreen==='function')showDiaryScreen();};document.head.appendChild(s); } },
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
