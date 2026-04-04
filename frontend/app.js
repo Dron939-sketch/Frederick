@@ -497,7 +497,7 @@ function showFullContentScreen(title, content, contentType) {
     const emojiMap = {
         profile: '🧠', thoughts: '💭', goals: '🎯', questions: '❓',
         challenges: '🏆', doubles: '👥', weekend: '🎨', confinement: '🔐',
-        practices: '🧘', hypnosis: '🌙', tales: '🧿', anchors: '⚓', statistics: '📊'
+        practices: '🧘', hypnosis: '🌙', tales: '🧿', anchors: '⚓', confinement: '🔐'
     };
     // Если content — уже HTML (содержит теги) — не прогоняем через форматтер
     const isHTML = typeof content === 'string' && /<[a-z][\s\S]*>/i.test(content);
@@ -1449,6 +1449,8 @@ async function init() {
                 confinement: () => showConfinementModel(),
                 practices: () => showPractices(),
                 hypnosis: () => showHypnosis(),
+                diary: () => { if (typeof showDiaryScreen==='function') showDiaryScreen(); else { const s=document.createElement('script');s.src='diary.js';s.onload=()=>{if(typeof showDiaryScreen==='function')showDiaryScreen();};document.head.appendChild(s); } },
+                berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => showAnchors(),
                 statistics: () => showStatistics()
