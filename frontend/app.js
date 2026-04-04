@@ -437,9 +437,6 @@ function formatContentForDisplay(text) {
 
     let t = text;
 
-    // Вставляем разрыв перед эмодзи-заголовками если его нет
-    t = t.replace(/([\u{1F4AA}\u{1F3AF}\u{1F331}\u26A0\uFE0F\u{1F4CA}\u{1F50D}\u{1F9E0}\u26A1])/gu, '\n\n$1');
-
     // Жирный текст **...**
     t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
@@ -447,6 +444,22 @@ function formatContentForDisplay(text) {
     let out = '';
     let inList = false;
     let inParagraph = false;
+
+    // Эмодзи-заголовки — явный список без unicode escapes
+    // чтобы не разрывать составные эмодзи вроде ⚠️ (U+26A0 + U+FE0F)
+    const HEADING_EMOJIS = [
+        '\u{1F511}','\u{1F4AA}','\u{1F3AF}','\u{1F331}',
+        '\u26A0\uFE0F', '\u26A0',
+        '\u{1F4CA}','\u{1F50D}','\u{1F9E0}','\u26A1',
+        '\u{1F3C6}','\u{1F4A1}','\u{1F517}','\u{1F54A}','\u{1F3B8}',
+        '\u{1F517}','\u{1F4CC}','\u{1F31F}','\u{1F91D}','\u{1F4B0}',
+        '\u{1F3C6}'
+    ];
+
+    function isEmojiHeading(line) {
+        // Прямая проверка по конкретным эмодзи-заголовкам из AI-профиля
+        return /^(🔑|💪|🎯|🌱|⚠️|⚠|📊|🔍|🧠|⚡|🔐|🔗|📌|💡|🌟|🏆|👁|🎨|📖|🤝|💰|🌿)/.test(line);
+    }
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -457,24 +470,21 @@ function formatContentForDisplay(text) {
             continue;
         }
 
-        // Эмодзи-заголовок в начале строки
-        if (/^[\u{1F510}\u{1F4AA}\u{1F3AF}\u{1F331}\u26A0\uFE0F\u{1F4CA}\u{1F50D}\u{1F9E0}\u26A1\u{1F3C6}\u{1F4A1}\u{1F517}\u{1F54A}\uFE0F\u{1F3B8}]/u.test(line)) {
+        if (isEmojiHeading(line)) {
             if (inList)      { out += '</ul>\n'; inList = false; }
             if (inParagraph) { out += '</p>\n'; inParagraph = false; }
             out += '<div class="profile-section-title">' + line + '</div>\n';
             continue;
         }
 
-        // Элемент списка
-        if (/^[•\*\-]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
+        if (/^[•*\-]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
             if (inParagraph) { out += '</p>\n'; inParagraph = false; }
             if (!inList) { out += '<ul class="styled-list">\n'; inList = true; }
-            const itemText = line.replace(/^[•\*\-]\s+/, '').replace(/^\d+\.\s+/, '');
+            const itemText = line.replace(/^[•*\-]\s+/, '').replace(/^\d+\.\s+/, '');
             out += '<li>' + itemText + '</li>\n';
             continue;
         }
 
-        // Обычный текст
         if (inList) { out += '</ul>\n'; inList = false; }
         if (!inParagraph) { out += '<p>'; inParagraph = true; }
         else out += ' ';
