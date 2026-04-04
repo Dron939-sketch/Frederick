@@ -502,7 +502,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
 
-                response_text = normalize_tts_text(response_text)
+                # normalize_tts_text вызывается внутри voice_service — не дублируем
                 logger.info(f"💬 AI response: {len(response_text)} chars")
                 await websocket.send_json({"type": "status", "status": "speaking"})
 
@@ -1269,7 +1269,7 @@ async def process_voice(
         if not response_text or not response_text.strip():
             response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
 
-        response_text = normalize_tts_text(response_text)
+        # normalize_tts_text вызывается внутри voice_service — не дублируем
         logger.info(f"💬 AI response: {len(response_text)} символов")
 
         audio_base64 = await voice_service.text_to_speech(response_text, mode_name)
