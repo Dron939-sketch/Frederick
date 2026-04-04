@@ -526,16 +526,19 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
     # Итоговый текст через normalize_tts_text
     text = normalize_tts_text(text_original)
 
+
     # Проверяем проблемы в итоговом тексте
+    import re as _re_det
     issues = []
     if '  ' in text:
         issues.append("⚠️ ДВОЙНЫЕ ПРОБЕЛЫ")
-    if _re.search(r'[а-яё][А-ЯЁ]', text):
-        issues.append("⚠️ СКЛЕЕННЫЕ СЛОВА")
-    if _re.search(r'\w,\w', text):
-        issues.append("⚠️ ЗАПЯТАЯ БЕЗ ПРОБЕЛА")
-    if _re.search(r'(?<![а-яёА-ЯЁ])-(?![а-яёА-ЯЁ])', text):
-        issues.append("⚠️ ОДИНОЧНЫЙ ДЕФИС (возможно лишний)")
+    if _re_det.search(r'[а-яё][А-ЯЁ]', text):
+        issues.append("⚠️ СКЛЕЕННЫЕ СЛОВА (строчная+заглавная)")
+    if _re_det.search(r'[.!?,;:](?!\s)', text):
+        issues.append("⚠️ ЗАПЯТАЯ/ТОЧКА БЕЗ ПРОБЕЛА")
+    long_w = _re_det.findall(r'[А-ЯЁа-яё]{12,}', text)
+    if long_w:
+        issues.append(f"⚠️ ДЛИННЫЕ СЛОВА (склейка?): {long_w[:2]}")
     if text_original != text:
         logger.info(f"  [FINAL] ИТОГ ({len(text)} симв): {repr(text[:300])}")
     else:
