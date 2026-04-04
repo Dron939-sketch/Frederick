@@ -1223,7 +1223,7 @@ function renderDashboard() {
                 thoughts: handleShowThoughts,
                 newThought: handleShowNewThought,
                 weekend: handleShowWeekend,
-                goals: handleShowGoals,
+                goals: () => { if (typeof showGoalsScreen === "function") showGoalsScreen(); else { showToast("🎯 Загрузка...", "info"); const s = document.createElement("script"); s.src = "goals.js"; s.onload = () => { if (typeof showGoalsScreen === "function") showGoalsScreen(); }; document.head.appendChild(s); } },
                 questions: handleShowQuestions,
                 brand: () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); else { showToast("🏆 Загрузка...", "info"); const s = document.createElement("script"); s.src = "brand.js"; s.onload = () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); }; document.head.appendChild(s); } },
                 doubles: handleShowDoubles,
