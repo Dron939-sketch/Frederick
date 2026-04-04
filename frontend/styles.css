@@ -669,7 +669,7 @@ body::after {
     outline: none;
 }
 
-.module-card:hover { border-color: var(--amg-orange); transform: translateY(-2px); }
+.module-card:hover { background: rgba(224,224,224,0.1); border-color: rgba(224,224,224,0.25); transform: translateY(-2px); }
 .module-card:active { transform: scale(0.98); }
 
 .module-icon { font-size: 28px; margin-bottom: 8px; display: block; line-height: 1.2; }
@@ -765,6 +765,34 @@ body::after {
 .back-btn:hover { background: rgba(224, 224, 224, 0.2); }
 .back-btn:active { transform: scale(0.98); }
 .back-btn:focus-visible { outline: 2px solid rgba(255, 107, 59, 0.5); }
+
+/* ===== КНОПКА "ВЕРНУТЬСЯ В МЕЙСТЕРСКУЮ" ===== */
+.back-to-site-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(224, 224, 224, 0.07);
+    border: 1px solid rgba(224, 224, 224, 0.18);
+    border-radius: 30px;
+    padding: 7px 14px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+    min-height: 36px;
+    font-family: inherit;
+}
+.back-to-site-btn:hover {
+    background: rgba(224, 224, 224, 0.14);
+    border-color: rgba(224, 224, 224, 0.3);
+    color: var(--chrome);
+}
+@media (max-width: 480px) {
+    .back-to-site-label { display: none; }
+    .back-to-site-btn { padding: 7px 10px; }
+}
 
 .content-header {
     text-align: center;
