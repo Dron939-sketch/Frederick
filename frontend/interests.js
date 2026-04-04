@@ -425,17 +425,21 @@ function _renderCategory(category) {
 // ТОЧКА ВХОДА
 // ============================================
 async function showInterestsScreen() {
+    // Сразу рендерим скелет чтобы уйти от чата
+    _renderMain();
+
+    // Проверяем профиль в фоне
     try {
         const r = await fetch(`${_api()}/api/user-status?user_id=${_uid()}`);
         const d = await r.json();
         if (!d.has_profile) {
             if (window.showToast) window.showToast('📊 Сначала пройдите психологический тест', 'info');
-            return;
+            // Не уходим — показываем с дефолтными векторами
         }
     } catch { /* показываем с дефолтными векторами */ }
 
     await _loadVectors();
-    _renderMain();
+    _renderMain(); // перерендер с загруженными векторами
 }
 
 // ============================================
