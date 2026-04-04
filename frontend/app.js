@@ -57,22 +57,22 @@ const MODES = {
 
 const MODULES = {
     coach: [
-        { id: 'goals', name: 'Цели', icon: '🎯', desc: 'Постановка и достижение' },
-        { id: 'strategy', name: 'Стратегия', icon: '📊', desc: 'План действий' },
-        { id: 'motivation', name: 'Мотивация', icon: '⚡', desc: 'Энергия для движения' },
-        { id: 'habits', name: 'Привычки', icon: '🔄', desc: 'Формирование привычек' }
+        { id: 'goals',      name: 'Цели',      icon: '🎯', desc: 'Постановка и достижение' },
+        { id: 'habits',     name: 'Привычки',  icon: '🔄', desc: 'Формирование привычек' },
+        { id: 'motivation', name: 'Мотивация', icon: '🔥', desc: 'Энергия для движения' },
+        { id: 'strategy',   name: 'Стратегия', icon: '📊', desc: 'Стратегический план' }
     ],
     psychologist: [
-        { id: 'analysis', name: 'Анализ', icon: '🧠', desc: 'Глубинные паттерны' },
-        { id: 'emotions', name: 'Эмоции', icon: '💭', desc: 'Работа с чувствами' },
-        { id: 'trauma', name: 'Исцеление', icon: '🕊️', desc: 'Проработка опыта' },
-        { id: 'relations', name: 'Отношения', icon: '💕', desc: 'Коммуникация' }
+        { id: 'analysis',  name: 'Анализ',     icon: '🧠', desc: 'Глубинные паттерны' },
+        { id: 'emotions',  name: 'Эмоции',     icon: '💭', desc: 'Работа с чувствами' },
+        { id: 'trauma',    name: 'Исцеление',  icon: '🕊️', desc: 'Проработка опыта' },
+        { id: 'relations', name: 'Отношения',  icon: '💕', desc: 'Коммуникация' }
     ],
     trainer: [
-        { id: 'workout', name: 'Тренировки', icon: '💪', desc: 'Физическая активность' },
-        { id: 'discipline', name: 'Дисциплина', icon: '⏰', desc: 'Режим и порядок' },
-        { id: 'results', name: 'Результаты', icon: '🏆', desc: 'Достижения' },
-        { id: 'challenges', name: 'Челленджи', icon: '🔥', desc: 'Испытания' }
+        { id: 'goals',      name: 'Цели',      icon: '🎯', desc: 'Постановка и достижение' },
+        { id: 'habits',     name: 'Привычки',  icon: '🔄', desc: 'Формирование привычек' },
+        { id: 'motivation', name: 'Мотивация', icon: '🔥', desc: 'Заряд на результат' },
+        { id: 'challenges', name: 'Челленджи', icon: '💪', desc: 'Испытания и дисциплина' }
     ]
 };
 
@@ -1236,12 +1236,12 @@ function renderDashboard() {
                 </div>
             </div>
 
-            <div class="modules-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:24px">
+            <div class="modules-grid">
                 ${modules.map(m => `
-                    <div class="module-card" data-module="${m.id}" style="background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;cursor:pointer;border:1px solid transparent">
-                        <div class="module-icon" style="font-size:28px;margin-bottom:8px">${m.icon}</div>
-                        <div class="module-name" style="font-weight:600;font-size:14px;margin-bottom:4px">${m.name}</div>
-                        <div class="module-desc" style="font-size:11px;color:var(--text-secondary)">${m.desc}</div>
+                    <div class="module-card" data-module="${m.id}">
+                        <div class="module-icon">${m.icon}</div>
+                        <div class="module-name">${m.name}</div>
+                        <div class="module-desc">${m.desc}</div>
                     </div>`).join('')}
             </div>
 
@@ -1251,10 +1251,7 @@ function renderDashboard() {
                     <div class="quick-action" data-action="profile"><div class="action-icon">🧠</div><div class="action-name">Мой портрет</div></div>
                     <div class="quick-action" data-action="thoughts"><div class="action-icon">💭</div><div class="action-name">Мысли психолога</div></div>
                     <div class="quick-action" data-action="newThought"><div class="action-icon">✨</div><div class="action-name">Свежая мысль</div></div>
-                    <div class="quick-action" data-action="habits"><div class="action-icon">🔄</div><div class="action-name">Привычки</div></div>
-                    <div class="quick-action" data-action="motivation"><div class="action-icon">🔥</div><div class="action-name">Мотивация</div></div>
                     <div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div>
-                    <div class="quick-action" data-action="goals"><div class="action-icon">🎯</div><div class="action-name">Цели</div></div>
                     <div class="quick-action" data-action="brand"><div class="action-icon">🏆</div><div class="action-name">Мой бренд</div></div>
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
                     <div class="quick-action" data-action="interests"><div class="action-icon">🔮</div><div class="action-name">Интересы</div></div>
@@ -1295,13 +1292,21 @@ function renderDashboard() {
     document.querySelectorAll('.module-card').forEach(card => {
         card.addEventListener('click', () => {
             const moduleId = card.dataset.module;
+            const _load = (src, fn) => { if (typeof fn==='function') { fn(); } else { const s=document.createElement('script'); s.src=src; s.onload=()=>{ if(typeof fn==='function') fn(); }; document.head.appendChild(s); } };
+            const moduleHandlers = {
+                analysis:   () => { if (typeof openAnalysisScreen==='function') openAnalysisScreen(); else _load('analysis.js', window.openAnalysisScreen); },
+                goals:      () => { if (typeof showGoalsScreen==='function') showGoalsScreen(); else { const s=document.createElement('script');s.src='goals.js';s.onload=()=>{if(typeof showGoalsScreen==='function')showGoalsScreen();};document.head.appendChild(s); } },
+                habits:     () => { if (typeof showHabitsScreen==='function') showHabitsScreen(); else { const s=document.createElement('script');s.src='habits.js';s.onload=()=>{if(typeof showHabitsScreen==='function')showHabitsScreen();};document.head.appendChild(s); } },
+                motivation: () => { if (typeof showMotivationScreen==='function') showMotivationScreen(); else { const s=document.createElement('script');s.src='motivation.js';s.onload=()=>{if(typeof showMotivationScreen==='function')showMotivationScreen();};document.head.appendChild(s); } },
+                strategy:   () => showToast('Стратегия — скоро будет доступна', 'info'),
+                challenges: () => showToast('Челленджи — скоро будут доступны', 'info'),
+                emotions:   () => showToast('Эмоции — скоро будут доступны', 'info'),
+                trauma:     () => showToast('Исцеление — скоро будет доступно', 'info'),
+                relations:  () => showToast('Отношения — скоро будут доступны', 'info')
+            };
             const name = card.querySelector('.module-name')?.textContent;
-            if (moduleId === 'analysis') {
-                if (typeof openAnalysisScreen === 'function') openAnalysisScreen();
-                else { showToast('📊 Модуль анализа загружается...', 'info'); const s = document.createElement('script'); s.src = 'analysis.js'; s.onload = () => openAnalysisScreen(); document.head.appendChild(s); }
-            } else {
-                showToast(`Модуль "${name}" — скоро будет доступен`, 'info');
-            }
+            if (moduleHandlers[moduleId]) moduleHandlers[moduleId]();
+            else showToast(`Модуль "${name}" — скоро будет доступен`, 'info');
         });
     });
 
@@ -1319,7 +1324,8 @@ function renderDashboard() {
                 doubles: handleShowDoubles,
                 interests: () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); else { showToast('🎯 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'interests.js'; s.onload = () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); }; document.head.appendChild(s); } },
                 habits: () => { if (typeof showHabitsScreen === 'function') showHabitsScreen(); else { showToast('🔄 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'habits.js'; s.onload = () => { if (typeof showHabitsScreen === 'function') showHabitsScreen(); }; document.head.appendChild(s); } },
-                motivation: () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); else { showToast('🔥 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'motivation.js'; s.onload = () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); }; document.head.appendChild(s); } }
+                motivation: () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); else { showToast('🔥 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'motivation.js'; s.onload = () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); }; document.head.appendChild(s); } },
+                strategy: () => { if (typeof showStrategyScreen === 'function') showStrategyScreen(); else { showToast('🗺️ Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'strategy.js'; s.onload = () => { if (typeof showStrategyScreen === 'function') showStrategyScreen(); }; document.head.appendChild(s); } }
             };
             if (handlers[type]) await handlers[type]();
         });
