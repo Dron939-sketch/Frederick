@@ -811,70 +811,84 @@ body::after {
 .content-body strong { color: var(--text-primary); }
 
 /* ===== ПРОФИЛЬ / МЫСЛИ ===== */
-.profile-section-title,
 .thoughts-section-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
     color: var(--chrome);
-    margin-top: 24px;
-    margin-bottom: 10px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(224, 224, 224, 0.12);
+    margin-top: 20px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(224, 224, 224, 0.1);
 }
-.profile-section-title:first-child,
-.thoughts-section-title:first-child {
-    margin-top: 0;
-}
+.thoughts-section-title:first-child { margin-top: 0; }
 
 /* ===== МЕТА-БЛОК ПРОФИЛЯ ===== */
 .profile-meta-block {
     background: linear-gradient(135deg, rgba(224,224,224,0.06), rgba(192,192,192,0.02));
     border: 1px solid rgba(224,224,224,0.15);
     border-radius: 18px;
-    padding: 16px;
+    padding: 4px 16px;
     margin-bottom: 22px;
 }
 .profile-meta-row {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     gap: 12px;
-    padding: 5px 0;
-    border-bottom: 1px solid rgba(224,224,224,0.07);
-    font-size: 13px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(224,224,224,0.08);
 }
 .profile-meta-row:last-of-type { border-bottom: none; }
 .profile-meta-label {
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
     text-transform: uppercase;
     color: var(--text-secondary);
     flex-shrink: 0;
+    min-width: 80px;
 }
 .profile-meta-value {
     font-size: 13px;
     color: var(--chrome);
     font-weight: 500;
     text-align: right;
+    line-height: 1.4;
 }
 .profile-vectors-row {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-    padding-top: 10px;
-    margin-top: 2px;
+    padding: 12px 0;
+    border-top: 1px solid rgba(224,224,224,0.08);
+    margin-top: 4px;
+    justify-content: center;
 }
 .profile-vector {
     background: rgba(224,224,224,0.07);
     border: 1px solid rgba(224,224,224,0.14);
     border-radius: 20px;
-    padding: 3px 10px;
+    padding: 4px 12px;
     font-size: 11px;
     color: var(--text-secondary);
+    font-family: 'Courier New', monospace;
 }
+
+/* Секции профиля */
+.profile-section-title {
+    margin-top: 20px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(224,224,224,0.1);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--chrome);
+}
+.profile-section-title:first-of-type { margin-top: 0; }
 
 .content-body p {
     margin-bottom: 10px;
