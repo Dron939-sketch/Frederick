@@ -1313,6 +1313,108 @@ async def text_to_speech_endpoint(
         logger.error(f"TTS error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ---------- ДИАГНОСТИКА ГОЛОСА ----------
+@app.post("/api/debug/tts")
+async def debug_tts(request: Request):
+    """
+    Диагностика TTS — показывает текст на каждом шаге обработки.
+    POST {"text": "...", "mode": "psychologist|coach|trainer|basic"}
+    """
+    try:
+        from services.voice_service import (
+            normalize_tts_text, process_remakes_to_text,
+            process_vocal_markers, VOICES, VOICE_SETTINGS
+        )
+        data = await request.json()
+        text = data.get("text", "Привет, как у тебя дела сегодня?")
+        mode = data.get("mode", "psychologist")
+
+        # Пошаговая обработка
+        steps = {"0_original": text}
+
+        # Шаг 1: эмодзи
+        import re
+        t = re.sub(
+            "[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF"
+            "\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF"
+            "\U0001FA00-\U0001FAFF]+", '', text, flags=re.UNICODE
+        )
+        steps["1_no_emoji"] = t
+
+        # Шаг 2: ремарки
+        t = process_remakes_to_text(t)
+        steps["2_no_remakes"] = t
+
+        # Шаг 3: вокальные маркеры
+        t = process_vocal_markers(t)
+        steps["3_no_markers"] = t
+
+        # Шаг 4: спецсимволы
+        t = re.sub(r'[#_`~<>|@$%^&+={}\\]', '', t)
+        steps["4_no_special"] = t
+
+        # Шаг 5: точка в конце
+        if t and t[-1] not in '.!?':
+            t += '.'
+        steps["5_punctuation"] = t
+
+        # Шаг 6: нормализация пробелов
+        t = re.sub(r'\s+', ' ', t).strip()
+        steps["6_spaces"] = t
+
+        # Итоговый normalize_tts_text
+        final = normalize_tts_text(text)
+        steps["FINAL"] = final
+
+        # Анализ проблем
+        issues = []
+        if '  ' in final:                        issues.append("двойные пробелы")
+        if re.search(r'[а-яё][А-ЯЁ]', final):   issues.append("склеенные слова")
+        if re.search(r'\w,\w', final):          issues.append("запятая без пробела")
+        if re.search(r'(?<![а-яё])-(?![а-яё])', final, re.I):
+            issues.append("одиночный дефис")
+
+        # Голосовые параметры
+        voice    = VOICES.get(mode, VOICES["default"])
+        settings = VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"])
+
+        # Генерируем аудио
+        audio_b64 = await voice_service.text_to_speech(text, mode)
+
+        logger.info(f"🔍 DEBUG TTS | режим={mode} голос={voice} скорость={settings['speed']}")
+        logger.info(f"   ВХОД:  {repr(text[:200])}")
+        logger.info(f"   ИТОГ:  {repr(final[:200])}")
+        if issues: logger.warning(f"   ⚠️ {issues}")
+
+        return {
+            "pipeline":     steps,
+            "voice_params": {"voice": voice, "speed": settings["speed"], "mode": mode},
+            "issues":       issues,
+            "stats": {
+                "words_in":  len(text.split()),
+                "words_out": len(final.split()),
+                "chars_in":  len(text),
+                "chars_out": len(final),
+            },
+            "audio_base64": audio_b64,
+            "audio_mime":   "audio/mpeg"
+        }
+    except Exception as e:
+        logger.error(f"Debug TTS error: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+@app.get("/api/debug/voice-config")
+async def debug_voice_config(request: Request):
+    """Текущая конфигурация голосов"""
+    from services.voice_service import VOICES, VOICE_SETTINGS
+    return {
+        "voices":              VOICES,
+        "settings":            VOICE_SETTINGS,
+        "deepgram_configured": bool(os.environ.get("DEEPGRAM_API_KEY")),
+        "yandex_configured":   bool(os.environ.get("YANDEX_API_KEY")),
+    }
+
 
 # ---------- ПОГОДА ----------
 @app.get("/api/weather/{user_id}")
