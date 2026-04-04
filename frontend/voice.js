@@ -695,9 +695,17 @@ class VoiceTransport {
             if (this.onThinking) this.onThinking(true);
             if (this.onStatusChange) this.onStatusChange('processing');
 
-            // Конвертируем Blob → ArrayBuffer → Base64 и отправляем
+            // Конвертируем Blob → ArrayBuffer → Base64
+            // Используем чанки чтобы не переполнять стек (btoa+spread падает на >64KB)
             const arrayBuffer = await audioBlob.arrayBuffer();
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+            const uint8 = new Uint8Array(arrayBuffer);
+            let base64 = '';
+            const chunkSize = 8192;
+            for (let i = 0; i < uint8.length; i += chunkSize) {
+                const chunk = uint8.subarray(i, i + chunkSize);
+                base64 += String.fromCharCode.apply(null, chunk);
+            }
+            base64 = btoa(base64);
 
             this._audioChunks = []; // сбрасываем буфер
 
