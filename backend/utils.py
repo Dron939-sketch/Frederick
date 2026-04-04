@@ -424,7 +424,7 @@ class MorningMessageManager:
         weather_text = ""
         if context.get('weather_cache'):
             weather = context['weather_cache']
-            temp = weather.get('temp', 0)
+            temp = weather.get('temperature', 0)
             desc = weather.get('description', '')
             weather_text = f"🌡️ {desc}, {temp}°C"
         
