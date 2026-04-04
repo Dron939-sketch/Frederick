@@ -476,8 +476,10 @@ class VoiceTransport {
     }
 
     async _connectWS(isRetry = false) {
+        // Передаём текущий режим как query param — бэкенд использует его при создании mode_instance
+        const modeParam = this.currentMode ? `?mode=${this.currentMode}` : '';
         const wsUrl = this.apiBaseUrl.replace(/^https?/, 'wss').replace(/^http/, 'ws')
-                    + `/ws/voice/${this.userId}`;
+                    + `/ws/voice/${this.userId}${modeParam}`;
 
         console.log(`🔌 WS connect: ${wsUrl}${isRetry ? ' (retry)' : ''}`);
 
@@ -1008,7 +1010,16 @@ class VoiceManager {
 
     setMode(mode) {
         this.currentMode = mode;
-        if (this._transport) this._transport.currentMode = mode;
+        if (this._transport) {
+            this._transport.currentMode = mode;
+            // Если WS активен — переподключаемся с новым mode
+            // чтобы бэкенд создал правильный mode_instance
+            if (this._transport.isWS()) {
+                console.log(`🔄 Переподключение WS для режима: ${mode}`);
+                this._transport._wsCleanup();
+                this._transport._connectWS().catch(e => console.warn('WS reconnect failed:', e));
+            }
+        }
     }
 
     async getWeather()    { return this._transport?.getWeather(); }
