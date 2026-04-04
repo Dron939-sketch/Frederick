@@ -1173,6 +1173,7 @@ function renderDashboard() {
                     <div class="quick-action" data-action="questions"><div class="action-icon">❓</div><div class="action-name">Вопросы</div></div>
                     <div class="quick-action" data-action="brand"><div class="action-icon">🏆</div><div class="action-name">Мой бренд</div></div>
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
+                    <div class="quick-action" data-action="interests"><div class="action-icon">🎯</div><div class="action-name">Интересы</div></div>
                 </div>
             </div>
         </div>
@@ -1225,7 +1226,8 @@ function renderDashboard() {
                 goals: handleShowGoals,
                 questions: handleShowQuestions,
                 brand: () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); else { showToast("🏆 Загрузка...", "info"); const s = document.createElement("script"); s.src = "brand.js"; s.onload = () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); }; document.head.appendChild(s); } },
-                doubles: handleShowDoubles
+                doubles: handleShowDoubles,
+                interests: () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); else { showToast('🎯 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'interests.js'; s.onload = () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); }; document.head.appendChild(s); } }
             };
             if (handlers[type]) await handlers[type]();
         });
