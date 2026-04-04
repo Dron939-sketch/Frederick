@@ -1298,7 +1298,7 @@ function renderDashboard() {
                 goals:      () => { if (typeof showGoalsScreen==='function') showGoalsScreen(); else { const s=document.createElement('script');s.src='goals.js';s.onload=()=>{if(typeof showGoalsScreen==='function')showGoalsScreen();};document.head.appendChild(s); } },
                 habits:     () => { if (typeof showHabitsScreen==='function') showHabitsScreen(); else { const s=document.createElement('script');s.src='habits.js';s.onload=()=>{if(typeof showHabitsScreen==='function')showHabitsScreen();};document.head.appendChild(s); } },
                 motivation: () => { if (typeof showMotivationScreen==='function') showMotivationScreen(); else { const s=document.createElement('script');s.src='motivation.js';s.onload=()=>{if(typeof showMotivationScreen==='function')showMotivationScreen();};document.head.appendChild(s); } },
-                strategy:   () => showToast('Стратегия — скоро будет доступна', 'info'),
+                strategy:   () => { if (typeof showStrategyScreen==='function') showStrategyScreen(); else { const s=document.createElement('script');s.src='strategy.js';s.onload=()=>{if(typeof showStrategyScreen==='function')showStrategyScreen();};document.head.appendChild(s); } },
                 challenges: () => showToast('Челленджи — скоро будут доступны', 'info'),
                 emotions:   () => showToast('Эмоции — скоро будут доступны', 'info'),
                 trauma:     () => showToast('Исцеление — скоро будет доступно', 'info'),
