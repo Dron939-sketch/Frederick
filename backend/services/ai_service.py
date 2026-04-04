@@ -199,8 +199,11 @@ class AIService:
                         logger.info(f"... и еще {len(result) - 500} символов")
                     logger.info("=" * 80)
                     
-                    # Нормализация пробелов — НЕ склеиваем слова!
-                    result = re.sub(r'\s+', ' ', result).strip()
+                    # Нормализуем только множественные пробелы — НЕ трогаем переносы строк!
+                    # \n нужны для структуры профиля, мыслей психолога и других текстовых блоков
+                    result = re.sub(r' {2,}', ' ', result)          # убираем двойные пробелы
+                    result = re.sub(r'\n{3,}', '\n\n', result)    # не более двух переносов подряд
+                    result = result.strip()
                     
                     logger.info(f"✅ DeepSeek ответ успешно получен (длина после очистки: {len(result)} символов)")
                     return result
