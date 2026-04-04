@@ -56,7 +56,7 @@ function renderMorningMessage(message, day) {
                 </button>
                 
                 <button onclick="subscribeToPushNotifications()" id="pushBtn" class="back-btn" 
-                        style="background: rgba(59,130,246,0.12); border-color: #3b82ff;">
+                        style="background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.4);">
                     🔔 Включить утренние push-уведомления
                 </button>
             </div>
@@ -108,24 +108,31 @@ async function subscribeToPushNotifications() {
         }
 
         const registration = await navigator.serviceWorker.register('/sw.js');
+
+        // VAPID ключ из конфига или переменной окружения
+        const vapidKey = window.VAPID_PUBLIC_KEY || window.CONFIG?.VAPID_PUBLIC_KEY;
+        if (!vapidKey) {
+            showToast('⚠️ Push-уведомления временно недоступны');
+            return;
+        }
+
         const subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)   // ← будет определён ниже
+            applicationServerKey: urlBase64ToUint8Array(vapidKey)
         });
 
         pushSubscription = subscription;
 
-        // Отправляем подписку на backend
-        await fetch(`${API_BASE_URL}/api/push/subscribe`, {
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const userId = window.CONFIG?.USER_ID || window.USER_ID;
+
+        await fetch(`${apiUrl}/api/push/subscribe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: USER_ID,
-                subscription: subscription
-            })
+            body: JSON.stringify({ user_id: userId, subscription: subscription })
         });
 
-        showToast('✅ Push-уведомления успешно включены! Теперь я буду присылать утренние сообщения.');
+        showToast('✅ Push-уведомления включены! Буду присылать утренние сообщения.');
 
     } catch (error) {
         console.error('Push subscription error:', error);
@@ -145,7 +152,7 @@ function urlBase64ToUint8Array(base64String) {
     return outputArray;
 }
 
-// Автоматическая проверка при загрузке
+// Автоматическая инициализация Service Worker
 async function initMorningPush() {
     if ('serviceWorker' in navigator) {
         try {
@@ -156,8 +163,11 @@ async function initMorningPush() {
     }
 }
 
-// Экспорт
+// Алиас для совместимости с app.js
+window.showMorningScreen = openMorningScreen;
 window.openMorningScreen = openMorningScreen;
 window.getNextMorningMessage = getNextMorningMessage;
 window.subscribeToPushNotifications = subscribeToPushNotifications;
 window.initMorningPush = initMorningPush;
+
+console.log('✅ morning.js загружен');
