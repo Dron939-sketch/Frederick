@@ -227,6 +227,12 @@ def normalize_tts_text(text: str) -> str:
     if not text:
         return ""
     original = text
+
+    # ФИХ 0: восстанавливаем пробелы — DeepSeek склеивает слова
+    # "Привет,как" → "Привет, как"  |  "КакДела" → "Как Дела"
+    text = re.sub(r'([.!?,;:])([^\s\d\)\]\}])', r'\1 \2', text)
+    text = re.sub(r'([\u2014\u2013])([^\s])', r'\1 \2', text)
+    text = re.sub(r'([\u0430-\u044f\u0451])([\u0410-\u042f\u0401])', r'\1 \2', text)
     emoji_pattern = re.compile(
         "["
         "\U0001F600-\U0001F64F"
