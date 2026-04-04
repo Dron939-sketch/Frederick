@@ -583,11 +583,16 @@ async function handleShowThoughts() {
     showFullContentScreen('Мысли психолога', formatContentForDisplay(clean), 'thoughts');
 }
 
+// handleShowNewThought → делегируем в freshthought.js
 async function handleShowNewThought() {
-    showLoading('Генерирую свежую мысль...');
-    const thought = await generateNewThought();
-    if (thought) showFullContentScreen('✨ Свежая мысль', thought, 'thoughts');
-    else showToast('Не удалось сгенерировать мысль', 'error');
+    if (typeof showFreshThoughtScreen === 'function') {
+        showFreshThoughtScreen();
+    } else {
+        const s = document.createElement('script');
+        s.src = 'freshthought.js';
+        s.onload = () => { if (typeof showFreshThoughtScreen === 'function') showFreshThoughtScreen(); };
+        document.head.appendChild(s);
+    }
 }
 
 // handleShowWeekend → делегируем в weekend.js
