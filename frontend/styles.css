@@ -517,38 +517,17 @@ body::after {
 
 /* CTA-состояние — нет профиля */
 .profile-badge--cta {
-    background: linear-gradient(135deg, rgba(168,196,224,0.18), rgba(120,160,210,0.10));
-    border-color: rgba(168, 196, 224, 0.5);
-    border-radius: 40px;
-    padding: 10px 22px;
-    animation: pulse-badge 2.8s ease-in-out infinite;
-    box-shadow: 0 0 0 0 rgba(168,196,224,0.2);
+    background: rgba(168, 196, 224, 0.1);
+    border-color: rgba(168, 196, 224, 0.35);
+    animation: pulse-badge 2.5s ease-in-out infinite;
 }
 .profile-badge--cta:hover {
-    background: linear-gradient(135deg, rgba(168,196,224,0.26), rgba(120,160,210,0.16));
-    border-color: rgba(168, 196, 224, 0.7);
-    transform: translateY(-1px);
+    background: rgba(168, 196, 224, 0.18);
+    border-color: rgba(168, 196, 224, 0.5);
 }
 @keyframes pulse-badge {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(168,196,224,0.0); }
-    50%       { box-shadow: 0 0 0 8px rgba(168,196,224,0.14); }
-}
-
-/* CTA: увеличенный эмодзи */
-.profile-badge--cta .profile-code {
-    font-size: 22px;
-    background: none;
-    -webkit-background-clip: unset;
-    background-clip: unset;
-    color: var(--text-primary);
-    margin-bottom: 3px;
-    line-height: 1;
-}
-.profile-badge--cta .profile-status {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    color: rgba(168,196,224,0.9);
+    0%, 100% { box-shadow: 0 0 0 0 rgba(168, 196, 224, 0); }
+    50% { box-shadow: 0 0 0 6px rgba(168, 196, 224, 0.12); }
 }
 
 .profile-code {
@@ -970,6 +949,76 @@ body::after {
 .content-body .styled-list li strong {
     color: var(--chrome);
     font-weight: 600;
+}
+
+
+/* ===== ПРОФИЛЬ — КАРТОЧКИ СЕКЦИЙ ===== */
+.profile-card {
+    background: rgba(255,255,255,0.03);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border-left: 3px solid var(--chrome);
+    transition: background 0.2s;
+}
+.profile-card:hover {
+    background: rgba(255,255,255,0.05);
+}
+.profile-card-header {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.profile-card-body {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.7;
+}
+.profile-card-body p {
+    margin: 0 0 8px 0;
+}
+.profile-card-body p:last-child {
+    margin-bottom: 0;
+}
+.profile-list {
+    margin: 4px 0 0 0;
+    padding: 0;
+    list-style: none;
+}
+.profile-list li {
+    position: relative;
+    padding-left: 16px;
+    margin-bottom: 6px;
+    line-height: 1.6;
+    font-size: 14px;
+}
+.profile-list li::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    color: currentColor;
+    opacity: 0.6;
+}
+.profile-intro {
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.7;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 8px;
+}
+.profile-forming {
+    color: var(--text-secondary);
+    font-size: 14px;
+    opacity: 0.7;
+    text-align: center;
+    padding: 20px;
 }
 
 /* ===== ЗАГРУЗКА ===== */
