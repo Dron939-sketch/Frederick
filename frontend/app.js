@@ -440,25 +440,17 @@ function formatContentForDisplay(text) {
     // Жирный текст **...**
     t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
+    // Нормализуем буллиты — если • стоит не в начале строки,
+    // вставляем перенос перед ним чтобы он стал отдельной строкой-элементом
+    t = t.replace(/([^\n])\s*•\s+/g, '$1\n• ');
+
     const lines = t.split('\n');
     let out = '';
     let inList = false;
     let inParagraph = false;
 
-    // Эмодзи-заголовки — явный список без unicode escapes
-    // чтобы не разрывать составные эмодзи вроде ⚠️ (U+26A0 + U+FE0F)
-    const HEADING_EMOJIS = [
-        '\u{1F511}','\u{1F4AA}','\u{1F3AF}','\u{1F331}',
-        '\u26A0\uFE0F', '\u26A0',
-        '\u{1F4CA}','\u{1F50D}','\u{1F9E0}','\u26A1',
-        '\u{1F3C6}','\u{1F4A1}','\u{1F517}','\u{1F54A}','\u{1F3B8}',
-        '\u{1F517}','\u{1F4CC}','\u{1F31F}','\u{1F91D}','\u{1F4B0}',
-        '\u{1F3C6}'
-    ];
-
     function isEmojiHeading(line) {
-        // Прямая проверка по конкретным эмодзи-заголовкам из AI-профиля
-        return /^(🔑|💪|🎯|🌱|⚠️|⚠|📊|🔍|🧠|⚡|🔐|🔗|📌|💡|🌟|🏆|👁|🎨|📖|🤝|💰|🌿)/.test(line);
+        return /^(🔑|💪|🎯|🌱|⚠️|⚠|📊|🔍|🧠|⚡|🔐|🔗|📌|💡|🌟|🏆|👁|🎨|📖|🤝|💰|🌿|🔄|🔮|📍|🎭)/.test(line);
     }
 
     for (let i = 0; i < lines.length; i++) {
@@ -470,6 +462,7 @@ function formatContentForDisplay(text) {
             continue;
         }
 
+        // Эмодзи-заголовок
         if (isEmojiHeading(line)) {
             if (inList)      { out += '</ul>\n'; inList = false; }
             if (inParagraph) { out += '</p>\n'; inParagraph = false; }
@@ -477,6 +470,7 @@ function formatContentForDisplay(text) {
             continue;
         }
 
+        // Элемент списка (•, *, -, нумерованный)
         if (/^[•*\-]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
             if (inParagraph) { out += '</p>\n'; inParagraph = false; }
             if (!inList) { out += '<ul class="styled-list">\n'; inList = true; }
@@ -485,6 +479,7 @@ function formatContentForDisplay(text) {
             continue;
         }
 
+        // Обычный текст
         if (inList) { out += '</ul>\n'; inList = false; }
         if (!inParagraph) { out += '<p>'; inParagraph = true; }
         else out += ' ';
@@ -504,7 +499,11 @@ function showFullContentScreen(title, content, contentType) {
         challenges: '🏆', doubles: '👥', weekend: '🎨', confinement: '🔐',
         practices: '🧘', hypnosis: '🌙', tales: '📚', anchors: '⚓', statistics: '📊'
     };
-    const formattedContent = typeof content === 'string' ? formatContentForDisplay(content) : (content || '<p>Нет данных</p>');
+    // Если content — уже HTML (содержит теги) — не прогоняем через форматтер
+    const isHTML = typeof content === 'string' && /<[a-z][\s\S]*>/i.test(content);
+    const formattedContent = isHTML
+        ? content
+        : (typeof content === 'string' ? formatContentForDisplay(content) : (content || '<p>Нет данных</p>'));
 
     container.innerHTML = `
         <div class="full-content-page">
