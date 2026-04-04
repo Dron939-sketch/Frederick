@@ -49,9 +49,9 @@ VAD_SAMPLE_RATE = 16000
 # ГОЛОСА YANDEX TTS ДЛЯ РАЗНЫХ РЕЖИМОВ
 # ============================================
 VOICES = {
-    "psychologist": "ermil",
+    "psychologist": "filipp",   # ermil нестабилен с emotion
     "coach": "filipp",
-    "trainer": "alena",
+    "trainer": "filipp",        # alena давал женский голос везде
     "basic": "filipp",
     "default": "filipp"
 }
@@ -174,23 +174,13 @@ def restore_punctuation(text: str) -> str:
     text = re.sub(r'([,;:])\1+', r'\1', text)
     text = re.sub(r',\s*,', ',', text)
     text = re.sub(r'\,\s*\)', ')', text)
-    text = re.sub(r'\s*-\s*,?\s*', ' — ', text)
+    # Заменяем только дефис-разделитель (пробел-дефис-пробел), не трогаем дефисы в словах
+    text = re.sub(r'(?<=\s)-(?=\s)', '—', text)
     text = re.sub(r'—\s*—', '—', text)
     text = re.sub(r',\s*(и|а|но|или|да)\s+', r' \1 ', text, flags=re.IGNORECASE)
     text = re.sub(r'\b(не|ни)\s*,', r'\1', text, flags=re.IGNORECASE)
-    address_words = [
-        'друг мой', 'дорогой', 'приятель', 'друг', 'товарищ',
-        'слушай', 'дружок', 'братец', 'уважаемый'
-    ]
-    for word in address_words:
-        text = re.sub(rf'\b{word}\s+', rf'{word}, ', text, flags=re.IGNORECASE)
-    intro_words = [
-        'спасибо', 'пожалуйста', 'извините', 'знаешь',
-        'понимаешь', 'видишь', 'кстати', 'наверное',
-        'конечно', 'действительно', 'например', 'итак', 'ну', 'вот'
-    ]
-    for word in intro_words:
-        text = re.sub(rf'\b{word}\s+', rf'{word}, ', text, flags=re.IGNORECASE)
+    # Запятые после обращений и вводных слов НЕ добавляем —
+    # это делает речь дёрганой. Yandex TTS справляется сам.
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'\s*([.,!?:;])\s*', r'\1 ', text)
     text = re.sub(r'\s+([.,!?:;])', r'\1', text)
@@ -255,8 +245,11 @@ def normalize_tts_text(text: str) -> str:
     text = process_remakes_to_text(text)
     text = process_vocal_markers(text)
     text = re.sub(r'[#_`~<>|@$%^&+={}\\]', '', text)
-    text = normalize_numbers(text)
-    text = restore_punctuation(text)
+    # normalize_numbers убран — Yandex TTS читает цифры правильно
+    # restore_punctuation убрана — base_mode уже нормализует пунктуацию.
+    # Оставляем только добавление точки в конце если её нет
+    if text and text[-1] not in '.!?':
+        text += '.'
     text = re.sub(r'\s+', ' ', text).strip()
     if not text or len(text) < 2:
         text = "Вопрос интересный. Расскажите подробнее."
@@ -490,7 +483,8 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
     if len(text) > 4500:
         text = text[:4500] + "..."
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/x-www-form-urlencoded"}
-    data = {"text": text, "lang": "ru-RU", "voice": voice, "emotion": settings["emotion"], "speed": settings["speed"], "format": "mp3"}
+    # emotion убран — вызывал переключение на дефолтный голос при неподдерживаемом значении
+    data = {"text": text, "lang": "ru-RU", "voice": voice, "speed": settings["speed"], "format": "mp3"}
     try:
         client = await get_http_client()
         response = await client.post(YANDEX_TTS_API_URL, headers=headers, data=data, timeout=30.0)
