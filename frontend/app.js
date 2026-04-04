@@ -492,6 +492,75 @@ function formatContentForDisplay(text) {
     return out || '<p>Нет данных</p>';
 }
 
+// Специальный форматтер для AI-профиля — красивые карточки секций
+function formatProfileForDisplay(text) {
+    if (!text) return '<p>Нет данных</p>';
+
+    const sectionEmojis = {
+        '🔑': { title: 'КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА', color: '#ff6b3b' },
+        '💪': { title: 'СИЛЬНЫЕ СТОРОНЫ',          color: '#4caf50' },
+        '🎯': { title: 'ЗОНЫ РОСТА',               color: '#2196f3' },
+        '🌱': { title: 'КАК ЭТО СФОРМИРОВАЛОСЬ',   color: '#9c27b0' },
+        '⚠️': { title: 'ГЛАВНАЯ ЛОВУШКА',          color: '#ff9800' },
+        '⚠':  { title: 'ГЛАВНАЯ ЛОВУШКА',          color: '#ff9800' },
+    };
+
+    const lines = text.split('\n');
+    let out = '';
+    let currentSection = null;
+    let sectionContent = [];
+
+    function flushSection() {
+        if (!currentSection) return;
+        const cfg = Object.entries(sectionEmojis).find(([e]) => currentSection.startsWith(e));
+        const color = cfg ? cfg[1].color : '#e0e0e0';
+
+        // Форматируем содержимое секции
+        let contentHTML = '';
+        let inList = false;
+        for (const line of sectionContent) {
+            const l = line.trim();
+            if (!l) continue;
+            if (/^[•*\-]\s+/.test(l)) {
+                if (!inList) { contentHTML += '<ul class="profile-list">'; inList = true; }
+                contentHTML += '<li>' + l.replace(/^[•*\-]\s+/, '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') + '</li>';
+            } else {
+                if (inList) { contentHTML += '</ul>'; inList = false; }
+                contentHTML += '<p>' + l.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') + '</p>';
+            }
+        }
+        if (inList) contentHTML += '</ul>';
+
+        out += `
+        <div class="profile-card" style="border-left: 3px solid ${color}">
+            <div class="profile-card-header" style="color: ${color}">${currentSection}</div>
+            <div class="profile-card-body">${contentHTML}</div>
+        </div>`;
+
+        currentSection = null;
+        sectionContent = [];
+    }
+
+    for (const line of lines) {
+        const l = line.trim();
+        if (!l) continue;
+
+        const isSection = Object.keys(sectionEmojis).some(e => l.startsWith(e));
+        if (isSection) {
+            flushSection();
+            currentSection = l;
+        } else if (currentSection) {
+            sectionContent.push(l);
+        } else {
+            // Текст до первой секции — вводная часть
+            out += '<p class="profile-intro">' + l.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') + '</p>';
+        }
+    }
+    flushSection();
+
+    return out || '<p>Нет данных</p>';
+}
+
 function showFullContentScreen(title, content, contentType) {
     const container = document.getElementById('screenContainer');
     const emojiMap = {
@@ -571,7 +640,7 @@ async function handleShowProfile() {
 
         const rawAI   = profile.ai_generated_profile || '';
         const cleanAI = rawAI ? cleanBackendText(rawAI) : '';
-        const bodyHTML = cleanAI ? formatContentForDisplay(cleanAI) : '<p>Психологический портрет формируется.</p>';
+        const bodyHTML = cleanAI ? formatProfileForDisplay(cleanAI) : '<p class="profile-forming">🔄 Психологический портрет формируется...</p>';
 
         showFullContentScreen('Психологический портрет', meta + bodyHTML, 'profile');
     } catch {
