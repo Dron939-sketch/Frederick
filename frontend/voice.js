@@ -525,6 +525,10 @@ class VoiceTransport {
                 clearTimeout(timeout);
                 const wasWS = this._mode === 'ws';
                 this._wsReady = false;
+                if (this._intentionalClose) {
+                    this._intentionalClose = false;
+                    return;  // намеренное закрытие — не делаем fallback
+                }
                 console.warn(`WS closed (code=${e.code})`);
                 if (wasWS) {
                     this._tryReconnectWS();
@@ -556,10 +560,11 @@ class VoiceTransport {
         return false;
     }
 
-    _wsCleanup() {
+    _wsCleanup(intentional = false) {
         this._stopPing();
+        this._intentionalClose = intentional;
         if (this._ws) {
-            try { this._ws.close(); } catch {}
+            try { this._ws.close(1000, 'mode_change'); } catch {}
             this._ws = null;
         }
         this._wsReady = false;
@@ -1016,8 +1021,10 @@ class VoiceManager {
             // чтобы бэкенд создал правильный mode_instance
             if (this._transport.isWS()) {
                 console.log(`🔄 Переподключение WS для режима: ${mode}`);
-                this._transport._wsCleanup();
-                this._transport._connectWS().catch(e => console.warn('WS reconnect failed:', e));
+                this._transport._wsCleanup(true);  // intentional — не делать fallback
+                setTimeout(() => {
+                    this._transport._connectWS().catch(e => console.warn('WS reconnect failed:', e));
+                }, 300);  // небольшая задержка чтобы старый WS успел закрыться
             }
         }
     }
