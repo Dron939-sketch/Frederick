@@ -399,6 +399,21 @@ function startTest() {
 // КОНТЕНТНЫЕ ЭКРАНЫ
 // ============================================
 
+// Очищает технический мусор из текста профиля/мыслей с бэкенда
+function cleanBackendText(text) {
+    if (!text) return '';
+    return text
+        .replace(/^-{2,}$/gm, '')
+        .replace(/🧠\s*AI-СГЕНЕРИРОВАННЫЙ\s*ПРОФИЛЬ\s*:?\s*/gi, '')
+        .replace(/^Профиль:\s*[\w\-_]+\s*$/gm, '')
+        .replace(/^Тип восприятия:\s*.+$/gm, '')
+        .replace(/^Уровень мышления:\s*.+$/gm, '')
+        .replace(/^🧠 Глубинный паттерн:\s*.+$/gm, '')
+        .replace(/📊 ВАШИ ВЕКТОРЫ:[\s\S]*?(?=🔑|💪|🎯|🌱|⚠️|$)/u, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function formatContentForDisplay(text) {
     if (!text) return '<p>Нет данных</p>';
 
@@ -508,15 +523,46 @@ async function switchMode(mode) {
 
 async function handleShowProfile() {
     showLoading('Загружаю психологический портрет...');
-    const profile = await getUserProfile();
-    showFullContentScreen('🧠 Психологический портрет', profile, 'profile');
+    try {
+        const data = await apiCall(`/api/get-profile/${CONFIG.USER_ID}`);
+        const profile = data.profile || {};
+
+        const code  = profile.display_name || '';
+        const type  = profile.perception_type || '';
+        const lvl   = profile.thinking_level || '';
+        const bl    = profile.behavioral_levels || {};
+        const avg   = arr => Array.isArray(arr) ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : (arr||'?');
+        const sb = avg(bl['СБ']), tf = avg(bl['ТФ']), ub = avg(bl['УБ']), cv = avg(bl['ЧВ']);
+
+        // Шапка с мета-данными
+        let meta = '<div class="profile-meta-block">';
+        if (code)  meta += `<div class="profile-meta-row"><span class="profile-meta-label">Профиль</span><span class="profile-meta-value">${code.replace(/_/g,' · ')}</span></div>`;
+        if (type)  meta += `<div class="profile-meta-row"><span class="profile-meta-label">Восприятие</span><span class="profile-meta-value">${type}</span></div>`;
+        if (lvl)   meta += `<div class="profile-meta-row"><span class="profile-meta-label">Мышление</span><span class="profile-meta-value">${lvl}/9</span></div>`;
+        if (bl['СБ']) meta += `<div class="profile-vectors-row"><span class="profile-vector">СБ ${sb}/6</span><span class="profile-vector">ТФ ${tf}/6</span><span class="profile-vector">УБ ${ub}/6</span><span class="profile-vector">ЧВ ${cv}/6</span></div>`;
+        meta += '</div>';
+
+        const rawAI   = profile.ai_generated_profile || '';
+        const cleanAI = rawAI ? cleanBackendText(rawAI) : '';
+        const bodyHTML = cleanAI ? formatContentForDisplay(cleanAI) : '<p>Психологический портрет формируется.</p>';
+
+        showFullContentScreen('Психологический портрет', meta + bodyHTML, 'profile');
+    } catch {
+        showFullContentScreen('Психологический портрет', 'Профиль временно недоступен.', 'profile');
+    }
 }
 
 async function handleShowThoughts() {
     showLoading('Загружаю мысли психолога...');
     const thought = await getPsychologistThought();
-    if (thought) showFullContentScreen('💭 Мысли психолога', thought, 'thoughts');
-    else showToast('Мысли психолога появятся после прохождения теста', 'info');
+    if (!thought) { showToast('Мысли психолога появятся после прохождения теста', 'info'); return; }
+    const clean = thought
+        .replace(/^-{2,}$/gm, '')
+        .replace(/🧠\s*МЫСЛИ ПСИХОЛОГА\s*:?\s*/gi, '')
+        .replace(/^###\s*\d+\.?\s*/gm, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    showFullContentScreen('Мысли психолога', formatContentForDisplay(clean), 'thoughts');
 }
 
 async function handleShowNewThought() {
