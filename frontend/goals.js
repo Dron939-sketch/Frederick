@@ -824,15 +824,14 @@ function _glSaveProgress(id, data) {
 // ТОЧКА ВХОДА
 // ============================================
 async function showGoalsScreen() {
+    _glRenderMain(); // мгновенно уходим от чата
     try {
         const r = await fetch(`${_glApi()}/api/user-status?user_id=${_glUid()}`);
         const d = await r.json();
         if (!d.has_profile) {
             if (window.showToast) window.showToast('📊 Сначала пройдите психологический тест', 'info');
-            return;
         }
-    } catch { /* показываем с дефолтом */ }
-
+    } catch {}
     await _glLoadVectors();
     _glRenderMain();
 }
