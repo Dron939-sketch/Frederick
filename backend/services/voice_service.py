@@ -473,13 +473,78 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
 # ============================================
 
 async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
-    logger.info(f"🎤 Синтез речи (Yandex TTS), режим: {mode}, текст: {text[:150]}...")
+    logger.info(f"🎤 TTS запрос — режим: {mode}")
     if not text or not text.strip():
         logger.warning("⚠️ Пустой текст для TTS")
         return None
-    text = normalize_tts_text(text)
+
+    # ===== ДИАГНОСТИКА: текст ДО нормализации =====
+    text_original = text
+    logger.info("=" * 70)
+    logger.info("🔍 TTS PIPELINE START")
+    logger.info(f"  [0] ОРИГИНАЛ ({len(text)} симв): {repr(text[:300])}")
+
+    # Применяем нормализацию пошагово для диагностики
+    import re as _re
+
+    _t1 = _re.sub(
+        "[" "\U0001F600-\U0001F64F" "\U0001F300-\U0001F5FF"
+        "\U0001F680-\U0001F6FF" "\U0001F900-\U0001F9FF"
+        "\U0001FA00-\U0001FAFF" "]+",
+        '', text, flags=_re.UNICODE
+    )
+    if _t1 != text:
+        logger.info(f"  [1] ПОСЛЕ убирания эмодзи: {repr(_t1[:200])}")
+
+    _t2 = process_remakes_to_text(_t1)
+    if _t2 != _t1:
+        logger.info(f"  [2] ПОСЛЕ ремарок: {repr(_t2[:200])}")
+
+    _t3 = process_vocal_markers(_t2)
+    if _t3 != _t2:
+        logger.info(f"  [3] ПОСЛЕ вокальных маркеров: {repr(_t3[:200])}")
+
+    _t4 = _re.sub(r'[#_`~<>|@$%^&+={}\\]', '', _t3)
+    if _t4 != _t3:
+        logger.info(f"  [4] ПОСЛЕ спецсимволов: {repr(_t4[:200])}")
+
+    # Минимальная пунктуация
+    _t5 = _t4
+    if _t5 and _t5[-1] not in '.!?':
+        _t5 += '.'
+
+    _t6 = _re.sub(r'\s+', ' ', _t5).strip()
+    if _t6 != _t5:
+        logger.info(f"  [5] ПОСЛЕ нормализации пробелов: {repr(_t6[:200])}")
+
+    # Итоговый текст через normalize_tts_text
+    text = normalize_tts_text(text_original)
+
+    # Проверяем проблемы в итоговом тексте
+    issues = []
+    if '  ' in text:
+        issues.append("⚠️ ДВОЙНЫЕ ПРОБЕЛЫ")
+    if _re.search(r'[а-яё][А-ЯЁ]', text):
+        issues.append("⚠️ СКЛЕЕННЫЕ СЛОВА")
+    if _re.search(r'\w,\w', text):
+        issues.append("⚠️ ЗАПЯТАЯ БЕЗ ПРОБЕЛА")
+    if _re.search(r'(?<![а-яёА-ЯЁ])-(?![а-яёА-ЯЁ])', text):
+        issues.append("⚠️ ОДИНОЧНЫЙ ДЕФИС (возможно лишний)")
+    if text_original != text:
+        logger.info(f"  [FINAL] ИТОГ ({len(text)} симв): {repr(text[:300])}")
+    else:
+        logger.info(f"  [FINAL] Текст не изменился")
+
+    if issues:
+        logger.warning(f"  ПРОБЛЕМЫ: {' | '.join(issues)}")
+    else:
+        logger.info(f"  ✅ Текст чистый")
+
     settings = VOICE_SETTINGS.get(mode, VOICE_SETTINGS["default"])
     voice = VOICES.get(mode, VOICES["default"])
+    logger.info(f"  ГОЛОС: {voice} | СКОРОСТЬ: {settings['speed']}")
+    logger.info("=" * 70)
+
     if len(text) > 4500:
         text = text[:4500] + "..."
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/x-www-form-urlencoded"}
