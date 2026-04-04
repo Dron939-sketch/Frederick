@@ -1220,6 +1220,16 @@ function renderDashboard() {
                 </div>
             </div>
 
+            <!-- CTA-баннер для новых пользователей -->
+            <div id="ctaTestBanner" style="display:none;background:linear-gradient(135deg,rgba(168,196,224,0.12),rgba(120,160,210,0.06));border:1px solid rgba(168,196,224,0.3);border-radius:20px;padding:18px 20px;margin-bottom:20px;align-items:center;gap:16px;cursor:pointer" onclick="startTest()">
+                <div style="font-size:36px;flex-shrink:0">🧬</div>
+                <div style="flex:1">
+                    <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Узнайте свой психотип</div>
+                    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">15 минут — и Фреди будет знать вас по-настоящему. Персональные рекомендации, точный анализ, инструменты под вас.</div>
+                </div>
+                <div style="flex-shrink:0;background:linear-gradient(135deg,rgba(168,196,224,0.25),rgba(120,160,210,0.15));border:1px solid rgba(168,196,224,0.5);border-radius:30px;padding:9px 16px;font-size:12px;font-weight:700;color:rgba(168,196,224,0.95);white-space:nowrap">Начать →</div>
+            </div>
+
             <div class="mode-selector">
                 <button class="mode-btn ${currentMode === 'coach' ? 'active' : ''}" data-mode="coach">🔮 КОУЧ</button>
                 <button class="mode-btn ${currentMode === 'psychologist' ? 'active' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
@@ -1272,8 +1282,11 @@ function renderDashboard() {
             if (badge) badge.classList.remove('profile-badge--cta');
         } else {
             if (codeEl) { codeEl.textContent = '📊'; codeEl.style.fontSize = '22px'; }
-            if (statusEl) statusEl.textContent = 'пройти тест';
+            if (statusEl) statusEl.textContent = '→ пройти тест';
             if (badge) badge.classList.add('profile-badge--cta');
+            // Показываем CTA-баннер
+            const ctaBanner = document.getElementById('ctaTestBanner');
+            if (ctaBanner) ctaBanner.style.display = 'flex';
         }
     }).catch(() => {
         const statusEl = document.getElementById('profileStatus');
