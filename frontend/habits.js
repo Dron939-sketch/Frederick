@@ -1,1103 +1,837 @@
 // ============================================
 // habits.js — Привычки (режим КОУЧ)
-// Версия 1.0 — Триггер → Реакция → Новая привычка
+// Версия 2.0 — единый стиль с проектом
 // ============================================
 
 // ============================================
-// 1. СОСТОЯНИЕ
+// CSS — один раз
 // ============================================
-let habitsState = {
-    isLoading: false,
-    activeTab: 'theory', // 'theory', 'analyze', 'myHabits', 'plan', 'menu'
-    userVectors: { СБ: 4, ТФ: 4, УБ: 4, ЧВ: 4 },
-    userName: 'Пользователь',
-    userGender: 'other',
-    habits: [],           // список привычек пользователя
-    currentHabit: null,   // выбранная привычка для работы
-    dailyReminders: [],    // активные напоминания
-    streakDays: {}         // дни подряд по привычкам
-};
-
-// ============================================
-// 2. БАЗА ПРИВЫЧЕК ПО ВЕКТОРАМ
-// ============================================
-const HABITS_BY_VECTOR = {
-    "СБ": {
-        common: [
-            { name: "Избегание конфликтов", trigger: "Конфликтная ситуация", reaction: "Молчу или соглашаюсь" },
-            { name: "Прокрастинация важных разговоров", trigger: "Нужно сказать 'нет'", reaction: "Откладываю, придумываю оправдания" },
-            { name: "Замирание под давлением", trigger: "Критика или давление", reaction: "Теряюсь, не могу ответить" }
-        ],
-        recommended: [
-            { name: "Ежедневное 'маленькое нет'", trigger: "Просьба, которая неудобна", oldReaction: "Соглашаюсь", newReaction: "Говорю 'нет, спасибо'" },
-            { name: "Пауза перед ответом", trigger: "Вопрос или просьба", oldReaction: "Отвечаю сразу", newReaction: "Беру паузу 3 секунды" },
-            { name: "Защита границ", trigger: "Чувствую дискомфорт", oldReaction: "Терплю", newReaction: "Говорю о своих чувствах" }
-        ]
-    },
-    "ТФ": {
-        common: [
-            { name: "Импульсивные траты", trigger: "Стресс или скука", reaction: "Покупаю ненужное" },
-            { name: "Избегание финансового планирования", trigger: "Мысли о деньгах", reaction: "Отвлекаюсь, откладываю" },
-            { name: "Чувство вины за траты", trigger: "Покупка для себя", reaction: "Испытываю вину, сомневаюсь" }
-        ],
-        recommended: [
-            { name: "Правило 24 часов", trigger: "Хочу купить что-то не запланированное", oldReaction: "Покупаю сразу", newReaction: "Жду 24 часа" },
-            { name: "Финансовый трекер", trigger: "Получение дохода или трата", oldReaction: "Не отслеживаю", newReaction: "Записываю в трекер" },
-            { name: "Откладывание 10%", trigger: "Получение дохода", oldReaction: "Трачу всё", newReaction: "Сразу откладываю 10%" }
-        ]
-    },
-    "УБ": {
-        common: [
-            { name: "Зависание в размышлениях", trigger: "Сложная задача", reaction: "Долго думаю, не начинаю" },
-            { name: "Прокрастинация", trigger: "Неприятная задача", reaction: "Откладываю на потом" },
-            { name: "Поиск идеального решения", trigger: "Нужно выбрать", reaction: "Зависаю в анализе" }
-        ],
-        recommended: [
-            { name: "Правило 5 минут", trigger: "Не хочется начинать", oldReaction: "Откладываю", newReaction: "Делаю 5 минут" },
-            { name: "Микро-шаги", trigger: "Большая задача", oldReaction: "Паралич", newReaction: "Делю на маленькие шаги" },
-            { name: "Ежедневное действие", trigger: "Начало дня", oldReaction: "Планирую, но не делаю", newReaction: "Одно действие сразу" }
-        ]
-    },
-    "ЧВ": {
-        common: [
-            { name: "Проверка соцсетей", trigger: "Скука или тревога", reaction: "Открываю соцсети" },
-            { name: "Подстройка под других", trigger: "Разное мнение", reaction: "Соглашаюсь, даже если не согласен" },
-            { name: "Потребность в одобрении", trigger: "Сделал что-то", reaction: "Жду реакции других" }
-        ],
-        recommended: [
-            { name: "Цифровой детокс-час", trigger: "Вечернее время", oldReaction: "Листаю ленту", newReaction: "Читаю книгу" },
-            { name: "Время для себя", trigger: "Чувство усталости", oldReaction: "Продолжаю общаться", newReaction: "Ухожу в себя на 15 мин" },
-            { name: "Своё мнение вслух", trigger: "Не согласен с мнением", oldReaction: "Молчу", newReaction: "Мягко выражаю своё" }
-        ]
-    }
-};
-
-// ============================================
-// 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ============================================
-function showToastMessage(message, type = 'info') {
-    if (window.showToast) window.showToast(message, type);
-    else if (window.showToastMessage) window.showToastMessage(message, type);
-    else console.log(`[${type}] ${message}`);
-}
-
-function goBackToDashboard() {
-    if (typeof renderDashboard === 'function') renderDashboard();
-    else if (window.renderDashboard) window.renderDashboard();
-    else if (typeof window.goToDashboard === 'function') window.goToDashboard();
-    else location.reload();
-}
-
-// ============================================
-// 4. ЗАГРУЗКА ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ
-// ============================================
-async function loadUserProfileForHabits() {
-    try {
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-        
-        const contextRes = await fetch(`${apiUrl}/api/get-context/${userId}`);
-        const contextData = await contextRes.json();
-        const context = contextData.context || {};
-        
-        const profileRes = await fetch(`${apiUrl}/api/get-profile/${userId}`);
-        const profileData = await profileRes.json();
-        const profile = profileData.profile || {};
-        const behavioralLevels = profile.behavioral_levels || {};
-        
-        habitsState.userVectors = {
-            СБ: behavioralLevels.СБ ? (Array.isArray(behavioralLevels.СБ) ? behavioralLevels.СБ[behavioralLevels.СБ.length-1] : behavioralLevels.СБ) : 4,
-            ТФ: behavioralLevels.ТФ ? (Array.isArray(behavioralLevels.ТФ) ? behavioralLevels.ТФ[behavioralLevels.ТФ.length-1] : behavioralLevels.ТФ) : 4,
-            УБ: behavioralLevels.УБ ? (Array.isArray(behavioralLevels.УБ) ? behavioralLevels.УБ[behavioralLevels.УБ.length-1] : behavioralLevels.УБ) : 4,
-            ЧВ: behavioralLevels.ЧВ ? (Array.isArray(behavioralLevels.ЧВ) ? behavioralLevels.ЧВ[behavioralLevels.ЧВ.length-1] : behavioralLevels.ЧВ) : 4
-        };
-        
-        habitsState.userName = localStorage.getItem('fredi_user_name') || context.name || 'друг';
-        habitsState.userGender = context.gender || 'other';
-        
-        // Загружаем сохранённые привычки
-        const savedHabits = localStorage.getItem(`habits_${userId}`);
-        if (savedHabits) {
-            habitsState.habits = JSON.parse(savedHabits);
-        }
-        
-        // Загружаем streak
-        const savedStreak = localStorage.getItem(`habits_streak_${userId}`);
-        if (savedStreak) {
-            habitsState.streakDays = JSON.parse(savedStreak);
-        }
-        
-        console.log('📊 Данные для привычек:', habitsState);
-    } catch (error) {
-        console.warn('Failed to load user profile:', error);
-    }
-}
-
-// ============================================
-// 5. ОПРЕДЕЛЕНИЕ СЛАБОГО ВЕКТОРА
-// ============================================
-function getWeakVector() {
-    const v = habitsState.userVectors;
-    const entries = Object.entries(v);
-    const minVector = entries.reduce((min, current) => 
-        current[1] < min[1] ? current : min, entries[0]);
-    return minVector[0];
-}
-
-// ============================================
-// 6. СОХРАНЕНИЕ ПРИВЫЧЕК
-// ============================================
-function saveHabits() {
-    const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    localStorage.setItem(`habits_${userId}`, JSON.stringify(habitsState.habits));
-}
-
-function saveStreak() {
-    const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    localStorage.setItem(`habits_streak_${userId}`, JSON.stringify(habitsState.streakDays));
-}
-
-// ============================================
-// 7. ОСНОВНОЙ ЭКРАН
-// ============================================
-async function showHabitsScreen() {
-    const completed = await checkTestCompleted();
-    if (!completed) {
-        showToastMessage('📊 Сначала пройдите психологический тест', 'info');
-        return;
-    }
-    
-    const container = document.getElementById('screenContainer');
-    if (!container) return;
-    
-    await loadUserProfileForHabits();
-    renderHabitsMainScreen(container);
-}
-
-async function checkTestCompleted() {
-    try {
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-        const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
-        const data = await response.json();
-        return data.has_profile === true;
-    } catch (e) {
-        return false;
-    }
-}
-
-function renderHabitsMainScreen(container) {
-    const weakVector = getWeakVector();
-    const vectorHabits = HABITS_BY_VECTOR[weakVector] || HABITS_BY_VECTOR["ЧВ"];
-    
-    container.innerHTML = `
-        <div class="full-content-page" id="habitsScreen">
-            <button class="back-btn" id="habitsBackBtn">◀️ НАЗАД</button>
-            
-            <div class="content-header">
-                <div class="content-emoji">🔄</div>
-                <h1>Привычки</h1>
-                <div style="font-size: 12px; color: var(--text-secondary);">
-                    Триггер → Реакция → Новая привычка
-                </div>
-            </div>
-            
-            <div class="habits-tabs">
-                <button class="habits-tab ${habitsState.activeTab === 'theory' ? 'active' : ''}" data-tab="theory">
-                    🧠 ТЕОРИЯ
-                </button>
-                <button class="habits-tab ${habitsState.activeTab === 'analyze' ? 'active' : ''}" data-tab="analyze">
-                    🔍 АНАЛИЗ
-                </button>
-                <button class="habits-tab ${habitsState.activeTab === 'myHabits' ? 'active' : ''}" data-tab="myHabits">
-                    ✏️ МОИ ПРИВЫЧКИ
-                    ${habitsState.habits.length > 0 ? `<span class="habits-badge">${habitsState.habits.length}</span>` : ''}
-                </button>
-                <button class="habits-tab ${habitsState.activeTab === 'plan' ? 'active' : ''}" data-tab="plan">
-                    🌱 ПЛАН
-                </button>
-                <button class="habits-tab ${habitsState.activeTab === 'menu' ? 'active' : ''}" data-tab="menu">
-                    📋 МЕНЮ
-                </button>
-            </div>
-            
-            <div class="habits-content" id="habitsContent">
-                ${habitsState.activeTab === 'theory' ? renderTheoryTab() : ''}
-                ${habitsState.activeTab === 'analyze' ? renderAnalyzeTab(vectorHabits, weakVector) : ''}
-                ${habitsState.activeTab === 'myHabits' ? renderMyHabitsTab() : ''}
-                ${habitsState.activeTab === 'plan' ? renderPlanTab() : ''}
-                ${habitsState.activeTab === 'menu' ? renderMenuTab(vectorHabits, weakVector) : ''}
-            </div>
-        </div>
-    `;
-    
-    addHabitsStyles();
-    
-    document.getElementById('habitsBackBtn')?.addEventListener('click', () => goBackToDashboard());
-    
-    document.querySelectorAll('.habits-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            habitsState.activeTab = tab.dataset.tab;
-            renderHabitsMainScreen(container);
-        });
-    });
-}
-
-// ============================================
-// 8. ВКЛАДКА "ТЕОРИЯ"
-// ============================================
-function renderTheoryTab() {
-    return `
-        <div class="habits-theory">
-            <div class="habits-theory-card">
-                <div class="habits-theory-icon">🧠</div>
-                <div class="habits-theory-title">Почему привычки нельзя отменить?</div>
-                <div class="habits-theory-text">
-                    Привычка — это нейронная связь в мозге. Она не исчезает, потому что:
-                    <br><br>
-                    <strong>1. Экономия энергии</strong> — мозг автоматизирует повторяющиеся действия.
-                    <br>
-                    <strong>2. Триггер → Реакция</strong> — привычка закрепляется через повторение.
-                    <br>
-                    <strong>3. Нейропластичность</strong> — старая связь не удаляется, а "зарастает" новой.
-                </div>
-            </div>
-            
-            <div class="habits-theory-card">
-                <div class="habits-theory-icon">🔄</div>
-                <div class="habits-theory-title">Что можно изменить?</div>
-                <div class="habits-theory-text">
-                    <strong>ТРИГГЕР</strong> — то, что запускает привычку<br>
-                    <em>Пример: "Я вижу уведомление"</em>
-                    <br><br>
-                    <strong>↓</strong>
-                    <br><br>
-                    <strong>РЕАКЦИЯ</strong> — автоматическое действие<br>
-                    <em>Пример: "Открываю телефон"</em>
-                    <br><br>
-                    <strong>↓</strong>
-                    <br><br>
-                    <strong>НОВАЯ РЕАКЦИЯ</strong> — осознанный выбор<br>
-                    <em>Пример: "Делаю 3 глубоких вдоха"</em>
-                </div>
-            </div>
-            
-            <div class="habits-theory-card">
-                <div class="habits-theory-icon">💡</div>
-                <div class="habits-theory-title">Золотое правило</div>
-                <div class="habits-theory-text">
-                    <strong>Не меняйте привычку — замените реакцию на триггер.</strong>
-                    <br><br>
-                    Найдите ТРИГГЕР → Подготовьте НОВУЮ РЕАКЦИЮ → Практикуйте 21 день.
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-// ============================================
-// 9. ВКЛАДКА "АНАЛИЗ"
-// ============================================
-function renderAnalyzeTab(vectorHabits, weakVector) {
-    let commonHtml = '';
-    vectorHabits.common.forEach(habit => {
-        commonHtml += `
-            <div class="habits-analyze-item">
-                <div class="habits-analyze-name">${habit.name}</div>
-                <div class="habits-analyze-detail">
-                    <span class="habits-analyze-trigger">🎯 Триггер: ${habit.trigger}</span>
-                    <span class="habits-analyze-reaction">⚡ Реакция: ${habit.reaction}</span>
-                </div>
-                <button class="habits-add-btn" data-name="${habit.name}" data-trigger="${habit.trigger}" data-reaction="${habit.reaction}">
-                    ✏️ ПРОРАБОТАТЬ
-                </button>
-            </div>
-        `;
-    });
-    
-    return `
-        <div class="habits-analyze">
-            <div class="habits-analyze-header">
-                <div class="habits-analyze-vector">🧬 Ваш профиль: ${weakVector}</div>
-                <div class="habits-analyze-desc">Привычки, которые могут быть вам свойственны:</div>
-            </div>
-            <div class="habits-analyze-list">
-                ${commonHtml}
-            </div>
-            <div class="habits-analyze-note">
-                💡 Выберите привычку, которую хотите изменить, и нажмите "ПРОРАБОТАТЬ"
-            </div>
-        </div>
-    `;
-}
-
-// ============================================
-// 10. ВКЛАДКА "МОИ ПРИВЫЧКИ"
-// ============================================
-function renderMyHabitsTab() {
-    if (habitsState.habits.length === 0) {
-        return `
-            <div class="habits-empty">
-                <div class="habits-empty-emoji">📭</div>
-                <div class="habits-empty-title">Нет активных привычек</div>
-                <div class="habits-empty-desc">Перейдите в "АНАЛИЗ" или "МЕНЮ", чтобы добавить привычку для работы</div>
-            </div>
-        `;
-    }
-    
-    let habitsHtml = '';
-    habitsState.habits.forEach((habit, idx) => {
-        const streak = habitsState.streakDays[habit.id] || 0;
-        habitsHtml += `
-            <div class="habits-my-item" data-habit-idx="${idx}">
-                <div class="habits-my-header">
-                    <div class="habits-my-name">${habit.name}</div>
-                    <div class="habits-my-streak">🔥 ${streak} дней</div>
-                </div>
-                <div class="habits-my-detail">
-                    <div class="habits-my-trigger">🎯 Триггер: ${habit.trigger}</div>
-                    <div class="habits-my-old-reaction">❌ Старая реакция: ${habit.oldReaction}</div>
-                    <div class="habits-my-new-reaction">✅ Новая реакция: ${habit.newReaction}</div>
-                </div>
-                <div class="habits-my-actions">
-                    <button class="habits-mark-btn" data-idx="${idx}">✅ ВЫПОЛНИЛ СЕГОДНЯ</button>
-                    <button class="habits-delete-btn" data-idx="${idx}">🗑️ УДАЛИТЬ</button>
-                </div>
-                <div class="habits-my-progress">
-                    <div class="habits-progress-label">Прогресс: ${streak}/21 день</div>
-                    <div class="habits-progress-bar">
-                        <div class="habits-progress-fill" style="width: ${(streak/21)*100}%"></div>
-                    </div>
-                </div>
-            </div>
-        `;
-    });
-    
-    return `
-        <div class="habits-my">
-            <div class="habits-my-header-info">
-                <div class="habits-my-count">Активных привычек: ${habitsState.habits.length}</div>
-                <div class="habits-my-total-streak">🔥 Общий стрейк: ${calculateTotalStreak()} дней</div>
-            </div>
-            <div class="habits-my-list">
-                ${habitsHtml}
-            </div>
-        </div>
-    `;
-}
-
-function calculateTotalStreak() {
-    let total = 0;
-    for (const habit of habitsState.habits) {
-        total += habitsState.streakDays[habit.id] || 0;
-    }
-    return total;
-}
-
-// ============================================
-// 11. ВКЛАДКА "ПЛАН ВНЕДРЕНИЯ"
-// ============================================
-function renderPlanTab() {
-    if (habitsState.habits.length === 0) {
-        return `
-            <div class="habits-empty">
-                <div class="habits-empty-emoji">🌱</div>
-                <div class="habits-empty-title">Нет активных привычек</div>
-                <div class="habits-empty-desc">Добавьте привычку в "АНАЛИЗ" или "МЕНЮ", чтобы начать 21-дневный план</div>
-            </div>
-        `;
-    }
-    
-    // План на неделю
-    const days = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'];
-    const today = new Date().getDay();
-    const weekDays = [...days.slice(today - 1), ...days.slice(0, today - 1)];
-    
-    let planHtml = `
-        <div class="habits-plan">
-            <div class="habits-plan-title">📅 21-ДНЕВНЫЙ ПЛАН ВНЕДРЕНИЯ</div>
-            <div class="habits-plan-subtitle">Привычка формируется за 21 день регулярного повторения</div>
-    `;
-    
-    habitsState.habits.forEach((habit, idx) => {
-        const streak = habitsState.streakDays[habit.id] || 0;
-        const daysLeft = 21 - streak;
-        
-        planHtml += `
-            <div class="habits-plan-habit">
-                <div class="habits-plan-habit-name">${habit.name}</div>
-                <div class="habits-plan-habit-progress">
-                    <span>День ${streak} из 21</span>
-                    <span>Осталось ${daysLeft} дней</span>
-                </div>
-                <div class="habits-plan-week">
-                    ${weekDays.map(day => `
-                        <div class="habits-plan-day ${streak > 0 ? 'active' : ''}">${day}</div>
-                    `).join('')}
-                </div>
-                <div class="habits-plan-reminder">
-                    <div class="habits-reminder-label">⏰ Напоминание</div>
-                    <select class="habits-reminder-time" data-idx="${idx}">
-                        <option value="09:00">09:00</option>
-                        <option value="10:00">10:00</option>
-                        <option value="11:00">11:00</option>
-                        <option value="12:00">12:00</option>
-                        <option value="13:00">13:00</option>
-                        <option value="14:00">14:00</option>
-                        <option value="15:00">15:00</option>
-                        <option value="16:00">16:00</option>
-                        <option value="17:00">17:00</option>
-                        <option value="18:00">18:00</option>
-                        <option value="19:00">19:00</option>
-                        <option value="20:00">20:00</option>
-                    </select>
-                    <button class="habits-set-reminder-btn" data-idx="${idx}">УСТАНОВИТЬ</button>
-                </div>
-            </div>
-        `;
-    });
-    
-    planHtml += `
-            <div class="habits-plan-tip">
-                💡 <strong>Совет:</strong> Привычка становится автоматической после 21 дня. 
-                Не пропускайте больше одного дня подряд — это сбивает прогресс.
-            </div>
-        </div>
-    `;
-    
-    return planHtml;
-}
-
-// ============================================
-// 12. ВКЛАДКА "МЕНЮ ПРИВЫЧЕК"
-// ============================================
-function renderMenuTab(vectorHabits, weakVector) {
-    let recommendedHtml = '';
-    vectorHabits.recommended.forEach(habit => {
-        recommendedHtml += `
-            <div class="habits-menu-item">
-                <div class="habits-menu-name">🌱 ${habit.name}</div>
-                <div class="habits-menu-detail">
-                    <div class="habits-menu-trigger">🎯 Триггер: ${habit.trigger}</div>
-                    <div class="habits-menu-old">❌ Старая реакция: ${habit.oldReaction}</div>
-                    <div class="habits-menu-new">✅ Новая реакция: ${habit.newReaction}</div>
-                </div>
-                <button class="habits-menu-add-btn" 
-                    data-name="${habit.name}"
-                    data-trigger="${habit.trigger}"
-                    data-old="${habit.oldReaction}"
-                    data-new="${habit.newReaction}">
-                    + ДОБАВИТЬ В МОИ ПРИВЫЧКИ
-                </button>
-            </div>
-        `;
-    });
-    
-    return `
-        <div class="habits-menu">
-            <div class="habits-menu-header">
-                <div class="habits-menu-vector">🧬 Рекомендовано для вашего профиля (${weakVector})</div>
-                <div class="habits-menu-desc">Выберите привычку, которую хотите внедрить</div>
-            </div>
-            <div class="habits-menu-list">
-                ${recommendedHtml}
-            </div>
-            <div class="habits-menu-custom">
-                <div class="habits-menu-custom-title">✏️ ИЛИ СОЗДАЙТЕ СВОЮ</div>
-                <textarea id="customHabitDesc" class="habits-custom-input" 
-                    placeholder="Например: «Хочу перестать откладывать дела на потом»"
-                    rows="2"></textarea>
-                <button id="customHabitBtn" class="habits-custom-btn">➕ ДОБАВИТЬ СВОЮ ПРИВЫЧКУ</button>
-            </div>
-        </div>
-    `;
-}
-
-// ============================================
-// 13. ОБРАБОТЧИКИ
-// ============================================
-function setupHabitsHandlers() {
-    // Добавление привычки из анализа
-    document.querySelectorAll('.habits-add-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const name = btn.dataset.name;
-            const trigger = btn.dataset.trigger;
-            const reaction = btn.dataset.reaction;
-            
-            // Открываем модалку для определения новой реакции
-            showNewReactionModal(name, trigger, reaction);
-        });
-    });
-    
-    // Добавление из меню
-    document.querySelectorAll('.habits-menu-add-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const habit = {
-                id: Date.now().toString(),
-                name: btn.dataset.name,
-                trigger: btn.dataset.trigger,
-                oldReaction: btn.dataset.old,
-                newReaction: btn.dataset.new,
-                createdAt: new Date().toISOString(),
-                reminderTime: null
-            };
-            
-            if (!habitsState.habits.some(h => h.name === habit.name)) {
-                habitsState.habits.push(habit);
-                if (!habitsState.streakDays[habit.id]) {
-                    habitsState.streakDays[habit.id] = 0;
-                }
-                saveHabits();
-                saveStreak();
-                showToastMessage(`✅ Привычка "${habit.name}" добавлена!`, 'success');
-                renderHabitsMainScreen(document.getElementById('screenContainer'));
-            } else {
-                showToastMessage(`⚠️ Привычка "${habit.name}" уже есть`, 'warning');
-            }
-        });
-    });
-    
-    // Отметка выполнения
-    document.querySelectorAll('.habits-mark-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            const habit = habitsState.habits[idx];
-            const today = new Date().toDateString();
-            
-            // Проверяем, отмечал ли уже сегодня
-            const lastMarked = localStorage.getItem(`habit_${habit.id}_last_marked`);
-            if (lastMarked === today) {
-                showToastMessage('⚠️ Вы уже отмечали эту привычку сегодня!', 'warning');
-                return;
-            }
-            
-            // Увеличиваем стрейк
-            habitsState.streakDays[habit.id] = (habitsState.streakDays[habit.id] || 0) + 1;
-            localStorage.setItem(`habit_${habit.id}_last_marked`, today);
-            saveStreak();
-            
-            showToastMessage(`✅ Отлично! День ${habitsState.streakDays[habit.id]} из 21`, 'success');
-            
-            if (habitsState.streakDays[habit.id] >= 21) {
-                showToastMessage(`🎉 ПОЗДРАВЛЯЮ! Вы сформировали привычку "${habit.name}"!`, 'success');
-            }
-            
-            renderHabitsMainScreen(document.getElementById('screenContainer'));
-        });
-    });
-    
-    // Удаление привычки
-    document.querySelectorAll('.habits-delete-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            const habit = habitsState.habits[idx];
-            if (confirm(`Удалить привычку "${habit.name}"?`)) {
-                habitsState.habits.splice(idx, 1);
-                saveHabits();
-                showToastMessage(`🗑️ Привычка удалена`, 'info');
-                renderHabitsMainScreen(document.getElementById('screenContainer'));
-            }
-        });
-    });
-    
-    // Установка напоминания
-    document.querySelectorAll('.habits-set-reminder-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            const timeSelect = document.querySelector(`.habits-reminder-time[data-idx="${idx}"]`);
-            const time = timeSelect?.value;
-            
-            if (time) {
-                habitsState.habits[idx].reminderTime = time;
-                saveHabits();
-                showToastMessage(`⏰ Напоминание установлено на ${time}`, 'success');
-                
-                // Здесь можно запросить разрешение на push-уведомления
-                if (Notification.permission === 'granted') {
-                    new Notification('Фреди: Напоминание о привычке', {
-                        body: `Не забудьте про привычку "${habitsState.habits[idx].name}" в ${time}`,
-                        icon: '/fredi/icon-192x192.png'
-                    });
-                }
-            }
-        });
-    });
-    
-    // Кастомная привычка
-    document.getElementById('customHabitBtn')?.addEventListener('click', () => {
-        const desc = document.getElementById('customHabitDesc')?.value.trim();
-        if (!desc) {
-            showToastMessage('📝 Опишите привычку', 'warning');
-            return;
-        }
-        
-        // Открываем модалку для настройки
-        showCustomHabitModal(desc);
-    });
-}
-
-// ============================================
-// 14. МОДАЛЬНЫЕ ОКНА
-// ============================================
-function showNewReactionModal(name, trigger, oldReaction) {
-    const modal = document.createElement('div');
-    modal.className = 'habits-modal';
-    modal.innerHTML = `
-        <div class="habits-modal-content">
-            <div class="habits-modal-header">
-                <span>✏️ Проработка привычки</span>
-                <button class="habits-modal-close">✕</button>
-            </div>
-            <div class="habits-modal-body">
-                <div class="habits-modal-habit">${name}</div>
-                <div class="habits-modal-trigger">🎯 Триггер: ${trigger}</div>
-                <div class="habits-modal-old">❌ Старая реакция: ${oldReaction}</div>
-                
-                <div class="habits-modal-new-label">✅ Что вы будете делать вместо этого?</div>
-                <textarea id="newReactionInput" class="habits-modal-input" 
-                    placeholder="Например: «Сделаю 3 глубоких вдоха и скажу 'нет, спасибо'»"
-                    rows="3"></textarea>
-                
-                <div class="habits-modal-hint">
-                    💡 <strong>Совет:</strong> Новая реакция должна быть конкретной и выполнимой.
-                </div>
-            </div>
-            <div class="habits-modal-footer">
-                <button id="modalCancelBtn" class="habits-modal-cancel">ОТМЕНА</button>
-                <button id="modalSaveBtn" class="habits-modal-save">СОХРАНИТЬ ПРИВЫЧКУ</button>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    modal.querySelector('.habits-modal-close').onclick = () => modal.remove();
-    modal.querySelector('#modalCancelBtn').onclick = () => modal.remove();
-    modal.querySelector('#modalSaveBtn').onclick = () => {
-        const newReaction = document.getElementById('newReactionInput')?.value.trim();
-        if (!newReaction) {
-            showToastMessage('📝 Напишите новую реакцию', 'warning');
-            return;
-        }
-        
-        const habit = {
-            id: Date.now().toString(),
-            name: name,
-            trigger: trigger,
-            oldReaction: oldReaction,
-            newReaction: newReaction,
-            createdAt: new Date().toISOString(),
-            reminderTime: null
-        };
-        
-        if (!habitsState.habits.some(h => h.name === habit.name)) {
-            habitsState.habits.push(habit);
-            if (!habitsState.streakDays[habit.id]) {
-                habitsState.streakDays[habit.id] = 0;
-            }
-            saveHabits();
-            saveStreak();
-            showToastMessage(`✅ Привычка "${habit.name}" добавлена!`, 'success');
-            modal.remove();
-            renderHabitsMainScreen(document.getElementById('screenContainer'));
-        } else {
-            showToastMessage(`⚠️ Привычка "${habit.name}" уже есть`, 'warning');
-            modal.remove();
-        }
-    };
-}
-
-function showCustomHabitModal(description) {
-    const modal = document.createElement('div');
-    modal.className = 'habits-modal';
-    modal.innerHTML = `
-        <div class="habits-modal-content">
-            <div class="habits-modal-header">
-                <span>✏️ Создание привычки</span>
-                <button class="habits-modal-close">✕</button>
-            </div>
-            <div class="habits-modal-body">
-                <div class="habits-modal-habit">${escapeHtml(description)}</div>
-                
-                <div class="habits-modal-new-label">🎯 Что запускает эту привычку? (триггер)</div>
-                <input id="customTrigger" class="habits-modal-input" placeholder="Например: «Чувствую скуку»">
-                
-                <div class="habits-modal-new-label">❌ Что вы делаете сейчас? (старая реакция)</div>
-                <input id="customOldReaction" class="habits-modal-input" placeholder="Например: «Открываю соцсети»">
-                
-                <div class="habits-modal-new-label">✅ Что вы будете делать вместо этого? (новая реакция)</div>
-                <textarea id="customNewReaction" class="habits-modal-input" rows="2" 
-                    placeholder="Например: «Делаю 5 приседаний»"></textarea>
-            </div>
-            <div class="habits-modal-footer">
-                <button id="modalCancelBtn" class="habits-modal-cancel">ОТМЕНА</button>
-                <button id="modalSaveBtn" class="habits-modal-save">СОЗДАТЬ ПРИВЫЧКУ</button>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    modal.querySelector('.habits-modal-close').onclick = () => modal.remove();
-    modal.querySelector('#modalCancelBtn').onclick = () => modal.remove();
-    modal.querySelector('#modalSaveBtn').onclick = () => {
-        const trigger = document.getElementById('customTrigger')?.value.trim();
-        const oldReaction = document.getElementById('customOldReaction')?.value.trim();
-        const newReaction = document.getElementById('customNewReaction')?.value.trim();
-        
-        if (!trigger || !oldReaction || !newReaction) {
-            showToastMessage('📝 Заполните все поля', 'warning');
-            return;
-        }
-        
-        const habit = {
-            id: Date.now().toString(),
-            name: description.length > 50 ? description.substring(0, 50) + '...' : description,
-            trigger: trigger,
-            oldReaction: oldReaction,
-            newReaction: newReaction,
-            createdAt: new Date().toISOString(),
-            reminderTime: null
-        };
-        
-        habitsState.habits.push(habit);
-        if (!habitsState.streakDays[habit.id]) {
-            habitsState.streakDays[habit.id] = 0;
-        }
-        saveHabits();
-        saveStreak();
-        showToastMessage(`✅ Привычка "${habit.name}" добавлена!`, 'success');
-        modal.remove();
-        renderHabitsMainScreen(document.getElementById('screenContainer'));
-    };
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// ============================================
-// 15. СТИЛИ
-// ============================================
-function addHabitsStyles() {
-    if (document.getElementById('habits-styles')) return;
-    
-    const style = document.createElement('style');
-    style.id = 'habits-styles';
-    style.textContent = `
-        .habits-tabs {
+function _habInjectStyles() {
+    if (document.getElementById('hab-v2-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'hab-v2-styles';
+    s.textContent = `
+        /* ===== ТАБЫ ===== */
+        .hab-tabs {
             display: flex;
-            gap: 6px;
-            margin-bottom: 20px;
+            gap: 4px;
             background: rgba(224,224,224,0.05);
-            border-radius: 50px;
-            padding: 4px;
-            flex-wrap: wrap;
-        }
-        .habits-tab {
-            padding: 8px 14px;
+            border: 1px solid rgba(224,224,224,0.1);
             border-radius: 40px;
+            padding: 4px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .hab-tabs::-webkit-scrollbar { display: none; }
+        .hab-tab {
+            flex-shrink: 0;
+            padding: 8px 14px;
+            border-radius: 30px;
             border: none;
             background: transparent;
             color: var(--text-secondary);
             font-size: 11px;
             font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
             position: relative;
+            min-height: 36px;
+            touch-action: manipulation;
         }
-        .habits-tab.active {
-            background: linear-gradient(135deg, rgba(255,107,59,0.2), rgba(255,59,59,0.1));
+        .hab-tab.active {
+            background: rgba(224,224,224,0.14);
             color: var(--text-primary);
         }
-        .habits-badge {
-            background: #ff6b3b;
-            border-radius: 30px;
-            padding: 2px 6px;
-            font-size: 9px;
-            margin-left: 6px;
-        }
-        
-        .habits-theory-card {
-            background: rgba(224,224,224,0.05);
+        .hab-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--chrome);
+            color: #000;
             border-radius: 20px;
-            padding: 20px;
-            margin-bottom: 16px;
-        }
-        .habits-theory-icon {
-            font-size: 36px;
-            margin-bottom: 12px;
-        }
-        .habits-theory-title {
-            font-size: 18px;
+            min-width: 16px;
+            height: 16px;
+            font-size: 9px;
             font-weight: 700;
+            padding: 0 4px;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+
+        /* ===== КАРТОЧКИ ТЕОРИИ ===== */
+        .hab-theory-card {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 18px;
+            padding: 18px;
             margin-bottom: 12px;
         }
-        .habits-theory-text {
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--text-secondary);
-        }
-        
-        .habits-analyze-item {
-            background: rgba(224,224,224,0.05);
+        .hab-theory-icon { font-size: 30px; margin-bottom: 10px; display: block; }
+        .hab-theory-title { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; }
+        .hab-theory-text { font-size: 13px; line-height: 1.65; color: var(--text-secondary); }
+        .hab-theory-text strong { color: var(--chrome); }
+
+        /* ===== ЭЛЕМЕНТЫ ПРИВЫЧЕК ===== */
+        .hab-item {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
             border-radius: 16px;
             padding: 14px;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
+            transition: background 0.2s;
         }
-        .habits-analyze-name {
-            font-size: 15px;
+        .hab-item:hover { background: rgba(224,224,224,0.07); }
+        .hab-item-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+        .hab-item-detail { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 10px; }
+        .hab-item-trigger { color: var(--silver-brushed); }
+        .hab-item-old { color: var(--text-secondary); }
+        .hab-item-new { color: var(--chrome); }
+
+        /* ===== ПРОГРЕСС ===== */
+        .hab-streak {
+            font-size: 12px;
+            color: var(--chrome);
             font-weight: 600;
-            margin-bottom: 8px;
         }
-        .habits-analyze-detail {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 12px;
-            font-size: 12px;
-        }
-        .habits-analyze-trigger {
-            color: #3b82ff;
-        }
-        .habits-analyze-reaction {
-            color: #ff6b3b;
-        }
-        .habits-add-btn {
-            background: rgba(255,107,59,0.15);
-            border: 1px solid rgba(255,107,59,0.3);
-            border-radius: 30px;
-            padding: 8px 16px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        
-        .habits-my-item {
-            background: rgba(224,224,224,0.05);
-            border-radius: 16px;
-            padding: 14px;
-            margin-bottom: 12px;
-        }
-        .habits-my-header {
+        .hab-progress-wrap { margin-top: 10px; }
+        .hab-progress-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
         }
-        .habits-my-name {
-            font-size: 15px;
-            font-weight: 600;
-        }
-        .habits-my-streak {
-            font-size: 12px;
-            color: #ff6b3b;
-        }
-        .habits-my-detail {
-            font-size: 12px;
-            margin-bottom: 12px;
-            color: var(--text-secondary);
-        }
-        .habits-my-actions {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 12px;
-        }
-        .habits-mark-btn {
-            background: linear-gradient(135deg, #10b981, #059669);
-            border: none;
-            border-radius: 30px;
-            padding: 8px 16px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .habits-delete-btn {
-            background: rgba(239,68,68,0.2);
-            border: 1px solid rgba(239,68,68,0.3);
-            border-radius: 30px;
-            padding: 8px 16px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .habits-progress-bar {
-            height: 6px;
+        .hab-progress-bar {
+            height: 4px;
             background: rgba(224,224,224,0.1);
-            border-radius: 3px;
+            border-radius: 2px;
             overflow: hidden;
         }
-        .habits-progress-fill {
+        .hab-progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #10b981, #059669);
-            border-radius: 3px;
-            transition: width 0.3s;
+            background: linear-gradient(90deg, var(--silver-brushed), var(--chrome));
+            border-radius: 2px;
+            transition: width 0.4s;
         }
-        
-        .habits-menu-item {
-            background: rgba(224,224,224,0.05);
-            border-radius: 16px;
-            padding: 14px;
-            margin-bottom: 12px;
-        }
-        .habits-menu-name {
-            font-size: 15px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .habits-menu-detail {
-            font-size: 12px;
-            margin-bottom: 12px;
-            color: var(--text-secondary);
-        }
-        .habits-menu-add-btn {
-            background: rgba(16,185,129,0.15);
-            border: 1px solid rgba(16,185,129,0.3);
-            border-radius: 30px;
-            padding: 8px 16px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        
-        .habits-plan {
-            background: rgba(224,224,224,0.05);
-            border-radius: 20px;
-            padding: 16px;
-        }
-        .habits-plan-title {
-            font-size: 18px;
-            font-weight: 700;
-            text-align: center;
-            margin-bottom: 8px;
-        }
-        .habits-plan-habit {
-            background: rgba(224,224,224,0.03);
-            border-radius: 16px;
-            padding: 14px;
-            margin-top: 16px;
-        }
-        .habits-plan-week {
+
+        /* ===== НЕДЕЛЯ ===== */
+        .hab-week {
             display: flex;
             gap: 6px;
-            margin: 12px 0;
+            margin: 10px 0;
             flex-wrap: wrap;
         }
-        .habits-plan-day {
-            width: 36px;
-            height: 36px;
+        .hab-day {
+            width: 34px;
+            height: 34px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(224,224,224,0.1);
+            background: rgba(224,224,224,0.07);
+            border: 1px solid rgba(224,224,224,0.1);
             border-radius: 50%;
-            font-size: 11px;
+            font-size: 10px;
+            color: var(--text-secondary);
+            font-weight: 600;
         }
-        .habits-plan-day.active {
-            background: #10b981;
+        .hab-day.done {
+            background: rgba(224,224,224,0.18);
+            border-color: rgba(224,224,224,0.3);
+            color: var(--chrome);
         }
-        
-        .habits-modal {
+
+        /* ===== КНОПКИ ===== */
+        .hab-btn {
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.15s;
+            min-height: 36px;
+            touch-action: manipulation;
+            outline: none;
+        }
+        .hab-btn:active { transform: scale(0.97); }
+        .hab-btn-primary {
+            background: linear-gradient(135deg, rgba(224,224,224,0.18), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.28);
+            color: var(--text-primary);
+        }
+        .hab-btn-primary:hover { background: linear-gradient(135deg, rgba(224,224,224,0.26), rgba(192,192,192,0.16)); }
+        .hab-btn-ghost {
+            background: rgba(224,224,224,0.05);
+            border: 1px solid rgba(224,224,224,0.14);
+            color: var(--text-secondary);
+        }
+        .hab-btn-ghost:hover { background: rgba(224,224,224,0.1); color: var(--text-primary); }
+        .hab-btn-danger {
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.2);
+            color: rgba(239,68,68,0.8);
+        }
+        .hab-btn-danger:hover { background: rgba(239,68,68,0.14); }
+        .hab-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* ===== ПУСТО ===== */
+        .hab-empty {
+            text-align: center;
+            padding: 48px 20px;
+        }
+        .hab-empty-icon { font-size: 48px; margin-bottom: 14px; display: block; }
+        .hab-empty-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+        .hab-empty-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+        /* ===== ПОЛЕ ВВОДА ===== */
+        .hab-textarea, .hab-input {
+            width: 100%;
+            background: rgba(224,224,224,0.07);
+            border: 1px solid rgba(224,224,224,0.18);
+            border-radius: 14px;
+            padding: 12px 14px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            outline: none;
+            resize: vertical;
+            box-sizing: border-box;
+            -webkit-appearance: none;
+        }
+        .hab-textarea:focus, .hab-input:focus { border-color: rgba(224,224,224,0.35); }
+        .hab-textarea::placeholder, .hab-input::placeholder { color: var(--text-secondary); }
+
+        /* ===== КАСТОМНЫЙ ДИАЛОГ ===== */
+        .hab-dialog-overlay {
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
+            inset: 0;
+            background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            z-index: 9000;
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 2000;
+            padding: 20px;
         }
-        .habits-modal-content {
-            background: #1a1a1a;
-            border-radius: 28px;
-            max-width: 500px;
-            width: 90%;
-            max-height: 90vh;
-            overflow: auto;
+        .hab-dialog {
+            background: var(--carbon-fiber, #1a1a1a);
             border: 1px solid rgba(224,224,224,0.2);
+            border-radius: 24px;
+            padding: 24px;
+            max-width: 380px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
         }
-        .habits-modal-header {
+        .hab-dialog-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+        .hab-dialog-label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            margin-top: 14px;
+        }
+        .hab-dialog-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-top: 12px;
+            padding: 10px 12px;
+            background: rgba(224,224,224,0.04);
+            border-radius: 10px;
+        }
+        .hab-dialog-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        /* ===== ПЛАН ===== */
+        .hab-plan-card {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+        .hab-plan-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid rgba(224,224,224,0.1);
-            font-weight: 600;
-        }
-        .habits-modal-body {
-            padding: 20px;
-        }
-        .habits-modal-footer {
-            padding: 16px 20px;
-            display: flex;
-            gap: 12px;
-            border-top: 1px solid rgba(224,224,224,0.1);
-        }
-        .habits-modal-input {
-            width: 100%;
-            background: rgba(224,224,224,0.08);
-            border: 1px solid rgba(224,224,224,0.2);
-            border-radius: 12px;
-            padding: 10px;
-            color: white;
-            margin: 8px 0;
-        }
-        .habits-modal-save {
-            flex: 1;
-            padding: 10px;
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            border: none;
-            border-radius: 30px;
-            color: white;
-            cursor: pointer;
-        }
-        .habits-modal-cancel {
-            flex: 1;
-            padding: 10px;
-            background: rgba(224,224,224,0.1);
-            border: 1px solid rgba(224,224,224,0.2);
-            border-radius: 30px;
-            color: white;
-            cursor: pointer;
-        }
-        
-        .habits-empty {
-            text-align: center;
-            padding: 60px 20px;
-        }
-        .habits-empty-emoji {
-            font-size: 56px;
-            margin-bottom: 16px;
-        }
-        .habits-empty-title {
-            font-size: 18px;
-            font-weight: 600;
             margin-bottom: 8px;
+            flex-wrap: wrap;
+            gap: 6px;
         }
-        .habits-empty-desc {
+        .hab-plan-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+        .hab-plan-days { font-size: 11px; color: var(--text-secondary); }
+
+        /* ===== СЕКЦИЯ-ЛЕЙБЛ ===== */
+        .hab-section-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        /* ===== TIP ===== */
+        .hab-tip {
+            background: rgba(224,224,224,0.03);
+            border: 1px solid rgba(224,224,224,0.08);
+            border-radius: 14px;
+            padding: 12px 14px;
             font-size: 12px;
             color: var(--text-secondary);
+            line-height: 1.5;
+            margin-top: 16px;
+        }
+        .hab-tip strong { color: var(--chrome); }
+
+        @media (max-width: 480px) {
+            .hab-tab { padding: 7px 10px; font-size: 10px; }
+            .hab-btn { font-size: 11px; padding: 7px 12px; }
         }
     `;
-    document.head.appendChild(style);
+    document.head.appendChild(s);
 }
 
 // ============================================
-// 16. ПЕРЕКЛЮЧЕНИЕ ОБРАБОТЧИКОВ
+// БАЗА ПРИВЫЧЕК
 // ============================================
-function setupHabitsHandlersDelayed() {
-    setTimeout(setupHabitsHandlers, 100);
-}
-
-// Переопределяем рендер
-const originalRender = renderHabitsMainScreen;
-window.renderHabitsMainScreen = function(container) {
-    originalRender(container);
-    setupHabitsHandlersDelayed();
+const HAB_DB = {
+    СБ: {
+        common: [
+            { name:'Избегание конфликтов',           trigger:'Конфликтная ситуация',      reaction:'Молчу или соглашаюсь' },
+            { name:'Прокрастинация важных разговоров',trigger:'Нужно сказать «нет»',       reaction:'Откладываю, придумываю оправдания' },
+            { name:'Замирание под давлением',         trigger:'Критика или давление',      reaction:'Теряюсь, не могу ответить' }
+        ],
+        recommended: [
+            { name:'Ежедневное «маленькое нет»',  trigger:'Просьба, которая неудобна',    old:'Соглашаюсь',           new:'Говорю «нет, спасибо»' },
+            { name:'Пауза перед ответом',          trigger:'Вопрос или просьба',           old:'Отвечаю сразу',        new:'Беру паузу 3 секунды' },
+            { name:'Проговаривание дискомфорта',   trigger:'Чувствую дискомфорт',          old:'Терплю молча',         new:'Говорю о своих чувствах' }
+        ]
+    },
+    ТФ: {
+        common: [
+            { name:'Импульсивные траты',                    trigger:'Стресс или скука',         reaction:'Покупаю ненужное' },
+            { name:'Избегание финансового планирования',    trigger:'Мысли о деньгах',          reaction:'Отвлекаюсь, откладываю' },
+            { name:'Чувство вины за траты',                 trigger:'Покупка для себя',          reaction:'Испытываю вину, сомневаюсь' }
+        ],
+        recommended: [
+            { name:'Правило 24 часов',      trigger:'Хочу купить незапланированное',    old:'Покупаю сразу',            new:'Жду 24 часа' },
+            { name:'Финансовый трекер',     trigger:'Получение дохода или трата',       old:'Не отслеживаю',            new:'Записываю в трекер' },
+            { name:'Откладываю 10%',        trigger:'Получение дохода',                 old:'Трачу всё',                new:'Сразу откладываю 10%' }
+        ]
+    },
+    УБ: {
+        common: [
+            { name:'Зависание в размышлениях',         trigger:'Сложная задача',        reaction:'Долго думаю, не начинаю' },
+            { name:'Прокрастинация',                   trigger:'Неприятная задача',     reaction:'Откладываю на потом' },
+            { name:'Поиск идеального решения',         trigger:'Нужно выбрать',         reaction:'Зависаю в анализе' }
+        ],
+        recommended: [
+            { name:'Правило 5 минут',       trigger:'Не хочется начинать',      old:'Откладываю',                   new:'Делаю ровно 5 минут' },
+            { name:'Микро-шаги',            trigger:'Большая задача',           old:'Паралич анализа',              new:'Делю на шаги по 15 минут' },
+            { name:'Одно действие с утра',  trigger:'Начало дня',               old:'Планирую, но не делаю',        new:'Одно конкретное действие сразу' }
+        ]
+    },
+    ЧВ: {
+        common: [
+            { name:'Проверка соцсетей',            trigger:'Скука или тревога',      reaction:'Открываю ленту' },
+            { name:'Подстройка под других',         trigger:'Разное мнение',          reaction:'Соглашаюсь, даже если нет' },
+            { name:'Потребность в одобрении',       trigger:'Сделал что-то',          reaction:'Жду реакции других' }
+        ],
+        recommended: [
+            { name:'Цифровой детокс-час',       trigger:'Вечернее время',               old:'Листаю ленту',          new:'Читаю книгу или слушаю музыку' },
+            { name:'Время для себя',            trigger:'Чувство усталости',            old:'Продолжаю общаться',    new:'15 минут наедине с собой' },
+            { name:'Своё мнение вслух',         trigger:'Не согласен с мнением',        old:'Молчу',                 new:'Мягко выражаю свою точку зрения' }
+        ]
+    }
 };
 
 // ============================================
-// 17. ЭКСПОРТ
+// СОСТОЯНИЕ
+// ============================================
+if (!window._habState) window._habState = {
+    tab: 'theory',
+    vectors: { СБ:4, ТФ:4, УБ:4, ЧВ:4 },
+    habits: [],
+    streak: {}
+};
+const _hab = window._habState;
+
+// ============================================
+// УТИЛИТЫ
+// ============================================
+function _habToast(msg, type) { if (window.showToast) window.showToast(msg, type||'info'); }
+function _habHome() { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
+function _habApi()  { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _habUid()  { return window.CONFIG?.USER_ID; }
+function _habSave() {
+    try {
+        localStorage.setItem('hab_habits_' + _habUid(), JSON.stringify(_hab.habits));
+        localStorage.setItem('hab_streak_' + _habUid(), JSON.stringify(_hab.streak));
+    } catch {}
+}
+function _habLoad() {
+    try {
+        const h = localStorage.getItem('hab_habits_' + _habUid());
+        const s = localStorage.getItem('hab_streak_' + _habUid());
+        if (h) _hab.habits = JSON.parse(h);
+        if (s) _hab.streak = JSON.parse(s);
+    } catch {}
+}
+function _habWeakVector() {
+    return Object.entries(_hab.vectors).sort((a,b)=>a[1]-b[1])[0]?.[0] || 'ЧВ';
+}
+
+// ============================================
+// ЗАГРУЗКА ВЕКТОРОВ
+// ============================================
+async function _habLoadVectors() {
+    try {
+        const r = await fetch(`${_habApi()}/api/get-profile/${_habUid()}`);
+        const d = await r.json();
+        const bl = d.profile?.behavioral_levels || {};
+        const avg = x => Array.isArray(x) ? x[x.length-1] : (x||4);
+        _hab.vectors = { СБ:avg(bl.СБ), ТФ:avg(bl.ТФ), УБ:avg(bl.УБ), ЧВ:avg(bl.ЧВ) };
+    } catch {}
+}
+
+// ============================================
+// ДИАЛОГ — универсальный (вместо prompt/confirm)
+// ============================================
+function _habDialog(config) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'hab-dialog-overlay';
+
+        const fieldsHtml = (config.fields || []).map(f => `
+            <div class="hab-dialog-label">${f.label}</div>
+            ${f.type === 'textarea'
+                ? `<textarea class="hab-textarea" id="habf_${f.id}" placeholder="${f.placeholder||''}" rows="${f.rows||2}"></textarea>`
+                : `<input class="hab-input" id="habf_${f.id}" placeholder="${f.placeholder||''}" type="text">`
+            }`).join('');
+
+        const hintHtml = config.hint ? `<div class="hab-dialog-hint">💡 ${config.hint}</div>` : '';
+
+        overlay.innerHTML = `
+            <div class="hab-dialog">
+                <div class="hab-dialog-title">${config.title}</div>
+                ${config.subtitle ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">${config.subtitle}</div>` : ''}
+                ${fieldsHtml}
+                ${hintHtml}
+                <div class="hab-dialog-actions">
+                    <button class="hab-btn hab-btn-ghost" id="habDlgCancel" style="flex:1">Отмена</button>
+                    <button class="hab-btn hab-btn-primary" id="habDlgOk" style="flex:1">${config.okText||'Сохранить'}</button>
+                </div>
+            </div>`;
+
+        document.body.appendChild(overlay);
+        const firstInput = overlay.querySelector('textarea, input');
+        if (firstInput) setTimeout(() => firstInput.focus(), 100);
+
+        overlay.querySelector('#habDlgCancel').onclick = () => { overlay.remove(); resolve(null); };
+        overlay.querySelector('#habDlgOk').onclick = () => {
+            const result = {};
+            (config.fields||[]).forEach(f => {
+                result[f.id] = (overlay.querySelector('#habf_'+f.id)?.value||'').trim();
+            });
+            const empty = (config.fields||[]).find(f => f.required && !result[f.id]);
+            if (empty) { _habToast('Заполните все обязательные поля', 'error'); return; }
+            overlay.remove();
+            resolve(result);
+        };
+    });
+}
+
+function _habConfirm(text) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'hab-dialog-overlay';
+        overlay.innerHTML = `
+            <div class="hab-dialog">
+                <div class="hab-dialog-title" style="font-size:14px;font-weight:500;margin-bottom:20px">${text}</div>
+                <div class="hab-dialog-actions">
+                    <button class="hab-btn hab-btn-ghost" id="habCfNo" style="flex:1">Нет</button>
+                    <button class="hab-btn hab-btn-primary" id="habCfYes" style="flex:1">Да</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        overlay.querySelector('#habCfNo').onclick  = () => { overlay.remove(); resolve(false); };
+        overlay.querySelector('#habCfYes').onclick = () => { overlay.remove(); resolve(true); };
+    });
+}
+
+// ============================================
+// РЕНДЕР ГЛАВНОГО ЭКРАНА
+// ============================================
+function _habRender() {
+    _habInjectStyles();
+    const c = document.getElementById('screenContainer');
+    if (!c) return;
+
+    const weak = _habWeakVector();
+    const db   = HAB_DB[weak] || HAB_DB.ЧВ;
+
+    const TABS = [
+        { id:'theory',   label:'🧠 Теория' },
+        { id:'analyze',  label:'🔍 Анализ' },
+        { id:'my',       label:'✏️ Мои' + (_hab.habits.length ? ` <span class="hab-badge">${_hab.habits.length}</span>` : '') },
+        { id:'plan',     label:'🌱 План' },
+        { id:'menu',     label:'📋 Меню' }
+    ];
+
+    const tabsHtml = TABS.map(t => `
+        <button class="hab-tab${_hab.tab===t.id?' active':''}" data-tab="${t.id}">${t.label}</button>
+    `).join('');
+
+    let body = '';
+    if      (_hab.tab === 'theory')  body = _habTheory();
+    else if (_hab.tab === 'analyze') body = _habAnalyze(db, weak);
+    else if (_hab.tab === 'my')      body = _habMy();
+    else if (_hab.tab === 'plan')    body = _habPlan();
+    else if (_hab.tab === 'menu')    body = _habMenu(db, weak);
+
+    c.innerHTML = `
+        <div class="full-content-page">
+            <button class="back-btn" id="habBack">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">🔄</div>
+                <h1 class="content-title">Привычки</h1>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Триггер → Реакция → Новая привычка</p>
+            </div>
+            <div class="hab-tabs">${tabsHtml}</div>
+            <div id="habBody">${body}</div>
+        </div>`;
+
+    document.getElementById('habBack').onclick = () => _habHome();
+    document.querySelectorAll('.hab-tab').forEach(btn => {
+        btn.addEventListener('click', () => { _hab.tab = btn.dataset.tab; _habRender(); });
+    });
+    _habBindHandlers(db);
+}
+
+// ============================================
+// ВКЛАДКА: ТЕОРИЯ
+// ============================================
+function _habTheory() {
+    return `
+        <div class="hab-theory-card">
+            <span class="hab-theory-icon">🧠</span>
+            <div class="hab-theory-title">Почему привычки нельзя просто отменить</div>
+            <div class="hab-theory-text">
+                Привычка — это нейронная связь. Она не исчезает, потому что мозг автоматизирует повторяющиеся действия, экономя энергию. Старая связь не удаляется — она <strong>зарастает новой</strong>.
+                <br><br>
+                Поэтому бесполезно говорить себе «перестань». Нужно <strong>заменить реакцию</strong> на тот же триггер.
+            </div>
+        </div>
+
+        <div class="hab-theory-card">
+            <span class="hab-theory-icon">🔄</span>
+            <div class="hab-theory-title">Схема изменения</div>
+            <div class="hab-theory-text">
+                <strong>ТРИГГЕР</strong> — то, что запускает привычку<br>
+                <em style="color:var(--text-secondary)">«Вижу уведомление»</em>
+                <br><br>↓<br><br>
+                <strong>СТАРАЯ РЕАКЦИЯ</strong> — автоматическое действие<br>
+                <em style="color:var(--text-secondary)">«Открываю ленту»</em>
+                <br><br>↓<br><br>
+                <strong>НОВАЯ РЕАКЦИЯ</strong> — осознанный выбор<br>
+                <em style="color:var(--text-secondary)">«Делаю 3 глубоких вдоха»</em>
+            </div>
+        </div>
+
+        <div class="hab-theory-card">
+            <span class="hab-theory-icon">💡</span>
+            <div class="hab-theory-title">Золотое правило</div>
+            <div class="hab-theory-text">
+                <strong>Не меняйте привычку — замените реакцию на триггер.</strong>
+                <br><br>
+                Найдите триггер → подготовьте новую реакцию → практикуйте 21 день подряд.
+                <br><br>
+                Пропуск одного дня допустим. Пропуск двух — начинайте сначала.
+            </div>
+        </div>`;
+}
+
+// ============================================
+// ВКЛАДКА: АНАЛИЗ (типичные привычки по профилю)
+// ============================================
+function _habAnalyze(db, weak) {
+    const VEC_NAMES = { СБ:'уверенность и границы', ТФ:'финансы и ресурсы', УБ:'смыслы и системность', ЧВ:'отношения' };
+    const items = db.common.map(h => `
+        <div class="hab-item">
+            <div class="hab-item-name">${h.name}</div>
+            <div class="hab-item-detail">
+                <div class="hab-item-trigger">🎯 Триггер: ${h.trigger}</div>
+                <div class="hab-item-old">⚡ Реакция: ${h.reaction}</div>
+            </div>
+            <div class="hab-actions">
+                <button class="hab-btn hab-btn-primary hab-work-btn"
+                    data-name="${h.name}" data-trigger="${h.trigger}" data-old="${h.reaction}">
+                    ✏️ Проработать
+                </button>
+            </div>
+        </div>`).join('');
+
+    return `
+        <div class="hab-section-label">🧬 Профиль · ${weak} · ${VEC_NAMES[weak]||''}</div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">
+            Привычки, которые часто встречаются при вашем психотипе. Выберите ту, которую хотите изменить.
+        </p>
+        ${items}`;
+}
+
+// ============================================
+// ВКЛАДКА: МОИ ПРИВЫЧКИ
+// ============================================
+function _habMy() {
+    if (!_hab.habits.length) return `
+        <div class="hab-empty">
+            <span class="hab-empty-icon">📭</span>
+            <div class="hab-empty-title">Нет активных привычек</div>
+            <div class="hab-empty-desc">Перейдите во вкладку «Анализ» или «Меню» и добавьте первую привычку</div>
+        </div>`;
+
+    const total = _hab.habits.reduce((s,h) => s + (_hab.streak[h.id]||0), 0);
+    const items = _hab.habits.map((h,i) => {
+        const str  = _hab.streak[h.id] || 0;
+        const pct  = Math.min(100, Math.round((str/21)*100));
+        return `
+        <div class="hab-item">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+                <div class="hab-item-name" style="flex:1">${h.name}</div>
+                <div class="hab-streak">🔥 ${str}/21</div>
+            </div>
+            <div class="hab-item-detail">
+                <div class="hab-item-trigger">🎯 ${h.trigger}</div>
+                <div class="hab-item-old">❌ ${h.old}</div>
+                <div class="hab-item-new">✅ ${h.new}</div>
+            </div>
+            <div class="hab-progress-wrap">
+                <div class="hab-progress-label">
+                    <span>Прогресс</span><span>${pct}%</span>
+                </div>
+                <div class="hab-progress-bar">
+                    <div class="hab-progress-fill" style="width:${pct}%"></div>
+                </div>
+            </div>
+            <div class="hab-actions" style="margin-top:10px">
+                <button class="hab-btn hab-btn-primary hab-mark-btn" data-idx="${i}">✅ Выполнил</button>
+                <button class="hab-btn hab-btn-danger hab-del-btn" data-idx="${i}">🗑 Удалить</button>
+            </div>
+        </div>`; }).join('');
+
+    return `
+        <div style="display:flex;justify-content:space-between;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+            <span>Активных: <strong style="color:var(--chrome)">${_hab.habits.length}</strong></span>
+            <span>Всего дней: <strong style="color:var(--chrome)">🔥 ${total}</strong></span>
+        </div>
+        ${items}`;
+}
+
+// ============================================
+// ВКЛАДКА: ПЛАН
+// ============================================
+function _habPlan() {
+    if (!_hab.habits.length) return `
+        <div class="hab-empty">
+            <span class="hab-empty-icon">🌱</span>
+            <div class="hab-empty-title">Нет активных привычек</div>
+            <div class="hab-empty-desc">Добавьте привычку во вкладке «Анализ» или «Меню»</div>
+        </div>`;
+
+    const DAYS = ['ПН','ВТ','СР','ЧТ','ПТ','СБ','ВС'];
+    const today = (new Date().getDay() + 6) % 7; // 0=ПН
+
+    const cards = _hab.habits.map(h => {
+        const str   = _hab.streak[h.id] || 0;
+        const left  = Math.max(0, 21 - str);
+        const week  = DAYS.map((d,i) => `
+            <div class="hab-day${i < today ? ' done' : ''}">${d}</div>`).join('');
+        return `
+        <div class="hab-plan-card">
+            <div class="hab-plan-header">
+                <div class="hab-plan-name">${h.name}</div>
+                <div class="hab-plan-days">День ${str} · осталось ${left}</div>
+            </div>
+            <div class="hab-week">${week}</div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+                🎯 ${h.trigger} → ✅ ${h.new}
+            </div>
+        </div>`; }).join('');
+
+    return `
+        <div class="hab-section-label">📅 21-дневный план внедрения</div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">
+            Привычка становится автоматической после 21 дня регулярного повторения.
+        </p>
+        ${cards}
+        <div class="hab-tip">
+            💡 <strong>Не пропускайте больше одного дня подряд</strong> — это сбивает формирование нейронной связи.
+        </div>`;
+}
+
+// ============================================
+// ВКЛАДКА: МЕНЮ (рекомендованные привычки)
+// ============================================
+function _habMenu(db, weak) {
+    const VEC_NAMES = { СБ:'уверенность', ТФ:'финансы', УБ:'смыслы', ЧВ:'отношения' };
+    const items = db.recommended.map(h => `
+        <div class="hab-item">
+            <div class="hab-item-name">🌱 ${h.name}</div>
+            <div class="hab-item-detail">
+                <div class="hab-item-trigger">🎯 Триггер: ${h.trigger}</div>
+                <div class="hab-item-old">❌ Старая: ${h.old}</div>
+                <div class="hab-item-new">✅ Новая: ${h.new}</div>
+            </div>
+            <div class="hab-actions">
+                <button class="hab-btn hab-btn-primary hab-add-btn"
+                    data-name="${h.name}" data-trigger="${h.trigger}"
+                    data-old="${h.old}" data-new="${h.new}">
+                    + Добавить
+                </button>
+            </div>
+        </div>`).join('');
+
+    return `
+        <div class="hab-section-label">🧬 Рекомендовано · ${weak} · ${VEC_NAMES[weak]||''}</div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">
+            Привычки, которые помогут именно вам. Выберите одну-две и начните.
+        </p>
+        ${items}
+
+        <div class="hab-section-label" style="margin-top:20px">✏️ Создать свою привычку</div>
+        <textarea class="hab-textarea" id="habCustomDesc" rows="2"
+            placeholder="Например: «Хочу перестать откладывать дела на потом»"></textarea>
+        <div style="margin-top:10px">
+            <button class="hab-btn hab-btn-primary" id="habCustomBtn" style="width:100%">
+                ➕ Создать привычку
+            </button>
+        </div>`;
+}
+
+// ============================================
+// ОБРАБОТЧИКИ
+// ============================================
+function _habBindHandlers(db) {
+    // Кнопки "Проработать" (из анализа)
+    document.querySelectorAll('.hab-work-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const res = await _habDialog({
+                title: `Проработка: ${btn.dataset.name}`,
+                subtitle: `🎯 Триггер: ${btn.dataset.trigger}<br>❌ Старая реакция: ${btn.dataset.old}`,
+                fields: [{ id:'new', label:'✅ Что сделаю вместо этого?', type:'textarea', rows:2,
+                           placeholder:'Например: «Сделаю 3 вдоха и скажу "нет, спасибо"»', required:true }],
+                hint: 'Новая реакция должна быть конкретной и выполнимой прямо сейчас',
+                okText: 'Сохранить привычку'
+            });
+            if (!res) return;
+            _habAddHabit(btn.dataset.name, btn.dataset.trigger, btn.dataset.old, res.new);
+        });
+    });
+
+    // Кнопки "Добавить" (из меню)
+    document.querySelectorAll('.hab-add-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _habAddHabit(btn.dataset.name, btn.dataset.trigger, btn.dataset.old, btn.dataset.new);
+        });
+    });
+
+    // Кнопка "Выполнил"
+    document.querySelectorAll('.hab-mark-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const i     = parseInt(btn.dataset.idx);
+            const h     = _hab.habits[i];
+            if (!h) return;
+            const today = new Date().toDateString();
+            const last  = localStorage.getItem('hab_last_' + h.id);
+            if (last === today) { _habToast('Уже отмечено сегодня', 'info'); return; }
+            _hab.streak[h.id] = (_hab.streak[h.id] || 0) + 1;
+            localStorage.setItem('hab_last_' + h.id, today);
+            _habSave();
+            const str = _hab.streak[h.id];
+            if (str >= 21) _habToast(`🎉 Привычка «${h.name}» сформирована!`, 'success');
+            else _habToast(`✅ День ${str} из 21`, 'success');
+            _habRender();
+        });
+    });
+
+    // Кнопка "Удалить"
+    document.querySelectorAll('.hab-del-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const i = parseInt(btn.dataset.idx);
+            const h = _hab.habits[i];
+            if (!h) return;
+            const ok = await _habConfirm(`Удалить привычку «${h.name}»?`);
+            if (!ok) return;
+            _hab.habits.splice(i, 1);
+            _habSave();
+            _habToast('Привычка удалена');
+            _habRender();
+        });
+    });
+
+    // Кнопка "Создать свою"
+    document.getElementById('habCustomBtn')?.addEventListener('click', async () => {
+        const desc = (document.getElementById('habCustomDesc')?.value || '').trim();
+        if (!desc) { _habToast('Опишите привычку', 'error'); return; }
+        const res = await _habDialog({
+            title: 'Создание привычки',
+            subtitle: desc,
+            fields: [
+                { id:'trigger', label:'🎯 Что запускает эту привычку?', type:'input', placeholder:'Например: «Чувствую скуку»', required:true },
+                { id:'old',     label:'❌ Что делаете сейчас?',          type:'input', placeholder:'Например: «Открываю соцсети»', required:true },
+                { id:'new',     label:'✅ Что будете делать вместо?',    type:'textarea', rows:2, placeholder:'Например: «Делаю 5 приседаний»', required:true }
+            ],
+            okText: 'Создать'
+        });
+        if (!res) return;
+        const name = desc.length > 50 ? desc.slice(0,50)+'…' : desc;
+        _habAddHabit(name, res.trigger, res.old, res.new);
+    });
+}
+
+function _habAddHabit(name, trigger, old, newR) {
+    if (_hab.habits.some(h => h.name === name)) {
+        _habToast(`Привычка «${name}» уже добавлена`, 'info');
+        return;
+    }
+    const id = Date.now().toString();
+    _hab.habits.push({ id, name, trigger, old, new: newR });
+    _hab.streak[id] = 0;
+    _habSave();
+    _habToast(`✅ «${name}» добавлена`, 'success');
+    _hab.tab = 'my';
+    _habRender();
+}
+
+// ============================================
+// ТОЧКА ВХОДА
+// ============================================
+async function showHabitsScreen() {
+    _habLoad();
+    _habRender(); // сразу показываем
+    await _habLoadVectors();
+    _habRender(); // перерисовываем с актуальными векторами
+}
+
+// ============================================
+// ЭКСПОРТ
 // ============================================
 window.showHabitsScreen = showHabitsScreen;
-
-console.log('✅ Модуль "Привычки" загружен (habits.js v1.0)');
+console.log('✅ habits.js v2.0 загружен');
