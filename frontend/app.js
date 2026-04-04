@@ -363,7 +363,7 @@ function navigateTo(screen, params = {}) {
         case 'confinement-loops': showConfinementLoops(params); break;
         case 'intervention': showIntervention(params); break;
         case 'practices': showPractices(); break;
-        case 'hypnosis': showHypnosis(); break;
+        case 'hypnosis': if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};document.head.appendChild(s); } break;
         case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } break;
         case 'anchors': showAnchors(); break;
         case 'statistics': showStatistics(); break;
@@ -1450,7 +1450,7 @@ async function init() {
                 },
                 confinement: () => showConfinementModel(),
                 practices: () => showPractices(),
-                hypnosis: () => showHypnosis(),
+                hypnosis: () => { if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};document.head.appendChild(s); } },
                 diary: () => { if (typeof showDiaryScreen==='function') showDiaryScreen(); else { const s=document.createElement('script');s.src='diary.js';s.onload=()=>{if(typeof showDiaryScreen==='function')showDiaryScreen();};document.head.appendChild(s); } },
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
