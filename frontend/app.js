@@ -1303,7 +1303,7 @@ function renderDashboard() {
                 skill_diagnosis:  () => { if (typeof showSkillDiagnosisScreen==='function') showSkillDiagnosisScreen(); else { const s=document.createElement('script');s.src='skill_diagnosis.js';s.onload=()=>{if(typeof showSkillDiagnosisScreen==='function')showSkillDiagnosisScreen();};document.head.appendChild(s); } },
                 skill_choice:     () => { if (typeof showSkillChoiceScreen==='function') showSkillChoiceScreen(); else { const s=document.createElement('script');s.src='skill_choice.js';s.onload=()=>{if(typeof showSkillChoiceScreen==='function')showSkillChoiceScreen();};document.head.appendChild(s); } },
                 daily_training:   () => { if (typeof showDailyTrainingScreen==='function') showDailyTrainingScreen(); else { const s=document.createElement('script');s.src='daily_training.js';s.onload=()=>{if(typeof showDailyTrainingScreen==='function')showDailyTrainingScreen();};document.head.appendChild(s); } },
-                progress:         () => showToast('Прогресс и рефлексия — скоро', 'info'),
+                progress:         () => { if (typeof showProgressScreen==='function') showProgressScreen(); else { const s=document.createElement('script');s.src='progress_tracker.js';s.onload=()=>{if(typeof showProgressScreen==='function')showProgressScreen();};document.head.appendChild(s); } },
                 emotions:   () => showToast('Эмоции — скоро будут доступны', 'info'),
                 trauma:     () => showToast('Исцеление — скоро будет доступно', 'info'),
                 relations:  () => showToast('Отношения — скоро будут доступны', 'info')
