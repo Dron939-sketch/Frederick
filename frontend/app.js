@@ -364,7 +364,7 @@ function navigateTo(screen, params = {}) {
         case 'intervention': showIntervention(params); break;
         case 'practices': showPractices(); break;
         case 'hypnosis': showHypnosis(); break;
-        case 'tales': showTales_screen(); break;
+        case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } break;
         case 'anchors': showAnchors(); break;
         case 'statistics': showStatistics(); break;
         case 'analysis':
@@ -497,7 +497,7 @@ function showFullContentScreen(title, content, contentType) {
     const emojiMap = {
         profile: '🧠', thoughts: '💭', goals: '🎯', questions: '❓',
         challenges: '🏆', doubles: '👥', weekend: '🎨', confinement: '🔐',
-        practices: '🧘', hypnosis: '🌙', tales: '📚', anchors: '⚓', statistics: '📊'
+        practices: '🧘', hypnosis: '🌙', tales: '🧿', anchors: '⚓', statistics: '📊'
     };
     // Если content — уже HTML (содержит теги) — не прогоняем через форматтер
     const isHTML = typeof content === 'string' && /<[a-z][\s\S]*>/i.test(content);
@@ -1449,7 +1449,7 @@ async function init() {
                 confinement: () => showConfinementModel(),
                 practices: () => showPractices(),
                 hypnosis: () => showHypnosis(),
-                tales: () => showTales_screen(),
+                tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => showAnchors(),
                 statistics: () => showStatistics()
             };
