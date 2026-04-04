@@ -15,7 +15,6 @@ from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
 from confinement.confinement_model import ConfinementModel9, ConfinementElement
 from confinement.loop_analyzer import LoopAnalyzer
-from hypno import HypnoOrchestrator, TherapeuticTales
 from services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
