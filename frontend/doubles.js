@@ -823,7 +823,7 @@ async function _doSearch(container) {
         await new Promise(r => setTimeout(r, 2500)); // Даём лоадеру "подышать"
 
         const api = _api(), uid = _userId();
-        let url = `${api}/api/psychometric/search?user_id=${uid}&mode=${doublesState.searchMode}`;
+        let url = `${api}/api/psychometric/find-doubles?user_id=${uid}&mode=${doublesState.searchMode}`;
         if (doublesState.searchGoal)              url += `&goal=${doublesState.searchGoal}`;
         if (doublesState.filters.distance !== 'any') url += `&distance=${doublesState.filters.distance}`;
         if (doublesState.filters.gender !== 'any')   url += `&gender=${doublesState.filters.gender}`;
