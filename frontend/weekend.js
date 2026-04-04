@@ -1,557 +1,401 @@
 // ============================================
-// weekend.js — Идеи на выходные с учётом профиля
-// Версия 1.0 — адаптировано из MAX бота
+// weekend.js — Идеи на выходные
+// Версия 2.0 — единый стиль с проектом
 // ============================================
 
 // ============================================
-// 1. СОСТОЯНИЕ
+// CSS — один раз
 // ============================================
-let weekendState = {
-    ideas: null,
-    lastGenerated: null,
-    mainVector: null,
-    mainLevel: null,
-    isLoading: false,
-    currentIdeas: [],
-    userVectors: { СБ: 4, ТФ: 4, УБ: 4, ЧВ: 4 }
-};
-
-// ============================================
-// 2. БАЗА ИДЕЙ ПО ВЕКТОРАМ (FALLBACK)
-// ============================================
-
-const FALLBACK_IDEAS = {
-    "СБ": {
-        name: "ГАРМОНИЯ И СПОКОЙСТВИЕ",
-        emoji: "🌿",
-        ideas: [
-            "🚶 Прогулка в новом месте (парк, район, где вы не были)",
-            "📝 Написать список своих границ и подумать, где их нарушают",
-            "🧘 Практика заземления: походить босиком по траве/полу",
-            "🎬 Посмотреть фильм, где герой преодолевает страх",
-            "🤝 Пригласить друга в гости или сходить самому",
-            "🕯️ Устроить вечер без соцсетей с книгой или музыкой",
-            "🌸 Посетить цветочный магазин и купить себе букет",
-            "🧘‍♀️ Попробовать дыхательную гимнастику"
-        ]
-    },
-    "ТФ": {
-        name: "РЕСУРСЫ И ИЗОБИЛИЕ",
-        emoji: "💰",
-        ideas: [
-            "💰 Разобрать свои финансы за месяц",
-            "📚 Почитать книгу по финансовой грамотности",
-            "🛒 Сходить в магазин с конкретным списком (без импульсивных покупок)",
-            "💡 Придумать 3 идеи дополнительного дохода",
-            "🎁 Сделать подарок себе в рамках бюджета",
-            "📊 Составить финансовый план на месяц",
-            "🏦 Изучить способы пассивного дохода",
-            "📈 Посмотреть лекцию об инвестициях"
-        ]
-    },
-    "УБ": {
-        name: "ПОЗНАНИЕ И СМЫСЛЫ",
-        emoji: "📚",
-        ideas: [
-            "📖 Почитать книгу по психологии или философии",
-            "🧩 Посмотреть документальный фильм на новую тему",
-            "✍️ Написать эссе 'Что для меня важно'",
-            "🗣 Поговорить с мудрым человеком",
-            "🌌 Посмотреть на звёзды и подумать о вечном",
-            "🎓 Пройти бесплатный онлайн-курс",
-            "🔬 Посетить научно-популярную лекцию",
-            "🧠 Изучить новую тему, которая давно интересовала"
-        ]
-    },
-    "ЧВ": {
-        name: "ОТНОШЕНИЯ И ТЕПЛО",
-        emoji: "🤝",
-        ideas: [
-            "👥 Встретиться с друзьями, которых давно не видели",
-            "📞 Позвонить родным просто так",
-            "🤗 Сделать комплимент незнакомцу",
-            "🍵 Пригласить коллегу на чай",
-            "💌 Написать письмо благодарности кому-то",
-            "🎲 Устроить настольные игры с семьёй",
-            "🐱 Сходить в приют для животных",
-            "🍰 Испечь что-то и угостить соседей"
-        ]
-    }
-};
-
-// Общие идеи для всех типов
-const COMMON_IDEAS = [
-    "🛁 Устроить день спа-процедур дома",
-    "🎨 Попробовать новое хобби (рисование, лепка, вышивание)",
-    "🚲 Отправиться на велопрогулку",
-    "🍳 Приготовить новое блюдо по рецепту",
-    "🎧 Послушать подкаст на интересную тему",
-    "📝 Написать список целей на следующую неделю",
-    "🧹 Устроить генеральную уборку и избавиться от лишнего",
-    "🎬 Устроить киномарафон с любимыми фильмами"
-];
-
-// ============================================
-// 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ============================================
-function showToastMessage(message, type = 'info') {
-    if (window.showToast) window.showToast(message, type);
-    else if (window.showToastMessage) window.showToastMessage(message, type);
-    else console.log(`[${type}] ${message}`);
-}
-
-function goBackToDashboard() {
-    if (typeof renderDashboard === 'function') renderDashboard();
-    else if (window.renderDashboard) window.renderDashboard();
-    else if (typeof window.goToDashboard === 'function') window.goToDashboard();
-    else location.reload();
-}
-
-// ============================================
-// 4. ЗАГРУЗКА ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ
-// ============================================
-async function loadUserVectorsForWeekend() {
-    try {
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-        
-        const response = await fetch(`${apiUrl}/api/get-profile/${userId}`);
-        const data = await response.json();
-        
-        const profile = data.profile || {};
-        const behavioralLevels = profile.behavioral_levels || {};
-        
-        weekendState.userVectors = {
-            СБ: behavioralLevels.СБ ? (Array.isArray(behavioralLevels.СБ) ? behavioralLevels.СБ[behavioralLevels.СБ.length-1] : behavioralLevels.СБ) : 4,
-            ТФ: behavioralLevels.ТФ ? (Array.isArray(behavioralLevels.ТФ) ? behavioralLevels.ТФ[behavioralLevels.ТФ.length-1] : behavioralLevels.ТФ) : 4,
-            УБ: behavioralLevels.УБ ? (Array.isArray(behavioralLevels.УБ) ? behavioralLevels.УБ[behavioralLevels.УБ.length-1] : behavioralLevels.УБ) : 4,
-            ЧВ: behavioralLevels.ЧВ ? (Array.isArray(behavioralLevels.ЧВ) ? behavioralLevels.ЧВ[behavioralLevels.ЧВ.length-1] : behavioralLevels.ЧВ) : 4
-        };
-        
-        console.log('📊 Векторы для подбора идей:', weekendState.userVectors);
-    } catch (error) {
-        console.warn('Failed to load user vectors:', error);
-        weekendState.userVectors = { СБ: 4, ТФ: 4, УБ: 4, ЧВ: 4 };
-    }
-}
-
-// ============================================
-// 5. ОПРЕДЕЛЕНИЕ ОСНОВНОГО ВЕКТОРА (СЛАБОГО)
-// ============================================
-function getMainVectorAndLevel(vectors) {
-    // Находим самый слабый вектор (наименьшее значение)
-    const entries = Object.entries(vectors);
-    const minVector = entries.reduce((min, current) => 
-        current[1] < min[1] ? current : min, entries[0]);
-    
-    const mainVector = minVector[0];
-    const score = minVector[1];
-    
-    // Преобразуем балл 1-6 в уровень 1-6
-    let level = Math.round(score);
-    if (level < 1) level = 1;
-    if (level > 6) level = 6;
-    
-    return { mainVector, level, score };
-}
-
-// ============================================
-// 6. ГЕНЕРАЦИЯ ИДЕЙ (ЛОКАЛЬНАЯ, БЕЗ AI)
-// ============================================
-function generateWeekendIdeas(vectors, userName, gender, weatherInfo = null) {
-    const { mainVector, level } = getMainVectorAndLevel(vectors);
-    
-    // Получаем идеи для основного вектора
-    const vectorIdeas = FALLBACK_IDEAS[mainVector] || FALLBACK_IDEAS["ЧВ"];
-    
-    // Перемешиваем идеи
-    const shuffledVectorIdeas = [...vectorIdeas.ideas];
-    for (let i = shuffledVectorIdeas.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledVectorIdeas[i], shuffledVectorIdeas[j]] = [shuffledVectorIdeas[j], shuffledVectorIdeas[i]];
-    }
-    
-    // Перемешиваем общие идеи
-    const shuffledCommonIdeas = [...COMMON_IDEAS];
-    for (let i = shuffledCommonIdeas.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledCommonIdeas[i], shuffledCommonIdeas[j]] = [shuffledCommonIdeas[j], shuffledCommonIdeas[i]];
-    }
-    
-    // Берём топ-3 из векторных и топ-2 из общих
-    const selectedVectorIdeas = shuffledVectorIdeas.slice(0, 4);
-    const selectedCommonIdeas = shuffledCommonIdeas.slice(0, 2);
-    
-    // Описание вектора
-    const vectorDescriptions = {
-        "СБ": "укрепление уверенности и внутренней опоры",
-        "ТФ": "гармонизацию с деньгами и ресурсами",
-        "УБ": "поиск смыслов и системное мышление",
-        "ЧВ": "тёплые отношения и эмоциональные связи"
-    };
-    
-    const vectorDesc = vectorDescriptions[mainVector] || "гармоничное развитие";
-    const levelDesc = level <= 2 ? "важно уделить внимание" : 
-                      level <= 4 ? "хорошо бы поработать" : 
-                      "можно укрепить";
-    
-    // Пол для обращения
-    let address = "друг";
-    if (gender === "male") address = "брат";
-    else if (gender === "female") address = "сестрёнка";
-    
-    // Имя пользователя
-    const name = userName || "друг";
-    
-    // Погодный контекст
-    let weatherText = "";
-    if (weatherInfo) {
-        const weatherIcon = weatherInfo.icon || "☁️";
-        const weatherDesc = weatherInfo.description || "";
-        const weatherTemp = weatherInfo.temp ? `, ${weatherInfo.temp}°C` : "";
-        weatherText = `${weatherIcon} Погода: ${weatherDesc}${weatherTemp}. `;
-    }
-    
-    // Формируем текст
-    let text = `🧠 **ФРЕДИ: ИДЕИ НА ВЫХОДНЫЕ**\n\n`;
-    text += `Привет, ${name}! ${weatherText}Я подобрал идеи с учётом твоего профиля.\n\n`;
-    text += `🎯 **Твой фокус:** ${vectorDesc}\n`;
-    text += `📊 **Уровень:** ${level}/6 (${levelDesc})\n\n`;
-    text += `---\n\n`;
-    
-    text += `${vectorIdeas.emoji} **${vectorIdeas.name}** (для твоего профиля)\n`;
-    for (let i = 0; i < selectedVectorIdeas.length; i++) {
-        text += `${selectedVectorIdeas[i]}\n`;
-    }
-    
-    text += `\n🌟 **ОБЩИЕ РЕКОМЕНДАЦИИ**\n`;
-    for (let i = 0; i < selectedCommonIdeas.length; i++) {
-        text += `${selectedCommonIdeas[i]}\n`;
-    }
-    
-    text += `\n---\n`;
-    text += `💡 **Совет:** Выбери 1-2 идеи, которые действительно откликаются. Не нужно делать всё сразу.\n\n`;
-    text += `✨ Хороших выходных, ${name}! ✨`;
-    
-    return {
-        text: text,
-        mainVector: mainVector,
-        mainLevel: level,
-        ideas: [...selectedVectorIdeas, ...selectedCommonIdeas]
-    };
-}
-
-// ============================================
-// 7. ПОЛУЧЕНИЕ ПОГОДЫ (из контекста)
-// ============================================
-function getWeatherFromContext() {
-    // Пробуем получить погоду из разных мест
-    try {
-        // Из глобального контекста
-        if (window.userDoublesProfile && window.userDoublesProfile.weather) {
-            return window.userDoublesProfile.weather;
-        }
-        
-        // Из localStorage
-        const savedWeather = localStorage.getItem('fredi_weather');
-        if (savedWeather) {
-            return JSON.parse(savedWeather);
-        }
-        
-        return null;
-    } catch (e) {
-        return null;
-    }
-}
-
-// ============================================
-// 8. ПОЛУЧЕНИЕ ИМЕНИ ПОЛЬЗОВАТЕЛЯ
-// ============================================
-function getUserName() {
-    return localStorage.getItem('fredi_user_name') || 'друг';
-}
-
-// ============================================
-// 9. ПОЛУЧЕНИЕ ПОЛА (из контекста)
-// ============================================
-function getUserGender() {
-    try {
-        if (window.userDoublesProfile && window.userDoublesProfile.gender) {
-            return window.userDoublesProfile.gender;
-        }
-        return localStorage.getItem('fredi_user_gender') || 'other';
-    } catch (e) {
-        return 'other';
-    }
-}
-
-// ============================================
-// 10. ОСНОВНОЙ ЭКРАН
-// ============================================
-async function showWeekendScreen() {
-    const completed = await checkTestCompleted();
-    if (!completed) {
-        showToastMessage('📊 Сначала пройдите психологический тест', 'info');
-        return;
-    }
-    
-    const container = document.getElementById('screenContainer');
-    if (!container) return;
-    
-    await loadUserVectorsForWeekend();
-    
-    const userName = getUserName();
-    const gender = getUserGender();
-    const weather = getWeatherFromContext();
-    
-    // Генерируем идеи
-    const result = generateWeekendIdeas(weekendState.userVectors, userName, gender, weather);
-    weekendState.currentIdeas = result.ideas;
-    weekendState.mainVector = result.mainVector;
-    weekendState.mainLevel = result.mainLevel;
-    weekendState.lastGenerated = new Date();
-    
-    renderWeekendScreen(container, result.text, result.mainVector, result.mainLevel);
-}
-
-async function checkTestCompleted() {
-    try {
-        const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
-        const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
-        const data = await response.json();
-        return data.has_profile === true;
-    } catch (e) {
-        return false;
-    }
-}
-
-function renderWeekendScreen(container, ideasText, mainVector, mainLevel) {
-    const vectorInfo = FALLBACK_IDEAS[mainVector] || FALLBACK_IDEAS["ЧВ"];
-    
-    container.innerHTML = `
-        <div class="full-content-page" id="weekendScreen">
-            <button class="back-btn" id="weekendBackBtn">◀️ НАЗАД</button>
-            
-            <div class="content-header">
-                <div class="content-emoji">🎉</div>
-                <h1>Идеи на выходные</h1>
-                <div style="font-size: 12px; color: var(--text-secondary);">
-                    Подобрано специально для вас
-                </div>
-            </div>
-            
-            <div class="weekend-profile-badge">
-                <span class="weekend-vector">${vectorInfo.emoji} ${vectorInfo.name}</span>
-                <span class="weekend-level">Уровень: ${mainLevel}/6</span>
-            </div>
-            
-            <div class="weekend-ideas-card">
-                <div class="weekend-ideas-content">
-                    ${formatIdeasText(ideasText)}
-                </div>
-            </div>
-            
-            <div class="weekend-actions">
-                <button id="refreshIdeasBtn" class="weekend-refresh-btn">
-                    🔄 ЕЩЁ ИДЕИ
-                </button>
-                <button id="shareIdeasBtn" class="weekend-share-btn">
-                    📤 ПОДЕЛИТЬСЯ
-                </button>
-            </div>
-            
-            <div class="weekend-footer">
-                <div class="weekend-tip">
-                    💡 <strong>Совет:</strong> Выберите 1-2 идеи, которые действительно откликаются. 
-                    Не нужно делать всё сразу. Хороших выходных!
-                </div>
-            </div>
-        </div>
-    `;
-    
-    addWeekendStyles();
-    
-    document.getElementById('weekendBackBtn')?.addEventListener('click', () => goBackToDashboard());
-    
-    document.getElementById('refreshIdeasBtn')?.addEventListener('click', () => {
-        refreshIdeas(container);
-    });
-    
-    document.getElementById('shareIdeasBtn')?.addEventListener('click', () => {
-        shareIdeas(ideasText);
-    });
-}
-
-function formatIdeasText(text) {
-    // Конвертируем **текст** в <strong>текст</strong>
-    let formatted = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    formatted = formatted.replace(/\n/g, '<br>');
-    return formatted;
-}
-
-async function refreshIdeas(container) {
-    if (weekendState.isLoading) return;
-    
-    weekendState.isLoading = true;
-    const refreshBtn = document.getElementById('refreshIdeasBtn');
-    if (refreshBtn) {
-        refreshBtn.textContent = '⏳ ГЕНЕРИРУЮ...';
-        refreshBtn.disabled = true;
-    }
-    
-    try {
-        const userName = getUserName();
-        const gender = getUserGender();
-        const weather = getWeatherFromContext();
-        
-        // Генерируем новые идеи
-        const result = generateWeekendIdeas(weekendState.userVectors, userName, gender, weather);
-        weekendState.currentIdeas = result.ideas;
-        weekendState.mainVector = result.mainVector;
-        weekendState.mainLevel = result.mainLevel;
-        weekendState.lastGenerated = new Date();
-        
-        // Обновляем экран
-        renderWeekendScreen(container, result.text, result.mainVector, result.mainLevel);
-    } catch (error) {
-        console.error('Error refreshing ideas:', error);
-        showToastMessage('❌ Не удалось обновить идеи', 'error');
-    } finally {
-        weekendState.isLoading = false;
-    }
-}
-
-function shareIdeas(ideasText) {
-    // Убираем HTML-теги для шаринга
-    const plainText = ideasText.replace(/\*\*(.*?)\*\*/g, '$1');
-    
-    if (navigator.share) {
-        navigator.share({
-            title: 'Идеи на выходные от Фреди',
-            text: plainText,
-            url: window.location.href
-        }).catch(() => {
-            copyToClipboard(plainText);
-        });
-    } else {
-        copyToClipboard(plainText);
-    }
-}
-
-function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        showToastMessage('📋 Идеи скопированы в буфер обмена', 'success');
-    }).catch(() => {
-        showToastMessage('❌ Не удалось скопировать', 'error');
-    });
-}
-
-// ============================================
-// 11. СТИЛИ
-// ============================================
-function addWeekendStyles() {
-    if (document.getElementById('weekend-styles')) return;
-    
-    const style = document.createElement('style');
-    style.id = 'weekend-styles';
-    style.textContent = `
-        .weekend-profile-badge {
+function _wiInjectStyles() {
+    if (document.getElementById('wi-v2-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'wi-v2-styles';
+    s.textContent = `
+        /* ===== БЕЙДЖ ФОКУСА ===== */
+        .wi-focus-badge {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: linear-gradient(135deg, rgba(255,107,59,0.1), rgba(255,59,59,0.05));
-            border-radius: 50px;
+            background: rgba(224,224,224,0.05);
+            border: 1px solid rgba(224,224,224,0.12);
+            border-radius: 40px;
             padding: 8px 16px;
             margin-bottom: 20px;
         }
-        .weekend-vector {
-            font-size: 14px;
+        .wi-focus-name {
+            font-size: 13px;
             font-weight: 600;
+            color: var(--chrome);
         }
-        .weekend-level {
-            font-size: 12px;
+        .wi-focus-level {
+            font-size: 11px;
             color: var(--text-secondary);
         }
-        .weekend-ideas-card {
-            background: linear-gradient(135deg, rgba(224,224,224,0.05), rgba(192,192,192,0.02));
-            border-radius: 24px;
-            padding: 20px;
+
+        /* ===== СЕКЦИЯ ИДЕЙ ===== */
+        .wi-section {
             margin-bottom: 20px;
-            border: 1px solid rgba(224,224,224,0.1);
         }
-        .weekend-ideas-content {
-            font-size: 14px;
-            line-height: 1.6;
-            color: var(--text-primary);
+        .wi-section-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
         }
-        .weekend-ideas-content strong {
-            color: #ff6b3b;
-        }
-        .weekend-ideas-content br {
-            margin-bottom: 8px;
-        }
-        .weekend-actions {
+        .wi-cards {
             display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .wi-card {
+            display: flex;
+            align-items: flex-start;
             gap: 12px;
-            margin-bottom: 20px;
-        }
-        .weekend-refresh-btn, .weekend-share-btn {
-            flex: 1;
-            padding: 14px;
-            border-radius: 50px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .weekend-refresh-btn {
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            border: none;
-            color: white;
-        }
-        .weekend-refresh-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .weekend-share-btn {
-            background: rgba(224,224,224,0.1);
-            border: 1px solid rgba(224,224,224,0.2);
-            color: white;
-        }
-        .weekend-footer {
-            background: rgba(16,185,129,0.08);
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
             border-radius: 16px;
             padding: 14px;
+            transition: background 0.2s;
         }
-        .weekend-tip {
+        .wi-card:hover { background: rgba(224,224,224,0.08); }
+        .wi-card-icon {
+            font-size: 22px;
+            flex-shrink: 0;
+            line-height: 1.2;
+        }
+        .wi-card-text {
+            font-size: 14px;
+            line-height: 1.55;
+            color: var(--text-secondary);
+            padding-top: 2px;
+        }
+
+        /* ===== КНОПКИ ===== */
+        .wi-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .wi-btn {
+            flex: 1;
+            padding: 13px 16px;
+            border-radius: 40px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.15s;
+            min-height: 46px;
+            touch-action: manipulation;
+            outline: none;
+        }
+        .wi-btn:active { transform: scale(0.97); }
+        .wi-btn-primary {
+            background: linear-gradient(135deg, rgba(224,224,224,0.18), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.28);
+            color: var(--text-primary);
+        }
+        .wi-btn-primary:hover { background: linear-gradient(135deg, rgba(224,224,224,0.26), rgba(192,192,192,0.16)); }
+        .wi-btn-ghost {
+            background: rgba(224,224,224,0.05);
+            border: 1px solid rgba(224,224,224,0.14);
+            color: var(--text-secondary);
+        }
+        .wi-btn-ghost:hover { background: rgba(224,224,224,0.1); color: var(--text-primary); }
+        .wi-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        /* ===== СОВЕТ ===== */
+        .wi-tip {
+            background: rgba(224,224,224,0.03);
+            border: 1px solid rgba(224,224,224,0.08);
+            border-radius: 14px;
+            padding: 12px 14px;
             font-size: 12px;
             color: var(--text-secondary);
-            line-height: 1.4;
+            line-height: 1.5;
             text-align: center;
         }
-        .weekend-tip strong {
-            color: #10b981;
-        }
-        @media (max-width: 768px) {
-            .weekend-ideas-card {
-                padding: 16px;
-            }
-            .weekend-ideas-content {
-                font-size: 13px;
-            }
-            .weekend-refresh-btn, .weekend-share-btn {
-                padding: 12px;
-                font-size: 13px;
-            }
+
+        @media (max-width: 480px) {
+            .wi-card-icon { font-size: 18px; }
+            .wi-card-text { font-size: 13px; }
         }
     `;
-    document.head.appendChild(style);
+    document.head.appendChild(s);
 }
 
 // ============================================
-// 12. ЭКСПОРТ
+// БАЗА ИДЕЙ ПО ВЕКТОРАМ
+// ============================================
+const WI_DB = {
+    СБ: {
+        name: 'Гармония и спокойствие',
+        emoji: '🌿',
+        ideas: [
+            { icon:'🚶', text:'Прогулка в незнакомом месте — парк, район, который вы ещё не исследовали' },
+            { icon:'📝', text:'Написать список своих границ и подумать, где их нарушают' },
+            { icon:'🧘', text:'Практика заземления: походить босиком по траве или полу, просто чувствуя опору' },
+            { icon:'🎬', text:'Посмотреть фильм, где герой преодолевает страх и находит себя' },
+            { icon:'🕯️', text:'Вечер без соцсетей: книга, музыка, тишина' },
+            { icon:'🌸', text:'Зайти в цветочный и купить себе букет — просто так' },
+            { icon:'🫁', text:'Попробовать дыхательную практику «Квадрат»: вдох 4 — задержка 4 — выдох 4 — задержка 4' }
+        ]
+    },
+    ТФ: {
+        name: 'Ресурсы и изобилие',
+        emoji: '💰',
+        ideas: [
+            { icon:'📊', text:'Разобрать личный бюджет за месяц: куда ушли деньги, что удивило' },
+            { icon:'📚', text:'Почитать книгу по финансовой грамотности — хоть 20 страниц' },
+            { icon:'💡', text:'Придумать 3 реалистичные идеи дополнительного дохода — не реализовывать, просто придумать' },
+            { icon:'🎁', text:'Сделать себе небольшой подарок в рамках бюджета — вы это заслужили' },
+            { icon:'📈', text:'Посмотреть одну лекцию об инвестициях или пассивном доходе' },
+            { icon:'🛒', text:'Сходить в магазин со списком и не отклоняться от него — тренировка дисциплины' },
+            { icon:'🏦', text:'Открыть накопительный счёт или разобраться с условиями своего банка' }
+        ]
+    },
+    УБ: {
+        name: 'Познание и смыслы',
+        emoji: '📚',
+        ideas: [
+            { icon:'📖', text:'Почитать книгу по психологии или философии — то, что давно откладывали' },
+            { icon:'🧩', text:'Посмотреть документальный фильм на совершенно новую для вас тему' },
+            { icon:'✍️', text:'Написать эссе «Что для меня важно» — без редактирования, просто поток мыслей' },
+            { icon:'🌌', text:'Выйти ночью и просто посмотреть на звёзды. Подумать о масштабе' },
+            { icon:'🎓', text:'Пройти бесплатный онлайн-курс по интересующей теме — хотя бы первый урок' },
+            { icon:'🗣', text:'Найти человека, которого вы считаете мудрым, и задать один важный вопрос' },
+            { icon:'🔬', text:'Посетить научно-популярную лекцию или музей' }
+        ]
+    },
+    ЧВ: {
+        name: 'Отношения и тепло',
+        emoji: '🤝',
+        ideas: [
+            { icon:'👥', text:'Встретиться с друзьями, которых не видели больше месяца' },
+            { icon:'📞', text:'Позвонить родным — не написать, а именно позвонить' },
+            { icon:'💌', text:'Написать письмо благодарности кому-то важному в вашей жизни' },
+            { icon:'🎲', text:'Устроить настольные игры с семьёй или близкими' },
+            { icon:'🍵', text:'Позвать кого-то на кофе или чай — живой разговор, не переписка' },
+            { icon:'🐱', text:'Сходить в приют для животных — это трогает и перезагружает' },
+            { icon:'🍰', text:'Испечь что-то и угостить соседей или коллег без повода' }
+        ]
+    }
+};
+
+const WI_COMMON = [
+    { icon:'🛁', text:'Устроить дома день спа: маски, ванна, ничего не делать' },
+    { icon:'🎨', text:'Попробовать новое хобби — рисование, лепка, вышивание. Даже 30 минут' },
+    { icon:'🚲', text:'Велопрогулка или долгая пешая прогулка без цели и маршрута' },
+    { icon:'🍳', text:'Приготовить блюдо, которое никогда не делали — по рецепту или наугад' },
+    { icon:'🎧', text:'Послушать подкаст на новую тему в наушниках, лёжа на диване' },
+    { icon:'🧹', text:'Разобрать один ящик или шкаф. Порядок снаружи помогает порядку внутри' },
+    { icon:'🎬', text:'Киномарафон с любимыми фильмами — без чувства вины' }
+];
+
+// ============================================
+// СОСТОЯНИЕ
+// ============================================
+if (!window._wiState) window._wiState = {
+    vectors: { СБ:4, ТФ:4, УБ:4, ЧВ:4 },
+    isLoading: false
+};
+const _wi = window._wiState;
+
+// ============================================
+// УТИЛИТЫ
+// ============================================
+function _wiToast(msg, type) { if (window.showToast) window.showToast(msg, type||'info'); }
+function _wiHome() { if (typeof renderDashboard === 'function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
+function _wiApi() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _wiUid() { return window.CONFIG?.USER_ID; }
+
+// ============================================
+// КЭШ
+// ============================================
+function _wiSaveCache(ideas) {
+    try {
+        localStorage.setItem('wi_cache_' + _wiUid(), JSON.stringify({
+            data: ideas,
+            exp: Date.now() + 24*60*60*1000
+        }));
+    } catch {}
+}
+function _wiLoadCache() {
+    try {
+        const raw = localStorage.getItem('wi_cache_' + _wiUid());
+        if (!raw) return null;
+        const c = JSON.parse(raw);
+        return c.exp > Date.now() ? c.data : null;
+    } catch { return null; }
+}
+function _wiClearCache() {
+    try { localStorage.removeItem('wi_cache_' + _wiUid()); } catch {}
+}
+
+// ============================================
+// ЗАГРУЗКА ВЕКТОРОВ
+// ============================================
+async function _wiLoadVectors() {
+    try {
+        const r = await fetch(`${_wiApi()}/api/get-profile/${_wiUid()}`);
+        const d = await r.json();
+        const bl = d.profile?.behavioral_levels || {};
+        const avg = x => Array.isArray(x) ? x[x.length-1] : (x||4);
+        _wi.vectors = { СБ:avg(bl.СБ), ТФ:avg(bl.ТФ), УБ:avg(bl.УБ), ЧВ:avg(bl.ЧВ) };
+    } catch {}
+}
+
+// ============================================
+// ГЕНЕРАЦИЯ ИДЕЙ (локально, без AI)
+// ============================================
+function _wiGenerate() {
+    const v = _wi.vectors;
+
+    // Слабый вектор — туда направляем фокус
+    const sorted = Object.entries(v).sort((a,b) => a[1]-b[1]);
+    const weakKey = sorted[0][0];
+    const weakLvl = Math.round(Math.max(1, Math.min(6, sorted[0][1])));
+
+    // Сильный вектор — берём 1 идею как бонус
+    const strongKey = sorted[sorted.length-1][0];
+
+    const weakDB  = WI_DB[weakKey]  || WI_DB.ЧВ;
+    const strongDB = WI_DB[strongKey] || WI_DB.СБ;
+
+    // Перемешиваем
+    const shuffle = arr => {
+        const a = [...arr];
+        for (let i = a.length-1; i>0; i--) {
+            const j = Math.floor(Math.random()*(i+1));
+            [a[i],a[j]] = [a[j],a[i]];
+        }
+        return a;
+    };
+
+    const weakIdeas   = shuffle(weakDB.ideas).slice(0, 4);
+    const commonIdeas = shuffle(WI_COMMON).slice(0, 2);
+    const bonusIdea   = weakKey !== strongKey ? shuffle(strongDB.ideas)[0] : null;
+
+    return { weakKey, weakLvl, weakDB, weakIdeas, commonIdeas, bonusIdea };
+}
+
+// ============================================
+// РЕНДЕР ЭКРАНА
+// ============================================
+function _wiRender(gen) {
+    _wiInjectStyles();
+    const c = document.getElementById('screenContainer');
+    if (!c) return;
+
+    const v = _wi.vectors;
+    const { weakKey, weakLvl, weakDB, weakIdeas, commonIdeas, bonusIdea } = gen;
+
+    const levelDesc = weakLvl <= 2 ? 'важно уделить внимание'
+                    : weakLvl <= 4 ? 'хорошо бы поработать'
+                    : 'можно укрепить';
+
+    const makeCard = (idea) => `
+        <div class="wi-card">
+            <div class="wi-card-icon">${idea.icon}</div>
+            <div class="wi-card-text">${idea.text}</div>
+        </div>`;
+
+    const bonusHtml = bonusIdea ? `
+        <div class="wi-section">
+            <div class="wi-section-label">✦ Бонус — опираясь на вашу силу</div>
+            <div class="wi-cards">${makeCard(bonusIdea)}</div>
+        </div>` : '';
+
+    c.innerHTML = `
+        <div class="full-content-page">
+            <button class="back-btn" id="wiBack">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">🎨</div>
+                <h1 class="content-title">Идеи на выходные</h1>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Подобрано под ваш профиль</p>
+            </div>
+
+            <div class="wi-focus-badge">
+                <span class="wi-focus-name">${weakDB.emoji} ${weakDB.name}</span>
+                <span class="wi-focus-level">${weakLvl}/6 · ${levelDesc}</span>
+            </div>
+
+            <div class="wi-section">
+                <div class="wi-section-label">🎯 Для вашего профиля</div>
+                <div class="wi-cards">${weakIdeas.map(makeCard).join('')}</div>
+            </div>
+
+            <div class="wi-section">
+                <div class="wi-section-label">🌟 Общие рекомендации</div>
+                <div class="wi-cards">${commonIdeas.map(makeCard).join('')}</div>
+            </div>
+
+            ${bonusHtml}
+
+            <div class="wi-actions">
+                <button class="wi-btn wi-btn-primary" id="wiRefresh">🔄 Новые идеи</button>
+                <button class="wi-btn wi-btn-ghost" id="wiShare">📤 Поделиться</button>
+            </div>
+
+            <div class="wi-tip">
+                💡 Выберите 1–2 идеи, которые действительно откликаются. Не нужно делать всё сразу — хороших выходных!
+            </div>
+        </div>`;
+
+    document.getElementById('wiBack').onclick = () => _wiHome();
+
+    document.getElementById('wiRefresh').onclick = async () => {
+        if (_wi.isLoading) return;
+        _wi.isLoading = true;
+        const btn = document.getElementById('wiRefresh');
+        if (btn) { btn.textContent = '⏳ Генерирую...'; btn.disabled = true; }
+        _wiClearCache();
+        await _wiLoadVectors();
+        const fresh = _wiGenerate();
+        _wi.isLoading = false;
+        _wiRender(fresh);
+    };
+
+    document.getElementById('wiShare').onclick = () => {
+        const lines = [weakDB.name, '', ...weakIdeas.map(i => i.icon + ' ' + i.text), '', ...commonIdeas.map(i => i.icon + ' ' + i.text)].join('\n');
+        const text = 'Идеи на выходные от Фреди:\n\n' + lines;
+        if (navigator.share) {
+            navigator.share({ title:'Идеи на выходные', text }).catch(() => _wiCopy(text));
+        } else {
+            _wiCopy(text);
+        }
+    };
+}
+
+function _wiCopy(text) {
+    navigator.clipboard.writeText(text)
+        .then(() => _wiToast('📋 Скопировано', 'success'))
+        .catch(() => _wiToast('Не удалось скопировать', 'error'));
+}
+
+// ============================================
+// ТОЧКА ВХОДА
+// ============================================
+async function showWeekendScreen() {
+    // Пробуем бэкенд
+    try {
+        const r = await fetch(`${_wiApi()}/api/user-status?user_id=${_wiUid()}`);
+        const d = await r.json();
+        if (!d.has_profile) {
+            _wiToast('📊 Сначала пройдите психологический тест');
+            return;
+        }
+    } catch {}
+
+    await _wiLoadVectors();
+    const gen = _wiGenerate();
+    _wiRender(gen);
+}
+
+// ============================================
+// ЭКСПОРТ
 // ============================================
 window.showWeekendScreen = showWeekendScreen;
-
-console.log('✅ Модуль "Идеи на выходные" загружен (weekend.js v1.0)');
+console.log('✅ weekend.js v2.0 загружен');
