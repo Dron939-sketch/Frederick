@@ -441,7 +441,8 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         "behavioral_levels": profile.get("behavioral_levels", {}),
         "dilts_counts": profile.get("dilts_counts", {}),
         "confinement_model": profile.get("confinement_model"),
-        "history": history  # ФИХ: реальная история
+        "history": history,  # ФИХ: реальная история
+        "message_count": context.get("basic_message_count", 0),  # счётчик для BasicMode
     }
 
     class SimpleContext:
@@ -523,6 +524,15 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
 
                 # normalize_tts_text вызывается внутри voice_service — не дублируем
                 logger.info(f"💬 AI response: {len(response_text)} chars")
+
+                # Сохраняем счётчик сообщений для BasicMode
+                if mode_name == "basic":
+                    try:
+                        cur_count = context.get("basic_message_count", 0)
+                        context["basic_message_count"] = cur_count + 1
+                        await context_repo.save(user_id_for_db, context)
+                    except Exception as _e:
+                        logger.warning(f"Не удалось сохранить basic_message_count: {_e}")
                 await websocket.send_json({"type": "status", "status": "speaking"})
 
                 try:
