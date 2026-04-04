@@ -1251,6 +1251,8 @@ function renderDashboard() {
                     <div class="quick-action" data-action="profile"><div class="action-icon">🧠</div><div class="action-name">Мой портрет</div></div>
                     <div class="quick-action" data-action="thoughts"><div class="action-icon">💭</div><div class="action-name">Мысли психолога</div></div>
                     <div class="quick-action" data-action="newThought"><div class="action-icon">✨</div><div class="action-name">Свежая мысль</div></div>
+                    <div class="quick-action" data-action="habits"><div class="action-icon">🔄</div><div class="action-name">Привычки</div></div>
+                    <div class="quick-action" data-action="motivation"><div class="action-icon">🔥</div><div class="action-name">Мотивация</div></div>
                     <div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div>
                     <div class="quick-action" data-action="goals"><div class="action-icon">🎯</div><div class="action-name">Цели</div></div>
                     <div class="quick-action" data-action="brand"><div class="action-icon">🏆</div><div class="action-name">Мой бренд</div></div>
@@ -1315,7 +1317,9 @@ function renderDashboard() {
                 questions: handleShowQuestions,
                 brand: () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); else { showToast("🏆 Загрузка...", "info"); const s = document.createElement("script"); s.src = "brand.js"; s.onload = () => { if (typeof showPersonalBrandScreen === "function") showPersonalBrandScreen(); }; document.head.appendChild(s); } },
                 doubles: handleShowDoubles,
-                interests: () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); else { showToast('🎯 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'interests.js'; s.onload = () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); }; document.head.appendChild(s); } }
+                interests: () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); else { showToast('🎯 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'interests.js'; s.onload = () => { if (typeof showInterestsScreen === 'function') showInterestsScreen(); }; document.head.appendChild(s); } },
+                habits: () => { if (typeof showHabitsScreen === 'function') showHabitsScreen(); else { showToast('🔄 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'habits.js'; s.onload = () => { if (typeof showHabitsScreen === 'function') showHabitsScreen(); }; document.head.appendChild(s); } },
+                motivation: () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); else { showToast('🔥 Загрузка...', 'info'); const s = document.createElement('script'); s.src = 'motivation.js'; s.onload = () => { if (typeof showMotivationScreen === 'function') showMotivationScreen(); }; document.head.appendChild(s); } }
             };
             if (handlers[type]) await handlers[type]();
         });
