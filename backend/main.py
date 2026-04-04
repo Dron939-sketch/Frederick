@@ -365,6 +365,8 @@ async def log_requests(request: Request, call_next):
 
 @app.websocket("/ws/voice/{user_id}")
 async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
+    # mode можно передать как query parameter: /ws/voice/123?mode=psychologist
+    mode_from_query = websocket.query_params.get("mode", "")
     logger.info(f"🔌 WebSocket connection attempt for user {user_id}")
 
     try:
@@ -414,7 +416,15 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
     if not has_profile:
         mode_name = "basic"
     else:
-        mode_name = context.get("communication_mode", "psychologist")
+        # Приоритет: query param > сохранённый в context > default
+        mode_from_query = websocket.query_params.get("mode", "")
+        valid_modes = {"psychologist", "coach", "trainer", "basic"}
+        if mode_from_query in valid_modes:
+            mode_name = mode_from_query
+            logger.info(f"🎭 Mode из query param: {mode_name}")
+        else:
+            mode_name = context.get("communication_mode", "psychologist")
+            logger.info(f"🎭 Mode из context: {mode_name}")
 
     # ФИХ 3: Загружаем историю для WebSocket тоже
     try:
