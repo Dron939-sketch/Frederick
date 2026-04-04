@@ -379,19 +379,17 @@ function _wiCopy(text) {
 // ТОЧКА ВХОДА
 // ============================================
 async function showWeekendScreen() {
-    // Пробуем бэкенд
+    // Рендерим сразу с текущими векторами
+    _wiRender(_wiGenerate());
     try {
         const r = await fetch(`${_wiApi()}/api/user-status?user_id=${_wiUid()}`);
         const d = await r.json();
         if (!d.has_profile) {
             _wiToast('📊 Сначала пройдите психологический тест');
-            return;
         }
     } catch {}
-
     await _wiLoadVectors();
-    const gen = _wiGenerate();
-    _wiRender(gen);
+    _wiRender(_wiGenerate()); // перерендер с актуальными векторами
 }
 
 // ============================================
