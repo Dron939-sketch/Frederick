@@ -214,10 +214,10 @@ const VoiceConfig = {
     },
 
     ws: {
-        connectTimeout: 5000,   // мс до признания WS недоступным
+        connectTimeout: 15000,  // мс до признания WS недоступным (Render = 10-30с)
         pingInterval: 25000,    // heartbeat
-        maxRetries: 2,          // попыток переподключения WS
-        retryDelay: 3000        // мс между попытками
+        maxRetries: 5,          // попыток переподключения WS
+        retryDelay: 8000        // мс между попытками
     },
 
     diagnostics: {
@@ -530,6 +530,15 @@ class VoiceTransport {
                     return;  // намеренное закрытие — не делаем fallback
                 }
                 console.warn(`WS closed (code=${e.code})`);
+                // 1012 = сервер перезагружается (деплой) — ждём дольше
+                if (e.code === 1012) {
+                    console.log('🔄 Сервер перезагружается, ждём 15с...');
+                    setTimeout(() => {
+                        this._wsRetries = 0;
+                        this._connectWS().catch(() => {});
+                    }, 15000);
+                    return;
+                }
                 if (wasWS) {
                     this._tryReconnectWS();
                 }
@@ -557,6 +566,17 @@ class VoiceTransport {
         console.log(`📡 HTTP mode${reason ? ' (' + reason + ')' : ''}`);
         if (this.onModeChange) this.onModeChange('http');
         if (this.onStatusChange) this.onStatusChange('connected');
+        // Через 30с пробуем вернуться на WS — сервер мог подняться после деплоя
+        if (!this._wsRecoveryTimer) {
+            this._wsRecoveryTimer = setTimeout(() => {
+                this._wsRecoveryTimer = null;
+                if (this._mode === 'http') {
+                    console.log('🔄 Попытка восстановить WS...');
+                    this._wsRetries = 0;
+                    this._connectWS().catch(() => {});
+                }
+            }, 30000);
+        }
         return false;
     }
 
