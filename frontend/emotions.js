@@ -344,7 +344,6 @@ function renderEmotionsMainScreen(container) {
     
     document.getElementById('emotionsBackBtn')?.addEventListener('click', () => goBackToDashboard());
     
-    // Обработчики для карточек эмоций
     document.querySelectorAll('.emotion-card').forEach(card => {
         card.addEventListener('click', () => {
             const emotionId = card.dataset.emotionId;
@@ -353,23 +352,19 @@ function renderEmotionsMainScreen(container) {
         });
     });
     
-    // Голосовая запись
     document.getElementById('voiceRecordBtn')?.addEventListener('click', () => {
         if (window.VoiceManager && window.VoiceManager.startRecording) {
             window.VoiceManager.startRecording((transcript) => {
-                // После распознавания отправляем на анализ
                 handleVoiceEmotion(container, transcript);
             });
         } else {
             showToastMessage('🎤 Голосовой ввод будет доступен в следующей версии', 'info');
-            // Симуляция для демо
             setTimeout(() => {
                 handleVoiceEmotion(container, "чувствую тревогу и беспокойство");
             }, 1500);
         }
     });
     
-    // Ручной ввод
     document.getElementById('manualSubmitBtn')?.addEventListener('click', () => {
         const text = document.getElementById('manualEmotionInput')?.value.trim();
         if (text) {
@@ -384,21 +379,14 @@ function renderEmotionsMainScreen(container) {
 // 8. ОБРАБОТЧИКИ
 // ============================================
 async function handleEmotionSelect(container, emotionId, emotionName) {
-    // Показываем загрузку
     showEmotionLoading(container, emotionName);
-    
-    // Анализируем эмоцию
     const analysis = await analyzeEmotion(emotionId, emotionName);
-    
-    // Показываем результат
     renderEmotionResult(container, emotionName, analysis);
 }
 
 async function handleVoiceEmotion(container, transcript) {
-    // Показываем загрузку
     showEmotionLoading(container, 'распознанной эмоции');
     
-    // Определяем эмоцию из текста (упрощённо)
     let emotionName = 'эмоция';
     if (transcript.includes('тревог')) emotionName = 'Тревога';
     else if (transcript.includes('груст')) emotionName = 'Печаль';
@@ -414,7 +402,6 @@ async function handleVoiceEmotion(container, transcript) {
 async function handleManualEmotion(container, text) {
     showEmotionLoading(container, 'указанной эмоции');
     
-    // Пытаемся определить эмоцию из текста
     let emotionName = 'эмоция';
     if (text.includes('тревог')) emotionName = 'Тревога';
     else if (text.includes('груст')) emotionName = 'Печаль';
@@ -442,7 +429,6 @@ function showEmotionLoading(container, emotionDesc) {
             </div>
         </div>
     `;
-    
     document.getElementById('loadingBackBtn')?.addEventListener('click', () => showEmotionsScreen());
 }
 
@@ -462,25 +448,20 @@ function renderEmotionResult(container, emotionName, analysis, userText = null) 
     container.innerHTML = `
         <div class="full-content-page">
             <button class="back-btn" id="resultBackBtn">◀️ НАЗАД</button>
-            
             <div class="content-header">
                 <div class="content-emoji">💖</div>
                 <h1>${emotionName}</h1>
             </div>
-            
             ${userTextHtml}
-            
             <div class="emotion-result-card">
                 <div class="emotion-validation">
                     <span class="emotion-validation-icon">💭</span>
                     <div class="emotion-validation-text">${analysis.validation || ''}</div>
                 </div>
-                
                 <div class="emotion-explanation">
                     <div class="emotion-explanation-title">🔍 Почему это возникает</div>
                     <div class="emotion-explanation-text">${analysis.explanation || ''}</div>
                 </div>
-                
                 <div class="emotion-technique">
                     <div class="emotion-technique-title">🛠️ ${technique.name || 'Техника'}</div>
                     <div class="emotion-technique-duration">⏱️ ${technique.duration || '2-3 минуты'}</div>
@@ -488,28 +469,21 @@ function renderEmotionResult(container, emotionName, analysis, userText = null) 
                         ${formatInstruction(technique.instruction || '')}
                     </div>
                 </div>
-                
                 <div class="emotion-affirmation">
                     <div class="emotion-affirmation-icon">✨</div>
                     <div class="emotion-affirmation-text">${analysis.affirmation || ''}</div>
                     <button class="emotion-copy-btn" data-text="${escapeHtml(analysis.affirmation || '')}">📋</button>
                 </div>
             </div>
-            
             <div class="emotion-actions">
-                <button id="anotherEmotionBtn" class="emotion-another-btn">
-                    🔄 ДРУГАЯ ЭМОЦИЯ
-                </button>
-                <button id="shareResultBtn" class="emotion-share-btn">
-                    📤 ПОДЕЛИТЬСЯ
-                </button>
+                <button id="anotherEmotionBtn" class="emotion-another-btn">🔄 ДРУГАЯ ЭМОЦИЯ</button>
+                <button id="shareResultBtn" class="emotion-share-btn">📤 ПОДЕЛИТЬСЯ</button>
             </div>
         </div>
     `;
     
     document.getElementById('resultBackBtn')?.addEventListener('click', () => showEmotionsScreen());
     document.getElementById('anotherEmotionBtn')?.addEventListener('click', () => showEmotionsScreen());
-    
     document.getElementById('shareResultBtn')?.addEventListener('click', () => {
         const text = `${analysis.validation}\n\n${analysis.affirmation}`;
         if (navigator.share) {
@@ -519,7 +493,6 @@ function renderEmotionResult(container, emotionName, analysis, userText = null) 
             showToastMessage('📋 Результат скопирован', 'success');
         }
     });
-    
     document.querySelector('.emotion-copy-btn')?.addEventListener('click', (e) => {
         const text = e.currentTarget.dataset.text;
         if (text) {
@@ -550,258 +523,77 @@ function escapeHtml(text) {
 // ============================================
 function addEmotionsStyles() {
     if (document.getElementById('emotions-styles')) return;
-    
     const style = document.createElement('style');
     style.id = 'emotions-styles';
     style.textContent = `
-        .emotions-suggested {
-            margin-bottom: 24px;
-        }
-        .emotions-suggested-title {
-            font-size: 12px;
-            font-weight: 600;
-            color: #ff6b3b;
-            margin-bottom: 12px;
-        }
+        .emotions-suggested { margin-bottom: 24px; }
+        .emotions-suggested-title { font-size: 12px; font-weight: 600; color: var(--chrome); margin-bottom: 12px; }
         .emotions-suggested-grid, .emotions-profile-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
         }
         .emotion-card {
-            background: rgba(224,224,224,0.08);
-            border-radius: 16px;
-            padding: 12px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
+            background: rgba(224,224,224,0.08); border-radius: 16px; padding: 12px;
+            text-align: center; cursor: pointer; transition: all 0.2s;
             border: 1px solid transparent;
         }
-        .emotion-card:hover {
-            background: rgba(255,107,59,0.15);
-            border-color: rgba(255,107,59,0.3);
-            transform: translateY(-2px);
-        }
-        .emotion-emoji {
-            font-size: 28px;
-            margin-bottom: 6px;
-        }
-        .emotion-name {
-            font-size: 12px;
-            font-weight: 500;
-        }
-        
-        .emotions-method {
-            background: rgba(224,224,224,0.05);
-            border-radius: 20px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .emotions-method-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 8px;
-        }
-        .emotions-method-icon {
-            font-size: 24px;
-        }
-        .emotions-method-title {
-            font-size: 16px;
-            font-weight: 600;
-        }
-        .emotions-method-desc {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-        }
+        .emotion-card:hover { background: rgba(224,224,224,0.14); border-color: rgba(224,224,224,0.3); transform: translateY(-2px); }
+        .emotion-emoji { font-size: 28px; margin-bottom: 6px; }
+        .emotion-name { font-size: 12px; font-weight: 500; }
+        .emotions-method { background: rgba(224,224,224,0.05); border-radius: 20px; padding: 16px; margin-bottom: 16px; }
+        .emotions-method-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .emotions-method-icon { font-size: 24px; }
+        .emotions-method-title { font-size: 16px; font-weight: 600; }
+        .emotions-method-desc { font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; }
         .emotions-voice-btn {
-            width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
-            border: none;
-            border-radius: 50px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
+            width: 100%; padding: 12px;
+            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.3); border-radius: 50px;
+            color: var(--text-primary); font-weight: 600; cursor: pointer; font-family: inherit;
         }
-        .emotions-manual {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+        .emotions-manual { display: flex; flex-direction: column; gap: 10px; }
         .emotions-manual-input {
-            width: 100%;
-            background: rgba(224,224,224,0.08);
-            border: 1px solid rgba(224,224,224,0.2);
-            border-radius: 16px;
-            padding: 12px;
-            color: white;
-            font-size: 14px;
-            resize: vertical;
+            width: 100%; background: rgba(224,224,224,0.08); border: 1px solid rgba(224,224,224,0.2);
+            border-radius: 16px; padding: 12px; color: var(--text-primary); font-size: 14px;
+            resize: vertical; font-family: inherit; box-sizing: border-box;
         }
         .emotions-manual-btn {
-            padding: 12px;
-            background: rgba(255,107,59,0.2);
-            border: 1px solid rgba(255,107,59,0.3);
-            border-radius: 50px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
+            padding: 12px; background: rgba(224,224,224,0.1); border: 1px solid rgba(224,224,224,0.2);
+            border-radius: 50px; color: var(--text-primary); font-weight: 600; cursor: pointer; font-family: inherit;
         }
-        
-        .emotions-loading {
-            text-align: center;
-            padding: 60px 20px;
-        }
-        .emotions-loading-spinner {
-            font-size: 56px;
-            animation: emotionPulse 1.5s ease-in-out infinite;
-        }
-        @keyframes emotionPulse {
-            0%, 100% { transform: scale(0.8); opacity: 0.5; }
-            50% { transform: scale(1.1); opacity: 1; }
-        }
-        .emotions-loading-text {
-            font-size: 16px;
-            font-weight: 600;
-            margin-top: 16px;
-        }
-        .emotions-loading-sub {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-top: 8px;
-        }
-        
-        .emotion-user-text {
-            background: rgba(59,130,255,0.1);
-            border-radius: 16px;
-            padding: 12px;
-            margin-bottom: 16px;
-        }
-        .emotion-user-text-label {
-            font-size: 10px;
-            color: #3b82ff;
-            margin-bottom: 4px;
-        }
-        .emotion-user-text-value {
-            font-size: 14px;
-            font-style: italic;
-        }
-        
-        .emotion-result-card {
-            background: rgba(224,224,224,0.05);
-            border-radius: 20px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .emotion-validation {
-            display: flex;
-            gap: 12px;
-            background: rgba(255,107,59,0.1);
-            border-radius: 16px;
-            padding: 14px;
-            margin-bottom: 16px;
-        }
-        .emotion-validation-icon {
-            font-size: 24px;
-        }
-        .emotion-validation-text {
-            flex: 1;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        .emotion-explanation {
-            margin-bottom: 16px;
-        }
-        .emotion-explanation-title {
-            font-size: 13px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #ff6b3b;
-        }
-        .emotion-explanation-text {
-            font-size: 13px;
-            line-height: 1.5;
-            color: var(--text-secondary);
-        }
-        .emotion-technique {
-            background: rgba(16,185,129,0.08);
-            border-radius: 16px;
-            padding: 14px;
-            margin-bottom: 16px;
-        }
-        .emotion-technique-title {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        .emotion-technique-duration {
-            font-size: 11px;
-            color: var(--text-secondary);
-            margin-bottom: 10px;
-        }
-        .emotion-technique-instruction {
-            font-size: 13px;
-            line-height: 1.5;
-        }
-        .emotion-affirmation {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: rgba(255,107,59,0.08);
-            border-radius: 50px;
-            padding: 12px 16px;
-        }
-        .emotion-affirmation-icon {
-            font-size: 20px;
-        }
-        .emotion-affirmation-text {
-            flex: 1;
-            font-size: 13px;
-            font-style: italic;
-        }
-        .emotion-copy-btn {
-            background: transparent;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            opacity: 0.5;
-        }
-        .emotion-actions {
-            display: flex;
-            gap: 12px;
-        }
+        .emotions-loading { text-align: center; padding: 60px 20px; }
+        .emotions-loading-spinner { font-size: 56px; animation: emotionPulse 1.5s ease-in-out infinite; }
+        @keyframes emotionPulse { 0%, 100% { transform: scale(0.8); opacity: 0.5; } 50% { transform: scale(1.1); opacity: 1; } }
+        .emotions-loading-text { font-size: 16px; font-weight: 600; margin-top: 16px; }
+        .emotions-loading-sub { font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+        .emotion-user-text { background: rgba(224,224,224,0.06); border-radius: 16px; padding: 12px; margin-bottom: 16px; }
+        .emotion-user-text-label { font-size: 10px; color: var(--chrome); margin-bottom: 4px; }
+        .emotion-user-text-value { font-size: 14px; font-style: italic; }
+        .emotion-result-card { background: rgba(224,224,224,0.05); border-radius: 20px; padding: 20px; margin-bottom: 20px; }
+        .emotion-validation { display: flex; gap: 12px; background: rgba(224,224,224,0.08); border-radius: 16px; padding: 14px; margin-bottom: 16px; }
+        .emotion-validation-icon { font-size: 24px; }
+        .emotion-validation-text { flex: 1; font-size: 14px; line-height: 1.5; }
+        .emotion-explanation { margin-bottom: 16px; }
+        .emotion-explanation-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--chrome); }
+        .emotion-explanation-text { font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+        .emotion-technique { background: rgba(224,224,224,0.06); border-radius: 16px; padding: 14px; margin-bottom: 16px; }
+        .emotion-technique-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .emotion-technique-duration { font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; }
+        .emotion-technique-instruction { font-size: 13px; line-height: 1.5; }
+        .emotion-affirmation { display: flex; align-items: center; gap: 10px; background: rgba(224,224,224,0.06); border-radius: 50px; padding: 12px 16px; }
+        .emotion-affirmation-icon { font-size: 20px; }
+        .emotion-affirmation-text { flex: 1; font-size: 13px; font-style: italic; }
+        .emotion-copy-btn { background: transparent; border: none; font-size: 18px; cursor: pointer; opacity: 0.5; }
+        .emotion-actions { display: flex; gap: 12px; }
         .emotion-another-btn, .emotion-share-btn {
-            flex: 1;
-            padding: 12px;
-            border-radius: 50px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
+            flex: 1; padding: 12px; border-radius: 50px; font-size: 13px;
+            font-weight: 600; cursor: pointer; font-family: inherit;
         }
-        .emotion-another-btn {
-            background: rgba(224,224,224,0.1);
-            border: 1px solid rgba(224,224,224,0.2);
-            color: white;
-        }
-        .emotion-share-btn {
-            background: rgba(255,107,59,0.2);
-            border: 1px solid rgba(255,107,59,0.3);
-            color: white;
-        }
-        
-        @media (max-width: 768px) {
-            .emotions-suggested-grid, .emotions-profile-grid {
-                grid-template-columns: repeat(4, 1fr);
-                gap: 8px;
-            }
-            .emotion-emoji {
-                font-size: 24px;
-            }
-            .emotion-name {
-                font-size: 10px;
-            }
+        .emotion-another-btn { background: rgba(224,224,224,0.1); border: 1px solid rgba(224,224,224,0.2); color: var(--text-primary); }
+        .emotion-share-btn   { background: rgba(224,224,224,0.06); border: 1px solid rgba(224,224,224,0.14); color: var(--text-secondary); }
+        @media (max-width: 480px) {
+            .emotions-suggested-grid, .emotions-profile-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+            .emotion-emoji { font-size: 24px; }
+            .emotion-name { font-size: 10px; }
         }
     `;
     document.head.appendChild(style);
@@ -811,5 +603,4 @@ function addEmotionsStyles() {
 // 12. ЭКСПОРТ
 // ============================================
 window.showEmotionsScreen = showEmotionsScreen;
-
 console.log('✅ Модуль "Эмоции" загружен (emotions.js v2.0)');
