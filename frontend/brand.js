@@ -488,7 +488,12 @@ function _renderBrand() {
 // ТОЧКА ВХОДА
 // ============================================
 async function showPersonalBrandScreen() {
-    // Проверка теста
+    // Рендерим сразу — не ждём сеть
+    _brandState.archetypeKey = _detectArchetype();
+    _brandState.tab = 'archetype';
+    _renderBrand();
+
+    // Проверяем профиль в фоне
     try {
         const uid = window.CONFIG?.USER_ID;
         const api = window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -496,15 +501,8 @@ async function showPersonalBrandScreen() {
         const d   = await r.json();
         if (!d.has_profile) {
             if (window.showToast) window.showToast('📊 Сначала пройдите психологический тест', 'info');
-            return;
         }
-    } catch {
-        // Если не смогли проверить — показываем всё равно (офлайн-режим)
-    }
-
-    _brandState.archetypeKey = _detectArchetype();
-    _brandState.tab = 'archetype';
-    _renderBrand();
+    } catch {}
 }
 
 // ============================================
