@@ -680,6 +680,7 @@ body::after {
     backdrop-filter: blur(20px);
     border-radius: 28px;
     padding: 24px;
+    padding-bottom: max(88px, calc(env(safe-area-inset-bottom) + 72px));
     border: 1px solid rgba(224, 224, 224, 0.2);
     animation: contentAppear 0.3s ease-out;
 }
