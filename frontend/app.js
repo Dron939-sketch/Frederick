@@ -1210,15 +1210,14 @@ function renderDashboard() {
     container.innerHTML = `
         <div class="dashboard-container">
             <div class="hero-section">
-                <div class="user-greeting">
-                    <div class="greeting-text">
-                        <h2>${modeConfig.emoji} ${modeConfig.greeting}</h2>
-                        <p>${CONFIG.USER_NAME}, я здесь, чтобы помочь</p>
-                    </div>
-                    <div class="profile-badge" id="profileBadge" style="cursor:pointer">
-                        <div class="profile-code" id="profileCode">${CONFIG.PROFILE_CODE || '🎭'}</div>
-                        <div style="font-size:10px" id="profileStatus">загрузка...</div>
-                    </div>
+                <div class="hero-greeting">
+                    <div class="hero-mode-emoji">${modeConfig.emoji}</div>
+                    <h2 class="hero-title">${modeConfig.greeting}, <span class="hero-name">${CONFIG.USER_NAME}</span></h2>
+                    <p class="hero-sub">Фреди слушает — говорите голосом или выберите действие</p>
+                </div>
+                <div class="profile-badge" id="profileBadge">
+                    <div class="profile-code" id="profileCode">${CONFIG.PROFILE_CODE || '···'}</div>
+                    <div class="profile-status" id="profileStatus">загрузка...</div>
                 </div>
             </div>
 
@@ -1265,16 +1264,22 @@ function renderDashboard() {
 
     // Загружаем статус профиля
     getUserStatus().then(status => {
+        const badge  = document.getElementById('profileBadge');
         const codeEl = document.getElementById('profileCode');
         const statusEl = document.getElementById('profileStatus');
         if (status.has_profile && status.profile_code) {
             if (codeEl) codeEl.textContent = status.profile_code;
             if (statusEl) statusEl.textContent = 'ваш психотип';
+            if (badge) badge.classList.remove('profile-badge--cta');
         } else {
-            if (codeEl) codeEl.textContent = '🎭';
-            if (statusEl) statusEl.textContent = 'пройдите тест';
+            if (codeEl) { codeEl.textContent = '📊'; codeEl.style.fontSize = '22px'; }
+            if (statusEl) statusEl.textContent = 'пройти тест';
+            if (badge) badge.classList.add('profile-badge--cta');
         }
-    }).catch(() => {});
+    }).catch(() => {
+        const statusEl = document.getElementById('profileStatus');
+        if (statusEl) statusEl.textContent = 'нет профиля';
+    });
 
     document.getElementById('profileBadge')?.addEventListener('click', async () => {
         const completed = await isTestCompleted();
