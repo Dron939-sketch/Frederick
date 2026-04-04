@@ -148,6 +148,24 @@ async function generateNewThought() {
     } catch { return null; }
 }
 
+// ===== ИДЕИ НА ВЫХОДНЫЕ с кэшем =====
+function _cacheIdeas(userId, data) {
+    try {
+        localStorage.setItem('weekend_ideas_' + userId, JSON.stringify({
+            data, generatedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 24*60*60*1000).toISOString()
+        }));
+    } catch {}
+}
+function _loadCachedIdeas(userId) {
+    try {
+        const raw = localStorage.getItem('weekend_ideas_' + userId);
+        if (!raw) return null;
+        const cache = JSON.parse(raw);
+        if (new Date(cache.expiresAt) > new Date()) return cache.data;
+    } catch {}
+    return null;
+}
 async function getWeekendIdeas() {
     try {
         const data = await apiCall(`/api/ideas?user_id=${CONFIG.USER_ID}`);
@@ -573,10 +591,140 @@ async function handleShowNewThought() {
 }
 
 async function handleShowWeekend() {
-    showLoading('Подбираю идеи...');
+    const uid = CONFIG.USER_ID;
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+
+    // Пробуем кэш
+    const cached = _loadCachedIdeas(uid);
+    if (cached) { _renderWeekendScreen(cached); return; }
+
+    showLoading('Подбираю идеи под ваш профиль...');
     const ideas = await getWeekendIdeas();
-    if (ideas.length) showFullContentScreen('🎨 Идеи на выходные', ideas.map(i => i.description || i).join('\n\n'), 'weekend');
-    else showToast('Идеи скоро появятся', 'info');
+
+    if (!ideas.length) {
+        showToast('Идеи скоро появятся — пройдите тест', 'info');
+        renderDashboard();
+        return;
+    }
+
+    _cacheIdeas(uid, ideas);
+    _renderWeekendScreen(ideas);
+}
+
+function _renderWeekendScreen(ideas) {
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+
+    // Категории с иконками
+    const CATS = {
+        sport:    { icon:'🏃', label:'Активность' },
+        culture:  { icon:'🎭', label:'Культура' },
+        nature:   { icon:'🌿', label:'Природа' },
+        creative: { icon:'🎨', label:'Творчество' },
+        social:   { icon:'👥', label:'Общение' },
+        relax:    { icon:'🛁', label:'Отдых' },
+        food:     { icon:'🍽', label:'Еда' },
+        learning: { icon:'📚', label:'Обучение' }
+    };
+
+    const cards = ideas.map((idea, i) => {
+        const raw = idea.description || idea.title || (typeof idea === 'string' ? idea : '');
+        const cat = idea.category || 'relax';
+        const catInfo = CATS[cat] || { icon:'✨', label:'Идея' };
+        const duration = idea.duration || '';
+        const cost = idea.cost !== undefined ? (idea.cost === 0 ? '🆓 Бесплатно' : `💰 ~${idea.cost}₽`) : '';
+
+        return `
+        <div class="wi-card">
+            <div class="wi-card-top">
+                <span class="wi-cat-badge">${catInfo.icon} ${catInfo.label}</span>
+                ${duration ? `<span class="wi-meta">${duration}</span>` : ''}
+                ${cost ? `<span class="wi-meta">${cost}</span>` : ''}
+            </div>
+            <div class="wi-card-body">${raw}</div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="full-content-page">
+            <button class="back-btn" id="wiBack">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">🎨</div>
+                <h1 class="content-title">Идеи на выходные</h1>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Подобрано под ваш профиль</p>
+            </div>
+            <div class="wi-grid">${cards}</div>
+            <button class="wi-refresh-btn" id="wiRefresh">🔄 Новые идеи</button>
+        </div>`;
+
+    // Инжектируем стили один раз
+    if (!document.getElementById('wi-styles')) {
+        const s = document.createElement('style');
+        s.id = 'wi-styles';
+        s.textContent = `
+            .wi-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+            .wi-card {
+                background: rgba(224,224,224,0.04);
+                border: 1px solid rgba(224,224,224,0.12);
+                border-radius: 18px;
+                padding: 16px;
+                transition: background 0.2s;
+            }
+            .wi-card:hover { background: rgba(224,224,224,0.08); }
+            .wi-card-top {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 10px;
+            }
+            .wi-cat-badge {
+                background: rgba(224,224,224,0.08);
+                border: 1px solid rgba(224,224,224,0.15);
+                border-radius: 20px;
+                padding: 3px 10px;
+                font-size: 11px;
+                color: var(--chrome);
+                font-weight: 600;
+            }
+            .wi-meta {
+                font-size: 11px;
+                color: var(--text-secondary);
+            }
+            .wi-card-body {
+                font-size: 14px;
+                line-height: 1.65;
+                color: var(--text-secondary);
+            }
+            .wi-refresh-btn {
+                width: 100%;
+                padding: 13px;
+                background: rgba(224,224,224,0.06);
+                border: 1px solid rgba(224,224,224,0.15);
+                border-radius: 40px;
+                color: var(--text-secondary);
+                font-size: 13px;
+                font-weight: 500;
+                font-family: inherit;
+                cursor: pointer;
+                transition: background 0.2s, color 0.2s;
+                touch-action: manipulation;
+            }
+            .wi-refresh-btn:hover { background: rgba(224,224,224,0.12); color: var(--text-primary); }
+        `;
+        document.head.appendChild(s);
+    }
+
+    document.getElementById('wiBack').onclick = () => renderDashboard();
+    document.getElementById('wiRefresh').onclick = async () => {
+        // Сбрасываем кэш и перегружаем
+        try { localStorage.removeItem('weekend_ideas_' + CONFIG.USER_ID); } catch {}
+        showLoading('Генерирую новые идеи...');
+        const fresh = await getWeekendIdeas();
+        if (fresh.length) { _cacheIdeas(CONFIG.USER_ID, fresh); _renderWeekendScreen(fresh); }
+        else showToast('Не удалось загрузить идеи', 'error');
+    };
 }
 
 async function handleShowGoals() {
@@ -1216,10 +1364,9 @@ function renderDashboard() {
                     <div class="quick-action" data-action="newThought"><div class="action-icon">✨</div><div class="action-name">Свежая мысль</div></div>
                     <div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div>
                     <div class="quick-action" data-action="goals"><div class="action-icon">🎯</div><div class="action-name">Цели</div></div>
-                    <div class="quick-action" data-action="questions"><div class="action-icon">❓</div><div class="action-name">Вопросы</div></div>
                     <div class="quick-action" data-action="brand"><div class="action-icon">🏆</div><div class="action-name">Мой бренд</div></div>
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
-                    <div class="quick-action" data-action="interests"><div class="action-icon">🎯</div><div class="action-name">Интересы</div></div>
+                    <div class="quick-action" data-action="interests"><div class="action-icon">🔮</div><div class="action-name">Интересы</div></div>
                 </div>
             </div>
         </div>
