@@ -196,6 +196,15 @@
             if (window.PushManager_Fredi && window.USER_ID) {
                 window.PushManager_Fredi.init(window.USER_ID);
             }
+            // Запрашиваем разрешение на push при первом клике в меню
+            var _pushAsked = false;
+            document.getElementById('chatsList')?.addEventListener('click', function() {
+                if (_pushAsked) return;
+                _pushAsked = true;
+                if (window.PushManager_Fredi && window.USER_ID) {
+                    window.PushManager_Fredi.request(window.USER_ID);
+                }
+            }, { once: true });
 
             var btn = document.getElementById('secretRoomBtn');
             if (btn) {
