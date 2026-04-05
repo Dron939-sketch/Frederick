@@ -19,7 +19,7 @@ function injectMirrorStyles() {
         }
         @keyframes mirrorPulse {
             0%,100% { box-shadow: 0 0 0 0 rgba(0,212,255,0); }
-            50%      { box-shadow: 0 0 0 8px rgba(0,212,255,0.15); }
+            50%      { box-shadow: 0 0 0 6px rgba(0,212,255,0.08); }
         }
         @keyframes shimmer {
             0%   { background-position: -200% 0; }
@@ -55,7 +55,7 @@ function injectMirrorStyles() {
         .mirror-tab-btn.active {
             background: linear-gradient(135deg, #00d4ff, #0099cc);
             color: #fff;
-            box-shadow: 0 4px 20px rgba(0,212,255,0.35), 0 0 12px rgba(0,212,255,0.2);
+            box-shadow: 0 4px 14px rgba(0,212,255,0.18), 0 0 6px rgba(0,212,255,0.1);
         }
         .mirror-tab-btn.inactive {
             background: transparent;
@@ -277,7 +277,7 @@ async function showReflectionsTab(container) {
                         <button onclick="switchMirrorTab('create')"
                             style="background:linear-gradient(135deg,#00d4ff,#0099cc);color:#fff;border:none;
                                    border-radius:12px;padding:13px 28px;font-size:14px;font-weight:600;
-                                   cursor:pointer;font-family:inherit;box-shadow:0 4px 20px rgba(0,212,255,0.3);">
+                                   cursor:pointer;font-family:inherit;box-shadow:0 4px 14px rgba(0,212,255,0.15);">
                             Создать первую ссылку →
                         </button>
                     </div>
@@ -795,7 +795,7 @@ function showProfileExample() {
                 style="width:100%;margin-top:16px;background:linear-gradient(135deg,#00d4ff,#0099cc);
                        color:#fff;border:none;border-radius:14px;padding:15px;font-size:14px;
                        font-weight:600;cursor:pointer;font-family:inherit;
-                       box-shadow:0 6px 24px rgba(0,212,255,0.3);">
+                       box-shadow:0 6px 16px rgba(0,212,255,0.15);">
                 Создать своё зеркало →
             </button>
         </div>`;
