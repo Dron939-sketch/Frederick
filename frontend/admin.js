@@ -78,6 +78,58 @@ let adminState = {
             border-radius: 4px; height: 4px; overflow: hidden; margin-top: 5px;
         }
         .adm-bar-fill { height:100%; border-radius:4px; transition: width 0.7s ease; }
+
+        /* ===== КРОССБРАУЗЕРНАЯ ЗАЩИТА ===== */
+        .adm-wrap {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 20px 16px;
+            padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 80px));
+            box-sizing: border-box;
+        }
+        @supports not (padding: max(0px)) {
+            .adm-wrap { padding-bottom: 100px; }
+        }
+        .adm-login-wrap {
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            padding-bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 24px));
+            box-sizing: border-box;
+        }
+        .adm-tabs-wrap {
+            display: flex;
+            gap: 4px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 13px;
+            padding: 4px;
+            margin-bottom: 22px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .adm-tabs-wrap::-webkit-scrollbar { display: none; }
+        @media (max-width: 380px) {
+            .adm-tab-btn { font-size: 11px; padding: 9px 4px; }
+        }
+        .adm-grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        @media (min-width: 600px) {
+            .adm-grid-2 { grid-template-columns: repeat(3, 1fr); }
+        }
+        .adm-tab-btn, button {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
     `;
     document.head.appendChild(s);
 })();
@@ -96,7 +148,7 @@ function openSecretRoom() {
 
 function showAdminLogin() {
     document.getElementById('screenContainer').innerHTML = `
-        <div style="min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;">
+        <div class="adm-login-wrap">
           <div style="width:100%;max-width:340px;">
             <div style="text-align:center;margin-bottom:36px;">
               <div style="font-size:52px;margin-bottom:10px;">🔐</div>
@@ -148,8 +200,7 @@ function adminLogout() {
 async function renderAdminDashboard() {
     const API = window.API_BASE_URL||'https://fredi-backend-flz2.onrender.com';
     document.getElementById('screenContainer').innerHTML = `
-        <div style="max-width:760px;margin:0 auto;padding:20px 16px;
-                    padding-bottom:max(80px,calc(env(safe-area-inset-bottom,0px)+80px));">
+        <div class="adm-wrap">
 
           <!-- ШАПКА -->
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
@@ -173,9 +224,7 @@ async function renderAdminDashboard() {
           </div>
 
           <!-- ТАБЫ -->
-          <div style="display:flex;gap:4px;background:rgba(255,255,255,0.04);
-                      border:1px solid rgba(255,255,255,0.07);border-radius:13px;
-                      padding:4px;margin-bottom:22px;overflow-x:auto;">
+          <div class="adm-tabs-wrap">
             ${[['overview','📊 Обзор'],['mirrors','🪞 Зеркала'],['users','👥 Пользователи'],['system','⚙️ Система'],['logs','🔴 Логи']].map(([id,label])=>`
               <button class="adm-tab-btn ${id==='overview'?'on':'off'}"
                 id="adm-tab-${id}" onclick="adminTab('${id}')">${label}</button>`).join('')}
@@ -238,7 +287,7 @@ function renderOverview(c) {
     ];
 
     c.innerHTML = `
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;">
+        <div class="adm-grid-2">
           ${bigCards.map(([e,v,l,col],i)=>`
             <div class="adm-card" style="padding:16px;text-align:center;animation-delay:${i*0.04}s">
               <div style="font-size:22px;margin-bottom:5px;">${e}</div>
@@ -277,7 +326,7 @@ function renderMirrors(c) {
 
     c.innerHTML = `
         <!-- 4 ЦИФРЫ -->
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">
+<div class="adm-grid-2">
           ${[
             ['🪞',m.totalCreated||0,'Создано зеркал','#e0e0e0'],
             ['✅',m.totalCompleted||0,'Сработало','#27ae60'],
@@ -368,7 +417,7 @@ async function renderUsers(c) {
     const s = adminState.stats;
     c.innerHTML = `
         <!-- СВОДКА -->
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+<div class="adm-grid-2">
           ${[
             ['👥', s.total_users||0,  'Всего', '#e0e0e0'],
             ['🟢', s.active_today||0, 'Сегодня', '#27ae60'],
