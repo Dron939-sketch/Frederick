@@ -758,12 +758,32 @@ async def init_database_tables():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_weekend_cache_expires ON weekend_ideas_cache(expires_at)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_morning_messages_user ON morning_messages(user_id, sent_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_last_activity ON users(last_activity DESC) WHERE is_active = TRUE")
-        # Колонки кэша для зеркал (добавляем если не существуют)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS mirrors (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                mirror_code TEXT UNIQUE NOT NULL,
+                mirror_type TEXT NOT NULL DEFAULT 'web',
+                status TEXT NOT NULL DEFAULT 'active',
+                friend_user_id BIGINT,
+                friend_name TEXT,
+                friend_profile_code TEXT,
+                friend_vectors JSONB,
+                friend_deep_patterns JSONB,
+                friend_ai_profile TEXT,
+                friend_perception_type TEXT,
+                friend_thinking_level INTEGER,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                completed_at TIMESTAMP WITH TIME ZONE
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_mirrors_user_id ON mirrors(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_mirrors_code ON mirrors(mirror_code)")
         for col, coltype in [
-            ("intimate_profile_cache", "JSONB"),
-            ("intimate_generated_at", "TIMESTAMP WITH TIME ZONE"),
-            ("four_f_cache", "JSONB"),
-            ("four_f_generated_at", "TIMESTAMP WITH TIME ZONE"),
+            ("intimate_profile_cache","JSONB"),
+            ("intimate_generated_at","TIMESTAMP WITH TIME ZONE"),
+            ("four_f_cache","JSONB"),
+            ("four_f_generated_at","TIMESTAMP WITH TIME ZONE"),
         ]:
             try:
                 await conn.execute(f"ALTER TABLE mirrors ADD COLUMN IF NOT EXISTS {col} {coltype}")
@@ -2558,213 +2578,252 @@ _lifespan_started = False
 
 
 # ============================================
-# 🪞 ГЕНЕРАЦИЯ КОНТЕНТА ДЛЯ ОТРАЖЕНИЙ
+# 🪞 ЗЕРКАЛА — БАЗОВЫЕ ЭНДПОИНТЫ
 # ============================================
 
+@app.post("/api/mirrors/create")
+async def create_mirror(request: Request):
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        mirror_type = data.get("mirror_type", "web")
+        if not user_id:
+            return {"success": False, "error": "user_id обязателен"}
+        import uuid as _uuid
+        mirror_code = f"mirror_{_uuid.uuid4().hex[:12]}"
+        links = {
+            "telegram": f"https://t.me/Nanotech_varik_bot?start={mirror_code}",
+            "max": f"https://max.ru/join/{mirror_code}",
+            "web": f"https://fredi-frontend.onrender.com/?ref={mirror_code}"
+        }
+        link = links.get(mirror_type, links["web"])
+        invite_texts = {
+            "telegram": "Нашёл штуку которая определяет психологический профиль. У меня совпало на 90%. Интересно, у тебя тоже?",
+            "max": "Есть одна штука. Определяет твой тип личности. У меня совпало на 90%. Интересно, у тебя тоже?",
+            "web": "Нашёл интересный психологический тест. Он определил мой тип точнее чем что-либо раньше. Пройди — посмотрим насколько мы похожи?"
+        }
+        invite_text = invite_texts.get(mirror_type, invite_texts["web"])
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO users (user_id, created_at, updated_at, last_activity)
+                VALUES ($1, NOW(), NOW(), NOW())
+                ON CONFLICT (user_id) DO UPDATE SET last_activity = NOW()
+            """, int(user_id))
+            await conn.execute("""
+                INSERT INTO mirrors (user_id, mirror_code, mirror_type, status, created_at)
+                VALUES ($1, $2, $3, 'active', NOW())
+            """, int(user_id), mirror_code, mirror_type)
+        await log_event(int(user_id), "mirror_created", {"mirror_code": mirror_code, "mirror_type": mirror_type})
+        return {"success": True, "mirror_code": mirror_code, "link": link, "invite_text": invite_text, "mirror_type": mirror_type}
+    except Exception as e:
+        logger.error(f"Ошибка создания зеркала: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/mirrors/{user_id}/reflections")
+async def get_user_reflections(user_id: int):
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT mirror_code, mirror_type, friend_user_id, friend_name,
+                       friend_profile_code, friend_vectors, friend_deep_patterns,
+                       friend_ai_profile, friend_perception_type, friend_thinking_level,
+                       completed_at, created_at
+                FROM mirrors WHERE user_id = $1 AND status = 'used'
+                ORDER BY completed_at DESC
+            """, user_id)
+            reflections = []
+            for row in rows:
+                r = dict(row)
+                if r.get("completed_at"): r["completed_at"] = r["completed_at"].isoformat()
+                if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
+                reflections.append(r)
+            total = await conn.fetchval("SELECT COUNT(*) FROM mirrors WHERE user_id = $1", user_id)
+        return {"success": True, "reflections": reflections, "stats": {"total_mirrors": total or 0, "total_reflections": len(reflections)}}
+    except Exception as e:
+        logger.error(f"Ошибка получения отражений: {e}")
+        return {"success": False, "reflections": [], "stats": {}}
+
+
+@app.get("/api/mirrors/{user_id}")
+async def get_user_mirrors(user_id: int):
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT mirror_code, mirror_type, status, created_at,
+                       friend_name, friend_profile_code, completed_at
+                FROM mirrors WHERE user_id = $1 ORDER BY created_at DESC
+            """, user_id)
+            mirrors = []
+            for row in rows:
+                m = dict(row)
+                if m.get("created_at"): m["created_at"] = m["created_at"].isoformat()
+                if m.get("completed_at"): m["completed_at"] = m["completed_at"].isoformat()
+                mirrors.append(m)
+        used = len([m for m in mirrors if m["status"] == "used"])
+        return {"success": True, "mirrors": mirrors, "stats": {"total_mirrors": len(mirrors), "used_mirrors": used}}
+    except Exception as e:
+        logger.error(f"Ошибка получения зеркал: {e}")
+        return {"success": False, "mirrors": [], "stats": {}}
+
+
+@app.post("/api/mirrors/complete")
+async def complete_mirror(request: Request):
+    try:
+        data = await request.json()
+        mirror_code = data.get("mirror_code")
+        if not mirror_code:
+            return {"success": False, "error": "mirror_code обязателен"}
+        friend_user_id = data.get("friend_user_id")
+        friend_vectors = data.get("friend_vectors", {})
+        friend_deep_patterns = data.get("friend_deep_patterns", {})
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                UPDATE mirrors SET
+                    status = 'used', friend_user_id = $2, friend_name = $3,
+                    friend_profile_code = $4, friend_vectors = $5, friend_deep_patterns = $6,
+                    friend_ai_profile = $7, friend_perception_type = $8,
+                    friend_thinking_level = $9, completed_at = NOW()
+                WHERE mirror_code = $1 AND status = 'active'
+            """,
+                mirror_code,
+                int(friend_user_id) if friend_user_id else None,
+                data.get("friend_name", "Друг"),
+                data.get("friend_profile_code"),
+                json.dumps(friend_vectors) if isinstance(friend_vectors, dict) else friend_vectors,
+                json.dumps(friend_deep_patterns) if isinstance(friend_deep_patterns, dict) else friend_deep_patterns,
+                data.get("friend_ai_profile", ""),
+                data.get("friend_perception_type"),
+                int(data.get("friend_thinking_level")) if data.get("friend_thinking_level") else None
+            )
+            owner = await conn.fetchrow("SELECT user_id FROM mirrors WHERE mirror_code = $1", mirror_code)
+        if owner:
+            await log_event(owner["user_id"], "mirror_completed", {"mirror_code": mirror_code})
+        return {"success": True, "message": "Зеркало активировано"}
+    except Exception as e:
+        logger.error(f"Ошибка завершения зеркала: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def _build_profile_context(friend_data: dict) -> str:
-    """Формирует текстовый контекст профиля друга для промпта"""
     vectors = friend_data.get('friend_vectors') or {}
     deep = friend_data.get('friend_deep_patterns') or {}
-    
-    vector_names = {'СБ': 'Самооборона/реакция на угрозу', 'ТФ': 'Финансы/ресурсы', 'УБ': 'Убеждения/мировоззрение', 'ЧВ': 'Чувства/отношения'}
-    vectors_text = ', '.join([f"{vector_names.get(k, k)}: {round(v, 1)}/6" for k, v in vectors.items()]) if vectors else 'не определены'
-    
-    sb = round(vectors.get('СБ', 3), 1)
-    tf = round(vectors.get('ТФ', 3), 1)
-    ub = round(vectors.get('УБ', 3), 1)
-    chv = round(vectors.get('ЧВ', 3), 1)
-    
-    # Описания уровней для контекста
-    sb_desc = {1:'замирает под давлением',2:'избегает конфликтов',3:'соглашается внешне но кипит',4:'внешне спокоен держит в себе',5:'умеет защищать себя',6:'может атаковать в ответ'}.get(round(sb), 'реагирует по-разному')
-    tf_desc = {1:'деньги как повезёт',2:'ищет возможности',3:'зарабатывает своим трудом',4:'хорошо зарабатывает',5:'создаёт системы дохода',6:'управляет капиталом'}.get(round(tf), '')
-    ub_desc = {1:'не думает о сложном',2:'верит в знаки и судьбу',3:'доверяет экспертам',4:'ищет скрытые смыслы',5:'анализирует факты сам',6:'строит теории'}.get(round(ub), '')
-    chv_desc = {1:'сильно привязывается',2:'подстраивается под других',3:'хочет нравиться',4:'умеет влиять',5:'строит равные отношения',6:'создаёт сообщества'}.get(round(chv), '')
-    
-    attachment = deep.get('attachment', 'не определён')
-    fears = deep.get('core_fears', [])
-    if isinstance(fears, list):
-        fears_text = ', '.join(fears) if fears else 'не определены'
-    else:
-        fears_text = str(fears)
-    
+    vector_names = {'СБ': 'Самооборона', 'ТФ': 'Финансы', 'УБ': 'Убеждения', 'ЧВ': 'Чувства'}
+    vectors_text = ', '.join([f"{vector_names.get(k,k)}: {round(v,1)}/6" for k,v in vectors.items()]) if vectors else 'не определены'
+    sb = round(vectors.get('СБ',3),1); tf = round(vectors.get('ТФ',3),1)
+    ub = round(vectors.get('УБ',3),1); chv = round(vectors.get('ЧВ',3),1)
+    sb_d = {1:'замирает',2:'избегает',3:'соглашается внешне',4:'внешне спокоен',5:'умеет защищать',6:'может атаковать'}.get(round(sb),'')
+    tf_d = {1:'деньги как повезёт',2:'ищет возможности',3:'зарабатывает трудом',4:'хорошо зарабатывает',5:'создаёт системы',6:'управляет капиталом'}.get(round(tf),'')
+    ub_d = {1:'не думает о сложном',2:'верит в знаки',3:'доверяет экспертам',4:'ищет заговоры',5:'анализирует факты',6:'строит теории'}.get(round(ub),'')
+    chv_d = {1:'сильно привязывается',2:'подстраивается',3:'хочет нравиться',4:'умеет влиять',5:'строит партнёрства',6:'создаёт сообщества'}.get(round(chv),'')
+    attachment = deep.get('attachment','не определён')
+    fears = deep.get('core_fears',[])
+    fears_text = ', '.join(fears) if isinstance(fears,list) and fears else str(fears) if fears else 'не определены'
     return f"""ПРОФИЛЬ ЧЕЛОВЕКА:
-- Код профиля: {friend_data.get('friend_profile_code', 'неизвестен')}
-- Тип восприятия: {friend_data.get('friend_perception_type', 'не определён')}
-- Уровень мышления: {friend_data.get('friend_thinking_level', 5)}/9
+- Код: {friend_data.get('friend_profile_code','неизвестен')}
+- Тип восприятия: {friend_data.get('friend_perception_type','не определён')}
+- Уровень мышления: {friend_data.get('friend_thinking_level',5)}/9
 - Векторы: {vectors_text}
-- СБ {sb}/6: {sb_desc}
-- ТФ {tf}/6: {tf_desc}
-- УБ {ub}/6: {ub_desc}
-- ЧВ {chv}/6: {chv_desc}
-- Тип привязанности: {attachment}
-- Основные страхи: {fears_text}"""
+- СБ {sb}/6: {sb_d}
+- ТФ {tf}/6: {tf_d}
+- УБ {ub}/6: {ub_d}
+- ЧВ {chv}/6: {chv_d}
+- Привязанность: {attachment}
+- Страхи: {fears_text}"""
 
 
 @app.get("/api/mirrors/{mirror_code}/intimate")
 async def generate_intimate_profile(mirror_code: str):
-    """Генерирует интимный профиль друга для владельца зеркала"""
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
                 SELECT friend_vectors, friend_deep_patterns, friend_profile_code,
                        friend_perception_type, friend_thinking_level, friend_ai_profile,
-                       intimate_profile_cache, intimate_generated_at
+                       intimate_profile_cache
                 FROM mirrors WHERE mirror_code = $1 AND status = 'used'
             """, mirror_code)
-        
         if not row:
             return {"success": False, "error": "Зеркало не найдено или ещё не активировано"}
-        
-        # Если уже генерировали — отдаём кэш
         if row.get('intimate_profile_cache'):
-            return {"success": True, "intimate": json.loads(row['intimate_profile_cache']), "cached": True}
-        
+            cache_val = row['intimate_profile_cache']
+            return {"success": True, "intimate": cache_val if isinstance(cache_val, dict) else json.loads(cache_val), "cached": True}
         friend_data = dict(row)
         if isinstance(friend_data.get('friend_vectors'), str):
             friend_data['friend_vectors'] = json.loads(friend_data['friend_vectors'])
         if isinstance(friend_data.get('friend_deep_patterns'), str):
             friend_data['friend_deep_patterns'] = json.loads(friend_data['friend_deep_patterns'])
-        
-        profile_context = _build_profile_context(friend_data)
-        
-        system_prompt = """Ты — психолог Фреди, эксперт по психологическим профилям и интимной психологии.
-Генерируй точный интимный профиль человека на основе его психологических данных.
-Отвечай ТОЛЬКО валидным JSON без markdown и пояснений."""
-        
-        user_prompt = f"""{profile_context}
+        ctx = _build_profile_context(friend_data)
+        system_prompt = "Ты психолог Фреди. Генерируй интимный профиль на основе данных. Отвечай ТОЛЬКО валидным JSON."
+        user_prompt = f"""{ctx}
 
-На основе этих данных составь интимный психологический профиль.
-
-Ответь строго в формате JSON:
+Ответь строго JSON:
 {{
-  "sexual_triggers": ["триггер 1", "триггер 2", "триггер 3"],
-  "sexual_blockers": ["блокер 1", "блокер 2", "блокер 3"],
-  "intimacy_pattern": "2-3 предложения о паттерне близости этого человека",
-  "attachment_in_intimacy": "как тип привязанности проявляется в сексуальной сфере",
-  "key_need": "главная потребность в близости одним предложением",
-  "approach_tip": "совет как подойти к этому человеку в близости"
+  "sexual_triggers": ["триггер 1","триггер 2","триггер 3"],
+  "sexual_blockers": ["блокер 1","блокер 2","блокер 3"],
+  "intimacy_pattern": "2-3 предложения о паттерне близости",
+  "key_need": "главная потребность одним предложением",
+  "approach_tip": "совет как подойти"
 }}"""
-        
-        response = await ai_service._call_deepseek(
-            system_prompt, user_prompt, max_tokens=800, temperature=0.7)
-        
-        # Парсим JSON
+        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=800, temperature=0.7)
         clean = re.sub(r'```json|```', '', response).strip()
         intimate_data = json.loads(clean)
-        
-        # Кэшируем в БД
         async with db.get_connection() as conn:
             await conn.execute("""
-                UPDATE mirrors SET
-                    intimate_profile_cache = $1,
-                    intimate_generated_at = NOW()
-                WHERE mirror_code = $2
+                UPDATE mirrors SET intimate_profile_cache=$1, intimate_generated_at=NOW()
+                WHERE mirror_code=$2
             """, json.dumps(intimate_data, ensure_ascii=False), mirror_code)
-        
         return {"success": True, "intimate": intimate_data, "cached": False}
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"❌ Ошибка парсинга JSON интимного профиля: {e}")
-        return {"success": False, "error": "Ошибка генерации"}
+    except json.JSONDecodeError:
+        return {"success": False, "error": "Ошибка парсинга JSON"}
     except Exception as e:
-        logger.error(f"❌ Ошибка генерации интимного профиля: {e}")
+        logger.error(f"Ошибка генерации интимного профиля: {e}")
         return {"success": False, "error": str(e)}
 
 
 @app.get("/api/mirrors/{mirror_code}/4f-keys")
 async def generate_4f_keys(mirror_code: str):
-    """Генерирует 4F ключи для профиля друга"""
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
                 SELECT friend_vectors, friend_deep_patterns, friend_profile_code,
-                       friend_perception_type, friend_thinking_level, friend_ai_profile,
-                       four_f_cache, four_f_generated_at
+                       friend_perception_type, friend_thinking_level,
+                       four_f_cache
                 FROM mirrors WHERE mirror_code = $1 AND status = 'used'
             """, mirror_code)
-        
         if not row:
             return {"success": False, "error": "Зеркало не найдено или ещё не активировано"}
-        
-        # Кэш
         if row.get('four_f_cache'):
-            return {"success": True, "keys": json.loads(row['four_f_cache']), "cached": True}
-        
+            cache_val = row['four_f_cache']
+            return {"success": True, "keys": cache_val if isinstance(cache_val, dict) else json.loads(cache_val), "cached": True}
         friend_data = dict(row)
         if isinstance(friend_data.get('friend_vectors'), str):
             friend_data['friend_vectors'] = json.loads(friend_data['friend_vectors'])
         if isinstance(friend_data.get('friend_deep_patterns'), str):
             friend_data['friend_deep_patterns'] = json.loads(friend_data['friend_deep_patterns'])
-        
-        profile_context = _build_profile_context(friend_data)
-        
-        system_prompt = """Ты — психолог Фреди, эксперт по поведенческим паттернам.
-Генерируй точные 4F ключи на основе психологического профиля.
-4F — это 4 базовые реакции: Fight(ярость), Flight(страх), Sex(желание), Feed(деньги).
-Отвечай ТОЛЬКО валидным JSON без markdown."""
-        
-        user_prompt = f"""{profile_context}
+        ctx = _build_profile_context(friend_data)
+        system_prompt = "Ты психолог Фреди. Генерируй 4F ключи. Отвечай ТОЛЬКО валидным JSON."
+        user_prompt = f"""{ctx}
 
-Составь 4F ключи для этого человека — конкретные триггеры и техники взаимодействия.
-
-Ответь строго в формате JSON:
+Ответь строго JSON:
 {{
-  "1F": {{
-    "title": "Ярость / Нападение",
-    "emoji": "🔥",
-    "triggers": ["конкретный триггер 1", "триггер 2", "триггер 3"],
-    "key_phrase": "конкретная фраза которая гасит агрессию",
-    "technique": "название техники и краткое описание",
-    "insight": "почему именно этот человек реагирует так"
-  }},
-  "2F": {{
-    "title": "Страх / Бегство",
-    "emoji": "🏃",
-    "triggers": ["что пугает 1", "пугает 2", "пугает 3"],
-    "key_phrase": "якорь безопасности — конкретная фраза",
-    "technique": "как создать безопасную среду",
-    "insight": "откуда этот страх в профиле"
-  }},
-  "3F": {{
-    "title": "Желание / Секс",
-    "emoji": "🧬",
-    "triggers": ["сексуальный триггер 1", "триггер 2", "триггер 3"],
-    "key_phrase": "слово-пароль или фраза",
-    "technique": "3 конкретных касания или действия",
-    "insight": "что стоит за сексуальностью этого профиля"
-  }},
-  "4F": {{
-    "title": "Деньги / Поглощение",
-    "emoji": "🍽",
-    "triggers": ["денежный триггер 1", "триггер 2", "триггер 3"],
-    "key_phrase": "фраза включающая режим заработка",
-    "technique": "как говорить о деньгах с этим человеком",
-    "insight": "что деньги значат для этого профиля"
-  }}
+  "1F": {{"title":"Ярость/Нападение","emoji":"🔥","triggers":["т1","т2","т3"],"key_phrase":"фраза","technique":"техника","insight":"инсайт"}},
+  "2F": {{"title":"Страх/Бегство","emoji":"🏃","triggers":["т1","т2","т3"],"key_phrase":"фраза","technique":"техника","insight":"инсайт"}},
+  "3F": {{"title":"Желание/Секс","emoji":"🧬","triggers":["т1","т2","т3"],"key_phrase":"фраза","technique":"техника","insight":"инсайт"}},
+  "4F": {{"title":"Деньги/Поглощение","emoji":"🍽","triggers":["т1","т2","т3"],"key_phrase":"фраза","technique":"техника","insight":"инсайт"}}
 }}"""
-        
-        response = await ai_service._call_deepseek(
-            system_prompt, user_prompt, max_tokens=1200, temperature=0.7)
-        
+        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=1200, temperature=0.7)
         clean = re.sub(r'```json|```', '', response).strip()
         keys_data = json.loads(clean)
-        
-        # Кэшируем
         async with db.get_connection() as conn:
             await conn.execute("""
-                UPDATE mirrors SET
-                    four_f_cache = $1,
-                    four_f_generated_at = NOW()
-                WHERE mirror_code = $2
+                UPDATE mirrors SET four_f_cache=$1, four_f_generated_at=NOW()
+                WHERE mirror_code=$2
             """, json.dumps(keys_data, ensure_ascii=False), mirror_code)
-        
         return {"success": True, "keys": keys_data, "cached": False}
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"❌ Ошибка парсинга JSON 4F ключей: {e}")
-        return {"success": False, "error": "Ошибка генерации"}
+    except json.JSONDecodeError:
+        return {"success": False, "error": "Ошибка парсинга JSON"}
     except Exception as e:
-        logger.error(f"❌ Ошибка генерации 4F ключей: {e}")
+        logger.error(f"Ошибка генерации 4F ключей: {e}")
         return {"success": False, "error": str(e)}
 
 
