@@ -3,15 +3,170 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
+
+    <!-- PWA / мобильные -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Фреди">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#0a0a0a">
     <meta name="format-detection" content="telephone=no">
-    <meta name="mobile-web-app-capable" content="yes">
 
+    <!-- SEO -->
+    <title>Фреди — виртуальный психолог | Психологический тест и AI-анализ</title>
+    <meta name="description" content="Фреди — виртуальный психолог на базе ИИ. Пройдите психологический тест из 5 этапов, получите личный профиль, анализ поведения и рекомендации. Разработано Андреем Мейстером.">
+    <meta name="keywords" content="виртуальный психолог, психологический тест, AI психолог, Андрей Мейстер, психологический профиль, анализ личности, Вариатика, Фреди">
+    <meta name="author" content="Андрей Мейстер">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://fredi-frontend.onrender.com/">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://fredi-frontend.onrender.com/">
+    <meta property="og:title" content="Фреди — виртуальный психолог">
+    <meta property="og:description" content="Пройдите психологический тест из 5 этапов и получите личный профиль от AI-психолога Фреди. Разработано Андреем Мейстером.">
+    <meta property="og:image" content="https://fredi-frontend.onrender.com/og-image.jpg">
+    <meta property="og:site_name" content="Фреди">
+    <meta property="og:locale" content="ru_RU">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Фреди — виртуальный психолог">
+    <meta name="twitter:description" content="Пройдите психологический тест из 5 этапов и получите личный профиль от AI-психолога Фреди.">
+    <meta name="twitter:image" content="https://fredi-frontend.onrender.com/og-image.jpg">
+
+    <!-- Schema.org -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Фреди — виртуальный психолог",
+      "url": "https://fredi-frontend.onrender.com/",
+      "description": "Виртуальный AI-психолог. Психологический тест из 5 этапов, личный профиль, анализ поведения.",
+      "applicationCategory": "HealthApplication",
+      "operatingSystem": "Web, iOS, Android",
+      "author": {
+        "@type": "Person",
+        "name": "Андрей Юрьевич Мейстер",
+        "url": "https://meysternlp.ru/"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "RUB"
+      }
+    }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+
+    <style>
+        /* ===== ПОПАП ТРЁХ ТОЧЕК ===== */
+        .dots-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 998;
+        }
+        .dots-overlay.open { display: block; }
+
+        .dots-popup {
+            position: fixed;
+            right: 12px;
+            top: 60px;
+            background: rgba(16,16,16,0.97);
+            -webkit-backdrop-filter: blur(24px);
+            backdrop-filter: blur(24px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 6px;
+            min-width: 230px;
+            z-index: 999;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+            opacity: 0;
+            transform: scale(0.92) translateY(-8px);
+            transform-origin: top right;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            pointer-events: none;
+        }
+        .dots-popup.open {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+            pointer-events: auto;
+        }
+
+        /* safe-area для popup — iOS notch */
+        @supports (top: max(0px)) {
+            .dots-popup {
+                top: max(60px, calc(env(safe-area-inset-top, 0px) + 60px));
+                right: max(12px, calc(env(safe-area-inset-right, 0px) + 12px));
+            }
+        }
+
+        .dots-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+            color: #fff;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .dots-item:hover,
+        .dots-item:active { background: rgba(255,255,255,0.09); }
+
+        .dots-icon {
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; flex-shrink: 0;
+        }
+        .dots-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; }
+        .dots-sub { font-size: 11px; color: rgba(255,255,255,0.38); margin-top: 2px; }
+        .dots-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 4px 8px; }
+
+        /* ===== МОДАЛЬНАЯ ИНСТРУКЦИЯ УСТАНОВКИ ===== */
+        .install-modal {
+            position: fixed; inset: 0; z-index: 9999;
+            display: flex; align-items: flex-end; justify-content: center;
+            background: rgba(0,0,0,0.65);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            padding: 16px;
+            padding-bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 16px));
+            box-sizing: border-box;
+        }
+        .install-modal-inner {
+            background: #1a1a1a;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 24px;
+            max-width: 360px;
+            width: 100%;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+        }
+        .install-modal-title {
+            font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 12px;
+        }
+        .install-modal-text {
+            font-size: 14px; color: rgba(255,255,255,0.65); line-height: 1.75;
+        }
+        .install-modal-btn {
+            margin-top: 18px; width: 100%; padding: 13px;
+            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
+            border: none; border-radius: 12px; color: #fff;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            font-family: inherit; touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
 </head>
 <body>
     <div class="app" id="appRoot">
@@ -54,7 +209,6 @@
                     </div>
                 </div>
 
-                <!-- ЗЕРКАЛО -->
                 <div class="chat-item" data-chat="mirrors">
                     <div class="chat-avatar">🪞</div>
                     <div class="chat-info">
@@ -124,11 +278,10 @@
                     <div class="chat-time"></div>
                 </div>
 
-                <!-- СЕКРЕТНАЯ КОМНАТА -->
                 <div class="menu-divider"></div>
 
                 <div class="chat-item" id="secretRoomBtn"
-                    style="opacity:0.35;transition:opacity 0.2s;-webkit-tap-highlight-color:transparent;"
+                    style="opacity:0.35;transition:opacity 0.2s;"
                     onmouseover="this.style.opacity='0.85'"
                     onmouseout="this.style.opacity='0.35'">
                     <div class="chat-avatar">🔐</div>
@@ -139,8 +292,7 @@
                 </div>
             </div>
 
-            <!-- ФУТЕР ПУСТОЙ -->
-            <div class="chats-footer"></div>
+
         </div>
 
         <!-- ===== ПРАВАЯ ПАНЕЛЬ ===== -->
@@ -158,7 +310,9 @@
                     </div>
                 </div>
                 <div>
-                    <button class="mode-btn" id="menuBtn">⋮</button>
+                    <button class="mode-btn" id="menuBtn"
+                        onclick="dotsToggle(event)"
+                        style="-webkit-tap-highlight-color:transparent;touch-action:manipulation;">⋮</button>
                 </div>
             </div>
 
@@ -171,6 +325,31 @@
         </div>
     </div>
 
+    <!-- ===== ПОПАП ТРЁХ ТОЧЕК ===== -->
+    <div class="dots-overlay" id="dotsOverlay" onclick="dotsClose()"></div>
+    <div class="dots-popup" id="dotsPopup">
+
+        <a href="https://meysternlp.ru/" target="_blank" rel="noopener noreferrer"
+            class="dots-item" onclick="dotsClose()">
+            <div class="dots-icon" style="background:linear-gradient(135deg,#ff6b3b,#ff3b3b);">🏛</div>
+            <div style="flex:1;">
+                <div class="dots-title">Мейстерская</div>
+                <div class="dots-sub">meysternlp.ru</div>
+            </div>
+            <span style="font-size:14px;color:rgba(255,255,255,0.2);">↗</span>
+        </a>
+
+        <div class="dots-divider"></div>
+
+        <div class="dots-item" onclick="dotsInstall()">
+            <div class="dots-icon" style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.2);">📲</div>
+            <div style="flex:1;">
+                <div class="dots-title">На экран телефона</div>
+                <div class="dots-sub">Создать ярлык приложения</div>
+            </div>
+        </div>
+    </div>
+
     <!-- ===== TOAST ===== -->
     <div id="toastMessage" class="floating-message">
         <div class="floating-message-content">
@@ -179,29 +358,118 @@
         </div>
     </div>
 
-    <!-- ===== СКРИПТЫ ===== -->
+    <!-- ===== ИНИЦИАЛИЗАЦИЯ ===== -->
     <script>
         (function() {
             window.API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
             var stored = localStorage.getItem('fredi_user_id');
-            var uid = stored && !isNaN(parseInt(stored)) ? parseInt(stored) : Date.now();
+            var uid = (stored && !isNaN(parseInt(stored))) ? parseInt(stored) : Date.now();
             localStorage.setItem('fredi_user_id', uid);
             window.USER_ID = uid;
-            console.log('✅ USER_ID установлен:', window.USER_ID);
+            console.log('USER_ID:', window.USER_ID);
         })();
 
-        // Секретная комната — после загрузки всех скриптов
+        /* ===== МЕНЮ ТРЁХ ТОЧЕК ===== */
+        var _pwa = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            _pwa = e;
+        });
+
+        function dotsToggle(e) {
+            if (e) e.stopPropagation();
+            var p = document.getElementById('dotsPopup');
+            var o = document.getElementById('dotsOverlay');
+            if (p.classList.contains('open')) {
+                p.classList.remove('open');
+                o.classList.remove('open');
+            } else {
+                p.classList.add('open');
+                o.classList.add('open');
+            }
+        }
+
+        function dotsClose() {
+            var p = document.getElementById('dotsPopup');
+            var o = document.getElementById('dotsOverlay');
+            if (p) p.classList.remove('open');
+            if (o) o.classList.remove('open');
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') dotsClose();
+        });
+
+        /* ===== УСТАНОВКА НА ЭКРАН ===== */
+        function dotsInstall() {
+            dotsClose();
+
+            // Chrome / Android — нативный диалог
+            if (_pwa) {
+                _pwa.prompt();
+                _pwa.userChoice.then(function() { _pwa = null; });
+                return;
+            }
+
+            var ua     = navigator.userAgent || '';
+            var isIOS  = /iphone|ipad|ipod/i.test(ua);
+            var isSafari = isIOS && /^((?!chrome|android|fxios|crios).)*safari/i.test(ua);
+
+            var text;
+            if (isSafari) {
+                text = '1. Нажмите <b>Поделиться</b> (□↑) внизу экрана'
+                     + '<br>2. Прокрутите и выберите <b>«На экран «Домой»»</b>'
+                     + '<br>3. Нажмите <b>Добавить</b>';
+            } else if (isIOS) {
+                text = 'Для добавления ярлыка откройте эту страницу в <b>Safari</b>,'
+                     + ' затем нажмите <b>Поделиться → На экран «Домой»</b>.';
+            } else {
+                text = 'В меню браузера нажмите <b>⋮</b> и выберите'
+                     + '<br><b>«Установить приложение»</b>'
+                     + '<br>или <b>«Добавить на главный экран»</b>.';
+            }
+
+            var modal = document.createElement('div');
+            modal.className = 'install-modal';
+            modal.innerHTML =
+                '<div class="install-modal-inner">'
+                + '<div class="install-modal-title">📲 На экран телефона</div>'
+                + '<div class="install-modal-text">' + text + '</div>'
+                + '<button class="install-modal-btn" id="installModalBtn">Понятно</button>'
+                + '</div>';
+            document.body.appendChild(modal);
+
+            document.getElementById('installModalBtn').addEventListener('click', function() {
+                modal.remove();
+            });
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) modal.remove();
+            });
+        }
+    </script>
+
+    <script>
+        // Секретная комната — вешаем обработчик после загрузки всех скриптов
         window.addEventListener('load', function() {
+            // Инициализация push-уведомлений (тихо, без запроса)
+            if (window.PushManager_Fredi && window.USER_ID) {
+                window.PushManager_Fredi.init(window.USER_ID);
+            }
+
             var btn = document.getElementById('secretRoomBtn');
             if (btn) {
                 btn.addEventListener('click', function() {
-                    if (typeof openSecretRoom === 'function') openSecretRoom();
+                    if (typeof openSecretRoom === 'function') {
+                        openSecretRoom();
+                    } else {
+                        console.warn('openSecretRoom не найдена');
+                    }
+                    // Закрываем мобильное меню
                     document.getElementById('chatsPanel')?.classList.remove('open');
                 });
             }
         });
     </script>
-
     <script src="test.js"></script>
     <script src="voice.js"></script>
     <script src="analysis.js"></script>
@@ -233,11 +501,14 @@
     <script src="practices.js"></script>
     <script src="mirrors.js"></script>
     <script src="admin.js"></script>
+    <script src="push.js"></script>
     <script src="app.js"></script>
 
-    <div style="display:none;position:absolute;visibility:hidden;height:0;width:0;overflow:hidden">
+    <!-- SEO-текст (скрыт от пользователей) -->
+    <div style="display:none;position:absolute;visibility:hidden;height:0;width:0;overflow:hidden"
+         aria-hidden="true">
         <h1>Фреди — виртуальный психолог на базе искусственного интеллекта</h1>
-        <p>Фреди — это премиум виртуальный психолог, созданный на основе технологий искусственного интеллекта.</p>
+        <p>Фреди — премиум AI-психолог, разработанный Андреем Мейстером. Психологический тест из 5 этапов: восприятие, мышление, поведение, точка роста, глубинные паттерны. Получите личный психологический профиль, анализ векторов СБ, ТФ, УБ, ЧВ и рекомендации.</p>
     </div>
 </body>
 </html>
