@@ -1186,8 +1186,15 @@ async function showStatistics() {
 // НАСТРОЙКА ГОЛОСОВОЙ КНОПКИ
 // ============================================
 
+// Глобальные обработчики touchend — создаём ОДИН РАЗ
+let _voiceTouchEndHandler = null;
+let _voiceTouchCancelHandler = null;
+
 function setupVoiceButton(buttonElement) {
     if (!buttonElement || !voiceManager) return;
+    // Защита от повторной инициализации
+    if (buttonElement._voiceInited) return;
+    buttonElement._voiceInited = true;
 
     let pressTimer     = null;
     let _activeTouchId = null;
@@ -1239,8 +1246,15 @@ function setupVoiceButton(buttonElement) {
     buttonElement.addEventListener('mousedown',  onPressStart);
     buttonElement.addEventListener('mouseup',    onPressEnd);
     buttonElement.addEventListener('mouseleave', onPressEnd);
-    // Mobile
+    // Mobile — touchstart на кнопке
     buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
+    // touchend на document — удаляем старый и вешаем новый (один глобальный)
+    if (_voiceTouchEndHandler) {
+        document.removeEventListener('touchend', _voiceTouchEndHandler);
+        document.removeEventListener('touchcancel', _voiceTouchCancelHandler);
+    }
+    _voiceTouchEndHandler = onPressEnd;
+    _voiceTouchCancelHandler = onPressEnd;
     document.addEventListener('touchend',    onPressEnd, { passive: false });
     document.addEventListener('touchcancel', onPressEnd, { passive: false });
     buttonElement.addEventListener('contextmenu', e => e.preventDefault());
