@@ -437,7 +437,7 @@ function shareMirrorLink(link, text) {
 // ЭКРАН ПРОФИЛЯ ДРУГА
 // ============================================
 
-function showFriendProfile(ref) {
+async function showFriendProfile(ref) {
     const container = document.getElementById('screenContainer');
     const name = ref.friend_name || 'Друг';
     const profile = ref.friend_profile_code || '—';
@@ -445,6 +445,7 @@ function showFriendProfile(ref) {
     const patterns = ref.friend_deep_patterns || {};
     const aiProfile = ref.friend_ai_profile || '';
     const date = ref.completed_at ? new Date(ref.completed_at).toLocaleDateString('ru') : '';
+    const mirrorCode = ref.mirror_code || '';
 
     const vectorNames = { 'СБ': 'Самооборона', 'ТФ': 'Финансы', 'УБ': 'Убеждения', 'ЧВ': 'Чувства' };
     const vectorBar = (val) => {
@@ -518,13 +519,115 @@ function showFriendProfile(ref) {
             </div>
             ` : ''}
 
+            <!-- ТАБЫ: Интимный / 4F -->
+            <div style="display:flex; gap:8px; margin-bottom:16px;">
+                <button onclick="loadIntimateProfile('${mirrorCode}', this)"
+                    style="flex:1; background:#1a0005; color:#e74c3c; border:1px solid #e74c3c44;
+                           border-radius:12px; padding:12px; font-size:13px; font-weight:600; cursor:pointer;">
+                    🔞 Интимный профиль
+                </button>
+                <button onclick="load4FKeys('${mirrorCode}', this)"
+                    style="flex:1; background:#1a1000; color:#f39c12; border:1px solid #f39c1244;
+                           border-radius:12px; padding:12px; font-size:13px; font-weight:600; cursor:pointer;">
+                    🔑 4F ключи
+                </button>
+            </div>
+
+            <div id="friendExtraContent"></div>
+
             <button onclick="showMirrorsScreen()"
                 style="width:100%; background:#1a1a1a; color:#aaa; border:1px solid #333;
-                       border-radius:12px; padding:14px; font-size:14px; cursor:pointer;">
+                       border-radius:12px; padding:14px; font-size:14px; cursor:pointer; margin-top:8px;">
                 ← Назад к отражениям
             </button>
         </div>
     `;
+}
+
+async function loadIntimateProfile(mirrorCode, btn) {
+    const block = document.getElementById('friendExtraContent');
+    if (!mirrorCode) {
+        block.innerHTML = `<div style="background:#1a0005; border-radius:12px; padding:16px; color:#e74c3c; text-align:center;">
+            ❌ Код зеркала не найден</div>`;
+        return;
+    }
+    block.innerHTML = `<div style="background:#111; border-radius:12px; padding:20px; text-align:center; color:#888;">
+        <div style="font-size:24px; margin-bottom:8px;">⏳</div>Генерирую интимный профиль...</div>`;
+    try {
+        const res = await fetch(\`\${API_BASE}/api/mirrors/\${mirrorCode}/intimate\`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        const i = data.intimate;
+        block.innerHTML = \`
+            <div style="background:#0d0005; border:1px solid #e74c3c33; border-radius:16px; padding:20px; margin-bottom:12px;">
+                <div style="font-size:14px; font-weight:700; color:#e74c3c; margin-bottom:14px;">🔞 ИНТИМНЫЙ ПРОФИЛЬ</div>
+                <div style="margin-bottom:14px;">
+                    <div style="font-size:12px; color:#666; margin-bottom:6px;">💋 ЧТО ВОЗБУЖДАЕТ</div>
+                    \${(i.sexual_triggers||[]).map(t=>\`<div style="font-size:13px; color:#ccc; margin-bottom:4px;">• \${t}</div>\`).join('')}
+                </div>
+                <div style="margin-bottom:14px;">
+                    <div style="font-size:12px; color:#666; margin-bottom:6px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>
+                    \${(i.sexual_blockers||[]).map(t=>\`<div style="font-size:13px; color:#ccc; margin-bottom:4px;">• \${t}</div>\`).join('')}
+                </div>
+                <div style="margin-bottom:14px;">
+                    <div style="font-size:12px; color:#666; margin-bottom:6px;">🧬 ПАТТЕРН БЛИЗОСТИ</div>
+                    <div style="font-size:13px; color:#ccc; line-height:1.6;">\${i.intimacy_pattern||''}</div>
+                </div>
+                <div style="margin-bottom:14px;">
+                    <div style="font-size:12px; color:#666; margin-bottom:6px;">💡 ГЛАВНАЯ ПОТРЕБНОСТЬ</div>
+                    <div style="font-size:13px; color:#fff; font-weight:600;">\${i.key_need||''}</div>
+                </div>
+                <div style="background:#1a0a00; border-radius:10px; padding:12px;">
+                    <div style="font-size:12px; color:#e74c3c; margin-bottom:4px;">🎯 КАК ПОДОЙТИ</div>
+                    <div style="font-size:13px; color:#ccc;">\${i.approach_tip||''}</div>
+                </div>
+            </div>
+        \`;
+    } catch(e) {
+        block.innerHTML = \`<div style="background:#1a0005; border-radius:12px; padding:16px; color:#e74c3c; text-align:center;">
+            ❌ Ошибка: \${e.message}</div>\`;
+    }
+}
+
+async function load4FKeys(mirrorCode, btn) {
+    const block = document.getElementById('friendExtraContent');
+    if (!mirrorCode) {
+        block.innerHTML = \`<div style="background:#1a1000; border-radius:12px; padding:16px; color:#f39c12; text-align:center;">
+            ❌ Код зеркала не найден</div>\`;
+        return;
+    }
+    block.innerHTML = \`<div style="background:#111; border-radius:12px; padding:20px; text-align:center; color:#888;">
+        <div style="font-size:24px; margin-bottom:8px;">⏳</div>Генерирую 4F ключи...</div>\`;
+    try {
+        const res = await fetch(\`\${API_BASE}/api/mirrors/\${mirrorCode}/4f-keys\`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        const keys = data.keys;
+        const colors = {'1F':'#e74c3c','2F':'#3498db','3F':'#9b59b6','4F':'#27ae60'};
+        block.innerHTML = Object.entries(keys).map(([code, k]) => \`
+            <div style="background:#111; border-left:3px solid \${colors[code]||'#9b59b6'};
+                        border-radius:14px; padding:18px; margin-bottom:12px;">
+                <div style="font-size:15px; font-weight:700; color:#fff; margin-bottom:12px;">
+                    \${k.emoji||''} \${code} — \${k.title||''}
+                </div>
+                <div style="font-size:12px; color:#666; margin-bottom:8px;">🎯 Триггеры</div>
+                \${(k.triggers||[]).map(t=>\`<div style="font-size:13px; color:#ccc; margin-bottom:3px;">• \${t}</div>\`).join('')}
+                <div style="background:#0d0d0d; border-radius:10px; padding:12px; margin-top:10px;">
+                    <div style="font-size:12px; color:\${colors[code]||'#9b59b6'}; margin-bottom:4px;">🔑 Ключ</div>
+                    <div style="font-size:13px; color:#fff; font-weight:600;">\${k.key_phrase||''}</div>
+                </div>
+                <div style="font-size:12px; color:#888; margin-top:8px; line-height:1.6;">
+                    ⚡ \${k.technique||''}
+                </div>
+                <div style="font-size:12px; color:#555; margin-top:6px; font-style:italic;">
+                    \${k.insight||''}
+                </div>
+            </div>
+        \`).join('');
+    } catch(e) {
+        block.innerHTML = \`<div style="background:#1a1000; border-radius:12px; padding:16px; color:#f39c12; text-align:center;">
+            ❌ Ошибка: \${e.message}</div>\`;
+    }
 }
 
 // ============================================
