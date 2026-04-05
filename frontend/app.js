@@ -1572,7 +1572,8 @@ async function init() {
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => showAnchors(),
-                statistics: () => showStatistics()
+                statistics: () => showStatistics(),
+                mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); }
             };
             (actions[chat] || renderDashboard)();
 
