@@ -630,11 +630,12 @@ body::after {
     font-size: 16px;
     font-weight: 500;
     font-family: inherit;
-    touch-action: manipulation;
+    touch-action: none;
     -webkit-user-select: none;
     user-select: none;
     min-height: 64px;
     outline: none;
+    -webkit-touch-callout: none;
 }
 
 .voice-record-btn-premium:active { transform: scale(0.98); }
