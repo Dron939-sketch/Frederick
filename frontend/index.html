@@ -11,7 +11,6 @@
     <meta name="mobile-web-app-capable" content="yes">
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -130,12 +129,29 @@
                 </div>
             </div>
 
+            <!-- ===== ФУТЕР С ПРОФИЛЕМ И СЕКРЕТНОЙ КОМНАТОЙ ===== -->
             <div class="chats-footer">
                 <div class="user-mini-profile">
                     <div class="user-mini-avatar" id="userMiniAvatar">А</div>
                     <div>
                         <div class="user-mini-name" id="userName">Пользователь</div>
                         <div class="user-mini-status">⚡ активен</div>
+                    </div>
+                </div>
+
+                <!-- СЕКРЕТНАЯ КОМНАТА -->
+                <div id="secretRoomBtn" onclick="openSecretRoom()"
+                    style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+                           border-radius:12px;cursor:pointer;margin-top:8px;
+                           border:1px solid rgba(255,255,255,0.06);
+                           background:rgba(255,255,255,0.02);
+                           transition:all 0.2s;opacity:0.5;"
+                    onmouseover="this.style.opacity='1';this.style.borderColor='rgba(255,59,59,0.3)';this.style.background='rgba(255,59,59,0.05)'"
+                    onmouseout="this.style.opacity='0.5';this.style.borderColor='rgba(255,255,255,0.06)';this.style.background='rgba(255,255,255,0.02)'">
+                    <span style="font-size:18px;">🔐</span>
+                    <div>
+                        <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);">Секретная комната</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.25);">Только для администраторов</div>
                     </div>
                 </div>
             </div>
@@ -219,6 +235,7 @@
     <script src="morning.js"></script>
     <script src="practices.js"></script>
     <script src="mirrors.js"></script>
+    <script src="admin.js"></script>
     <script src="app.js"></script>
 
     <div style="display:none;position:absolute;visibility:hidden;height:0;width:0;overflow:hidden">
