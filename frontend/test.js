@@ -858,6 +858,17 @@ const Test = {
         return null;
     },
 
+    getMirrorCode() {
+        // Читаем реферальный код из URL: ?ref=mirror_xxx
+        const ref = new URLSearchParams(window.location.search).get('ref');
+        if (ref && ref.startsWith('mirror_')) {
+            localStorage.setItem('fredi_mirror_ref', ref);
+            return ref;
+        }
+        // Или из localStorage (если был переход)
+        return localStorage.getItem('fredi_mirror_ref') || null;
+    },
+
     // ============================================
     // ИНИЦИАЛИЗАЦИЯ
     // ============================================
@@ -1491,8 +1502,44 @@ ${this.getStage5Interpretation()}
                 })
             });
             let data; try { data=await r.json(); } catch { data={success:r.ok}; }
-            if (data.success) { await this.fetchAIGeneratedProfile(); } else { this.showFinalProfileButtons(); }
+            if (data.success) {
+                // 🪞 Если пользователь пришёл по реферальной ссылке — активируем зеркало
+                await this.completeMirrorIfReferred(profile, deep);
+                await this.fetchAIGeneratedProfile();
+            } else { this.showFinalProfileButtons(); }
         } catch(error) { console.error('❌ Ошибка сети:', error); this.showFinalProfileButtons(); }
+    },
+
+    async completeMirrorIfReferred(profile, deep) {
+        const mirrorCode = this.getMirrorCode();
+        if (!mirrorCode) return;
+        try {
+            // Считаем средние векторы
+            const vectors = {};
+            for (const [k, levels] of Object.entries(this.behavioralLevels||{})) {
+                vectors[k] = levels.length ? levels.reduce((a,b)=>a+b,0)/levels.length : 3;
+            }
+            await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mirror_code: mirrorCode,
+                    friend_user_id: this.userId,
+                    friend_name: this.context?.name || 'Друг',
+                    friend_profile_code: profile?.displayName || null,
+                    friend_vectors: vectors,
+                    friend_deep_patterns: deep || {},
+                    friend_ai_profile: this.aiGeneratedProfile || '',
+                    friend_perception_type: this.perceptionType,
+                    friend_thinking_level: this.thinkingLevel
+                })
+            });
+            // Очищаем ref из localStorage после активации
+            localStorage.removeItem('fredi_mirror_ref');
+            console.log('🪞 Зеркало активировано:', mirrorCode);
+        } catch(e) {
+            console.warn('⚠️ Ошибка активации зеркала:', e);
+        }
     },
 
     async fetchAIGeneratedProfile() {
