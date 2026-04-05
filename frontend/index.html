@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Фреди">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="manifest" href="/fredi/manifest.json">
+    <link rel="manifest" href="/manifest.json">
     <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
 
@@ -55,7 +55,6 @@
                     </div>
                 </div>
 
-                <!-- ЗЕРКАЛО -->
                 <div class="chat-item" data-chat="mirrors">
                     <div class="chat-avatar">🪞</div>
                     <div class="chat-info">
@@ -125,7 +124,6 @@
                     <div class="chat-time"></div>
                 </div>
 
-                <!-- СЕКРЕТНАЯ КОМНАТА -->
                 <div class="menu-divider"></div>
 
                 <div class="chat-item" id="secretRoomBtn"
@@ -140,7 +138,6 @@
                 </div>
             </div>
 
-            <!-- ФУТЕР ПУСТОЙ -->
             <div class="chats-footer"></div>
         </div>
 
@@ -180,7 +177,6 @@
         </div>
     </div>
 
-    <!-- ===== СКРИПТЫ ===== -->
     <script>
         (function() {
             window.API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
@@ -191,13 +187,10 @@
             console.log('✅ USER_ID установлен:', window.USER_ID);
         })();
 
-        // Секретная комната — после загрузки всех скриптов
         window.addEventListener('load', function() {
-            // Инициализация push-уведомлений (тихо, без запроса)
             if (window.PushManager_Fredi && window.USER_ID) {
                 window.PushManager_Fredi.init(window.USER_ID);
             }
-            // Запрашиваем разрешение на push при первом клике в меню
             var _pushAsked = false;
             document.getElementById('chatsList')?.addEventListener('click', function() {
                 if (_pushAsked) return;
