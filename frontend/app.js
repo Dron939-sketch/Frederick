@@ -1249,7 +1249,7 @@ function setupVoiceButton(buttonElement) {
 
     let pressTimer  = null;
     let isRecording = false;
-    const DELAY     = 600; // ms до начала записи — защита от случайных касаний
+    const DELAY     = 300; // ms до начала записи
 
     const getIcon = () => buttonElement.querySelector('.voice-icon');
     const getText = () => buttonElement.querySelector('.voice-text');
@@ -1429,7 +1429,7 @@ function renderDashboard() {
                         <span class="voice-icon">🎤</span>
                         <span class="voice-text">${modeConfig.voicePrompt}</span>
                     </button>
-                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Удерживайте 0.5 сек для начала записи</div>
+            
                 </div>
             </div>
 
@@ -1668,7 +1668,8 @@ async function init() {
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => showAnchors(),
-                statistics: () => showStatistics()
+                statistics: () => showStatistics(),
+                mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); }
             };
             (actions[chat] || renderDashboard)();
 
