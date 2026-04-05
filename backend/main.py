@@ -1345,9 +1345,9 @@ async def process_voice(
 
                 # ФИХ: пробелы после склейки чанков
                 import re as _re2
-                response_text = _re2.sub(r'([.!?,;:])([^\s\d\)\]\}])', r' ', response_text)
-                response_text = _re2.sub(r'([—–])([^\s])', r' ', response_text)
-                response_text = _re2.sub(r'([а-яё])([А-ЯЁ])', r' ', response_text)
+                response_text = _re2.sub(r'([.!?,;:])([^\s\d\)\]\}])', r'\1 \2', response_text)
+                response_text = _re2.sub(r'([—–])([^\s])', r'\1 \2', response_text)
+                response_text = _re2.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', response_text)
                 response_text = _re2.sub(r'\s+', ' ', response_text).strip()
             except Exception as e:
                 logger.warning(f"process_question_streaming failed: {e}")
