@@ -602,6 +602,7 @@ class VoiceTransport {
     _wsCleanup(intentional = false) {
         this._stopPing();
         this._clearWsResponseTimer();
+        if (this._wsRecoveryTimer) { clearTimeout(this._wsRecoveryTimer); this._wsRecoveryTimer = null; }
         this._intentionalClose = intentional;
         if (this._ws) {
             try { this._ws.close(1000, 'mode_change'); } catch {}
@@ -652,6 +653,12 @@ class VoiceTransport {
                             this._flushAudio();
                         }
                     } else if (msg.data) {
+                        // Защита от переполнения памяти (>10MB)
+                        const totalSize = this._audioChunks.reduce((s, c) => s + c.length, 0);
+                        if (totalSize > 10 * 1024 * 1024) {
+                            console.warn('Audio chunks exceeded 10MB, flushing');
+                            this._flushAudio();
+                        }
                         // Накапливаем чанки
                         this._audioChunks.push(msg.data);
                     }
@@ -939,6 +946,7 @@ class VoiceManager {
         this._player    = new AudioPlayer();
         this._transport = null;
         this._rec       = null;
+        this._modeSwitching = false;
 
         console.log('🎤 VoiceManager v2.0, diagnostics:', VoiceConfig.diagnostics);
         this._init();
@@ -1082,6 +1090,8 @@ class VoiceManager {
     }
 
     setMode(mode) {
+        if (this._modeSwitching) return;
+        this._modeSwitching = true;
         this.currentMode = mode;
         if (this._transport) {
             this._transport.currentMode = mode;
@@ -1092,8 +1102,13 @@ class VoiceManager {
                 this._transport._wsCleanup(true);  // intentional — не делать fallback
                 setTimeout(() => {
                     this._transport._connectWS().catch(e => console.warn('WS reconnect failed:', e));
+                    this._modeSwitching = false;
                 }, 300);  // небольшая задержка чтобы старый WS успел закрыться
+            } else {
+                this._modeSwitching = false;
             }
+        } else {
+            this._modeSwitching = false;
         }
     }
 

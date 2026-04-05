@@ -88,30 +88,50 @@ let voiceManager = null;
 // API
 // ============================================
 
-async function apiCall(endpoint, options = {}) {
-    const url = endpoint.startsWith('http') ? endpoint : `${CONFIG.API_BASE_URL}${endpoint}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // 15 сек таймаут
+const _inflightRequests = new Map();
 
-    try {
-        const response = await fetch(url, {
-            ...options,
-            signal: controller.signal,
-            headers: { 'Content-Type': 'application/json', ...options.headers }
-        });
-        clearTimeout(timeout);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-        return data;
-    } catch (error) {
-        clearTimeout(timeout);
-        if (error.name === 'AbortError') {
-            console.error(`API timeout: ${endpoint}`);
-            throw new Error('Сервер не отвечает. Попробуйте позже.');
-        }
-        console.error(`API Error: ${endpoint}`, error);
-        throw error;
+async function apiCall(endpoint, options = {}) {
+    const method = options.method || 'GET';
+    const url = endpoint.startsWith('http') ? endpoint : `${CONFIG.API_BASE_URL}${endpoint}`;
+    const key = method + ':' + url;
+
+    // Дедупликация GET-запросов
+    if (method === 'GET' && _inflightRequests.has(key)) {
+        return _inflightRequests.get(key);
     }
+
+    const promise = (async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000); // 15 сек таймаут
+
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal,
+                headers: { 'Content-Type': 'application/json', ...options.headers }
+            });
+            clearTimeout(timeout);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            return data;
+        } catch (error) {
+            clearTimeout(timeout);
+            if (error.name === 'AbortError') {
+                console.error(`API timeout: ${endpoint}`);
+                throw new Error('Сервер не отвечает. Попробуйте позже.');
+            }
+            console.error(`API Error: ${endpoint}`, error);
+            throw error;
+        }
+    })().finally(() => {
+        _inflightRequests.delete(key);
+    });
+
+    if (method === 'GET') {
+        _inflightRequests.set(key, promise);
+    }
+
+    return promise;
 }
 
 async function isTestCompleted() {
@@ -405,9 +425,9 @@ function navigateTo(screen, params = {}) {
         case 'confinement-model': showConfinementModel(); break;
         case 'confinement-loops': showConfinementLoops(params); break;
         case 'intervention': showIntervention(params); break;
-        case 'practices': if (typeof showPracticesScreen==='function') showPracticesScreen(); else { const s=document.createElement('script');s.src='practices.js';s.onload=()=>{if(typeof showPracticesScreen==='function')showPracticesScreen();};document.head.appendChild(s); } break;
-        case 'hypnosis': if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};document.head.appendChild(s); } break;
-        case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } break;
+        case 'practices': if (typeof showPracticesScreen==='function') showPracticesScreen(); else { const s=document.createElement('script');s.src='practices.js';s.onload=()=>{if(typeof showPracticesScreen==='function')showPracticesScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
+        case 'hypnosis': if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
+        case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; s.onerror=()=>{showToast('Не удалось загрузить модуль','error');}; document.head.appendChild(s); } break;
         case 'anchors': showAnchors(); break;
         case 'statistics': showStatistics(); break;
         case 'analysis':
@@ -418,6 +438,7 @@ function navigateTo(screen, params = {}) {
                 const s = document.createElement('script');
                 s.src = 'analysis.js';
                 s.onload = () => openAnalysisScreen();
+                s.onerror = () => { showToast('Не удалось загрузить модуль', 'error'); };
                 document.head.appendChild(s);
             }
             break;
@@ -712,6 +733,7 @@ async function handleShowNewThought() {
         const s = document.createElement('script');
         s.src = 'freshthought.js';
         s.onload = () => { if (typeof showFreshThoughtScreen === 'function') showFreshThoughtScreen(); };
+        s.onerror = () => { showToast('Не удалось загрузить модуль', 'error'); };
         document.head.appendChild(s);
     }
 }
@@ -725,6 +747,7 @@ async function handleShowWeekend() {
         const s = document.createElement('script');
         s.src = 'weekend.js';
         s.onload = () => { if (typeof showWeekendScreen === 'function') showWeekendScreen(); };
+        s.onerror = () => { showToast('Не удалось загрузить модуль', 'error'); };
         document.head.appendChild(s);
     }
 }
@@ -1460,7 +1483,7 @@ function renderDashboard() {
     document.querySelectorAll('.module-card').forEach(card => {
         card.addEventListener('click', () => {
             const moduleId = card.dataset.module;
-            const _load = (src, fn) => { if (typeof fn==='function') { fn(); } else { const s=document.createElement('script'); s.src=src; s.onload=()=>{ if(typeof fn==='function') fn(); }; document.head.appendChild(s); } };
+            const _load = (src, fn) => { if (typeof fn==='function') { fn(); } else { const s=document.createElement('script'); s.src=src; s.onload=()=>{ if(typeof fn==='function') fn(); }; s.onerror=()=>{showToast('Не удалось загрузить модуль','error');}; document.head.appendChild(s); } };
             const moduleHandlers = {
                 analysis:   () => { if (typeof openAnalysisScreen==='function') openAnalysisScreen(); else _load('analysis.js', window.openAnalysisScreen); },
                 goals:      () => { if (typeof showGoalsScreen==='function') showGoalsScreen(); else { const s=document.createElement('script');s.src='goals.js';s.onload=()=>{if(typeof showGoalsScreen==='function')showGoalsScreen();};document.head.appendChild(s); } },

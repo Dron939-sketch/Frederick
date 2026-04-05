@@ -299,7 +299,7 @@ async def convert_to_webm(audio_bytes: bytes, source_format: str) -> Optional[by
         try:
             os.unlink(input_path)
             os.unlink(output_path)
-        except:
+        except Exception:
             pass
         logger.info(f"✅ Конвертация успешна: {len(audio_bytes)} → {len(converted)} байт")
         return converted

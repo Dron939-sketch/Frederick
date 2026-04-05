@@ -397,7 +397,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         logger.error(f"❌ Voice manager not ready")
         try:
             await websocket.close(code=1011, reason="Voice service not ready")
-        except:
+        except Exception:
             pass
         return
 
@@ -460,6 +460,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         "confinement_model": profile.get("confinement_model"),
         "history": history,  # ФИХ: реальная история
         "message_count": context.get("basic_message_count", 0),  # счётчик для BasicMode
+        "test_offered": context.get("basic_test_offered", False),  # флаг предложения теста
     }
 
     class SimpleContext:
@@ -533,11 +534,14 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 response_text = response_text.strip()
                 logger.info(f"💬 AI response ({len(response_text)} chars): {repr(response_text[:150])}")
 
-                # Сохраняем счётчик сообщений для BasicMode
+                # Сохраняем счётчик сообщений и test_offered для BasicMode
                 if mode_name == "basic":
                     try:
                         cur_count = context.get("basic_message_count", 0)
                         context["basic_message_count"] = cur_count + 1
+                        # Persist test_offered so it survives reconnections
+                        if hasattr(mode, 'test_offered'):
+                            context["basic_test_offered"] = mode.test_offered
                         await context_repo.save(user_id_for_db, context)
                     except Exception as _e:
                         logger.warning(f"Не удалось сохранить basic_message_count: {_e}")
@@ -580,7 +584,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 try:
                     await websocket.send_json({"type": "ping", "timestamp": time.time()})
                     continue
-                except:
+                except Exception:
                     break
 
             if message.get("type") == "websocket.receive":
@@ -1040,6 +1044,7 @@ async def chat(request: Request, data: ChatRequest):
             "confinement_model": profile.get("confinement_model"),
             "history": history,           # ФИХ 3: реальная история
             "message_count": msg_count,   # ФИХ 4: счётчик BasicMode
+            "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
         }
 
         class SimpleContext:
@@ -1068,6 +1073,11 @@ async def chat(request: Request, data: ChatRequest):
                 logger.warning(f"Error in question analysis: {e}")
 
         result = mode_instance.process_question(data.message)
+
+        # Persist test_offered for BasicMode after processing
+        if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
+            context_obj["basic_test_offered"] = mode_instance.test_offered
+            await context_repo.save(data.user_id, context_obj)
 
         await message_repo.save(data.user_id, "user", data.message)
         await message_repo.save(data.user_id, "assistant", result["response"])
@@ -1306,6 +1316,7 @@ async def process_voice(
             "confinement_model": profile.get("confinement_model"),
             "history": history,
             "message_count": msg_count,
+            "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
         }
 
         class SimpleContext:
@@ -1353,6 +1364,11 @@ async def process_voice(
 
         if not response_text or not response_text.strip():
             response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+
+        # Persist test_offered for BasicMode after processing
+        if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
+            context_obj["basic_test_offered"] = mode_instance.test_offered
+            await context_repo.save(user_id_for_db, context_obj)
 
         # normalize_tts_text вызывается внутри voice_service — не дублируем
         logger.info(f"💬 AI response: {len(response_text)} символов")
@@ -2692,7 +2708,7 @@ async def admin_logs(request: Request, limit: int = 50):
             if isinstance(data, str):
                 import json as _json
                 try: data = _json.loads(data)
-                except: pass
+                except Exception: pass
 
             # Определяем уровень по типу события
             evt = r['event_type'] or ''

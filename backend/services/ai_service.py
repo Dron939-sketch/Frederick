@@ -229,7 +229,7 @@ class AIService:
                     try:
                         error_text = await response.text()
                         logger.error(f"   Response body: {error_text[:500]}")
-                    except:
+                    except Exception:
                         pass
                     return None
                     
