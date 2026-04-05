@@ -409,7 +409,7 @@ async function showCreateLinkTab(container) {
                                 justify-content:center;font-size:22px;flex-shrink:0;">⚡</div>
                     <div style="flex:1;">
                         <div style="font-size:14px;font-weight:600;color:#fff;">MAX</div>
-                        <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">Ссылка для MAX мессенджера</div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">max.ru/id502238728185_bot?start=mirror_...</div>
                     </div>
                     <div style="color:rgba(255,255,255,0.2);font-size:18px;">›</div>
                 </button>
@@ -496,11 +496,11 @@ async function generateMirrorLink(mirrorType) {
                     «${text}»
                 </div>
 
-                <div style="display:flex;gap:8px;">
+                <div style="display:flex;gap:8px;margin-bottom:8px;">
                     <button class="mirror-copy-btn"
                         style="background:linear-gradient(135deg,#ff6b3b,#ff3b3b);color:#fff;"
                         onclick="copyMirrorLink('${link}')">
-                        📋 Скопировать
+                        🔗 Ссылку
                     </button>
                     <button class="mirror-copy-btn"
                         style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.1);"
@@ -508,6 +508,11 @@ async function generateMirrorLink(mirrorType) {
                         📤 Поделиться
                     </button>
                 </div>
+                <button class="mirror-copy-btn"
+                    style="width:100%;background:linear-gradient(135deg,#00d4ff,#0099cc);color:#fff;"
+                    onclick="copyMirrorWithText('${link}','${text.replace(/'/g,"\\'")}')">
+                    📋 Скопировать текст + ссылку
+                </button>
             </div>`;
     } catch(e) {
         block.innerHTML = `
@@ -527,6 +532,18 @@ function copyMirrorLink(link) {
         el.value = link; document.body.appendChild(el); el.select();
         document.execCommand('copy'); document.body.removeChild(el);
         if (typeof showToast === 'function') showToast('✅ Ссылка скопирована!');
+    });
+}
+
+function copyMirrorWithText(link, text) {
+    const full = text + '\n\n' + link;
+    navigator.clipboard.writeText(full).then(() => {
+        if (typeof showToast === 'function') showToast('✅ Текст и ссылка скопированы!');
+    }).catch(() => {
+        const el = document.createElement('textarea');
+        el.value = full; document.body.appendChild(el); el.select();
+        document.execCommand('copy'); document.body.removeChild(el);
+        if (typeof showToast === 'function') showToast('✅ Текст и ссылка скопированы!');
     });
 }
 
@@ -929,6 +946,7 @@ window.showMirrorsScreen = showMirrorsScreen;
 window.switchMirrorTab = switchMirrorTab;
 window.generateMirrorLink = generateMirrorLink;
 window.copyMirrorLink = copyMirrorLink;
+window.copyMirrorWithText = copyMirrorWithText;
 window.shareMirrorLink = shareMirrorLink;
 window.showFriendProfile = showFriendProfile;
 window.loadIntimateProfile = loadIntimateProfile;
