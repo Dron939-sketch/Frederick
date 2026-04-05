@@ -1322,6 +1322,18 @@ async function initVoice() {
     voiceManager.onError = (error) => {
         console.error('❌ Voice error:', error);
         showToast('❌ ' + error, 'error');
+        // Сбросить состояние кнопки при ошибке
+        const btn = document.getElementById('mainVoiceBtn');
+        if (btn) {
+            btn.classList.remove('recording');
+            btn.style.transform = '';
+            btn.style.opacity = '';
+            btn.style.boxShadow = '';
+            const icon = btn.querySelector('.voice-icon');
+            const text = btn.querySelector('.voice-text');
+            if (icon) icon.textContent = '🎤';
+            if (text) text.textContent = MODES[currentMode]?.voicePrompt || 'Говорите...';
+        }
     };
 
     // Индикатор "думает"

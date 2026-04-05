@@ -395,7 +395,9 @@ class VoiceRecorder {
         if (this.wavData.length > 0) {
             this._finish(this._buildWav());
         } else {
+            this._stopStream();
             if (this.onError) this.onError('Не удалось получить аудио');
+            if (this.onRecordingStop) this.onRecordingStop(null);
         }
     }
 
@@ -984,7 +986,11 @@ class VoiceManager {
 
         this._rec.onVolumeChange   = v => { if (this.onVolumeChange) this.onVolumeChange(v); };
         this._rec.onSpeechDetected = d => { if (this.onSpeechDetected) this.onSpeechDetected(d); };
-        this._rec.onError          = e => { if (this.onError) this.onError(e); };
+        this._rec.onError          = e => {
+            this.isRecording = false;
+            this._status('idle');
+            if (this.onError) this.onError(e);
+        };
 
         // Подключаемся асинхронно — не блокируем инит
         this._transport.connect().then(ok => {
