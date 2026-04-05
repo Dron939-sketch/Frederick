@@ -18,8 +18,8 @@ function injectMirrorStyles() {
             to   { opacity:1; transform:translateY(0); }
         }
         @keyframes mirrorPulse {
-            0%,100% { box-shadow: 0 0 0 0 rgba(255,107,59,0); }
-            50%      { box-shadow: 0 0 0 8px rgba(255,107,59,0.12); }
+            0%,100% { box-shadow: 0 0 0 0 rgba(0,212,255,0); }
+            50%      { box-shadow: 0 0 0 8px rgba(0,212,255,0.15); }
         }
         @keyframes shimmer {
             0%   { background-position: -200% 0; }
@@ -53,9 +53,9 @@ function injectMirrorStyles() {
             letter-spacing: 0.2px;
         }
         .mirror-tab-btn.active {
-            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
             color: #fff;
-            box-shadow: 0 4px 20px rgba(255,59,59,0.3);
+            box-shadow: 0 4px 20px rgba(0,212,255,0.35), 0 0 12px rgba(0,212,255,0.2);
         }
         .mirror-tab-btn.inactive {
             background: transparent;
@@ -157,6 +157,12 @@ function injectMirrorStyles() {
             background: rgba(255,255,255,0.025);
             animation: mirrorFadeIn 0.3s ease both;
         }
+        .mirror-wrap {
+            padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 80px));
+        }
+        @supports not (padding: max(0px)) {
+            .mirror-wrap { padding-bottom: 80px; }
+        }
         .mirror-skeleton {
             background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
             background-size: 200% 100%;
@@ -194,7 +200,7 @@ async function showMirrorsScreen() {
     const container = document.getElementById('screenContainer');
 
     container.innerHTML = `
-        <div style="max-width:600px; margin:0 auto; padding:20px 16px;">
+        <div style="max-width:600px; margin:0 auto; padding:20px 16px; padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 80px));">
 
             <!-- ШАПКА -->
             <div style="display:flex; align-items:center; gap:14px; margin-bottom:28px; animation:mirrorFadeIn 0.3s ease;">
@@ -269,9 +275,9 @@ async function showReflectionsTab(container) {
                             Отправь ссылку другу. Как только он пройдёт тест — его профиль откроется тебе.
                         </div>
                         <button onclick="switchMirrorTab('create')"
-                            style="background:linear-gradient(135deg,#ff6b3b,#ff3b3b);color:#fff;border:none;
+                            style="background:linear-gradient(135deg,#00d4ff,#0099cc);color:#fff;border:none;
                                    border-radius:12px;padding:13px 28px;font-size:14px;font-weight:600;
-                                   cursor:pointer;font-family:inherit;box-shadow:0 4px 20px rgba(255,59,59,0.3);">
+                                   cursor:pointer;font-family:inherit;box-shadow:0 4px 20px rgba(0,212,255,0.3);">
                             Создать первую ссылку →
                         </button>
                     </div>
@@ -301,7 +307,7 @@ async function showReflectionsTab(container) {
                     <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:4px;letter-spacing:0.3px;">Создано зеркал</div>
                 </div>
                 <div class="mirror-stat-card" style="border-color:rgba(255,107,59,0.2);">
-                    <div style="font-size:30px;font-weight:700;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);
+                    <div style="font-size:30px;font-weight:700;background:linear-gradient(135deg,#00d4ff,#0099cc);
                                 -webkit-background-clip:text;-webkit-text-fill-color:transparent;">${reflections.length}</div>
                     <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:4px;letter-spacing:0.3px;">Отражений</div>
                 </div>
@@ -546,7 +552,7 @@ async function showFriendProfile(ref) {
     const vColor = v => v<=2?'#3b82ff':v<=4?'#f39c12':'#ff6b3b';
 
     container.innerHTML = `
-        <div style="max-width:600px;margin:0 auto;padding:20px 16px;animation:mirrorFadeIn 0.35s ease;">
+        <div style="max-width:600px;margin:0 auto;padding:20px 16px;padding-bottom:max(80px,calc(env(safe-area-inset-bottom,0px) + 80px));animation:mirrorFadeIn 0.35s ease;">
 
             <!-- НАВИГАЦИЯ -->
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
@@ -766,7 +772,7 @@ async function load4FKeys(mirrorCode) {
 function showProfileExample() {
     const container = document.getElementById('screenContainer');
     container.innerHTML = `
-        <div style="max-width:600px;margin:0 auto;padding:20px 16px;animation:mirrorFadeIn 0.35s ease;">
+        <div style="max-width:600px;margin:0 auto;padding:20px 16px;padding-bottom:max(80px,calc(env(safe-area-inset-bottom,0px) + 80px));animation:mirrorFadeIn 0.35s ease;">
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
                 <button onclick="showMirrorsScreen()"
                     style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,0.06);
@@ -786,10 +792,10 @@ function showProfileExample() {
             <div id="exampleTabContent"></div>
 
             <button onclick="switchMirrorTab('create');showMirrorsScreen()"
-                style="width:100%;margin-top:16px;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);
+                style="width:100%;margin-top:16px;background:linear-gradient(135deg,#00d4ff,#0099cc);
                        color:#fff;border:none;border-radius:14px;padding:15px;font-size:14px;
                        font-weight:600;cursor:pointer;font-family:inherit;
-                       box-shadow:0 6px 24px rgba(255,59,59,0.3);">
+                       box-shadow:0 6px 24px rgba(0,212,255,0.3);">
                 Создать своё зеркало →
             </button>
         </div>`;
