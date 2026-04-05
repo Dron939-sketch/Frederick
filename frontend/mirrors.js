@@ -633,9 +633,9 @@ function showProfileExample() {
     html += '<button onclick="showMirrorsScreen()" style="background:#1a1a1a;border:none;color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:18px;">←</button>';
     html += '<div style="font-size:18px;font-weight:700;color:#fff;">👁 Пример профиля</div></div>';
     html += '<div style="display:flex;gap:6px;margin-bottom:20px;background:#111;border-radius:12px;padding:4px;">';
-    html += '<button onclick="switchExampleTab('basic')" id="ex-tab-basic" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:#9b59b6;color:#fff;cursor:pointer;">🧠 Профиль</button>';
-    html += '<button onclick="switchExampleTab('intimate')" id="ex-tab-intimate" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔞 Интимный</button>';
-    html += '<button onclick="switchExampleTab('4f')" id="ex-tab-4f" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔑 4F ключи</button>';
+    html += '<button onclick="switchExampleTab(\'basic\')" id="ex-tab-basic" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:#9b59b6;color:#fff;cursor:pointer;">🧠 Профиль</button>';
+    html += '<button onclick="switchExampleTab(\'intimate\')" id="ex-tab-intimate" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔞 Интимный</button>';
+    html += '<button onclick="switchExampleTab(\'4f\')" id="ex-tab-4f" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔑 4F ключи</button>';
     html += '</div><div id="exampleTabContent"></div>';
     html += '<button onclick="showMirrorsScreen()" style="width:100%;margin-top:16px;background:#9b59b6;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔗 Создать своё зеркало</button>';
     html += '</div>';
