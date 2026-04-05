@@ -522,18 +522,10 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 await websocket.send_json({"type": "text", "data": f"🎤 Вы: {recognized_text}"})
 
                 response_text = ""
-                _ws_buf = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk:
-                        _ws_buf += chunk
-                        # Отправляем только когда накопили слово (пробел или знак)
-                        if _ws_buf.endswith((' ', '.', ',', '!', '?', ':', ';', '\n', '—', '–')):
-                            response_text += _ws_buf
-                            await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {_ws_buf}"})
-                            _ws_buf = ""
-                if _ws_buf:
-                    response_text += _ws_buf
-                    await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {_ws_buf}"})
+                        response_text += chunk
+                        await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
 
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
@@ -1348,15 +1340,8 @@ async def process_voice(
         if response_text is None and hasattr(mode_instance, 'process_question_streaming'):
             try:
                 response_text = ""
-                _buf = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
-                    if chunk:
-                        _buf += chunk
-                        if _buf.endswith((' ', '.', ',', '!', '?', ':', ';', '\n', '—', '–')):
-                            response_text += _buf
-                            _buf = ""
-                if _buf:
-                    response_text += _buf
+                    response_text += chunk
 
                 # ФИХ: пробелы после склейки чанков
                 import re as _re2
@@ -2833,7 +2818,7 @@ async def create_mirror(request: Request):
         mirror_code = f"mirror_{_uuid.uuid4().hex[:12]}"
         links = {
             "telegram": f"https://t.me/Nanotech_varik_bot?start={mirror_code}",
-            "max": f"https://max.ru/join/{mirror_code}",
+            "max": f"https://max.ru/id502238728185_bot?start={mirror_code}",
             "web": f"https://fredi-frontend.onrender.com/?ref={mirror_code}"
         }
         link = links.get(mirror_type, links["web"])
