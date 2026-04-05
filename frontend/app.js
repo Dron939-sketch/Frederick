@@ -1249,7 +1249,7 @@ function setupVoiceButton(buttonElement) {
 
     let pressTimer  = null;
     let isRecording = false;
-    const DELAY     = 100; // ms до начала записи
+    const DELAY     = 600; // ms до начала записи — защита от случайных касаний
 
     const getIcon = () => buttonElement.querySelector('.voice-icon');
     const getText = () => buttonElement.querySelector('.voice-text');
@@ -1257,7 +1257,17 @@ function setupVoiceButton(buttonElement) {
     const onPressStart = (e) => {
         e.preventDefault();
         if (pressTimer) return;
+
+        // Визуальный отклик — показываем что идёт отсчёт
+        buttonElement.style.transform = 'scale(0.97)';
+        buttonElement.style.opacity = '0.8';
+
         pressTimer = setTimeout(() => {
+            // Сбрасываем визуал и начинаем запись
+            buttonElement.style.transform = '';
+            buttonElement.style.opacity = '';
+            // Вибрация на телефоне — сигнал что запись началась
+            if (navigator.vibrate) navigator.vibrate(80);
             console.log('🎙️ startRecording()');
             voiceManager.startRecording();
         }, DELAY);
@@ -1265,7 +1275,14 @@ function setupVoiceButton(buttonElement) {
 
     const onPressEnd = (e) => {
         e.preventDefault();
-        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        // Если не дождались DELAY — просто отменяем, запись не началась
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+            buttonElement.style.transform = '';
+            buttonElement.style.opacity = '';
+            return;
+        }
         if (voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
             console.log('🎙️ stopRecording()');
             voiceManager.stopRecording();
@@ -1412,7 +1429,7 @@ function renderDashboard() {
                         <span class="voice-icon">🎤</span>
                         <span class="voice-text">${modeConfig.voicePrompt}</span>
                     </button>
-                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
+                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Удерживайте 0.5 сек для начала записи</div>
                 </div>
             </div>
 
