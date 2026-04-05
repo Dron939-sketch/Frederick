@@ -395,7 +395,9 @@ class VoiceRecorder {
         if (this.wavData.length > 0) {
             this._finish(this._buildWav());
         } else {
+            this._stopStream();
             if (this.onError) this.onError('Не удалось получить аудио');
+            if (this.onRecordingStop) this.onRecordingStop(null);
         }
     }
 
@@ -453,6 +455,8 @@ class VoiceTransport {
         this._wsRetries   = 0;
         this._pingTimer   = null;
         this._audioChunks = [];  // буфер аудио-чанков от WS
+        this._wsResponseTimer = null;  // таймаут ожидания ответа по WS
+        this._pendingAudioBlob = null; // блоб для повторной отправки через HTTP при разрыве WS
 
         // Режим: 'ws' | 'http'
         this._mode = 'http';
@@ -528,6 +532,18 @@ class VoiceTransport {
                 clearTimeout(timeout);
                 const wasWS = this._mode === 'ws';
                 this._wsReady = false;
+
+                // Если ждали ответ по WS — повторяем через HTTP
+                const pendingBlob = this._pendingAudioBlob;
+                this._pendingAudioBlob = null;
+                this._clearWsResponseTimer();
+                if (pendingBlob) {
+                    console.warn('WS closed while waiting for response → HTTP fallback');
+                    this._initHTTP('ws closed during processing');
+                    this._sendHTTP(pendingBlob);
+                    return;
+                }
+
                 if (this._intentionalClose) {
                     this._intentionalClose = false;
                     return;  // намеренное закрытие — не делаем fallback
@@ -585,6 +601,8 @@ class VoiceTransport {
 
     _wsCleanup(intentional = false) {
         this._stopPing();
+        this._clearWsResponseTimer();
+        if (this._wsRecoveryTimer) { clearTimeout(this._wsRecoveryTimer); this._wsRecoveryTimer = null; }
         this._intentionalClose = intentional;
         if (this._ws) {
             try { this._ws.close(1000, 'mode_change'); } catch {}
@@ -616,6 +634,8 @@ class VoiceTransport {
 
             switch (msg.type) {
                 case 'text':
+                    this._clearWsResponseTimer();
+                    this._pendingAudioBlob = null;
                     if (!msg.data) break;
                     if (msg.data.includes('Вы:') && this.onTranscript)
                         this.onTranscript(msg.data.replace('🎤 Вы: ', '').trim());
@@ -624,6 +644,8 @@ class VoiceTransport {
                     break;
 
                 case 'audio':
+                    this._clearWsResponseTimer();
+                    this._pendingAudioBlob = null;
                     if (msg.is_final) {
                         // Конец стрима — собираем все чанки и играем
                         if (this._audioChunks.length > 0 || msg.data) {
@@ -631,6 +653,12 @@ class VoiceTransport {
                             this._flushAudio();
                         }
                     } else if (msg.data) {
+                        // Защита от переполнения памяти (>10MB)
+                        const totalSize = this._audioChunks.reduce((s, c) => s + c.length, 0);
+                        if (totalSize > 10 * 1024 * 1024) {
+                            console.warn('Audio chunks exceeded 10MB, flushing');
+                            this._flushAudio();
+                        }
                         // Накапливаем чанки
                         this._audioChunks.push(msg.data);
                     }
@@ -641,7 +669,10 @@ class VoiceTransport {
                     break;
 
                 case 'error':
+                    this._clearWsResponseTimer();
+                    this._pendingAudioBlob = null;
                     if (this.onError) this.onError(msg.error);
+                    if (this.onStatusChange) this.onStatusChange('idle');
                     break;
 
                 case 'thinking':
@@ -738,6 +769,17 @@ class VoiceTransport {
             base64 = btoa(base64);
 
             this._audioChunks = []; // сбрасываем буфер
+            this._pendingAudioBlob = audioBlob; // сохраняем для повторной отправки при разрыве
+
+            // Таймаут: если за 50с ответ не пришёл — фоллбэк на HTTP
+            this._clearWsResponseTimer();
+            this._wsResponseTimer = setTimeout(() => {
+                console.warn('⏱️ WS response timeout → HTTP fallback');
+                this._pendingAudioBlob = null;
+                this._wsCleanup();
+                this._initHTTP('response timeout');
+                this._sendHTTP(audioBlob);
+            }, 50000);
 
             this._ws.send(JSON.stringify({
                 type: 'audio_chunk',
@@ -749,11 +791,17 @@ class VoiceTransport {
             return true;
         } catch (e) {
             console.error('WS send error:', e, '→ HTTP fallback');
+            this._pendingAudioBlob = null;
+            this._clearWsResponseTimer();
             // При ошибке отправки — падаем на HTTP
             this._wsCleanup();
             this._initHTTP('send error');
             return this._sendHTTP(audioBlob);
         }
+    }
+
+    _clearWsResponseTimer() {
+        if (this._wsResponseTimer) { clearTimeout(this._wsResponseTimer); this._wsResponseTimer = null; }
     }
 
     // ---- HTTP ПУТЬ ----
@@ -898,6 +946,7 @@ class VoiceManager {
         this._player    = new AudioPlayer();
         this._transport = null;
         this._rec       = null;
+        this._modeSwitching = false;
 
         console.log('🎤 VoiceManager v2.0, diagnostics:', VoiceConfig.diagnostics);
         this._init();
@@ -984,7 +1033,11 @@ class VoiceManager {
 
         this._rec.onVolumeChange   = v => { if (this.onVolumeChange) this.onVolumeChange(v); };
         this._rec.onSpeechDetected = d => { if (this.onSpeechDetected) this.onSpeechDetected(d); };
-        this._rec.onError          = e => { if (this.onError) this.onError(e); };
+        this._rec.onError          = e => {
+            this.isRecording = false;
+            this._status('idle');
+            if (this.onError) this.onError(e);
+        };
 
         // Подключаемся асинхронно — не блокируем инит
         this._transport.connect().then(ok => {
@@ -1037,6 +1090,8 @@ class VoiceManager {
     }
 
     setMode(mode) {
+        if (this._modeSwitching) return;
+        this._modeSwitching = true;
         this.currentMode = mode;
         if (this._transport) {
             this._transport.currentMode = mode;
@@ -1047,8 +1102,13 @@ class VoiceManager {
                 this._transport._wsCleanup(true);  // intentional — не делать fallback
                 setTimeout(() => {
                     this._transport._connectWS().catch(e => console.warn('WS reconnect failed:', e));
+                    this._modeSwitching = false;
                 }, 300);  // небольшая задержка чтобы старый WS успел закрыться
+            } else {
+                this._modeSwitching = false;
             }
+        } else {
+            this._modeSwitching = false;
         }
     }
 

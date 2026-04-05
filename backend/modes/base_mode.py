@@ -423,7 +423,7 @@ class BaseMode(ABC):
                 try:
                     day = self.context.get_day_context()
                     lines.append(f"Время: {day.get('time_str', '')}, {day.get('weekday', '')}")
-                except:
+                except Exception:
                     pass
             if hasattr(self.context, 'weather_cache') and self.context.weather_cache:
                 w = self.context.weather_cache

@@ -47,7 +47,9 @@ class BasicMode(BaseMode):
         # ФИХ: счётчик берём из user_data — main.py сохраняет его в context
         # Это позволяет предлагать тест даже после переподключения
         self.message_counter = user_data.get('message_count', 0)
-        self.test_offered    = self.message_counter >= 4
+        # test_offered тоже берём из persisted state, чтобы не предлагать тест повторно
+        # и не пропускать предложение при переподключении
+        self.test_offered    = user_data.get('test_offered', False)
 
         # In-memory история текущей сессии
         self.conversation_history: List[str] = []

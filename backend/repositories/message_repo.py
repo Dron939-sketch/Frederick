@@ -4,7 +4,7 @@
 
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 from db import Database
 from cache import RedisCache
@@ -14,18 +14,31 @@ logger = logging.getLogger(__name__)
 
 class MessageRepository:
     """Репозиторий сообщений"""
-    
+
     def __init__(self, db: Database, cache: Optional[RedisCache] = None):
         self.db = db
         self.cache = cache
-    
-    async def save(self, user_id: int, role: str, content: str, metadata: Dict = None) -> bool:
+
+    def _get_id_condition(self, user_id: Union[int, str]) -> tuple:
+        """
+        Возвращает SQL условие и значение для поиска пользователя.
+        Поддерживает и int, и str (аналогично user_repo.py).
+        """
+        if user_id is None:
+            raise ValueError("user_id cannot be None")
+        if isinstance(user_id, int):
+            return "user_id = $1", user_id
+        else:
+            return "user_id::text = $1", user_id
+
+    async def save(self, user_id: Union[int, str], role: str, content: str, metadata: Dict = None) -> bool:
         """Сохранение сообщения"""
         try:
+            condition, value = self._get_id_condition(user_id)
             await self.db.execute("""
                 INSERT INTO messages (user_id, role, content, metadata, created_at)
                 VALUES ($1, $2, $3, $4, NOW())
-            """, user_id, role, content, json.dumps(metadata or {}))
+            """, value, role, content, json.dumps(metadata or {}))
             
             # Очищаем кэш истории
             if self.cache:
@@ -41,7 +54,7 @@ class MessageRepository:
             logger.error(f"Error saving message for user {user_id}: {type(e).__name__}: {e}")
             return False
     
-    async def get_history(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+    async def get_history(self, user_id: Union[int, str], limit: int = 50) -> List[Dict[str, Any]]:
         """Получение истории сообщений"""
         # Проверяем кэш
         cache_key = f"history:{user_id}"
@@ -54,13 +67,14 @@ class MessageRepository:
                 logger.warning(f"Cache read error: {cache_error}")
         
         try:
-            rows = await self.db.fetch("""
+            condition, value = self._get_id_condition(user_id)
+            rows = await self.db.fetch(f"""
                 SELECT role, content, metadata, created_at
                 FROM messages
-                WHERE user_id = $1
+                WHERE {condition}
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, user_id, limit)
+            """, value, limit)
             
             messages = []
             for row in rows:
@@ -95,16 +109,17 @@ class MessageRepository:
             logger.error(f"Error getting history for user {user_id}: {type(e).__name__}: {e}")
             return []
     
-    async def get_last_message(self, user_id: int) -> Optional[Dict[str, Any]]:
+    async def get_last_message(self, user_id: Union[int, str]) -> Optional[Dict[str, Any]]:
         """Получение последнего сообщения"""
         try:
-            row = await self.db.fetchrow("""
+            condition, value = self._get_id_condition(user_id)
+            row = await self.db.fetchrow(f"""
                 SELECT role, content, created_at
                 FROM messages
-                WHERE user_id = $1
+                WHERE {condition}
                 ORDER BY created_at DESC
                 LIMIT 1
-            """, user_id)
+            """, value)
             
             if row:
                 return {
@@ -119,12 +134,13 @@ class MessageRepository:
             logger.error(f"Error getting last message for user {user_id}: {type(e).__name__}: {e}")
             return None
     
-    async def delete_history(self, user_id: int) -> bool:
+    async def delete_history(self, user_id: Union[int, str]) -> bool:
         """Удаление истории сообщений"""
         try:
-            await self.db.execute("""
-                DELETE FROM messages WHERE user_id = $1
-            """, user_id)
+            condition, value = self._get_id_condition(user_id)
+            await self.db.execute(f"""
+                DELETE FROM messages WHERE {condition}
+            """, value)
             
             if self.cache:
                 try:
@@ -138,27 +154,29 @@ class MessageRepository:
             logger.error(f"Error deleting history for user {user_id}: {type(e).__name__}: {e}")
             return False
     
-    async def get_message_count(self, user_id: int) -> int:
+    async def get_message_count(self, user_id: Union[int, str]) -> int:
         """Получить количество сообщений пользователя"""
         try:
-            count = await self.db.fetchval("""
-                SELECT COUNT(*) FROM messages WHERE user_id = $1
-            """, user_id)
+            condition, value = self._get_id_condition(user_id)
+            count = await self.db.fetchval(f"""
+                SELECT COUNT(*) FROM messages WHERE {condition}
+            """, value)
             return count or 0
         except Exception as e:
             logger.error(f"Error getting message count: {e}")
             return 0
     
-    async def get_recent_context(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_recent_context(self, user_id: Union[int, str], limit: int = 10) -> List[Dict[str, Any]]:
         """Получить последние сообщения для контекста"""
         try:
-            rows = await self.db.fetch("""
+            condition, value = self._get_id_condition(user_id)
+            rows = await self.db.fetch(f"""
                 SELECT role, content
                 FROM messages
-                WHERE user_id = $1
+                WHERE {condition}
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, user_id, limit)
+            """, value, limit)
             
             messages = []
             for row in rows:

@@ -247,9 +247,9 @@ def parse_life_context_answers(text: str) -> Dict[str, Any]:
             numbers = re.findall(r'\d+', answers[9])
             if numbers:
                 result["energy_level"] = min(10, max(1, int(numbers[0])))
-        except:
+        except Exception:
             pass
-    
+
     return result
 
 
