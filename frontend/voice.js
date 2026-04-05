@@ -334,10 +334,11 @@ class VoiceRecorder {
             } else if (this.speechSeen && !this.silenceStart) {
                 this.silenceStart = Date.now();
             }
-            if (VoiceConfig.ui.autoStopAfterSilence && this.speechSeen && this.silenceStart &&
-                (Date.now() - this.silenceStart) > VoiceConfig.ui.silenceTimeout) {
-                this.stop();
-            }
+            // autoStopAfterSilence отключён — пользователь останавливает кнопкой
+            // if (VoiceConfig.ui.autoStopAfterSilence && this.speechSeen && this.silenceStart &&
+            //     (Date.now() - this.silenceStart) > VoiceConfig.ui.silenceTimeout) {
+            //     this.stop();
+            // }
         };
         src.connect(this.processor);
         this.processor.connect(this.audioCtx.destination);
@@ -380,6 +381,8 @@ class VoiceRecorder {
     stop() {
         if (!this.recording) return;
         this.recording = false;
+        this.silenceStart = null;
+        this.speechSeen = false;
         if (this.stopTimer) { clearTimeout(this.stopTimer); this.stopTimer = null; }
         if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
         if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
