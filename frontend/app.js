@@ -332,116 +332,16 @@ function addMessage(text, sender = 'bot', audioUrl = null) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// ============================================
-// СИСТЕМА ЗАГРУЗКИ
-// ============================================
-
-// Глобальный флаг против двойных нажатий
-let _isLoading = false;
-
-function showLoading(message, subtext) {
+function showLoading(message) {
     const container = document.getElementById('screenContainer');
-    if (!container) return;
-    _isLoading = true;
-
-    // Обновляем текст если лоадер уже показан
-    const existing = container.querySelector('.fredi-loader-wrap');
-    if (existing) {
-        const txt = existing.querySelector('.fredi-loader-msg');
-        const sub = existing.querySelector('.fredi-loader-sub');
-        if (txt) txt.textContent = message || 'Загружаю...';
-        if (sub && subtext) sub.textContent = subtext;
-        return;
-    }
-
-    container.innerHTML = `
-        <div class="fredi-loader-wrap">
-            <div class="fredi-loader-inner">
-                <div class="fredi-loader-ring">
-                    <div class="fredi-loader-dot"></div>
-                    <div class="fredi-loader-dot"></div>
-                    <div class="fredi-loader-dot"></div>
-                    <div class="fredi-loader-dot"></div>
-                </div>
-                <div class="fredi-loader-emoji">🧠</div>
-                <div class="fredi-loader-msg">${message || 'Загружаю...'}</div>
-                ${subtext ? `<div class="fredi-loader-sub">${subtext}</div>` : '<div class="fredi-loader-sub">Обычно это занимает несколько секунд</div>'}
+    if (container) {
+        container.innerHTML = `
+            <div class="loading-screen">
+                <div class="loading-spinner">🧠</div>
+                <div class="loading-text">${message}</div>
             </div>
-        </div>
-        <style>
-            .fredi-loader-wrap {
-                display: flex; align-items: center; justify-content: center;
-                min-height: 60vh; padding: 40px 20px;
-            }
-            .fredi-loader-inner {
-                text-align: center; display: flex; flex-direction: column;
-                align-items: center; gap: 12px;
-            }
-            .fredi-loader-ring {
-                position: relative; width: 64px; height: 64px;
-            }
-            .fredi-loader-dot {
-                position: absolute; width: 12px; height: 12px;
-                border-radius: 50%; background: #ff6b3b;
-                animation: loaderOrbit 1.4s ease-in-out infinite;
-            }
-            .fredi-loader-dot:nth-child(1) { animation-delay: 0s; }
-            .fredi-loader-dot:nth-child(2) { animation-delay: 0.35s; }
-            .fredi-loader-dot:nth-child(3) { animation-delay: 0.7s; }
-            .fredi-loader-dot:nth-child(4) { animation-delay: 1.05s; }
-            @keyframes loaderOrbit {
-                0%   { transform: rotate(0deg) translateX(26px) scale(1); opacity: 1; }
-                50%  { transform: rotate(180deg) translateX(26px) scale(0.6); opacity: 0.4; }
-                100% { transform: rotate(360deg) translateX(26px) scale(1); opacity: 1; }
-            }
-            .fredi-loader-emoji {
-                font-size: 32px; margin-top: 4px;
-                animation: loaderPulse 2s ease-in-out infinite;
-            }
-            @keyframes loaderPulse {
-                0%,100% { transform: scale(1); opacity: 0.8; }
-                50%      { transform: scale(1.1); opacity: 1; }
-            }
-            .fredi-loader-msg {
-                font-size: 15px; font-weight: 600; color: #e0e0e0;
-                margin-top: 4px; letter-spacing: 0.2px;
-            }
-            .fredi-loader-sub {
-                font-size: 12px; color: rgba(255,255,255,0.35);
-                max-width: 240px; line-height: 1.5;
-            }
-        </style>
-    `;
-}
-
-function hideLoading() {
-    _isLoading = false;
-}
-
-// Обёртка для защиты от двойных нажатий
-function withLoading(message, subtext, asyncFn) {
-    return async function(...args) {
-        if (_isLoading) return;
-        showLoading(message, subtext);
-        try {
-            await asyncFn(...args);
-        } finally {
-            hideLoading();
-        }
-    };
-}
-
-// Блокируем кнопку на время действия
-function lockBtn(el, ms) {
-    if (!el) return;
-    el.disabled = true;
-    el.style.opacity = '0.5';
-    el.style.pointerEvents = 'none';
-    setTimeout(() => {
-        el.disabled = false;
-        el.style.opacity = '';
-        el.style.pointerEvents = '';
-    }, ms || 3000);
+        `;
+    }
 }
 
 // ============================================
@@ -697,13 +597,7 @@ function updateModeUI() {
     const label = document.getElementById('modeLabel');
     const indicator = document.getElementById('modeIndicator');
     if (label) label.textContent = config.name;
-    if (indicator) {
-        indicator.style.background = config.color;
-        // Убираем любую анимацию — она вызывает дрожание
-        indicator.style.animation = 'none';
-        indicator.style.boxShadow = 'none';
-        indicator.style.transform = 'none';
-    }
+    if (indicator) indicator.style.background = config.color;
 }
 
 async function switchMode(mode) {
@@ -724,7 +618,7 @@ async function switchMode(mode) {
 // ============================================
 
 async function handleShowProfile() {
-    showLoading('Загружаю психологический портрет...', 'AI анализирует ваши данные');
+    showLoading('Загружаю психологический портрет...');
     try {
         const data = await apiCall(`/api/get-profile/${CONFIG.USER_ID}`);
         const profile = data.profile || {};
@@ -755,7 +649,7 @@ async function handleShowProfile() {
 }
 
 async function handleShowThoughts() {
-    showLoading('Загружаю мысли психолога...', 'Фреди формулирует наблюдения');
+    showLoading('Загружаю мысли психолога...');
     const thought = await getPsychologistThought();
     if (!thought) { showToast('Мысли психолога появятся после прохождения теста', 'info'); return; }
     const clean = thought
@@ -793,21 +687,21 @@ async function handleShowWeekend() {
 }
 
 async function handleShowGoals() {
-    showLoading('Загружаю цели...', 'Подбираю цели под ваш профиль');
+    showLoading('Загружаю цели...');
     const goals = await getUserGoals();
     if (goals.length) showFullContentScreen('🎯 Ваши цели', goals.map(g => `**${g.name}**\n⏱ ${g.time || '?'}  |  🎯 ${g.difficulty || 'medium'}`).join('\n\n'), 'goals');
     else showToast('Цели появятся после прохождения теста', 'info');
 }
 
 async function handleShowQuestions() {
-    showLoading('Подбираю вопросы...', 'Анализирую ваши паттерны');
+    showLoading('Подбираю вопросы...');
     const questions = await getSmartQuestions();
     if (questions.length) showFullContentScreen('❓ Вопросы для размышления', questions.map((q, i) => `${i + 1}. ${q}`).join('\n\n'), 'questions');
     else showToast('Вопросы появятся после прохождения теста', 'info');
 }
 
 async function handleShowChallenges() {
-    showLoading('Загружаю челленджи...', 'Формирую персональный план');
+    showLoading('Загружаю челленджи...');
     const challenges = await getChallenges();
     if (challenges.length) showFullContentScreen('🏆 Челленджи', challenges.map(c => `**${c.name}**\n${c.description}\n🎁 Награда: ${c.reward} очков`).join('\n\n'), 'challenges');
     else showToast('Челленджи появятся после прохождения теста', 'info');
@@ -834,7 +728,6 @@ async function handleShowDoubles() {
         return;
     }
 
-    showLoading('Ищу двойников...', 'Сравниваю психологические профили');
     if (typeof showDoublesScreen === 'function') {
         showDoublesScreen();
     } else {
@@ -856,7 +749,7 @@ async function handleShowDoubles() {
 
 async function showConfinementModel() {
     const container = document.getElementById('screenContainer');
-    showLoading('Загружаю модель ограничений...', 'Анализирую систему паттернов');
+    showToast('Загружаю модель ограничений...', 'info');
 
     const model = await getConfinementModel();
     if (!model) {
@@ -948,7 +841,7 @@ async function showConfinementModel() {
 
 async function showConfinementLoops(params) {
     const container = document.getElementById('screenContainer');
-    showLoading('Анализирую петли...', 'Исследую замкнутые циклы');
+    showToast('Анализирую петли...', 'info');
     const loopsData = await getConfinementLoops();
 
     let loopsHtml = '';
@@ -978,7 +871,7 @@ async function showConfinementLoops(params) {
 async function showIntervention(params) {
     const elementId = params.elementId;
     const container = document.getElementById('screenContainer');
-    showLoading('Загружаю интервенцию...', 'Формирую персональную практику');
+    showToast('Загружаю интервенцию...', 'info');
     const intervention = await getIntervention(elementId);
 
     let html = '';
@@ -1096,7 +989,7 @@ async function showHypnosis() {
 // Переименована чтобы не конфликтовать с функцией getTales (API)
 async function showTales_screen() {
     const container = document.getElementById('screenContainer');
-    showLoading('Загружаю библиотеку сказок...', 'Подготавливаю терапевтические истории');
+    showToast('Загружаю библиотеку сказок...', 'info');
     const talesData = await getTales();
     const talesList = talesData.available_tales || [];
 
@@ -1154,7 +1047,7 @@ async function showTales_screen() {
 
 async function showAnchors() {
     const container = document.getElementById('screenContainer');
-    showLoading('Загружаю якоря...', 'Восстанавливаю ваши состояния');
+    showToast('Загружаю якоря...', 'info');
     const anchors = await getUserAnchors();
 
     const anchorsHtml = anchors?.length
@@ -1255,33 +1148,34 @@ function setupVoiceButton(buttonElement) {
 
     let pressTimer  = null;
     let isRecording = false;
-    const DELAY     = 300; // ms до начала записи
+    const DELAY     = 100; // ms до начала записи
 
     const getIcon = () => buttonElement.querySelector('.voice-icon');
     const getText = () => buttonElement.querySelector('.voice-text');
 
+    let _activeTouchId = null;
+
     const onPressStart = (e) => {
         e.preventDefault();
         if (pressTimer) return;
-
-        // Визуальный отклик — показываем что идёт отсчёт
+        _activeTouchId = e.touches ? e.touches[0].identifier : -1;
         buttonElement.style.transform = 'scale(0.97)';
         buttonElement.style.opacity = '0.8';
-
         pressTimer = setTimeout(() => {
-            // Сбрасываем визуал и начинаем запись
             buttonElement.style.transform = '';
             buttonElement.style.opacity = '';
-            // Вибрация на телефоне — сигнал что запись началась
             if (navigator.vibrate) navigator.vibrate(80);
-            console.log('🎙️ startRecording()');
             voiceManager.startRecording();
         }, DELAY);
     };
 
     const onPressEnd = (e) => {
-        e.preventDefault();
-        // Если не дождались DELAY — просто отменяем, запись не началась
+        // Для touch — только наш палец
+        if (e.changedTouches) {
+            const ours = Array.from(e.changedTouches).find(t => t.identifier === _activeTouchId);
+            if (!ours) return;
+        }
+        _activeTouchId = null;
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
@@ -1290,7 +1184,6 @@ function setupVoiceButton(buttonElement) {
             return;
         }
         if (voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
-            console.log('🎙️ stopRecording()');
             voiceManager.stopRecording();
         }
     };
@@ -1299,11 +1192,10 @@ function setupVoiceButton(buttonElement) {
     buttonElement.addEventListener('mousedown',  onPressStart);
     buttonElement.addEventListener('mouseup',    onPressEnd);
     buttonElement.addEventListener('mouseleave', onPressEnd);
-    // Mobile — touchend на document чтобы срабатывал даже если палец ушёл за кнопку
+    // Mobile — touchstart на кнопке, touchend на document
     buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
-    document.addEventListener('touchend',    onPressEnd,   { passive: false });
-    document.addEventListener('touchcancel', onPressEnd,   { passive: false });
-    // Блокируем контекстное меню при долгом нажатии
+    document.addEventListener('touchend',    onPressEnd, { passive: false });
+    document.addEventListener('touchcancel', onPressEnd, { passive: false });
     buttonElement.addEventListener('contextmenu', e => e.preventDefault());
 
     voiceManager.onStatusChange = (status) => {
@@ -1435,7 +1327,7 @@ function renderDashboard() {
                         <span class="voice-icon">🎤</span>
                         <span class="voice-text">${modeConfig.voicePrompt}</span>
                     </button>
-            
+                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
                 </div>
             </div>
 
@@ -1498,10 +1390,6 @@ function renderDashboard() {
 
     document.querySelectorAll('.module-card').forEach(card => {
         card.addEventListener('click', () => {
-            if (card.dataset.loading === 'true') return;
-            card.dataset.loading = 'true';
-            card.style.opacity = '0.6';
-            setTimeout(() => { card.dataset.loading = 'false'; card.style.opacity = ''; }, 4000);
             const moduleId = card.dataset.module;
             const _load = (src, fn) => { if (typeof fn==='function') { fn(); } else { const s=document.createElement('script'); s.src=src; s.onload=()=>{ if(typeof fn==='function') fn(); }; document.head.appendChild(s); } };
             const moduleHandlers = {
@@ -1527,15 +1415,6 @@ function renderDashboard() {
 
     document.querySelectorAll('.quick-action').forEach(action => {
         action.addEventListener('click', async () => {
-            if (action.dataset.loading === 'true') return;
-            action.dataset.loading = 'true';
-            action.style.opacity = '0.6';
-            action.style.transform = 'scale(0.97)';
-            setTimeout(() => {
-                action.dataset.loading = 'false';
-                action.style.opacity = '';
-                action.style.transform = '';
-            }, 4000);
             const type = action.dataset.action;
             const handlers = {
                 profile: handleShowProfile,
@@ -1571,20 +1450,39 @@ function initMobileMenu() {
 
     mobileMenuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        e.preventDefault();
         chatsPanel.classList.toggle('open');
     });
 
+    // touchstart быстрее click на мобиле (нет 300мс задержки)
+    document.addEventListener('touchstart', (e) => {
+        if (chatsPanel.classList.contains('open')
+            && !chatsPanel.contains(e.target)
+            && !mobileMenuBtn.contains(e.target)) {
+            chatsPanel.classList.remove('open');
+        }
+    }, { passive: true });
+
+    // десктоп — обычный click, пропускаем touch-события
     document.addEventListener('click', (e) => {
-        if (chatsPanel.classList.contains('open') && !chatsPanel.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
+        if (e.pointerType === 'touch') return;
+        if (chatsPanel.classList.contains('open')
+            && !chatsPanel.contains(e.target)
+            && !mobileMenuBtn.contains(e.target)) {
             chatsPanel.classList.remove('open');
         }
     });
 
+    // свайп влево — закрыть
     let touchStartX = 0;
-    chatsPanel.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    chatsPanel.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+    }, { passive: true });
     chatsPanel.addEventListener('touchend', (e) => {
-        if (e.changedTouches[0].clientX - touchStartX < -50) chatsPanel.classList.remove('open');
-    });
+        if (e.changedTouches[0].clientX - touchStartX < -50) {
+            chatsPanel.classList.remove('open');
+        }
+    }, { passive: true });
 }
 
 // ============================================
@@ -1674,8 +1572,7 @@ async function init() {
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => showAnchors(),
-                statistics: () => showStatistics(),
-                mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); }
+                statistics: () => showStatistics()
             };
             (actions[chat] || renderDashboard)();
 
