@@ -50,7 +50,7 @@ async function showMirrorsScreen() {
             <div style="display:flex; gap:8px; margin-bottom:24px; background:#111; border-radius:12px; padding:4px;">
                 <button onclick="switchMirrorTab('reflections')" id="tab-reflections"
                     style="flex:1; padding:10px; border:none; border-radius:10px; font-size:14px; font-weight:600;
-                           background:linear-gradient(135deg,#ff6b3b,#ff3b3b); color:#fff; cursor:pointer; transition:all 0.2s;">
+                           background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08)); color:#fff; cursor:pointer; transition:all 0.2s;">
                     👥 Мои отражения
                 </button>
                 <button onclick="switchMirrorTab('create')" id="tab-create"
@@ -116,7 +116,7 @@ async function showReflectionsTab(container) {
                         Когда он пройдёт тест — его профиль откроется тебе.
                     </div>
                     <button onclick="switchMirrorTab('create')"
-                        style="background:linear-gradient(135deg,#ff6b3b,#ff3b3b); color:#fff; border:none; border-radius:12px;
+                        style="background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08)); color:#fff; border:none; border-radius:12px;
                                padding:12px 24px; font-size:14px; font-weight:600; cursor:pointer;">
                         🔗 Создать первую ссылку
                     </button>
@@ -144,7 +144,7 @@ async function showReflectionsTab(container) {
                     <div style="font-size:12px; color:#666; margin-top:4px;">Создано зеркал</div>
                 </div>
                 <div style="background:#111; border-radius:12px; padding:16px; text-align:center;">
-                    <div style="font-size:28px; font-weight:700; color:#27ae60;">${reflections.length}</div>
+                    <div style="font-size:28px; font-weight:700; color:#ff6b3b;">${reflections.length}</div>
                     <div style="font-size:12px; color:#666; margin-top:4px;">Отражений</div>
                 </div>
             </div>
@@ -166,7 +166,7 @@ async function showReflectionsTab(container) {
                      onclick="showFriendProfile(${JSON.stringify(ref).replace(/"/g, '&quot;')})">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <div style="width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#ff6b3b,#ff3b3b);
+                            <div style="width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08));
                                         display:flex; align-items:center; justify-content:center;
                                         font-size:18px; font-weight:700; color:#fff;">
                                 ${name.charAt(0).toUpperCase()}
@@ -204,7 +204,7 @@ async function showReflectionsTab(container) {
 
     } catch(e) {
         container.innerHTML = `
-            <div style="background:#1a0a0a; border-radius:16px; padding:24px; text-align:center; color:#e74c3c;">
+            <div style="background:#1a0a0a; border-radius:16px; padding:24px; text-align:center; color:#3b82ff;">
                 <div style="font-size:24px; margin-bottom:8px;">❌</div>
                 <div>Ошибка загрузки отражений</div>
                 <button onclick="switchMirrorTab('reflections')"
@@ -230,7 +230,7 @@ async function showCreateLinkTab(container) {
 
             <div style="display:flex; flex-direction:column; gap:12px;">
                 <button onclick="generateMirrorLink('telegram')"
-                    style="background:#0088cc; color:#fff; border:none; border-radius:14px;
+                    style="background:rgba(224,224,224,0.1);border:1px solid rgba(224,224,224,0.25); color:#fff; border:none; border-radius:14px;
                            padding:18px; font-size:15px; font-weight:600; cursor:pointer;
                            display:flex; align-items:center; gap:12px; text-align:left;">
                     <span style="font-size:28px;">✈️</span>
@@ -293,7 +293,7 @@ async function showCreateLinkTab(container) {
 
             <!-- 2. Интимный профиль -->
             <div style="background:rgba(224,224,224,0.04); border-radius:12px; padding:14px; margin-bottom:10px;
-                        border-left:3px solid #e74c3c;">
+                        border-left:3px solid #3b82ff;">
                 <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:6px;">
                     🔞 ИНТИМНЫЙ ПРОФИЛЬ
                 </div>
@@ -332,7 +332,7 @@ async function showCreateLinkTab(container) {
                        border:1px solid rgba(224,224,224,0.3); border-radius:12px;
                        padding:12px; font-size:13px; font-weight:600;
                        cursor:pointer; transition:all 0.2s;"
-                onmouseover="this.style.background='#1a0a2e'"
+                onmouseover="this.style.background='#111111'"
                 onmouseout="this.style.background='transparent'">
                 👁 Посмотреть пример профиля
             </button>
@@ -355,7 +355,7 @@ async function generateMirrorLink(mirrorType) {
 
         if (!data.success) {
             block.innerHTML = `
-                <div style="background:#1a0a0a; border-radius:16px; padding:20px; text-align:center; color:#e74c3c;">
+                <div style="background:#1a0a0a; border-radius:16px; padding:20px; text-align:center; color:#3b82ff;">
                     ❌ ${data.error || 'Ошибка создания ссылки'}
                 </div>
             `;
@@ -369,10 +369,10 @@ async function generateMirrorLink(mirrorType) {
         const typeName = { telegram: 'Telegram', max: 'MAX', web: 'Веб' }[mirrorType] || '';
 
         block.innerHTML = `
-            <div style="background:#0d1a0d; border:1px solid #27ae60; border-radius:16px; padding:20px; margin-bottom:16px;">
+            <div style="background:rgba(255,107,59,0.08); border:1px solid rgba(255,107,59,0.4); border-radius:16px; padding:20px; margin-bottom:16px;">
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
                     <span style="font-size:20px;">${typeEmoji}</span>
-                    <span style="font-size:14px; font-weight:700; color:#27ae60;">Ссылка создана!</span>
+                    <span style="font-size:14px; font-weight:700; color:#ff6b3b;">Ссылка создана!</span>
                 </div>
 
                 <div style="background:#0a0a0a; border-radius:10px; padding:12px; margin-bottom:12px;
@@ -388,12 +388,12 @@ async function generateMirrorLink(mirrorType) {
 
                 <div style="display:flex; gap:8px;">
                     <button onclick="copyMirrorLink('${link}')"
-                        style="flex:1; background:#27ae60; color:#fff; border:none; border-radius:10px;
+                        style="flex:1; background:#ff6b3b; color:#fff; border:none; border-radius:10px;
                                padding:12px; font-size:13px; font-weight:600; cursor:pointer;">
                         📋 Скопировать ссылку
                     </button>
                     <button onclick="shareMirrorLink('${link}', '${text.replace(/'/g, "\\'")}')"
-                        style="flex:1; background:linear-gradient(135deg,#ff6b3b,#ff3b3b); color:#fff; border:none; border-radius:10px;
+                        style="flex:1; background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08)); color:#fff; border:none; border-radius:10px;
                                padding:12px; font-size:13px; font-weight:600; cursor:pointer;">
                         📤 Поделиться
                     </button>
@@ -403,7 +403,7 @@ async function generateMirrorLink(mirrorType) {
 
     } catch(e) {
         block.innerHTML = `
-            <div style="background:#1a0a0a; border-radius:16px; padding:20px; text-align:center; color:#e74c3c;">
+            <div style="background:#1a0a0a; border-radius:16px; padding:20px; text-align:center; color:#3b82ff;">
                 ❌ Ошибка: ${e.message}
             </div>
         `;
@@ -450,7 +450,7 @@ async function showFriendProfile(ref) {
     const vectorNames = { 'СБ': 'Самооборона', 'ТФ': 'Финансы', 'УБ': 'Убеждения', 'ЧВ': 'Чувства' };
     const vectorBar = (val) => {
         const pct = Math.round((val / 6) * 100);
-        const color = val <= 2 ? '#e74c3c' : val <= 4 ? '#f39c12' : '#27ae60';
+        const color = val <= 2 ? '#3b82ff' : val <= 4 ? '#f39c12' : '#ff6b3b';
         return `<div style="background:#1a1a1a; border-radius:4px; height:6px; overflow:hidden;">
             <div style="width:${pct}%; height:100%; background:${color}; border-radius:4px;"></div>
         </div>`;
@@ -466,9 +466,9 @@ async function showFriendProfile(ref) {
             </div>
 
             <!-- ШАПКА -->
-            <div style="background:linear-gradient(135deg,#1a0a2e,#2d1b4e); border-radius:20px;
+            <div style="background:linear-gradient(135deg,#111111,#1a1a1a); border-radius:20px;
                         padding:24px; margin-bottom:16px; text-align:center;">
-                <div style="width:64px; height:64px; border-radius:50%; background:linear-gradient(135deg,#ff6b3b,#ff3b3b);
+                <div style="width:64px; height:64px; border-radius:50%; background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08));
                             display:flex; align-items:center; justify-content:center;
                             font-size:28px; font-weight:700; color:#fff; margin:0 auto 12px;">
                     ${name.charAt(0).toUpperCase()}
@@ -522,7 +522,7 @@ async function showFriendProfile(ref) {
             <!-- ТАБЫ: Интимный / 4F -->
             <div style="display:flex; gap:8px; margin-bottom:16px;">
                 <button onclick="loadIntimateProfile('${mirrorCode}', this)"
-                    style="flex:1; background:#1a0005; color:#e74c3c; border:1px solid #e74c3c44;
+                    style="flex:1; background:#1a0005; color:#3b82ff; border:1px solid #3b82ff44;
                            border-radius:12px; padding:12px; font-size:13px; font-weight:600; cursor:pointer;">
                     🔞 Интимный профиль
                 </button>
@@ -547,7 +547,7 @@ async function showFriendProfile(ref) {
 async function loadIntimateProfile(mirrorCode, btn) {
     const block = document.getElementById('friendExtraContent');
     if (!mirrorCode) {
-        block.innerHTML = '<div style="background:#1a0005;border-radius:12px;padding:16px;color:#e74c3c;text-align:center;">❌ Код зеркала не найден</div>';
+        block.innerHTML = '<div style="background:#1a0005;border-radius:12px;padding:16px;color:#3b82ff;text-align:center;">❌ Код зеркала не найден</div>';
         return;
     }
     block.innerHTML = '<div style="background:#111;border-radius:12px;padding:20px;text-align:center;color:#888;"><div style="font-size:24px;margin-bottom:8px;">⏳</div>Генерирую интимный профиль...</div>';
@@ -557,8 +557,8 @@ async function loadIntimateProfile(mirrorCode, btn) {
         if (!data.success) throw new Error(data.error);
         const i = data.intimate;
 
-        let html = '<div style="background:#0d0005;border:1px solid #e74c3c33;border-radius:16px;padding:20px;margin-bottom:12px;">';
-        html += '<div style="font-size:14px;font-weight:700;color:#e74c3c;margin-bottom:14px;">🔞 ИНТИМНЫЙ ПРОФИЛЬ</div>';
+        let html = '<div style="background:#0d0005;border:1px solid #3b82ff33;border-radius:16px;padding:20px;margin-bottom:12px;">';
+        html += '<div style="font-size:14px;font-weight:700;color:#3b82ff;margin-bottom:14px;">🔞 ИНТИМНЫЙ ПРОФИЛЬ</div>';
 
         html += '<div style="margin-bottom:14px;"><div style="font-size:12px;color:#666;margin-bottom:6px;">💋 ЧТО ВОЗБУЖДАЕТ</div>';
         (i.sexual_triggers || []).forEach(t => { html += '<div style="font-size:13px;color:#ccc;margin-bottom:4px;">• ' + t + '</div>'; });
@@ -575,13 +575,13 @@ async function loadIntimateProfile(mirrorCode, btn) {
         html += '<div style="font-size:13px;color:#fff;font-weight:600;">' + (i.key_need || '') + '</div></div>';
 
         html += '<div style="background:#1a0a00;border-radius:10px;padding:12px;">';
-        html += '<div style="font-size:12px;color:#e74c3c;margin-bottom:4px;">🎯 КАК ПОДОЙТИ</div>';
+        html += '<div style="font-size:12px;color:#3b82ff;margin-bottom:4px;">🎯 КАК ПОДОЙТИ</div>';
         html += '<div style="font-size:13px;color:#ccc;">' + (i.approach_tip || '') + '</div></div>';
         html += '</div>';
 
         block.innerHTML = html;
     } catch(e) {
-        block.innerHTML = '<div style="background:#1a0005;border-radius:12px;padding:16px;color:#e74c3c;text-align:center;">❌ Ошибка: ' + e.message + '</div>';
+        block.innerHTML = '<div style="background:#1a0005;border-radius:12px;padding:16px;color:#3b82ff;text-align:center;">❌ Ошибка: ' + e.message + '</div>';
     }
 }
 
@@ -597,11 +597,11 @@ async function load4FKeys(mirrorCode, btn) {
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         const keys = data.keys;
-        const colors = {'1F':'#e74c3c','2F':'#3498db','3F':'#9b59b6','4F':'#27ae60'};
+        const colors = {'1F':'#3b82ff','2F':'#3498db','3F':'#ff6b3b','4F':'#ff6b3b'};
 
         let html = '';
         Object.entries(keys).forEach(function([code, k]) {
-            const color = colors[code] || '#9b59b6';
+            const color = colors[code] || '#ff6b3b';
             html += '<div style="background:#111;border-left:3px solid ' + color + ';border-radius:14px;padding:18px;margin-bottom:12px;">';
             html += '<div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:12px;">' + (k.emoji||'') + ' ' + code + ' — ' + (k.title||'') + '</div>';
             html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">🎯 Триггеры</div>';
@@ -633,11 +633,11 @@ function showProfileExample() {
     html += '<button onclick="showMirrorsScreen()" style="background:#1a1a1a;border:none;color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:18px;">←</button>';
     html += '<div style="font-size:18px;font-weight:700;color:#fff;">👁 Пример профиля</div></div>';
     html += '<div style="display:flex;gap:6px;margin-bottom:20px;background:#111;border-radius:12px;padding:4px;">';
-    html += '<button onclick="switchExampleTab(\'basic\')" id="ex-tab-basic" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);color:#fff;cursor:pointer;">🧠 Профиль</button>';
+    html += '<button onclick="switchExampleTab(\'basic\')" id="ex-tab-basic" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08));color:#fff;cursor:pointer;">🧠 Профиль</button>';
     html += '<button onclick="switchExampleTab(\'intimate\')" id="ex-tab-intimate" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔞 Интимный</button>';
     html += '<button onclick="switchExampleTab(\'4f\')" id="ex-tab-4f" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔑 4F ключи</button>';
     html += '</div><div id="exampleTabContent"></div>';
-    html += '<button onclick="showMirrorsScreen()" style="width:100%;margin-top:16px;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔗 Создать своё зеркало</button>';
+    html += '<button onclick="showMirrorsScreen()" style="width:100%;margin-top:16px;background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08));color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔗 Создать своё зеркало</button>';
     html += '</div>';
     container.innerHTML = html;
     switchExampleTab('basic');
@@ -657,7 +657,7 @@ function switchExampleTab(tab) {
 
 function showExampleBasic(container) {
     var html = '<div style="background:rgba(10,10,10,0.7);border-radius:16px;padding:20px;margin-bottom:12px;text-align:center;">';
-    html += '<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;margin:0 auto 12px;">А</div>';
+    html += '<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,rgba(224,224,224,0.15),rgba(192,192,192,0.08));display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;margin:0 auto 12px;">А</div>';
     html += '<div style="font-size:18px;font-weight:700;color:#fff;">Алексей</div>';
     html += '<div style="font-size:13px;color:#e0e0e0;margin-top:4px;">СБ-4 ТФ-2 УБ-5 ЧВ-3</div></div>';
     html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
@@ -666,7 +666,7 @@ function showExampleBasic(container) {
     html += '<div style="font-size:13px;color:#888;margin-top:4px;line-height:1.6;">Фокусируется на конкретных результатах. Принимает решения на основе фактов.</div></div>';
     html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
     html += '<div style="font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:14px;">📊 ВЕКТОРЫ ПОВЕДЕНИЯ</div>';
-    [['СБ','Самооборона',4,'#e74c3c'],['ТФ','Финансы',2,'#f39c12'],['УБ','Убеждения',5,'#27ae60'],['ЧВ','Чувства',3,'#3498db']].forEach(function(v) {
+    [['СБ','Самооборона',4,'#3b82ff'],['ТФ','Финансы',2,'#f39c12'],['УБ','Убеждения',5,'#ff6b3b'],['ЧВ','Чувства',3,'#3498db']].forEach(function(v) {
         var pct = Math.round(v[2]/6*100);
         html += '<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;margin-bottom:4px;">';
         html += '<span style="font-size:13px;color:#ccc;">' + v[1] + ' (' + v[0] + ')</span>';
@@ -685,23 +685,23 @@ function showExampleBasic(container) {
 }
 
 function showExampleIntimate(container) {
-    var html = '<div style="background:#1a0005;border:1px solid #e74c3c33;border-radius:16px;padding:16px;margin-bottom:12px;text-align:center;">';
+    var html = '<div style="background:#1a0005;border:1px solid #3b82ff33;border-radius:16px;padding:16px;margin-bottom:12px;text-align:center;">';
     html += '<div style="font-size:24px;margin-bottom:6px;">🔞</div>';
-    html += '<div style="font-size:13px;color:#e74c3c;font-weight:600;">ИНТИМНЫЙ ПРОФИЛЬ — ПРИМЕР</div></div>';
+    html += '<div style="font-size:13px;color:#3b82ff;font-weight:600;">ИНТИМНЫЙ ПРОФИЛЬ — ПРИМЕР</div></div>';
     html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
-    html += '<div style="font-size:13px;font-weight:600;color:#e74c3c;margin-bottom:12px;">💋 ЧТО ВОЗБУЖДАЕТ</div>';
+    html += '<div style="font-size:13px;font-weight:600;color:#3b82ff;margin-bottom:12px;">💋 ЧТО ВОЗБУЖДАЕТ</div>';
     ['Когда его не торопят и дают время','Визуальные стимулы','Ощущение контроля в близости'].forEach(function(t) {
         html += '<div style="font-size:13px;color:#ccc;margin-bottom:4px;">• ' + t + '</div>';
     });
     html += '</div>';
     html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
-    html += '<div style="font-size:13px;font-weight:600;color:#e74c3c;margin-bottom:12px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>';
+    html += '<div style="font-size:13px;font-weight:600;color:#3b82ff;margin-bottom:12px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>';
     ['Давление и требования','Эмоциональные сцены перед близостью','Ощущение оценки'].forEach(function(t) {
         html += '<div style="font-size:13px;color:#ccc;margin-bottom:4px;">• ' + t + '</div>';
     });
     html += '</div>';
     html += '<div style="background:#111;border-radius:16px;padding:20px;">';
-    html += '<div style="font-size:13px;font-weight:600;color:#e74c3c;margin-bottom:12px;">🧬 ПАТТЕРН БЛИЗОСТИ</div>';
+    html += '<div style="font-size:13px;font-weight:600;color:#3b82ff;margin-bottom:12px;">🧬 ПАТТЕРН БЛИЗОСТИ</div>';
     html += '<div style="font-size:13px;color:#ccc;line-height:1.7;">Избегающий тип. Нуждается в ощущении свободы. Близость через общие задачи сильнее чем через слова.</div></div>';
     container.innerHTML = html;
 }
@@ -711,10 +711,10 @@ function showExample4F(container) {
     html += '<div style="font-size:24px;margin-bottom:6px;">🔑</div>';
     html += '<div style="font-size:13px;color:#f39c12;font-weight:600;">4F КЛЮЧИ — ПРИМЕР</div></div>';
     var keys4f = [
-        ['🔥','1F','Ярость','#e74c3c',['Критика при свидетелях','Обесценивание усилий','Игнорирование границ'],'«Я вижу как много ты сделал»','Пауза 3 сек + имя'],
+        ['🔥','1F','Ярость','#3b82ff',['Критика при свидетелях','Обесценивание усилий','Игнорирование границ'],'«Я вижу как много ты сделал»','Пауза 3 сек + имя'],
         ['🏃','2F','Страх','#3498db',['Вопросы о будущем','Повышение голоса','Требования'],'«Я никуда не ухожу, просто поговорим»','Без дедлайнов и давления'],
-        ['🧬','3F','Желание','#9b59b6',['Особая интонация','Зрительный контакт 4+ сек','Неожиданные касания'],'«только мы», «никуда не торопимся»','Плечо → запястье → шея'],
-        ['🍽','4F','Деньги','#27ae60',['Упоминание конкурентов','Идеи заработка','Вызов'],'«Как думаешь, можно это монетизировать?»','Задача с измеримым результатом']
+        ['🧬','3F','Желание','#ff6b3b',['Особая интонация','Зрительный контакт 4+ сек','Неожиданные касания'],'«только мы», «никуда не торопимся»','Плечо → запястье → шея'],
+        ['🍽','4F','Деньги','#ff6b3b',['Упоминание конкурентов','Идеи заработка','Вызов'],'«Как думаешь, можно это монетизировать?»','Задача с измеримым результатом']
     ];
     keys4f.forEach(function(k) {
         html += '<div style="background:#111;border-left:3px solid ' + k[3] + ';border-radius:14px;padding:18px;margin-bottom:12px;">';
