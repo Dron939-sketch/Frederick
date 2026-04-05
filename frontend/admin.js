@@ -176,7 +176,7 @@ async function renderAdminDashboard() {
           <div style="display:flex;gap:4px;background:rgba(255,255,255,0.04);
                       border:1px solid rgba(255,255,255,0.07);border-radius:13px;
                       padding:4px;margin-bottom:22px;overflow-x:auto;">
-            ${[['overview','📊 Обзор'],['mirrors','🪞 Зеркала'],['users','👥 Пользователи'],['system','⚙️ Система']].map(([id,label])=>`
+            ${[['overview','📊 Обзор'],['mirrors','🪞 Зеркала'],['users','👥 Пользователи'],['system','⚙️ Система'],['logs','🔴 Логи']].map(([id,label])=>`
               <button class="adm-tab-btn ${id==='overview'?'on':'off'}"
                 id="adm-tab-${id}" onclick="adminTab('${id}')">${label}</button>`).join('')}
           </div>
@@ -206,7 +206,7 @@ async function renderAdminDashboard() {
 
 function adminTab(tab) {
     adminState.activeTab = tab;
-    ['overview','mirrors','users','system'].forEach(id => {
+    ['overview','mirrors','users','system','logs'].forEach(id => {
         const b = document.getElementById('adm-tab-'+id);
         if (!b) return;
         b.className = 'adm-tab-btn ' + (id===tab?'on':'off');
@@ -216,6 +216,7 @@ function adminTab(tab) {
     if (tab==='overview') renderOverview(c);
     else if (tab==='mirrors') renderMirrors(c);
     else if (tab==='users') renderUsers(c);
+    else if (tab==='logs') renderLogs(c);
     else renderSystem(c);
 }
 
@@ -228,14 +229,12 @@ function renderOverview(c) {
     const conv = m.totalCreated ? Math.round(m.totalCompleted/m.totalCreated*100) : 0;
 
     const bigCards = [
-        ['👥', s.total_users||0,       'Всего пользователей', '#e0e0e0'],
-        ['🟢', s.active_today||0,      'Активны сегодня',     '#27ae60'],
-        ['📊', s.total_tests||0,        'Тестов пройдено',    '#00d4ff'],
-        ['💬', s.total_messages||0,     'Сообщений',          '#f39c12'],
-        ['🪞', m.totalCreated||0,       'Зеркал создано',     '#ff6b3b'],
-        ['✅', m.totalCompleted||0,     'Зеркал сработало',   '#27ae60'],
-        ['📈', conv+'%',                'Конверсия зеркал',   '#a855f7'],
-        ['🌐', (s.modes_distribution||[]).length, 'Режимов активно', '#3b82ff'],
+        ['👥', s.total_users||0,    'Всего пользователей', '#e0e0e0'],
+        ['🟢', s.active_today||0,   'Активны сегодня',     '#27ae60'],
+        ['📊', s.total_tests||0,    'Тестов пройдено',     '#00d4ff'],
+        ['💬', s.total_messages||0, 'Сообщений всего',     '#f39c12'],
+        ['🪞', m.totalCreated||0,   'Зеркал создано',      '#ff6b3b'],
+        ['📈', conv+'%',            'Конверсия зеркал',    '#a855f7'],
     ];
 
     c.innerHTML = `
@@ -488,9 +487,65 @@ function getDemoMirrors() {
     };
 }
 
+// ============================================
+// ЛОГИ ОШИБОК
+// ============================================
+async function renderLogs(c) {
+    c.innerHTML = '<div style="text-align:center;padding:32px;color:rgba(255,255,255,0.3);font-size:13px;">⏳ Загружаю логи...</div>';
+    const API = window.API_BASE_URL||'https://fredi-backend-flz2.onrender.com';
+    let logs = [];
+    try {
+        const res = await fetch(`${API}/api/admin/logs`).then(r=>r.json());
+        if (res.success) logs = res.logs||[];
+    } catch(e) {}
+
+    const levelColor = {'ERROR':'#e74c3c','WARNING':'#f39c12','INFO':'rgba(255,255,255,0.4)'};
+    const levelBg    = {'ERROR':'rgba(231,76,60,0.08)','WARNING':'rgba(243,156,18,0.08)','INFO':'transparent'};
+
+    c.innerHTML = `
+        <div class="adm-card" style="padding:0;overflow:hidden;">
+          <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div class="adm-label" style="margin-bottom:0;">🔴 Логи ошибок (последние 50)</div>
+          </div>
+          ${logs.length ? logs.map(log=>`
+            <div style="padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.04);
+                        background:${levelBg[log.level]||'transparent'};">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+                <span style="font-size:10px;font-weight:700;color:${levelColor[log.level]||'#aaa'};
+                             letter-spacing:0.5px;flex-shrink:0;">${log.level||'INFO'}</span>
+                <span style="font-size:10px;color:rgba(255,255,255,0.25);flex-shrink:0;">
+                  ${(log.timestamp||'').substring(0,19).replace('T',' ')}
+                </span>
+              </div>
+              <div style="font-size:12px;color:rgba(255,255,255,0.65);line-height:1.5;
+                          font-family:'SF Mono',monospace;word-break:break-word;">
+                ${log.message||''}
+              </div>
+              ${log.user_id ? `<div style="font-size:10px;color:rgba(255,255,255,0.2);margin-top:3px;">
+                user_id: ${log.user_id}
+              </div>` : ''}
+            </div>`).join('')
+          : `<div style="padding:32px;text-align:center;color:rgba(255,255,255,0.3);">
+               <div style="font-size:28px;margin-bottom:8px;">✅</div>
+               <div style="font-size:13px;">Ошибок не найдено</div>
+               <div style="font-size:11px;margin-top:6px;opacity:0.5;">
+                 Эндпоинт /api/admin/logs не подключён или логов нет
+               </div>
+             </div>`}
+        </div>
+
+        <button onclick="renderLogs(document.getElementById('admContent'))"
+          style="width:100%;padding:12px;background:rgba(255,255,255,0.04);
+                 border:1px solid rgba(255,255,255,0.09);border-radius:13px;
+                 color:rgba(255,255,255,0.4);font-size:12px;cursor:pointer;font-family:inherit;">
+          🔄 Обновить логи
+        </button>`;
+}
+
 window.openSecretRoom = openSecretRoom;
 window.adminLogin = adminLogin;
 window.adminLogout = adminLogout;
 window.adminTab = adminTab;
 window.renderAdminDashboard = renderAdminDashboard;
 window.renderUsers = renderUsers;
+window.renderLogs = renderLogs;
