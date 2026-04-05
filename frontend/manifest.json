@@ -2,40 +2,40 @@
   "name": "Фреди — виртуальный психолог",
   "short_name": "Фреди",
   "description": "AI-психолог. Психологический тест, личный профиль, анализ поведения.",
-  "start_url": "/fredi/",
+  "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
   "lang": "ru",
-  "scope": "/fredi/",
+  "scope": "/",
   "icons": [
     {
-      "src": "/fredi/icon-72.png",
+      "src": "/icon-72.png",
       "sizes": "72x72",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/fredi/icon-96.png",
+      "src": "/icon-96.png",
       "sizes": "96x96",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/fredi/icon-128.png",
+      "src": "/icon-128.png",
       "sizes": "128x128",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/fredi/icon-192.png",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/fredi/icon-512.png",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -43,41 +43,27 @@
   ],
   "screenshots": [
     {
-      "src": "/fredi/screenshot-mobile.jpg",
+      "src": "/screenshot-mobile.jpg",
       "sizes": "390x844",
       "type": "image/jpeg",
       "form_factor": "narrow"
     }
   ],
-  "categories": [
-    "health",
-    "lifestyle",
-    "education"
-  ],
+  "categories": ["health", "lifestyle", "education"],
   "shortcuts": [
     {
       "name": "Начать тест",
       "short_name": "Тест",
       "description": "Психологический тест из 5 этапов",
-      "url": "/fredi/?action=test",
-      "icons": [
-        {
-          "src": "/icon-96.png",
-          "sizes": "96x96"
-        }
-      ]
+      "url": "/?action=test",
+      "icons": [{ "src": "/icon-96.png", "sizes": "96x96" }]
     },
     {
       "name": "Зеркало",
       "short_name": "Зеркало",
       "description": "Отправить ссылку другу",
-      "url": "/fredi/?action=mirrors",
-      "icons": [
-        {
-          "src": "/icon-96.png",
-          "sizes": "96x96"
-        }
-      ]
+      "url": "/?action=mirrors",
+      "icons": [{ "src": "/icon-96.png", "sizes": "96x96" }]
     }
   ]
 }
