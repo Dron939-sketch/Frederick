@@ -785,10 +785,10 @@ class AIService:
         # "КакДела" → "Как Дела"
         text = re.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', text)
 
-        # Нормализуем пробелы
+        # Нормализуем пробелы (но сохраняем ведущий — он часть токена в стриминге)
         text = re.sub(r'\s+', ' ', text)
 
-        return text.strip()
+        return text.rstrip()
 
     def _get_fallback_response(self, mode: str) -> str:
         fallbacks = {

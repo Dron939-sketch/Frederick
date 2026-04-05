@@ -530,17 +530,8 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
 
-                # ФИХ: восстанавливаем пробелы после склейки чанков
-                # DeepSeek отдаёт чанки без пробелов на границах — "Эй," + "друг" = "Эй,друг"
-                import re as _re
-                response_text = _re.sub(r'([.!?,;:])([^\s\d\)\]\}])', r'\1 \2', response_text)
-                response_text = _re.sub(r'([—–])([^\s])', r'\1 \2', response_text)
-                response_text = _re.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', response_text)
-                response_text = _re.sub(r'\s+', ' ', response_text).strip()
-                logger.info(f"💬 AI response после фикса пробелов: {repr(response_text[:150])}")
-
-                # normalize_tts_text вызывается внутри voice_service — не дублируем
-                logger.info(f"💬 AI response: {len(response_text)} chars")
+                response_text = response_text.strip()
+                logger.info(f"💬 AI response ({len(response_text)} chars): {repr(response_text[:150])}")
 
                 # Сохраняем счётчик сообщений для BasicMode
                 if mode_name == "basic":
