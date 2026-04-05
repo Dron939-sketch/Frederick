@@ -1729,6 +1729,15 @@ async function init() {
             console.log('ℹ️ Разрешение на микрофон не выдано');
         }
     }, 2000);
+
+    // Фикс: на мобильных input скроллится в видимую область при фокусе
+    document.addEventListener('focusin', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            setTimeout(() => {
+                e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 300);
+        }
+    });
 }
 
 document.addEventListener('DOMContentLoaded', init);
