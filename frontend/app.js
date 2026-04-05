@@ -332,16 +332,59 @@ function addMessage(text, sender = 'bot', audioUrl = null) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-function showLoading(message) {
+// Глобальный флаг против двойных нажатий
+let _isLoading = false;
+
+function showLoading(message, subtext) {
     const container = document.getElementById('screenContainer');
-    if (container) {
-        container.innerHTML = `
-            <div class="loading-screen">
-                <div class="loading-spinner">🧠</div>
-                <div class="loading-text">${message}</div>
-            </div>
-        `;
+    if (!container) return;
+    _isLoading = true;
+    const existing = container.querySelector('.fredi-loader-wrap');
+    if (existing) {
+        const txt = existing.querySelector('.fredi-loader-msg');
+        const sub = existing.querySelector('.fredi-loader-sub');
+        if (txt) txt.textContent = message || 'Загружаю...';
+        if (sub && subtext) sub.textContent = subtext;
+        return;
     }
+    container.innerHTML = `
+        <div class="fredi-loader-wrap">
+            <div class="fredi-loader-inner">
+                <div class="fredi-loader-ring">
+                    <div class="fredi-loader-dot"></div>
+                    <div class="fredi-loader-dot"></div>
+                    <div class="fredi-loader-dot"></div>
+                    <div class="fredi-loader-dot"></div>
+                </div>
+                <div class="fredi-loader-emoji">🧠</div>
+                <div class="fredi-loader-msg">${message || 'Загружаю...'}</div>
+                <div class="fredi-loader-sub">${subtext || 'Обычно это занимает несколько секунд'}</div>
+            </div>
+        </div>
+        <style>
+            .fredi-loader-wrap { display:flex; align-items:center; justify-content:center; min-height:60vh; padding:40px 20px; }
+            .fredi-loader-inner { text-align:center; display:flex; flex-direction:column; align-items:center; gap:12px; }
+            .fredi-loader-ring { position:relative; width:64px; height:64px; }
+            .fredi-loader-dot { position:absolute; width:12px; height:12px; border-radius:50%; background:#ff6b3b; animation:loaderOrbit 1.4s ease-in-out infinite; }
+            .fredi-loader-dot:nth-child(1){animation-delay:0s}
+            .fredi-loader-dot:nth-child(2){animation-delay:0.35s}
+            .fredi-loader-dot:nth-child(3){animation-delay:0.7s}
+            .fredi-loader-dot:nth-child(4){animation-delay:1.05s}
+            @keyframes loaderOrbit { 0%{transform:rotate(0deg) translateX(26px) scale(1);opacity:1} 50%{transform:rotate(180deg) translateX(26px) scale(0.6);opacity:0.4} 100%{transform:rotate(360deg) translateX(26px) scale(1);opacity:1} }
+            .fredi-loader-emoji { font-size:32px; margin-top:4px; animation:loaderPulse 2s ease-in-out infinite; }
+            @keyframes loaderPulse { 0%,100%{transform:scale(1);opacity:0.8} 50%{transform:scale(1.1);opacity:1} }
+            .fredi-loader-msg { font-size:15px; font-weight:600; color:#e0e0e0; margin-top:4px; }
+            .fredi-loader-sub { font-size:12px; color:rgba(255,255,255,0.35); max-width:240px; line-height:1.5; }
+        </style>
+    `;
+}
+
+function hideLoading() { _isLoading = false; }
+
+function lockBtn(el, ms) {
+    if (!el) return;
+    el.disabled = true; el.style.opacity = '0.5'; el.style.pointerEvents = 'none';
+    setTimeout(() => { el.disabled = false; el.style.opacity = ''; el.style.pointerEvents = ''; }, ms || 3000);
 }
 
 // ============================================
@@ -1148,7 +1191,7 @@ function setupVoiceButton(buttonElement) {
 
     let pressTimer  = null;
     let isRecording = false;
-    const DELAY     = 100; // ms до начала записи
+    const DELAY     = 300; // ms до начала записи
 
     const getIcon = () => buttonElement.querySelector('.voice-icon');
     const getText = () => buttonElement.querySelector('.voice-text');
