@@ -1222,7 +1222,9 @@ function setupVoiceButton(buttonElement) {
     let pressTimer     = null;
     let _activeTouchId = null;
     let _recording     = false;
+    let _watchdog      = null; // аварийный таймер сброса
     const DELAY        = 400; // ms — защита от случайных касаний
+    const WATCHDOG_MS  = 65000; // 65с — максимум записи 60с + запас
 
     const getIcon = () => buttonElement.querySelector('.voice-icon');
     const getText = () => buttonElement.querySelector('.voice-text');
@@ -1232,21 +1234,47 @@ function setupVoiceButton(buttonElement) {
         buttonElement.style.opacity   = '';
     };
 
+    // Принудительный сброс — вызывается при любом "залипании"
+    const forceStop = (reason) => {
+        console.warn('⚠️ Voice button force stop:', reason);
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
+        resetBtn();
+        _activeTouchId = null;
+        if (_recording || (voiceManager.isRecordingActive && voiceManager.isRecordingActive())) {
+            try { voiceManager.stopRecording(); } catch (e) { console.error('Force stop error:', e); }
+        }
+        _recording = false;
+    };
+
     const onPressStart = (e) => {
         e.preventDefault();
         if (pressTimer || _recording) return;
         _activeTouchId = e.touches ? e.touches[0].identifier : -1;
         buttonElement.style.transform = 'scale(0.97)';
         buttonElement.style.opacity   = '0.75';
-        pressTimer = setTimeout(() => {
+        pressTimer = setTimeout(async () => {
+            pressTimer = null;
             resetBtn();
             if (navigator.vibrate) navigator.vibrate(60);
             _recording = true;
-            voiceManager.startRecording();
+            // Watchdog: аварийный сброс через 65с
+            _watchdog = setTimeout(() => forceStop('watchdog timeout'), WATCHDOG_MS);
+            const started = await voiceManager.startRecording();
+            if (!started) {
+                // getUserMedia отказал — сбрасываем
+                _recording = false;
+                if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
+            }
         }, DELAY);
     };
 
     const onPressEnd = (e) => {
+        // Для touchcancel — всегда сбрасываем, не проверяем identifier
+        if (e.type === 'touchcancel') {
+            forceStop('touchcancel');
+            return;
+        }
         if (e.changedTouches) {
             const ours = Array.from(e.changedTouches)
                 .find(t => t.identifier === _activeTouchId);
@@ -1259,7 +1287,8 @@ function setupVoiceButton(buttonElement) {
             resetBtn();
             return;
         }
-        if (_recording && voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
+        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
+        if (_recording || (voiceManager.isRecordingActive && voiceManager.isRecordingActive())) {
             voiceManager.stopRecording();
         }
         _recording = false;
@@ -1281,6 +1310,19 @@ function setupVoiceButton(buttonElement) {
     document.addEventListener('touchend',    onPressEnd, { passive: false });
     document.addEventListener('touchcancel', onPressEnd, { passive: false });
     buttonElement.addEventListener('contextmenu', e => e.preventDefault());
+
+    // Сброс при сворачивании приложения / входящем звонке / блокировке экрана
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && _recording) {
+            forceStop('app went to background');
+        }
+    });
+    // Сброс при потере фокуса (pull-down уведомлений на Android)
+    window.addEventListener('blur', () => {
+        if (_recording) {
+            forceStop('window blur');
+        }
+    });
 
     voiceManager.onStatusChange = (status) => {
         const icon = getIcon();
