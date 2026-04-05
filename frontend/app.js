@@ -697,7 +697,13 @@ function updateModeUI() {
     const label = document.getElementById('modeLabel');
     const indicator = document.getElementById('modeIndicator');
     if (label) label.textContent = config.name;
-    if (indicator) indicator.style.background = config.color;
+    if (indicator) {
+        indicator.style.background = config.color;
+        // Убираем любую анимацию — она вызывает дрожание
+        indicator.style.animation = 'none';
+        indicator.style.boxShadow = 'none';
+        indicator.style.transform = 'none';
+    }
 }
 
 async function switchMode(mode) {
@@ -1293,10 +1299,10 @@ function setupVoiceButton(buttonElement) {
     buttonElement.addEventListener('mousedown',  onPressStart);
     buttonElement.addEventListener('mouseup',    onPressEnd);
     buttonElement.addEventListener('mouseleave', onPressEnd);
-    // Mobile
-    buttonElement.addEventListener('touchstart',  onPressStart, { passive: false });
-    buttonElement.addEventListener('touchend',    onPressEnd,   { passive: false });
-    buttonElement.addEventListener('touchcancel', onPressEnd,   { passive: false });
+    // Mobile — touchend на document чтобы срабатывал даже если палец ушёл за кнопку
+    buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
+    document.addEventListener('touchend',    onPressEnd,   { passive: false });
+    document.addEventListener('touchcancel', onPressEnd,   { passive: false });
     // Блокируем контекстное меню при долгом нажатии
     buttonElement.addEventListener('contextmenu', e => e.preventDefault());
 
