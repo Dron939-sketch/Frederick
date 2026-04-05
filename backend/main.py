@@ -93,6 +93,7 @@ hypno: Optional[HypnoOrchestrator] = None
 tales: Optional[TherapeuticTales] = None
 intervention_lib: Optional[InterventionLibrary] = None
 morning_manager: Optional[MorningMessageManager] = None
+push_service = None
 weekend_planner: Optional[WeekendPlanner] = None
 
 # ============================================
@@ -198,6 +199,16 @@ class WeekendIdeasRequest(BaseModel):
     city: Optional[str] = None
 
 # ФИХ 1: Pydantic-модель для /api/ai/generate
+class PushSubscribeRequest(BaseModel):
+    user_id: int
+    subscription: Dict[str, Any]
+
+class PushSendRequest(BaseModel):
+    user_id: int
+    title: str
+    body: str
+    url: str = "/"
+
 class AIGenerateRequest(BaseModel):
     user_id: int
     prompt: str
@@ -257,6 +268,12 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Утилиты готовы")
 
         voice_manager = VoiceConnectionManager()
+
+        # Push-уведомления
+        from services.push_service import PushService
+        global push_service
+        push_service = PushService(db)
+        logger.info("✅ PushService готов")
         logger.info("✅ VoiceConnectionManager готов")
 
         logger.info("📦 Проверка и создание таблиц...")
@@ -758,6 +775,16 @@ async def init_database_tables():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_weekend_cache_expires ON weekend_ideas_cache(expires_at)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_morning_messages_user ON morning_messages(user_id, sent_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_last_activity ON users(last_activity DESC) WHERE is_active = TRUE")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                subscription JSONB NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id) WHERE is_active = TRUE")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS mirrors (
                 id BIGSERIAL PRIMARY KEY,
@@ -2703,6 +2730,56 @@ async def admin_logs(request: Request, limit: int = 50):
         return {"success": False, "error": str(e), "logs": []}
 
 
+
+# ============================================
+# 🔔 PUSH-УВЕДОМЛЕНИЯ
+# ============================================
+
+@app.get("/api/push/vapid-public-key")
+async def get_vapid_public_key():
+    """Отдаёт публичный VAPID ключ фронтенду"""
+    return {"publicKey": "BP-yST0xJbEGx5qfPdkPn2IGcLRru41wwQUdj9vXUOS7DqKd2lxMU_aAcrwRwnp9ioItzKeRFR8NNUOQ9zb2XBY"}
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(request: Request, data: PushSubscribeRequest):
+    try:
+        if push_service:
+            ok = await push_service.save_subscription(data.user_id, data.subscription)
+            return {"success": ok}
+        return {"success": False, "error": "PushService не инициализирован"}
+    except Exception as e:
+        logger.error(f"Push subscribe error: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/push/send")
+async def push_send(request: Request, data: PushSendRequest):
+    """Отправить push конкретному пользователю"""
+    try:
+        if push_service:
+            ok = await push_service.send_to_user(data.user_id, data.title, data.body, data.url)
+            return {"success": ok}
+        return {"success": False}
+    except Exception as e:
+        logger.error(f"Push send error: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/push/broadcast")
+async def push_broadcast(request: Request):
+    """Рассылка всем подписчикам (только для админа)"""
+    try:
+        data = await request.json()
+        title = data.get("title", "Фреди")
+        body  = data.get("body", "")
+        url   = data.get("url", "/")
+        if push_service:
+            count = await push_service.broadcast(title, body, url)
+            return {"success": True, "sent": count}
+        return {"success": False}
+    except Exception as e:
+        logger.error(f"Push broadcast error: {e}")
+        return {"success": False, "error": str(e)}
+
+
 async def log_event(user_id: int, event_type: str, event_data: Dict = None):
     try:
         async with db.get_connection() as conn:
@@ -2847,6 +2924,10 @@ async def complete_mirror(request: Request):
             owner = await conn.fetchrow("SELECT user_id FROM mirrors WHERE mirror_code = $1", mirror_code)
         if owner:
             await log_event(owner["user_id"], "mirror_completed", {"mirror_code": mirror_code})
+            # Отправляем push владельцу зеркала
+            if push_service:
+                friend_name = data.get("friend_name", "Друг")
+                asyncio.create_task(push_service.notify_mirror_completed(owner["user_id"], friend_name))
         return {"success": True, "message": "Зеркало активировано"}
     except Exception as e:
         logger.error(f"Ошибка завершения зеркала: {e}")
