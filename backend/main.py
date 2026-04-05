@@ -2555,6 +2555,154 @@ async def admin_stats(request: Request):
 # ============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================
+
+@app.get("/api/admin/mirrors-stats")
+async def admin_mirrors_stats(request: Request):
+    """Статистика зеркал для секретной комнаты"""
+    try:
+        async with db.get_connection() as conn:
+            total_created   = await conn.fetchval("SELECT COUNT(*) FROM mirrors") or 0
+            total_completed = await conn.fetchval("SELECT COUNT(*) FROM mirrors WHERE status='used'") or 0
+
+            by_platform = await conn.fetch(
+                "SELECT mirror_type, COUNT(*) as cnt FROM mirrors GROUP BY mirror_type")
+
+            recent = await conn.fetch("""
+                SELECT m.mirror_code, m.mirror_type, m.status,
+                       m.friend_name, m.created_at, m.completed_at,
+                       u.username as user_name
+                FROM mirrors m
+                LEFT JOIN users u ON u.user_id = m.user_id
+                ORDER BY m.created_at DESC LIMIT 10
+            """)
+
+            top_sharers = await conn.fetch("""
+                SELECT COALESCE(u.username, 'user_'||m.user_id::text) as user_name,
+                       COUNT(*) as count,
+                       COUNT(*) FILTER (WHERE m.status='used') as completed
+                FROM mirrors m
+                LEFT JOIN users u ON u.user_id = m.user_id
+                GROUP BY m.user_id, u.username
+                ORDER BY count DESC LIMIT 5
+            """)
+
+        plat = {'telegram': 0, 'max': 0, 'web': 0}
+        for row in by_platform:
+            t = row['mirror_type']
+            if t in plat: plat[t] = row['cnt']
+
+        conv = round(total_completed / total_created * 100) if total_created else 0
+
+        recent_list = []
+        for r in recent:
+            recent_list.append({
+                'mirror_code': r['mirror_code'],
+                'platform': r['mirror_type'],
+                'status': r['status'],
+                'completed': r['status'] == 'used',
+                'friend_name': r['friend_name'],
+                'user_name': r['user_name'] or f"user_{r['mirror_code'][:4]}",
+                'created_at': r['created_at'].isoformat() if r['created_at'] else '',
+            })
+
+        return {
+            "success": True,
+            "stats": {
+                "totalCreated": total_created,
+                "totalCompleted": total_completed,
+                "conversionRate": conv,
+                "byPlatform": plat,
+                "recentMirrors": recent_list,
+                "topSharers": [dict(r) for r in top_sharers],
+            }
+        }
+    except Exception as e:
+        logger.error(f"Admin mirrors stats error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/admin/recent-users")
+async def admin_recent_users(request: Request):
+    """Последние пользователи для секретной комнаты"""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT u.user_id, u.username, u.first_name,
+                       u.last_activity, u.created_at,
+                       t.profile_code
+                FROM users u
+                LEFT JOIN LATERAL (
+                    SELECT profile_code FROM test_results
+                    WHERE user_id = u.user_id
+                    ORDER BY created_at DESC LIMIT 1
+                ) t ON true
+                ORDER BY u.last_activity DESC NULLS LAST
+                LIMIT 30
+            """)
+        users = []
+        for r in rows:
+            users.append({
+                'user_id': r['user_id'],
+                'username': r['username'],
+                'first_name': r['first_name'],
+                'last_activity': r['last_activity'].isoformat() if r['last_activity'] else '',
+                'created_at': r['created_at'].isoformat() if r['created_at'] else '',
+                'profile_code': r['profile_code'],
+            })
+        return {"success": True, "users": users}
+    except Exception as e:
+        logger.error(f"Admin recent users error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+
+@app.get("/api/admin/logs")
+async def admin_logs(request: Request, limit: int = 50):
+    """Последние события/ошибки из таблицы events"""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, event_type, event_data, created_at
+                FROM events
+                ORDER BY created_at DESC
+                LIMIT $1
+            """, limit)
+
+        logs = []
+        for r in rows:
+            data = r['event_data']
+            if isinstance(data, str):
+                import json as _json
+                try: data = _json.loads(data)
+                except: pass
+
+            # Определяем уровень по типу события
+            evt = r['event_type'] or ''
+            if 'error' in evt.lower() or 'fail' in evt.lower():
+                level = 'ERROR'
+            elif 'warn' in evt.lower():
+                level = 'WARNING'
+            else:
+                level = 'INFO'
+
+            msg = evt
+            if data and isinstance(data, dict):
+                details = ', '.join(f"{k}: {v}" for k, v in list(data.items())[:3])
+                if details: msg += f' — {details}'
+
+            logs.append({
+                'level': level,
+                'timestamp': r['created_at'].isoformat() if r['created_at'] else '',
+                'message': msg,
+                'user_id': r['user_id'],
+            })
+
+        return {"success": True, "logs": logs}
+    except Exception as e:
+        logger.error(f"Admin logs error: {e}")
+        return {"success": False, "error": str(e), "logs": []}
+
+
 async def log_event(user_id: int, event_type: str, event_data: Dict = None):
     try:
         async with db.get_connection() as conn:
