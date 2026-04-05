@@ -522,12 +522,18 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 await websocket.send_json({"type": "text", "data": f"🎤 Вы: {recognized_text}"})
 
                 response_text = ""
+                _ws_buf = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk:
-                        if response_text and response_text[-1] not in (' ', '\n', '.', ',', '!', '?', ';', ':', '-'):
-                            response_text += ' '
-                        response_text += chunk
-                        await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
+                        _ws_buf += chunk
+                        # Отправляем только когда накопили слово (пробел или знак)
+                        if _ws_buf.endswith((' ', '.', ',', '!', '?', ':', ';', '\n', '—', '–')):
+                            response_text += _ws_buf
+                            await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {_ws_buf}"})
+                            _ws_buf = ""
+                if _ws_buf:
+                    response_text += _ws_buf
+                    await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {_ws_buf}"})
 
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
@@ -1342,11 +1348,15 @@ async def process_voice(
         if response_text is None and hasattr(mode_instance, 'process_question_streaming'):
             try:
                 response_text = ""
+                _buf = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk:
-                        if response_text and response_text[-1] not in (' ', '\n', '.', ',', '!', '?', ';', ':', '-'):
-                            response_text += ' '
-                        response_text += chunk
+                        _buf += chunk
+                        if _buf.endswith((' ', '.', ',', '!', '?', ':', ';', '\n', '—', '–')):
+                            response_text += _buf
+                            _buf = ""
+                if _buf:
+                    response_text += _buf
 
                 # ФИХ: пробелы после склейки чанков
                 import re as _re2
