@@ -1189,60 +1189,63 @@ async function showStatistics() {
 function setupVoiceButton(buttonElement) {
     if (!buttonElement || !voiceManager) return;
 
-    let pressTimer  = null;
-    let isRecording = false;
-    const DELAY     = 300; // ms до начала записи
+    let pressTimer     = null;
+    let _activeTouchId = null;
+    let _recording     = false;
+    const DELAY        = 400; // ms — защита от случайных касаний
 
     const getIcon = () => buttonElement.querySelector('.voice-icon');
     const getText = () => buttonElement.querySelector('.voice-text');
 
-    let _activeTouchId = null;
+    const resetBtn = () => {
+        buttonElement.style.transform = '';
+        buttonElement.style.opacity   = '';
+    };
 
     const onPressStart = (e) => {
         e.preventDefault();
-        if (pressTimer) return;
+        if (pressTimer || _recording) return;
         _activeTouchId = e.touches ? e.touches[0].identifier : -1;
         buttonElement.style.transform = 'scale(0.97)';
-        buttonElement.style.opacity = '0.8';
+        buttonElement.style.opacity   = '0.75';
         pressTimer = setTimeout(() => {
-            buttonElement.style.transform = '';
-            buttonElement.style.opacity = '';
-            if (navigator.vibrate) navigator.vibrate(80);
+            resetBtn();
+            if (navigator.vibrate) navigator.vibrate(60);
+            _recording = true;
             voiceManager.startRecording();
         }, DELAY);
     };
 
     const onPressEnd = (e) => {
-        // Для touch — только наш палец
         if (e.changedTouches) {
-            const ours = Array.from(e.changedTouches).find(t => t.identifier === _activeTouchId);
+            const ours = Array.from(e.changedTouches)
+                .find(t => t.identifier === _activeTouchId);
             if (!ours) return;
         }
         _activeTouchId = null;
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
-            buttonElement.style.transform = '';
-            buttonElement.style.opacity = '';
+            resetBtn();
             return;
         }
-        if (voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
+        if (_recording && voiceManager.isRecordingActive && voiceManager.isRecordingActive()) {
             voiceManager.stopRecording();
         }
+        _recording = false;
     };
 
     // Desktop
     buttonElement.addEventListener('mousedown',  onPressStart);
     buttonElement.addEventListener('mouseup',    onPressEnd);
     buttonElement.addEventListener('mouseleave', onPressEnd);
-    // Mobile — touchstart на кнопке, touchend на document
+    // Mobile
     buttonElement.addEventListener('touchstart', onPressStart, { passive: false });
     document.addEventListener('touchend',    onPressEnd, { passive: false });
     document.addEventListener('touchcancel', onPressEnd, { passive: false });
     buttonElement.addEventListener('contextmenu', e => e.preventDefault());
 
     voiceManager.onStatusChange = (status) => {
-        console.log('📊 Status:', status);
         const icon = getIcon();
         const text = getText();
         switch (status) {
@@ -1252,6 +1255,7 @@ function setupVoiceButton(buttonElement) {
                 if (text) text.textContent = 'Отпустите для отправки';
                 break;
             case 'processing':
+                _recording = false;
                 buttonElement.classList.remove('recording');
                 if (icon) icon.textContent = '🔄';
                 if (text) text.textContent = 'Распознаю речь...';
@@ -1260,21 +1264,17 @@ function setupVoiceButton(buttonElement) {
                 if (icon) icon.textContent = '🔊';
                 if (text) text.textContent = 'Фреди отвечает...';
                 break;
-            default: // idle, connected
+            default:
+                _recording = false;
                 buttonElement.classList.remove('recording');
-                buttonElement.style.border     = '';
-                buttonElement.style.boxShadow  = '';
+                buttonElement.style.boxShadow = '';
                 if (icon) icon.textContent = '🎤';
                 if (text) text.textContent = MODES[currentMode]?.voicePrompt || 'Говорите...';
         }
     };
 
-    voiceManager.onVolumeChange = (volume) => {
-        if (!voiceManager.isRecordingActive()) return;
-        const i = volume / 100;
-        buttonElement.style.boxShadow =
-            `0 0 ${20 + i * 40}px rgba(255,59,59,${0.2 + i * 0.6})`;
-    };
+    // onVolumeChange убран — вызывал дрожание на мобиле
+    voiceManager.onVolumeChange = () => {};
 }
 
 // ============================================
