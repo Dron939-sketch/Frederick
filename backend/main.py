@@ -524,6 +524,8 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 response_text = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
                     if chunk:
+                        if response_text and response_text[-1] not in (' ', '\n', '.', ',', '!', '?', ';', ':', '-'):
+                            response_text += ' '
                         response_text += chunk
                         await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
 
@@ -1341,7 +1343,10 @@ async def process_voice(
             try:
                 response_text = ""
                 async for chunk in mode_instance.process_question_streaming(recognized_text):
-                    response_text += chunk
+                    if chunk:
+                        if response_text and response_text[-1] not in (' ', '\n', '.', ',', '!', '?', ';', ':', '-'):
+                            response_text += ' '
+                        response_text += chunk
 
                 # ФИХ: пробелы после склейки чанков
                 import re as _re2
