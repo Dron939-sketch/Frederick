@@ -547,286 +547,189 @@ async function showFriendProfile(ref) {
 async function loadIntimateProfile(mirrorCode, btn) {
     const block = document.getElementById('friendExtraContent');
     if (!mirrorCode) {
-        block.innerHTML = `<div style="background:#1a0005; border-radius:12px; padding:16px; color:#e74c3c; text-align:center;">
-            ❌ Код зеркала не найден</div>`;
+        block.innerHTML = '<div style="background:#1a0005;border-radius:12px;padding:16px;color:#e74c3c;text-align:center;">❌ Код зеркала не найден</div>';
         return;
     }
-    block.innerHTML = `<div style="background:#111; border-radius:12px; padding:20px; text-align:center; color:#888;">
-        <div style="font-size:24px; margin-bottom:8px;">⏳</div>Генерирую интимный профиль...</div>`;
+    block.innerHTML = '<div style="background:#111;border-radius:12px;padding:20px;text-align:center;color:#888;"><div style="font-size:24px;margin-bottom:8px;">⏳</div>Генерирую интимный профиль...</div>';
     try {
-        const res = await fetch(\`\${API_BASE}/api/mirrors/\${mirrorCode}/intimate\`);
+        const res = await fetch(API_BASE + '/api/mirrors/' + mirrorCode + '/intimate');
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         const i = data.intimate;
-        block.innerHTML = \`
-            <div style="background:#0d0005; border:1px solid #e74c3c33; border-radius:16px; padding:20px; margin-bottom:12px;">
-                <div style="font-size:14px; font-weight:700; color:#e74c3c; margin-bottom:14px;">🔞 ИНТИМНЫЙ ПРОФИЛЬ</div>
-                <div style="margin-bottom:14px;">
-                    <div style="font-size:12px; color:#666; margin-bottom:6px;">💋 ЧТО ВОЗБУЖДАЕТ</div>
-                    \${(i.sexual_triggers||[]).map(t=>\`<div style="font-size:13px; color:#ccc; margin-bottom:4px;">• \${t}</div>\`).join('')}
-                </div>
-                <div style="margin-bottom:14px;">
-                    <div style="font-size:12px; color:#666; margin-bottom:6px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>
-                    \${(i.sexual_blockers||[]).map(t=>\`<div style="font-size:13px; color:#ccc; margin-bottom:4px;">• \${t}</div>\`).join('')}
-                </div>
-                <div style="margin-bottom:14px;">
-                    <div style="font-size:12px; color:#666; margin-bottom:6px;">🧬 ПАТТЕРН БЛИЗОСТИ</div>
-                    <div style="font-size:13px; color:#ccc; line-height:1.6;">\${i.intimacy_pattern||''}</div>
-                </div>
-                <div style="margin-bottom:14px;">
-                    <div style="font-size:12px; color:#666; margin-bottom:6px;">💡 ГЛАВНАЯ ПОТРЕБНОСТЬ</div>
-                    <div style="font-size:13px; color:#fff; font-weight:600;">\${i.key_need||''}</div>
-                </div>
-                <div style="background:#1a0a00; border-radius:10px; padding:12px;">
-                    <div style="font-size:12px; color:#e74c3c; margin-bottom:4px;">🎯 КАК ПОДОЙТИ</div>
-                    <div style="font-size:13px; color:#ccc;">\${i.approach_tip||''}</div>
-                </div>
-            </div>
-        \`;
+
+        let html = '<div style="background:#0d0005;border:1px solid #e74c3c33;border-radius:16px;padding:20px;margin-bottom:12px;">';
+        html += '<div style="font-size:14px;font-weight:700;color:#e74c3c;margin-bottom:14px;">🔞 ИНТИМНЫЙ ПРОФИЛЬ</div>';
+
+        html += '<div style="margin-bottom:14px;"><div style="font-size:12px;color:#666;margin-bottom:6px;">💋 ЧТО ВОЗБУЖДАЕТ</div>';
+        (i.sexual_triggers || []).forEach(t => { html += '<div style="font-size:13px;color:#ccc;margin-bottom:4px;">• ' + t + '</div>'; });
+        html += '</div>';
+
+        html += '<div style="margin-bottom:14px;"><div style="font-size:12px;color:#666;margin-bottom:6px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>';
+        (i.sexual_blockers || []).forEach(t => { html += '<div style="font-size:13px;color:#ccc;margin-bottom:4px;">• ' + t + '</div>'; });
+        html += '</div>';
+
+        html += '<div style="margin-bottom:14px;"><div style="font-size:12px;color:#666;margin-bottom:6px;">🧬 ПАТТЕРН БЛИЗОСТИ</div>';
+        html += '<div style="font-size:13px;color:#ccc;line-height:1.6;">' + (i.intimacy_pattern || '') + '</div></div>';
+
+        html += '<div style="margin-bottom:14px;"><div style="font-size:12px;color:#666;margin-bottom:6px;">💡 ГЛАВНАЯ ПОТРЕБНОСТЬ</div>';
+        html += '<div style="font-size:13px;color:#fff;font-weight:600;">' + (i.key_need || '') + '</div></div>';
+
+        html += '<div style="background:#1a0a00;border-radius:10px;padding:12px;">';
+        html += '<div style="font-size:12px;color:#e74c3c;margin-bottom:4px;">🎯 КАК ПОДОЙТИ</div>';
+        html += '<div style="font-size:13px;color:#ccc;">' + (i.approach_tip || '') + '</div></div>';
+        html += '</div>';
+
+        block.innerHTML = html;
     } catch(e) {
-        block.innerHTML = \`<div style="background:#1a0005; border-radius:12px; padding:16px; color:#e74c3c; text-align:center;">
-            ❌ Ошибка: \${e.message}</div>\`;
+        block.innerHTML = '<div style="background:#1a0005;border-radius:12px;padding:16px;color:#e74c3c;text-align:center;">❌ Ошибка: ' + e.message + '</div>';
     }
 }
 
 async function load4FKeys(mirrorCode, btn) {
     const block = document.getElementById('friendExtraContent');
     if (!mirrorCode) {
-        block.innerHTML = \`<div style="background:#1a1000; border-radius:12px; padding:16px; color:#f39c12; text-align:center;">
-            ❌ Код зеркала не найден</div>\`;
+        block.innerHTML = '<div style="background:#1a1000;border-radius:12px;padding:16px;color:#f39c12;text-align:center;">❌ Код зеркала не найден</div>';
         return;
     }
-    block.innerHTML = \`<div style="background:#111; border-radius:12px; padding:20px; text-align:center; color:#888;">
-        <div style="font-size:24px; margin-bottom:8px;">⏳</div>Генерирую 4F ключи...</div>\`;
+    block.innerHTML = '<div style="background:#111;border-radius:12px;padding:20px;text-align:center;color:#888;"><div style="font-size:24px;margin-bottom:8px;">⏳</div>Генерирую 4F ключи...</div>';
     try {
-        const res = await fetch(\`\${API_BASE}/api/mirrors/\${mirrorCode}/4f-keys\`);
+        const res = await fetch(API_BASE + '/api/mirrors/' + mirrorCode + '/4f-keys');
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         const keys = data.keys;
         const colors = {'1F':'#e74c3c','2F':'#3498db','3F':'#9b59b6','4F':'#27ae60'};
-        block.innerHTML = Object.entries(keys).map(([code, k]) => \`
-            <div style="background:#111; border-left:3px solid \${colors[code]||'#9b59b6'};
-                        border-radius:14px; padding:18px; margin-bottom:12px;">
-                <div style="font-size:15px; font-weight:700; color:#fff; margin-bottom:12px;">
-                    \${k.emoji||''} \${code} — \${k.title||''}
-                </div>
-                <div style="font-size:12px; color:#666; margin-bottom:8px;">🎯 Триггеры</div>
-                \${(k.triggers||[]).map(t=>\`<div style="font-size:13px; color:#ccc; margin-bottom:3px;">• \${t}</div>\`).join('')}
-                <div style="background:#0d0d0d; border-radius:10px; padding:12px; margin-top:10px;">
-                    <div style="font-size:12px; color:\${colors[code]||'#9b59b6'}; margin-bottom:4px;">🔑 Ключ</div>
-                    <div style="font-size:13px; color:#fff; font-weight:600;">\${k.key_phrase||''}</div>
-                </div>
-                <div style="font-size:12px; color:#888; margin-top:8px; line-height:1.6;">
-                    ⚡ \${k.technique||''}
-                </div>
-                <div style="font-size:12px; color:#555; margin-top:6px; font-style:italic;">
-                    \${k.insight||''}
-                </div>
-            </div>
-        \`).join('');
+
+        let html = '';
+        Object.entries(keys).forEach(function([code, k]) {
+            const color = colors[code] || '#9b59b6';
+            html += '<div style="background:#111;border-left:3px solid ' + color + ';border-radius:14px;padding:18px;margin-bottom:12px;">';
+            html += '<div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:12px;">' + (k.emoji||'') + ' ' + code + ' — ' + (k.title||'') + '</div>';
+            html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">🎯 Триггеры</div>';
+            (k.triggers || []).forEach(function(t) {
+                html += '<div style="font-size:13px;color:#ccc;margin-bottom:3px;">• ' + t + '</div>';
+            });
+            html += '<div style="background:#0d0d0d;border-radius:10px;padding:12px;margin-top:10px;">';
+            html += '<div style="font-size:12px;color:' + color + ';margin-bottom:4px;">🔑 Ключ</div>';
+            html += '<div style="font-size:13px;color:#fff;font-weight:600;">' + (k.key_phrase||'') + '</div></div>';
+            html += '<div style="font-size:12px;color:#888;margin-top:8px;line-height:1.6;">⚡ ' + (k.technique||'') + '</div>';
+            html += '<div style="font-size:12px;color:#555;margin-top:6px;font-style:italic;">' + (k.insight||'') + '</div>';
+            html += '</div>';
+        });
+        block.innerHTML = html;
     } catch(e) {
-        block.innerHTML = \`<div style="background:#1a1000; border-radius:12px; padding:16px; color:#f39c12; text-align:center;">
-            ❌ Ошибка: \${e.message}</div>\`;
+        block.innerHTML = '<div style="background:#1a1000;border-radius:12px;padding:16px;color:#f39c12;text-align:center;">❌ Ошибка: ' + e.message + '</div>';
     }
 }
+
 
 // ============================================
 // ПРИМЕР ПРОФИЛЯ
 // ============================================
 
 function showProfileExample() {
-    const container = document.getElementById('screenContainer');
-    container.innerHTML = `
-        <div style="padding:20px; max-width:600px; margin:0 auto;">
-            <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px;">
-                <button onclick="showMirrorsScreen()"
-                    style="background:#1a1a1a; border:none; color:#fff; width:36px; height:36px;
-                           border-radius:50%; cursor:pointer; font-size:18px;">←</button>
-                <div style="font-size:18px; font-weight:700; color:#fff;">👁 Пример профиля</div>
-            </div>
-
-            <!-- ТАБЫ ПРИМЕРА -->
-            <div style="display:flex; gap:6px; margin-bottom:20px; background:#111;
-                        border-radius:12px; padding:4px; overflow-x:auto;">
-                <button onclick="switchExampleTab('basic')" id="ex-tab-basic"
-                    style="flex:1; min-width:80px; padding:8px 4px; border:none; border-radius:8px;
-                           font-size:12px; font-weight:600; background:#9b59b6; color:#fff; cursor:pointer;">
-                    🧠 Профиль
-                </button>
-                <button onclick="switchExampleTab('intimate')" id="ex-tab-intimate"
-                    style="flex:1; min-width:80px; padding:8px 4px; border:none; border-radius:8px;
-                           font-size:12px; font-weight:600; background:transparent; color:#888; cursor:pointer;">
-                    🔞 Интимный
-                </button>
-                <button onclick="switchExampleTab('4f')" id="ex-tab-4f"
-                    style="flex:1; min-width:80px; padding:8px 4px; border:none; border-radius:8px;
-                           font-size:12px; font-weight:600; background:transparent; color:#888; cursor:pointer;">
-                    🔑 4F ключи
-                </button>
-            </div>
-
-            <div id="exampleTabContent"></div>
-
-            <button onclick="showMirrorsScreen()"
-                style="width:100%; margin-top:16px; background:#9b59b6; color:#fff; border:none;
-                       border-radius:12px; padding:14px; font-size:14px; font-weight:600; cursor:pointer;">
-                🔗 Создать своё зеркало
-            </button>
-        </div>
-    `;
+    var container = document.getElementById('screenContainer');
+    var html = '<div style="padding:20px;max-width:600px;margin:0 auto;">';
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">';
+    html += '<button onclick="showMirrorsScreen()" style="background:#1a1a1a;border:none;color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:18px;">←</button>';
+    html += '<div style="font-size:18px;font-weight:700;color:#fff;">👁 Пример профиля</div></div>';
+    html += '<div style="display:flex;gap:6px;margin-bottom:20px;background:#111;border-radius:12px;padding:4px;">';
+    html += '<button onclick="switchExampleTab('basic')" id="ex-tab-basic" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:#9b59b6;color:#fff;cursor:pointer;">🧠 Профиль</button>';
+    html += '<button onclick="switchExampleTab('intimate')" id="ex-tab-intimate" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔞 Интимный</button>';
+    html += '<button onclick="switchExampleTab('4f')" id="ex-tab-4f" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:12px;font-weight:600;background:transparent;color:#888;cursor:pointer;">🔑 4F ключи</button>';
+    html += '</div><div id="exampleTabContent"></div>';
+    html += '<button onclick="showMirrorsScreen()" style="width:100%;margin-top:16px;background:#9b59b6;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔗 Создать своё зеркало</button>';
+    html += '</div>';
+    container.innerHTML = html;
     switchExampleTab('basic');
 }
 
 function switchExampleTab(tab) {
-    ['basic','intimate','4f'].forEach(t => {
-        const btn = document.getElementById(\`ex-tab-\${t}\`);
-        if (btn) {
-            btn.style.background = t === tab ? '#9b59b6' : 'transparent';
-            btn.style.color = t === tab ? '#fff' : '#888';
-        }
+    ['basic','intimate','4f'].forEach(function(t) {
+        var btn = document.getElementById('ex-tab-' + t);
+        if (btn) { btn.style.background = t === tab ? '#9b59b6' : 'transparent'; btn.style.color = t === tab ? '#fff' : '#888'; }
     });
-    const content = document.getElementById('exampleTabContent');
+    var content = document.getElementById('exampleTabContent');
+    if (!content) return;
     if (tab === 'basic') showExampleBasic(content);
     else if (tab === 'intimate') showExampleIntimate(content);
     else showExample4F(content);
 }
 
 function showExampleBasic(container) {
-    container.innerHTML = `
-        <div style="background:#1a0a2e; border-radius:16px; padding:20px; margin-bottom:12px; text-align:center;">
-            <div style="width:56px; height:56px; border-radius:50%; background:#9b59b6;
-                        display:flex; align-items:center; justify-content:center;
-                        font-size:24px; font-weight:700; color:#fff; margin:0 auto 12px;">А</div>
-            <div style="font-size:18px; font-weight:700; color:#fff;">Алексей</div>
-            <div style="font-size:13px; color:#9b59b6; margin-top:4px;">СБ-4_ТФ-2_УБ-5_ЧВ-3</div>
-        </div>
-
-        <div style="background:#111; border-radius:16px; padding:20px; margin-bottom:12px;">
-            <div style="font-size:13px; font-weight:600; color:#9b59b6; margin-bottom:12px;">🔍 ТИП ВОСПРИЯТИЯ</div>
-            <div style="font-size:14px; color:#fff; font-weight:600;">ПРАКТИКО-ОРИЕНТИРОВАННЫЙ</div>
-            <div style="font-size:13px; color:#888; margin-top:4px; line-height:1.6;">
-                Фокусируется на конкретных результатах. Не терпит абстракций.
-                Принимает решения на основе фактов, а не ощущений.
-            </div>
-        </div>
-
-        <div style="background:#111; border-radius:16px; padding:20px; margin-bottom:12px;">
-            <div style="font-size:13px; font-weight:600; color:#9b59b6; margin-bottom:14px;">📊 ВЕКТОРЫ ПОВЕДЕНИЯ</div>
-            ${[['СБ','Самооборона',4,'#e74c3c'],['ТФ','Финансы',2,'#f39c12'],['УБ','Убеждения',5,'#27ae60'],['ЧВ','Чувства',3,'#3498db']].map(([k,name,val,color])=>`
-            <div style="margin-bottom:12px;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                    <span style="font-size:13px; color:#ccc;">${name} (${k})</span>
-                    <span style="font-size:13px; font-weight:700; color:${color};">${val}/6</span>
-                </div>
-                <div style="background:#1a1a1a; border-radius:4px; height:6px;">
-                    <div style="width:${Math.round(val/6*100)}%; height:100%; background:${color}; border-radius:4px;"></div>
-                </div>
-            </div>`).join('')}
-        </div>
-
-        <div style="background:#111; border-radius:16px; padding:20px;">
-            <div style="font-size:13px; font-weight:600; color:#9b59b6; margin-bottom:12px;">🌀 ГЛУБИННЫЕ ПАТТЕРНЫ</div>
-            <div style="font-size:13px; color:#ccc; line-height:1.8;">
-                <div>Привязанность: <b style="color:#fff;">Избегающий</b></div>
-                <div>Основные страхи: <b style="color:#fff;">потеря контроля, зависимость от других</b></div>
-                <div>Защитный механизм: <b style="color:#fff;">рационализация</b></div>
-                <div>Глубинное убеждение: <b style="color:#fff;">«Я должен справляться сам»</b></div>
-            </div>
-        </div>
-    `;
+    var html = '<div style="background:#1a0a2e;border-radius:16px;padding:20px;margin-bottom:12px;text-align:center;">';
+    html += '<div style="width:56px;height:56px;border-radius:50%;background:#9b59b6;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;margin:0 auto 12px;">А</div>';
+    html += '<div style="font-size:18px;font-weight:700;color:#fff;">Алексей</div>';
+    html += '<div style="font-size:13px;color:#9b59b6;margin-top:4px;">СБ-4 ТФ-2 УБ-5 ЧВ-3</div></div>';
+    html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:12px;">🔍 ТИП ВОСПРИЯТИЯ</div>';
+    html += '<div style="font-size:14px;color:#fff;font-weight:600;">ПРАКТИКО-ОРИЕНТИРОВАННЫЙ</div>';
+    html += '<div style="font-size:13px;color:#888;margin-top:4px;line-height:1.6;">Фокусируется на конкретных результатах. Принимает решения на основе фактов.</div></div>';
+    html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:14px;">📊 ВЕКТОРЫ ПОВЕДЕНИЯ</div>';
+    [['СБ','Самооборона',4,'#e74c3c'],['ТФ','Финансы',2,'#f39c12'],['УБ','Убеждения',5,'#27ae60'],['ЧВ','Чувства',3,'#3498db']].forEach(function(v) {
+        var pct = Math.round(v[2]/6*100);
+        html += '<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;margin-bottom:4px;">';
+        html += '<span style="font-size:13px;color:#ccc;">' + v[1] + ' (' + v[0] + ')</span>';
+        html += '<span style="font-size:13px;font-weight:700;color:' + v[3] + ';">' + v[2] + '/6</span></div>';
+        html += '<div style="background:#1a1a1a;border-radius:4px;height:6px;"><div style="width:' + pct + '%;height:100%;background:' + v[3] + ';border-radius:4px;"></div></div></div>';
+    });
+    html += '</div>';
+    html += '<div style="background:#111;border-radius:16px;padding:20px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:12px;">🌀 ГЛУБИННЫЕ ПАТТЕРНЫ</div>';
+    html += '<div style="font-size:13px;color:#ccc;line-height:1.8;">';
+    html += '<div>Привязанность: <b style="color:#fff;">Избегающий</b></div>';
+    html += '<div>Страхи: <b style="color:#fff;">потеря контроля, зависимость</b></div>';
+    html += '<div>Убеждение: <b style="color:#fff;">«Я должен справляться сам»</b></div>';
+    html += '</div></div>';
+    container.innerHTML = html;
 }
 
 function showExampleIntimate(container) {
-    container.innerHTML = `
-        <div style="background:#1a0005; border:1px solid #e74c3c33; border-radius:16px;
-                    padding:16px; margin-bottom:12px; text-align:center;">
-            <div style="font-size:24px; margin-bottom:6px;">🔞</div>
-            <div style="font-size:13px; color:#e74c3c; font-weight:600;">ИНТИМНЫЙ ПРОФИЛЬ</div>
-            <div style="font-size:12px; color:#666; margin-top:4px;">Доступен после прохождения теста другом</div>
-        </div>
-
-        <div style="background:#111; border-radius:16px; padding:20px; margin-bottom:12px;">
-            <div style="font-size:13px; font-weight:600; color:#e74c3c; margin-bottom:12px;">💋 ЧТО ВОЗБУЖДАЕТ</div>
-            <div style="font-size:13px; color:#ccc; line-height:1.8;">
-                <div>• Когда его не торопят и дают время</div>
-                <div>• Визуальные стимулы — важнее тактильных</div>
-                <div>• Ощущение контроля в близости</div>
-                <div>• Доверие, выраженное через принятие</div>
-            </div>
-        </div>
-
-        <div style="background:#111; border-radius:16px; padding:20px; margin-bottom:12px;">
-            <div style="font-size:13px; font-weight:600; color:#e74c3c; margin-bottom:12px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>
-            <div style="font-size:13px; color:#ccc; line-height:1.8;">
-                <div>• Давление и требования «прямо сейчас»</div>
-                <div>• Эмоциональные сцены перед близостью</div>
-                <div>• Ощущение что его оценивают</div>
-            </div>
-        </div>
-
-        <div style="background:#111; border-radius:16px; padding:20px;">
-            <div style="font-size:13px; font-weight:600; color:#e74c3c; margin-bottom:12px;">🧬 СЕКСУАЛЬНЫЙ ПАТТЕРН</div>
-            <div style="font-size:13px; color:#ccc; line-height:1.7;">
-                Избегающий тип в близости. Нуждается в ощущении свободы даже в отношениях.
-                Близость через общие задачи и проекты — сильнее чем через слова.
-                Прикосновения как якорь, а не как давление.
-            </div>
-        </div>
-    `;
+    var html = '<div style="background:#1a0005;border:1px solid #e74c3c33;border-radius:16px;padding:16px;margin-bottom:12px;text-align:center;">';
+    html += '<div style="font-size:24px;margin-bottom:6px;">🔞</div>';
+    html += '<div style="font-size:13px;color:#e74c3c;font-weight:600;">ИНТИМНЫЙ ПРОФИЛЬ — ПРИМЕР</div></div>';
+    html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#e74c3c;margin-bottom:12px;">💋 ЧТО ВОЗБУЖДАЕТ</div>';
+    ['Когда его не торопят и дают время','Визуальные стимулы','Ощущение контроля в близости'].forEach(function(t) {
+        html += '<div style="font-size:13px;color:#ccc;margin-bottom:4px;">• ' + t + '</div>';
+    });
+    html += '</div>';
+    html += '<div style="background:#111;border-radius:16px;padding:20px;margin-bottom:12px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#e74c3c;margin-bottom:12px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>';
+    ['Давление и требования','Эмоциональные сцены перед близостью','Ощущение оценки'].forEach(function(t) {
+        html += '<div style="font-size:13px;color:#ccc;margin-bottom:4px;">• ' + t + '</div>';
+    });
+    html += '</div>';
+    html += '<div style="background:#111;border-radius:16px;padding:20px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#e74c3c;margin-bottom:12px;">🧬 ПАТТЕРН БЛИЗОСТИ</div>';
+    html += '<div style="font-size:13px;color:#ccc;line-height:1.7;">Избегающий тип. Нуждается в ощущении свободы. Близость через общие задачи сильнее чем через слова.</div></div>';
+    container.innerHTML = html;
 }
 
 function showExample4F(container) {
-    container.innerHTML = `
-        <div style="background:#1a1000; border:1px solid #f39c1233; border-radius:16px;
-                    padding:16px; margin-bottom:16px; text-align:center;">
-            <div style="font-size:24px; margin-bottom:6px;">🔑</div>
-            <div style="font-size:13px; color:#f39c12; font-weight:600;">4F КЛЮЧИ</div>
-            <div style="font-size:12px; color:#666; margin-top:4px;">Ключи к 4 базовым реакциям психики</div>
-        </div>
-
-        ${[
-            ['🔥','1F','Ярость / Нападение','#e74c3c',
-                'Критика при свидетелях, обесценивание усилий',
-                '«Я вижу как много ты сделал» — снижает напряжение за 30 сек',
-                'Техника «Торможение»: пауза 3 секунды + имя'],
-            ['🏃','2F','Страх / Бегство','#3498db',
-                'Вопросы о будущем, требования, повышение голоса',
-                'Якорь безопасности: «Я никуда не ухожу, просто поговорим»',
-                'Техника «Безопасная среда»: без давления, без дедлайнов'],
-            ['🧬','3F','Желание / Секс','#9b59b6',
-                'Особая интонация + зрительный контакт 4+ секунды',
-                'Слова-пароли: «только мы», «никуда не торопимся», «ты можешь»',
-                '3 касания-ключа: плечо → запястье → основание шеи'],
-            ['🍽','4F','Деньги / Поглощение','#27ae60',
-                'Упоминание конкурентов, идеи заработка, вызов',
-                'Фраза-мотиватор: «Как ты думаешь, можно ли это монетизировать?»',
-                'Техника «Топливо»: дать задачу с измеримым результатом']
-        ].map(([emoji,code,title,color,trigger,key,tech]) => `
-        <div style="background:#111; border-radius:14px; padding:18px; margin-bottom:12px;
-                    border-left:3px solid ${color};">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-                <span style="font-size:20px;">${emoji}</span>
-                <div>
-                    <div style="font-size:14px; font-weight:700; color:#fff;">${code} — ${title}</div>
-                </div>
-            </div>
-            <div style="font-size:12px; color:#888; margin-bottom:8px;">
-                <span style="color:#666;">🎯 Триггер:</span> ${trigger}
-            </div>
-            <div style="font-size:12px; color:#ccc; margin-bottom:6px; line-height:1.6;">
-                <span style="color:${color};">🔑 Ключ:</span> ${key}
-            </div>
-            <div style="font-size:12px; color:#aaa; line-height:1.6;">
-                <span style="color:#666;">⚡ Техника:</span> ${tech}
-            </div>
-        </div>
-        `).join('')}
-    `;
+    var html = '<div style="background:#1a1000;border:1px solid #f39c1233;border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;">';
+    html += '<div style="font-size:24px;margin-bottom:6px;">🔑</div>';
+    html += '<div style="font-size:13px;color:#f39c12;font-weight:600;">4F КЛЮЧИ — ПРИМЕР</div></div>';
+    var keys4f = [
+        ['🔥','1F','Ярость','#e74c3c',['Критика при свидетелях','Обесценивание усилий','Игнорирование границ'],'«Я вижу как много ты сделал»','Пауза 3 сек + имя'],
+        ['🏃','2F','Страх','#3498db',['Вопросы о будущем','Повышение голоса','Требования'],'«Я никуда не ухожу, просто поговорим»','Без дедлайнов и давления'],
+        ['🧬','3F','Желание','#9b59b6',['Особая интонация','Зрительный контакт 4+ сек','Неожиданные касания'],'«только мы», «никуда не торопимся»','Плечо → запястье → шея'],
+        ['🍽','4F','Деньги','#27ae60',['Упоминание конкурентов','Идеи заработка','Вызов'],'«Как думаешь, можно это монетизировать?»','Задача с измеримым результатом']
+    ];
+    keys4f.forEach(function(k) {
+        html += '<div style="background:#111;border-left:3px solid ' + k[3] + ';border-radius:14px;padding:18px;margin-bottom:12px;">';
+        html += '<div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:12px;">' + k[0] + ' ' + k[1] + ' — ' + k[2] + '</div>';
+        html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">🎯 Триггеры</div>';
+        k[4].forEach(function(t) { html += '<div style="font-size:13px;color:#ccc;margin-bottom:3px;">• ' + t + '</div>'; });
+        html += '<div style="background:#0d0d0d;border-radius:10px;padding:12px;margin-top:10px;">';
+        html += '<div style="font-size:12px;color:' + k[3] + ';margin-bottom:4px;">🔑 Ключ</div>';
+        html += '<div style="font-size:13px;color:#fff;font-weight:600;">' + k[5] + '</div></div>';
+        html += '<div style="font-size:12px;color:#888;margin-top:8px;">⚡ ' + k[6] + '</div></div>';
+    });
+    container.innerHTML = html;
 }
 
-// ============================================
-// ЭКСПОРТ
-// ============================================
+
 window.showMirrorsScreen = showMirrorsScreen;
 window.switchMirrorTab = switchMirrorTab;
 window.generateMirrorLink = generateMirrorLink;
