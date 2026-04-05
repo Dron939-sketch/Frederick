@@ -758,6 +758,27 @@ async def init_database_tables():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_weekend_cache_expires ON weekend_ideas_cache(expires_at)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_morning_messages_user ON morning_messages(user_id, sent_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_last_activity ON users(last_activity DESC) WHERE is_active = TRUE")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS mirrors (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                mirror_code TEXT UNIQUE NOT NULL,
+                mirror_type TEXT NOT NULL DEFAULT 'web',
+                status TEXT NOT NULL DEFAULT 'active',
+                friend_user_id BIGINT,
+                friend_name TEXT,
+                friend_profile_code TEXT,
+                friend_vectors JSONB,
+                friend_deep_patterns JSONB,
+                friend_ai_profile TEXT,
+                friend_perception_type TEXT,
+                friend_thinking_level INTEGER,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                completed_at TIMESTAMP WITH TIME ZONE
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_mirrors_user_id ON mirrors(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_mirrors_code ON mirrors(mirror_code)")
         logger.info("✅ Все таблицы и индексы созданы")
 
 
@@ -2544,6 +2565,212 @@ if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info", reload=False)
 
 _lifespan_started = False
+
+
+# ============================================
+# 🪞 ЗЕРКАЛА / ОТРАЖЕНИЯ
+# ============================================
+
+@app.post("/api/mirrors/create")
+async def create_mirror(request: Request):
+    """Создаёт новое зеркало и возвращает ссылку"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        mirror_type = data.get("mirror_type", "web")  # telegram, max, web
+
+        if not user_id:
+            return {"success": False, "error": "user_id обязателен"}
+
+        import uuid
+        mirror_code = f"mirror_{uuid.uuid4().hex[:12]}"
+
+        # Ссылки по типу
+        links = {
+            "telegram": f"https://t.me/Nanotech_varik_bot?start={mirror_code}",
+            "max": f"https://max.ru/join/{mirror_code}",
+            "web": f"https://fredi-frontend.onrender.com/?ref={mirror_code}"
+        }
+        link = links.get(mirror_type, links["web"])
+
+        invite_texts = {
+            "telegram": "✨ Слушай, нашёл штуку которая определяет психологический профиль.\nУ меня — совпало процентов на 90.\n\n🤫 Интересно, у тебя тоже?",
+            "max": "✨ Есть одна штука.\nОпределяет твой психологический тип личности.\nУ меня — совпало процентов на 90.\n\n🤫 Интересно, у тебя тоже?",
+            "web": "✨ Слушай, нашёл интересный психологический тест.\nОн определил мой тип точнее чем что-либо раньше.\n\n🤫 Пройди — посмотрим насколько мы похожи?"
+        }
+        invite_text = invite_texts.get(mirror_type, invite_texts["web"])
+
+        async with db.get_connection() as conn:
+            # Убеждаемся что пользователь существует
+            await conn.execute("""
+                INSERT INTO users (user_id, created_at, updated_at, last_activity)
+                VALUES ($1, NOW(), NOW(), NOW())
+                ON CONFLICT (user_id) DO UPDATE SET last_activity = NOW()
+            """, int(user_id))
+
+            await conn.execute("""
+                INSERT INTO mirrors (user_id, mirror_code, mirror_type, status, created_at)
+                VALUES ($1, $2, $3, 'active', NOW())
+            """, int(user_id), mirror_code, mirror_type)
+
+        await log_event(int(user_id), "mirror_created", {"mirror_code": mirror_code, "mirror_type": mirror_type})
+
+        return {
+            "success": True,
+            "mirror_code": mirror_code,
+            "link": link,
+            "invite_text": invite_text,
+            "mirror_type": mirror_type
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка создания зеркала: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/mirrors/{user_id}")
+async def get_user_mirrors(user_id: int):
+    """Возвращает все зеркала пользователя"""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT mirror_code, mirror_type, status, created_at,
+                       friend_name, friend_profile_code, completed_at
+                FROM mirrors
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+            """, user_id)
+
+            mirrors = []
+            for row in rows:
+                m = dict(row)
+                if m.get("created_at"):
+                    m["created_at"] = m["created_at"].isoformat()
+                if m.get("completed_at"):
+                    m["completed_at"] = m["completed_at"].isoformat()
+                mirrors.append(m)
+
+            total = len(mirrors)
+            used = len([m for m in mirrors if m["status"] == "used"])
+
+            return {
+                "success": True,
+                "mirrors": mirrors,
+                "stats": {
+                    "total_mirrors": total,
+                    "used_mirrors": used
+                }
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения зеркал: {e}")
+        return {"success": False, "mirrors": [], "stats": {}}
+
+
+@app.get("/api/mirrors/{user_id}/reflections")
+async def get_user_reflections(user_id: int):
+    """Возвращает отражения — профили друзей которые прошли по ссылке"""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT mirror_code, mirror_type, friend_user_id, friend_name,
+                       friend_profile_code, friend_vectors, friend_deep_patterns,
+                       friend_ai_profile, friend_perception_type, friend_thinking_level,
+                       completed_at, created_at
+                FROM mirrors
+                WHERE user_id = $1 AND status = 'used'
+                ORDER BY completed_at DESC
+            """, user_id)
+
+            reflections = []
+            for row in rows:
+                r = dict(row)
+                if r.get("completed_at"):
+                    r["completed_at"] = r["completed_at"].isoformat()
+                if r.get("created_at"):
+                    r["created_at"] = r["created_at"].isoformat()
+                # JSONB уже dict
+                reflections.append(r)
+
+            total_mirrors_row = await conn.fetchval(
+                "SELECT COUNT(*) FROM mirrors WHERE user_id = $1", user_id)
+
+            return {
+                "success": True,
+                "reflections": reflections,
+                "stats": {
+                    "total_mirrors": total_mirrors_row or 0,
+                    "total_reflections": len(reflections)
+                }
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения отражений: {e}")
+        return {"success": False, "reflections": [], "stats": {}}
+
+
+@app.post("/api/mirrors/complete")
+async def complete_mirror(request: Request):
+    """Вызывается когда друг завершил тест по реферальной ссылке"""
+    try:
+        data = await request.json()
+        mirror_code = data.get("mirror_code")
+        friend_user_id = data.get("friend_user_id")
+        friend_name = data.get("friend_name", "Друг")
+        friend_profile_code = data.get("friend_profile_code")
+        friend_vectors = data.get("friend_vectors", {})
+        friend_deep_patterns = data.get("friend_deep_patterns", {})
+        friend_ai_profile = data.get("friend_ai_profile", "")
+        friend_perception_type = data.get("friend_perception_type")
+        friend_thinking_level = data.get("friend_thinking_level")
+
+        if not mirror_code:
+            return {"success": False, "error": "mirror_code обязателен"}
+
+        async with db.get_connection() as conn:
+            # Обновляем зеркало
+            result = await conn.execute("""
+                UPDATE mirrors SET
+                    status = 'used',
+                    friend_user_id = $2,
+                    friend_name = $3,
+                    friend_profile_code = $4,
+                    friend_vectors = $5,
+                    friend_deep_patterns = $6,
+                    friend_ai_profile = $7,
+                    friend_perception_type = $8,
+                    friend_thinking_level = $9,
+                    completed_at = NOW()
+                WHERE mirror_code = $1 AND status = 'active'
+            """,
+                mirror_code,
+                int(friend_user_id) if friend_user_id else None,
+                friend_name,
+                friend_profile_code,
+                json.dumps(friend_vectors) if isinstance(friend_vectors, dict) else friend_vectors,
+                json.dumps(friend_deep_patterns) if isinstance(friend_deep_patterns, dict) else friend_deep_patterns,
+                friend_ai_profile,
+                friend_perception_type,
+                int(friend_thinking_level) if friend_thinking_level else None
+            )
+
+            # Находим владельца зеркала для логирования
+            owner_row = await conn.fetchrow(
+                "SELECT user_id FROM mirrors WHERE mirror_code = $1", mirror_code)
+
+        if owner_row:
+            await log_event(owner_row["user_id"], "mirror_completed", {
+                "mirror_code": mirror_code,
+                "friend_name": friend_name,
+                "friend_profile_code": friend_profile_code
+            })
+
+        return {"success": True, "message": "Зеркало активировано"}
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка завершения зеркала: {e}")
+        return {"success": False, "error": str(e)}
+
 
 async def _force_lifespan():
     global _lifespan_started
