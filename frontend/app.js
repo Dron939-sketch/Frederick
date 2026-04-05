@@ -332,16 +332,116 @@ function addMessage(text, sender = 'bot', audioUrl = null) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-function showLoading(message) {
+// ============================================
+// СИСТЕМА ЗАГРУЗКИ
+// ============================================
+
+// Глобальный флаг против двойных нажатий
+let _isLoading = false;
+
+function showLoading(message, subtext) {
     const container = document.getElementById('screenContainer');
-    if (container) {
-        container.innerHTML = `
-            <div class="loading-screen">
-                <div class="loading-spinner">🧠</div>
-                <div class="loading-text">${message}</div>
-            </div>
-        `;
+    if (!container) return;
+    _isLoading = true;
+
+    // Обновляем текст если лоадер уже показан
+    const existing = container.querySelector('.fredi-loader-wrap');
+    if (existing) {
+        const txt = existing.querySelector('.fredi-loader-msg');
+        const sub = existing.querySelector('.fredi-loader-sub');
+        if (txt) txt.textContent = message || 'Загружаю...';
+        if (sub && subtext) sub.textContent = subtext;
+        return;
     }
+
+    container.innerHTML = `
+        <div class="fredi-loader-wrap">
+            <div class="fredi-loader-inner">
+                <div class="fredi-loader-ring">
+                    <div class="fredi-loader-dot"></div>
+                    <div class="fredi-loader-dot"></div>
+                    <div class="fredi-loader-dot"></div>
+                    <div class="fredi-loader-dot"></div>
+                </div>
+                <div class="fredi-loader-emoji">🧠</div>
+                <div class="fredi-loader-msg">${message || 'Загружаю...'}</div>
+                ${subtext ? `<div class="fredi-loader-sub">${subtext}</div>` : '<div class="fredi-loader-sub">Обычно это занимает несколько секунд</div>'}
+            </div>
+        </div>
+        <style>
+            .fredi-loader-wrap {
+                display: flex; align-items: center; justify-content: center;
+                min-height: 60vh; padding: 40px 20px;
+            }
+            .fredi-loader-inner {
+                text-align: center; display: flex; flex-direction: column;
+                align-items: center; gap: 12px;
+            }
+            .fredi-loader-ring {
+                position: relative; width: 64px; height: 64px;
+            }
+            .fredi-loader-dot {
+                position: absolute; width: 12px; height: 12px;
+                border-radius: 50%; background: #ff6b3b;
+                animation: loaderOrbit 1.4s ease-in-out infinite;
+            }
+            .fredi-loader-dot:nth-child(1) { animation-delay: 0s; }
+            .fredi-loader-dot:nth-child(2) { animation-delay: 0.35s; }
+            .fredi-loader-dot:nth-child(3) { animation-delay: 0.7s; }
+            .fredi-loader-dot:nth-child(4) { animation-delay: 1.05s; }
+            @keyframes loaderOrbit {
+                0%   { transform: rotate(0deg) translateX(26px) scale(1); opacity: 1; }
+                50%  { transform: rotate(180deg) translateX(26px) scale(0.6); opacity: 0.4; }
+                100% { transform: rotate(360deg) translateX(26px) scale(1); opacity: 1; }
+            }
+            .fredi-loader-emoji {
+                font-size: 32px; margin-top: 4px;
+                animation: loaderPulse 2s ease-in-out infinite;
+            }
+            @keyframes loaderPulse {
+                0%,100% { transform: scale(1); opacity: 0.8; }
+                50%      { transform: scale(1.1); opacity: 1; }
+            }
+            .fredi-loader-msg {
+                font-size: 15px; font-weight: 600; color: #e0e0e0;
+                margin-top: 4px; letter-spacing: 0.2px;
+            }
+            .fredi-loader-sub {
+                font-size: 12px; color: rgba(255,255,255,0.35);
+                max-width: 240px; line-height: 1.5;
+            }
+        </style>
+    `;
+}
+
+function hideLoading() {
+    _isLoading = false;
+}
+
+// Обёртка для защиты от двойных нажатий
+function withLoading(message, subtext, asyncFn) {
+    return async function(...args) {
+        if (_isLoading) return;
+        showLoading(message, subtext);
+        try {
+            await asyncFn(...args);
+        } finally {
+            hideLoading();
+        }
+    };
+}
+
+// Блокируем кнопку на время действия
+function lockBtn(el, ms) {
+    if (!el) return;
+    el.disabled = true;
+    el.style.opacity = '0.5';
+    el.style.pointerEvents = 'none';
+    setTimeout(() => {
+        el.disabled = false;
+        el.style.opacity = '';
+        el.style.pointerEvents = '';
+    }, ms || 3000);
 }
 
 // ============================================
@@ -366,7 +466,6 @@ function navigateTo(screen, params = {}) {
         case 'hypnosis': if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};document.head.appendChild(s); } break;
         case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } break;
         case 'anchors': showAnchors(); break;
-        case 'mirrors': if (typeof showMirrorsScreen==='function') showMirrorsScreen(); break;
         case 'statistics': showStatistics(); break;
         case 'analysis':
             if (typeof openAnalysisScreen === 'function') {
@@ -619,7 +718,7 @@ async function switchMode(mode) {
 // ============================================
 
 async function handleShowProfile() {
-    showLoading('Загружаю психологический портрет...');
+    showLoading('Загружаю психологический портрет...', 'AI анализирует ваши данные');
     try {
         const data = await apiCall(`/api/get-profile/${CONFIG.USER_ID}`);
         const profile = data.profile || {};
@@ -650,7 +749,7 @@ async function handleShowProfile() {
 }
 
 async function handleShowThoughts() {
-    showLoading('Загружаю мысли психолога...');
+    showLoading('Загружаю мысли психолога...', 'Фреди формулирует наблюдения');
     const thought = await getPsychologistThought();
     if (!thought) { showToast('Мысли психолога появятся после прохождения теста', 'info'); return; }
     const clean = thought
@@ -688,21 +787,21 @@ async function handleShowWeekend() {
 }
 
 async function handleShowGoals() {
-    showLoading('Загружаю цели...');
+    showLoading('Загружаю цели...', 'Подбираю цели под ваш профиль');
     const goals = await getUserGoals();
     if (goals.length) showFullContentScreen('🎯 Ваши цели', goals.map(g => `**${g.name}**\n⏱ ${g.time || '?'}  |  🎯 ${g.difficulty || 'medium'}`).join('\n\n'), 'goals');
     else showToast('Цели появятся после прохождения теста', 'info');
 }
 
 async function handleShowQuestions() {
-    showLoading('Подбираю вопросы...');
+    showLoading('Подбираю вопросы...', 'Анализирую ваши паттерны');
     const questions = await getSmartQuestions();
     if (questions.length) showFullContentScreen('❓ Вопросы для размышления', questions.map((q, i) => `${i + 1}. ${q}`).join('\n\n'), 'questions');
     else showToast('Вопросы появятся после прохождения теста', 'info');
 }
 
 async function handleShowChallenges() {
-    showLoading('Загружаю челленджи...');
+    showLoading('Загружаю челленджи...', 'Формирую персональный план');
     const challenges = await getChallenges();
     if (challenges.length) showFullContentScreen('🏆 Челленджи', challenges.map(c => `**${c.name}**\n${c.description}\n🎁 Награда: ${c.reward} очков`).join('\n\n'), 'challenges');
     else showToast('Челленджи появятся после прохождения теста', 'info');
@@ -729,6 +828,7 @@ async function handleShowDoubles() {
         return;
     }
 
+    showLoading('Ищу двойников...', 'Сравниваю психологические профили');
     if (typeof showDoublesScreen === 'function') {
         showDoublesScreen();
     } else {
@@ -750,7 +850,7 @@ async function handleShowDoubles() {
 
 async function showConfinementModel() {
     const container = document.getElementById('screenContainer');
-    showToast('Загружаю модель ограничений...', 'info');
+    showLoading('Загружаю модель ограничений...', 'Анализирую систему паттернов');
 
     const model = await getConfinementModel();
     if (!model) {
@@ -842,7 +942,7 @@ async function showConfinementModel() {
 
 async function showConfinementLoops(params) {
     const container = document.getElementById('screenContainer');
-    showToast('Анализирую петли...', 'info');
+    showLoading('Анализирую петли...', 'Исследую замкнутые циклы');
     const loopsData = await getConfinementLoops();
 
     let loopsHtml = '';
@@ -872,7 +972,7 @@ async function showConfinementLoops(params) {
 async function showIntervention(params) {
     const elementId = params.elementId;
     const container = document.getElementById('screenContainer');
-    showToast('Загружаю интервенцию...', 'info');
+    showLoading('Загружаю интервенцию...', 'Формирую персональную практику');
     const intervention = await getIntervention(elementId);
 
     let html = '';
@@ -990,7 +1090,7 @@ async function showHypnosis() {
 // Переименована чтобы не конфликтовать с функцией getTales (API)
 async function showTales_screen() {
     const container = document.getElementById('screenContainer');
-    showToast('Загружаю библиотеку сказок...', 'info');
+    showLoading('Загружаю библиотеку сказок...', 'Подготавливаю терапевтические истории');
     const talesData = await getTales();
     const talesList = talesData.available_tales || [];
 
@@ -1048,7 +1148,7 @@ async function showTales_screen() {
 
 async function showAnchors() {
     const container = document.getElementById('screenContainer');
-    showToast('Загружаю якоря...', 'info');
+    showLoading('Загружаю якоря...', 'Восстанавливаю ваши состояния');
     const anchors = await getUserAnchors();
 
     const anchorsHtml = anchors?.length
@@ -1375,6 +1475,10 @@ function renderDashboard() {
 
     document.querySelectorAll('.module-card').forEach(card => {
         card.addEventListener('click', () => {
+            if (card.dataset.loading === 'true') return;
+            card.dataset.loading = 'true';
+            card.style.opacity = '0.6';
+            setTimeout(() => { card.dataset.loading = 'false'; card.style.opacity = ''; }, 4000);
             const moduleId = card.dataset.module;
             const _load = (src, fn) => { if (typeof fn==='function') { fn(); } else { const s=document.createElement('script'); s.src=src; s.onload=()=>{ if(typeof fn==='function') fn(); }; document.head.appendChild(s); } };
             const moduleHandlers = {
@@ -1400,6 +1504,15 @@ function renderDashboard() {
 
     document.querySelectorAll('.quick-action').forEach(action => {
         action.addEventListener('click', async () => {
+            if (action.dataset.loading === 'true') return;
+            action.dataset.loading = 'true';
+            action.style.opacity = '0.6';
+            action.style.transform = 'scale(0.97)';
+            setTimeout(() => {
+                action.dataset.loading = 'false';
+                action.style.opacity = '';
+                action.style.transform = '';
+            }, 4000);
             const type = action.dataset.action;
             const handlers = {
                 profile: handleShowProfile,
@@ -1538,8 +1651,7 @@ async function init() {
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => showAnchors(),
-                statistics: () => showStatistics(),
-                mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); }
+                statistics: () => showStatistics()
             };
             (actions[chat] || renderDashboard)();
 
