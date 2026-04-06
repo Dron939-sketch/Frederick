@@ -425,13 +425,7 @@ body::after {
     width: 8px; height: 8px;
     border-radius: 50%;
     background: #ff6b3b;
-    animation: pulseMode 2s infinite;
     flex-shrink: 0;
-}
-
-@keyframes pulseMode {
-    0%, 100% { opacity: 0.5; }
-    50% { opacity: 1; }
 }
 
 .screen-container {
