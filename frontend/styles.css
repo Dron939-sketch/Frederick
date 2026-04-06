@@ -76,7 +76,7 @@ textarea {
 body::before {
     content: '';
     position: fixed;
-    inset: 0;
+    inset: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0) 0;
     background:
         radial-gradient(circle at 30% 40%, rgba(224, 224, 224, 0.03) 0%, transparent 60%),
         radial-gradient(circle at 70% 80%, rgba(255, 59, 59, 0.02) 0%, transparent 60%);
@@ -1321,7 +1321,7 @@ body::after {
     border: 1px solid rgba(224, 224, 224, 0.15);
     background: rgba(224, 224, 224, 0.05);
     transition: background 0.2s, border-color 0.2s, color 0.2s;
-    min-height: 40px;
+    min-height: 44px;
     text-transform: none;
     letter-spacing: 0;
     font-weight: normal;
@@ -1866,7 +1866,7 @@ body::after {
         position: sticky;
         bottom: 0;
         background: linear-gradient(to top, var(--black-obsidian) 70%, transparent);
-        padding: 12px 16px 16px;
+        padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
         margin: 0 -16px -16px;
         z-index: 10;
         -webkit-backdrop-filter: blur(10px);
@@ -1875,7 +1875,7 @@ body::after {
 
     .voice-card { margin-bottom: 6px; }
     .voice-record-btn-premium { padding: 18px 20px; font-size: 16px; }
-    .dashboard-container { padding-bottom: 120px; }
+    .dashboard-container { padding-bottom: max(120px, calc(env(safe-area-inset-bottom, 0px) + 100px)); }
 
     .screen-container {
         padding: 16px;
@@ -1910,11 +1910,22 @@ body::after {
 /* Маленькие телефоны */
 @media (max-width: 375px) {
     .voice-record-btn-premium { padding: 16px; font-size: 14px; }
+    .quick-actions-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; }
     .quick-action { padding: 8px 4px; min-height: 70px; }
     .action-icon { font-size: 18px; }
     .action-name { font-size: 8px; }
     .mode-btn { font-size: 10px; }
     .test-message-bubble { max-width: 95%; }
+}
+
+/* Очень маленькие телефоны (320px) */
+@media (max-width: 340px) {
+    .quick-actions-grid { grid-template-columns: repeat(3, 1fr); }
+    .mode-selector { gap: 4px; }
+    .mode-btn { font-size: 9px; padding: 8px 6px; }
+    .voice-record-btn-premium { padding: 14px 12px; font-size: 13px; min-height: 56px; }
+    .action-name { font-size: 7px; }
+    .dashboard-container { padding: 12px; }
 }
 
 /* До 480px */
@@ -1937,6 +1948,20 @@ body::after {
     .test-chat-container { max-width: 70%; width: 70%; margin: 0 auto; }
 }
 
+/* Ландшафтная ориентация на мобильных */
+@media (max-height: 500px) and (orientation: landscape) {
+    .voice-section { position: relative; padding: 8px 16px; }
+    .voice-record-btn-premium { min-height: 48px; padding: 12px 16px; }
+    .dashboard-container { padding-bottom: 24px; }
+    .mode-selector { margin-bottom: 8px; }
+    .mode-btn { min-height: 36px; padding: 6px 12px; font-size: 11px; }
+    .modules-grid { gap: 8px; }
+    .module-card { padding: 12px 10px; }
+    .quick-action { min-height: 60px; padding: 8px 4px; }
+    .chat-header { padding: 8px 16px; }
+    .screen-container { padding-top: 8px; }
+}
+
 /* ===== БРАУЗЕРНЫЕ ФИКСЫ ===== */
 
 /* Firefox — убираем красную тень невалидных полей */
@@ -1955,3 +1980,9 @@ input:invalid, textarea:invalid { box-shadow: none; }
 .app, .chat-panel, .chats-panel, .test-chat-container {
     min-height: 0;
 }
+
+/* Предотвращение горизонтального скролла */
+html, body { overflow-x: hidden; }
+
+/* Глобальный box-sizing для input'ов */
+input, textarea, select, button { box-sizing: border-box; }
