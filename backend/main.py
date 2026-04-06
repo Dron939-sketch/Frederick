@@ -788,6 +788,7 @@ async def init_database_tables():
                 is_active BOOLEAN DEFAULT TRUE
             )
         """)
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_deep_analyses_user_id ON fredi_deep_analyses(user_id, created_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_messages_user_id_created ON fredi_messages(user_id, created_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_events_user_id ON fredi_events(user_id, created_at DESC)")
