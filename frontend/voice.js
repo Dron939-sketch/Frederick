@@ -734,8 +734,13 @@ class VoiceTransport {
     // ---- ОТПРАВКА АУДИО ----
 
     async sendAudio(audioBlob) {
-        const minBytes = (VoiceConfig.recording.minDuration / 1000) *
-                         VoiceConfig.recording.sampleRate * 2;
+        const blobType = audioBlob.type || '';
+        const isCompressed = blobType.includes('mp4') || blobType.includes('aac') ||
+                             blobType.includes('webm') || blobType.includes('ogg');
+        // Сжатые форматы (iOS MediaRecorder) весят в ~10-20 раз меньше PCM WAV
+        const minBytes = isCompressed
+            ? 1000
+            : (VoiceConfig.recording.minDuration / 1000) * VoiceConfig.recording.sampleRate * 2;
         if (audioBlob.size < minBytes) {
             if (this.onError) this.onError('Говорите немного дольше');
             return false;
