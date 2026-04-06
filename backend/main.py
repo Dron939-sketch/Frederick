@@ -28,7 +28,8 @@ import traceback
 from fastapi import FastAPI, Request, HTTPException, Depends, File, UploadFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, FileResponse, Response
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -3088,5 +3089,25 @@ if __name__ != "__main__":
             loop.run_until_complete(_force_lifespan())
     except RuntimeError:
         asyncio.run(_force_lifespan())
+
+# ============================================
+# СТАТИКА ФРОНТЕНДА (для fredium.ru и прямого доступа)
+# ============================================
+
+_frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+
+if os.path.isdir(_frontend_dir):
+    @app.get("/", response_class=HTMLResponse)
+    async def serve_index():
+        index_path = os.path.join(_frontend_dir, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path, media_type="text/html")
+        return HTMLResponse("<h1>Frontend not found</h1>", status_code=404)
+
+    # Маунтим статику ПОСЛЕ всех API-роутов
+    app.mount("/", StaticFiles(directory=_frontend_dir), name="frontend")
+    logger.info(f"📁 Frontend static files served from {_frontend_dir}")
+else:
+    logger.warning(f"⚠️ Frontend directory not found: {_frontend_dir}")
 
 application = app
