@@ -353,7 +353,7 @@ function _ptReflection() {
             <textarea class="pt-textarea" id="ptReflInput"
                 placeholder="Что получилось сегодня? Что было сложно? Что заметили в себе?"></textarea>
         </div>
-        <button class="pt-btn pt-btn-primary" id="ptSaveRefl" style="margin-bottom:20px">💾 Сохранить</button>
+        <button class="pt-btn pt-btn-primary" id="ptSaveRefl" style="margin-bottom:max(20px, calc(env(safe-area-inset-bottom, 0px) + 20px))">💾 Сохранить</button>
 
         <div class="pt-section-label">Все записи (${reflections.length})</div>
         ${reflHtml}`;

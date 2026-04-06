@@ -817,6 +817,7 @@ body::after {
     color: var(--text-secondary);
     overflow-y: auto;
     padding-right: 8px;
+    padding-bottom: max(20px, calc(env(safe-area-inset-bottom, 0px) + 16px));
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: rgba(224, 224, 224, 0.3) transparent;
