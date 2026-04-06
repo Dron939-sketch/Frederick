@@ -1310,7 +1310,14 @@ async def process_voice(
         if len(audio_bytes) < 1000:
             return {"success": False, "error": "Аудио файл слишком короткий"}
 
-        recognized_text = await voice_service.speech_to_text(audio_bytes, "wav")
+        # Определяем формат из имени файла (iOS отправляет mp4/aac, не wav)
+        audio_format = "wav"
+        if voice.filename:
+            ext = voice.filename.rsplit('.', 1)[-1].lower() if '.' in voice.filename else ""
+            if ext in ("mp4", "aac", "webm", "ogg", "mp3"):
+                audio_format = ext
+
+        recognized_text = await voice_service.speech_to_text(audio_bytes, audio_format)
         if not recognized_text or not recognized_text.strip():
             return {"success": False, "error": "Не удалось распознать речь"}
 
