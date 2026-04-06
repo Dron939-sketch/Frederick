@@ -41,7 +41,7 @@ function _injectStyles() {
         .analysis-page {
             max-width: 860px;
             margin: 0 auto;
-            padding: 20px 16px 120px;
+            padding: 20px 16px max(120px, calc(env(safe-area-inset-bottom, 0px) + 100px));
         }
 
         /* ===== ЗАГОЛОВОК ===== */
@@ -392,7 +392,7 @@ function _injectStyles() {
         }
 
         @media (max-width: 768px) {
-            .analysis-page { padding: 16px 12px 120px; }
+            .analysis-page { padding: 16px 12px max(120px, calc(env(safe-area-inset-bottom, 0px) + 100px)); }
             .analysis-heading h1 { font-size: 20px; }
             .analysis-tab-btn { padding: 7px 12px; font-size: 12px; }
             .analysis-footer { padding: 12px 16px; padding-bottom: max(12px, calc(env(safe-area-inset-bottom) + 10px)); }

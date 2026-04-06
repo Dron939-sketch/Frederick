@@ -919,7 +919,7 @@ function _renderResults(container) {
                   `Найдено ${results.length} человек`)}
         <div class="content-body">
             ${cardsHtml}
-            <div class="db-bottom-row">
+            <div class="db-bottom-row" style="padding-bottom:max(20px, calc(env(safe-area-inset-bottom, 0px) + 20px))">
                 <button class="db-bottom-btn db-bottom-btn-primary" id="dbNewSearch">🔄 Новый поиск</button>
                 <button class="db-bottom-btn db-bottom-btn-secondary" id="dbChangeGoal">🎯 Другая цель</button>
             </div>
