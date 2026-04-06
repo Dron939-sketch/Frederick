@@ -36,7 +36,7 @@ class MessageRepository:
         try:
             condition, value = self._get_id_condition(user_id)
             await self.db.execute("""
-                INSERT INTO messages (user_id, role, content, metadata, created_at)
+                INSERT INTO fredi_messages (user_id, role, content, metadata, created_at)
                 VALUES ($1, $2, $3, $4, NOW())
             """, value, role, content, json.dumps(metadata or {}))
             
@@ -70,7 +70,7 @@ class MessageRepository:
             condition, value = self._get_id_condition(user_id)
             rows = await self.db.fetch(f"""
                 SELECT role, content, metadata, created_at
-                FROM messages
+                FROM fredi_messages
                 WHERE {condition}
                 ORDER BY created_at DESC
                 LIMIT $2
@@ -115,7 +115,7 @@ class MessageRepository:
             condition, value = self._get_id_condition(user_id)
             row = await self.db.fetchrow(f"""
                 SELECT role, content, created_at
-                FROM messages
+                FROM fredi_messages
                 WHERE {condition}
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -139,7 +139,7 @@ class MessageRepository:
         try:
             condition, value = self._get_id_condition(user_id)
             await self.db.execute(f"""
-                DELETE FROM messages WHERE {condition}
+                DELETE FROM fredi_messages WHERE {condition}
             """, value)
             
             if self.cache:
@@ -159,7 +159,7 @@ class MessageRepository:
         try:
             condition, value = self._get_id_condition(user_id)
             count = await self.db.fetchval(f"""
-                SELECT COUNT(*) FROM messages WHERE {condition}
+                SELECT COUNT(*) FROM fredi_messages WHERE {condition}
             """, value)
             return count or 0
         except Exception as e:
@@ -172,7 +172,7 @@ class MessageRepository:
             condition, value = self._get_id_condition(user_id)
             rows = await self.db.fetch(f"""
                 SELECT role, content
-                FROM messages
+                FROM fredi_messages
                 WHERE {condition}
                 ORDER BY created_at DESC
                 LIMIT $2

@@ -22,10 +22,10 @@ class PushService:
         try:
             async with self.db.get_connection() as conn:
                 await conn.execute("""
-                    UPDATE push_subscriptions SET is_active = FALSE WHERE user_id = $1
+                    UPDATE fredi_push_subscriptions SET is_active = FALSE WHERE user_id = $1
                 """, user_id)
                 await conn.execute("""
-                    INSERT INTO push_subscriptions (user_id, subscription, created_at)
+                    INSERT INTO fredi_push_subscriptions (user_id, subscription, created_at)
                     VALUES ($1, $2, NOW())
                     ON CONFLICT DO NOTHING
                 """, user_id, json.dumps(subscription))
@@ -40,12 +40,12 @@ class PushService:
             async with self.db.get_connection() as conn:
                 if user_id:
                     rows = await conn.fetch("""
-                        SELECT subscription FROM push_subscriptions
+                        SELECT subscription FROM fredi_push_subscriptions
                         WHERE user_id = $1 AND is_active = TRUE
                     """, user_id)
                 else:
                     rows = await conn.fetch("""
-                        SELECT subscription FROM push_subscriptions WHERE is_active = TRUE
+                        SELECT subscription FROM fredi_push_subscriptions WHERE is_active = TRUE
                     """)
                 result = []
                 for row in rows:
@@ -115,7 +115,7 @@ class PushService:
         try:
             async with self.db.get_connection() as conn:
                 await conn.execute("""
-                    UPDATE push_subscriptions SET is_active = FALSE
+                    UPDATE fredi_push_subscriptions SET is_active = FALSE
                     WHERE subscription @> $1::jsonb
                 """, json.dumps(subscription))
         except Exception as e:

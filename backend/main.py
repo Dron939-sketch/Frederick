@@ -412,10 +412,10 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         user_id_for_db = user_id
         logger.info(f"✅ Новый формат (строка): {user_id_for_db}")
         async with db.get_connection() as conn:
-            exists = await conn.fetchval("SELECT 1 FROM users WHERE user_id::text = $1", user_id)
+            exists = await conn.fetchval("SELECT 1 FROM fredi_users WHERE user_id::text = $1", user_id)
             if not exists:
                 await conn.execute(
-                    "INSERT INTO users (user_id, username, created_at, last_activity) VALUES ($1, $2, NOW(), NOW())",
+                    "INSERT INTO fredi_users (user_id, username, created_at, last_activity) VALUES ($1, $2, NOW(), NOW())",
                     user_id, f"user_{user_id}"
                 )
                 logger.info(f"📝 Создан пользователь со строковым ID: {user_id}")
@@ -649,11 +649,13 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
 async def init_database_tables():
     async with db.get_connection() as conn:
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
+            CREATE TABLE IF NOT EXISTS fredi_users (
                 user_id BIGINT PRIMARY KEY,
                 username TEXT,
                 first_name TEXT,
                 last_name TEXT,
+                language_code TEXT,
+                platform TEXT DEFAULT 'web',
                 profile JSONB DEFAULT '{}',
                 settings JSONB DEFAULT '{}',
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -663,18 +665,41 @@ async def init_database_tables():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_contexts (
-                user_id BIGINT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
-                context JSONB NOT NULL DEFAULT '{}',
+            CREATE TABLE IF NOT EXISTS fredi_user_contexts (
+                user_id BIGINT PRIMARY KEY REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                name TEXT,
+                age INTEGER,
+                gender TEXT,
+                city TEXT,
+                birth_date DATE,
+                timezone TEXT DEFAULT 'Europe/Moscow',
+                timezone_offset INTEGER DEFAULT 3,
+                communication_mode TEXT DEFAULT 'coach',
+                last_context_update TIMESTAMP WITH TIME ZONE,
                 weather_cache JSONB,
                 weather_cache_time TIMESTAMP WITH TIME ZONE,
+                family_status TEXT,
+                has_children BOOLEAN DEFAULT FALSE,
+                children_ages TEXT,
+                work_schedule TEXT,
+                job_title TEXT,
+                commute_time INTEGER,
+                housing_type TEXT,
+                has_private_space BOOLEAN DEFAULT FALSE,
+                has_car BOOLEAN DEFAULT FALSE,
+                support_people TEXT,
+                resistance_people TEXT,
+                energy_level INTEGER,
+                life_context_complete BOOLEAN DEFAULT FALSE,
+                awaiting_context TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
+            CREATE TABLE IF NOT EXISTS fredi_messages (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
                 content TEXT NOT NULL,
                 metadata JSONB DEFAULT '{}',
@@ -682,9 +707,9 @@ async def init_database_tables():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS test_results (
+            CREATE TABLE IF NOT EXISTS fredi_test_results (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 test_type TEXT NOT NULL,
                 results JSONB NOT NULL,
                 profile_code TEXT,
@@ -697,10 +722,10 @@ async def init_database_tables():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS psychologist_thoughts (
+            CREATE TABLE IF NOT EXISTS fredi_psychologist_thoughts (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
-                test_result_id BIGINT REFERENCES test_results(id) ON DELETE SET NULL,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                test_result_id BIGINT REFERENCES fredi_test_results(id) ON DELETE SET NULL,
                 thought_type TEXT NOT NULL DEFAULT 'psychologist_thought',
                 thought_text TEXT NOT NULL,
                 thought_summary TEXT,
@@ -710,18 +735,18 @@ async def init_database_tables():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS events (
+            CREATE TABLE IF NOT EXISTS fredi_events (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 event_type TEXT NOT NULL,
                 event_data JSONB,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS reminders (
+            CREATE TABLE IF NOT EXISTS fredi_reminders (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 reminder_type TEXT NOT NULL,
                 remind_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 data JSONB,
@@ -731,9 +756,9 @@ async def init_database_tables():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS weekend_ideas_cache (
+            CREATE TABLE IF NOT EXISTS fredi_weekend_ideas_cache (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 ideas_text TEXT NOT NULL,
                 main_vector TEXT,
                 main_level INTEGER,
@@ -742,9 +767,9 @@ async def init_database_tables():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS morning_messages (
+            CREATE TABLE IF NOT EXISTS fredi_morning_messages (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 message_text TEXT NOT NULL,
                 message_type TEXT NOT NULL,
                 day_number INTEGER DEFAULT 1,
@@ -753,9 +778,9 @@ async def init_database_tables():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS deep_analyses (
+            CREATE TABLE IF NOT EXISTS fredi_deep_analyses (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 analysis_text TEXT NOT NULL,
                 analysis_type TEXT DEFAULT 'deep_analysis',
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -763,30 +788,30 @@ async def init_database_tables():
                 is_active BOOLEAN DEFAULT TRUE
             )
         """)
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_deep_analyses_user_id ON deep_analyses(user_id, created_at DESC)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id_created ON messages(user_id, created_at DESC)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_events_user_id ON events(user_id, created_at DESC)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, created_at DESC)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_user_id ON test_results(user_id, created_at DESC)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_profile ON test_results(profile_code) WHERE profile_code IS NOT NULL")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_reminders_pending ON reminders(remind_at) WHERE is_sent = FALSE")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_weekend_cache_expires ON weekend_ideas_cache(expires_at)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_morning_messages_user ON morning_messages(user_id, sent_at DESC)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_last_activity ON users(last_activity DESC) WHERE is_active = TRUE")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_deep_analyses_user_id ON fredi_deep_analyses(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_messages_user_id_created ON fredi_messages(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_events_user_id ON fredi_events(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_events_type ON fredi_events(event_type, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_test_results_user_id ON fredi_test_results(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_test_results_profile ON fredi_test_results(profile_code) WHERE profile_code IS NOT NULL")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_reminders_pending ON fredi_reminders(remind_at) WHERE is_sent = FALSE")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_weekend_cache_expires ON fredi_weekend_ideas_cache(expires_at)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_morning_messages_user ON fredi_morning_messages(user_id, sent_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_users_last_activity ON fredi_users(last_activity DESC) WHERE is_active = TRUE")
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS push_subscriptions (
+            CREATE TABLE IF NOT EXISTS fredi_push_subscriptions (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 subscription JSONB NOT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id) WHERE is_active = TRUE")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_push_user ON fredi_push_subscriptions(user_id) WHERE is_active = TRUE")
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS mirrors (
+            CREATE TABLE IF NOT EXISTS fredi_mirrors (
                 id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
                 mirror_code TEXT UNIQUE NOT NULL,
                 mirror_type TEXT NOT NULL DEFAULT 'web',
                 status TEXT NOT NULL DEFAULT 'active',
@@ -802,8 +827,8 @@ async def init_database_tables():
                 completed_at TIMESTAMP WITH TIME ZONE
             )
         """)
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_mirrors_user_id ON mirrors(user_id, created_at DESC)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_mirrors_code ON mirrors(mirror_code)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_mirrors_user_id ON fredi_mirrors(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_mirrors_code ON fredi_mirrors(mirror_code)")
         for col, coltype in [
             ("intimate_profile_cache","JSONB"),
             ("intimate_generated_at","TIMESTAMP WITH TIME ZONE"),
@@ -811,7 +836,26 @@ async def init_database_tables():
             ("four_f_generated_at","TIMESTAMP WITH TIME ZONE"),
         ]:
             try:
-                await conn.execute(f"ALTER TABLE mirrors ADD COLUMN IF NOT EXISTS {col} {coltype}")
+                await conn.execute(f"ALTER TABLE fredi_mirrors ADD COLUMN IF NOT EXISTS {col} {coltype}")
+            except Exception:
+                pass
+        # New table: fredi_user_data (shared with bots)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_user_data (
+                user_id BIGINT PRIMARY KEY REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                data JSONB NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        # Add columns to fredi_test_results that exist in bots
+        for col, coltype in [
+            ("deep_patterns", "JSONB"),
+            ("current_destination", "JSONB"),
+            ("current_route", "JSONB"),
+        ]:
+            try:
+                await conn.execute(f"ALTER TABLE fredi_test_results ADD COLUMN IF NOT EXISTS {col} {coltype}")
             except Exception:
                 pass
         logger.info("✅ Все таблицы и индексы созданы")
@@ -825,10 +869,10 @@ async def cleanup_old_data():
         try:
             await asyncio.sleep(3600)
             async with db.get_connection() as conn:
-                await conn.execute("DELETE FROM messages WHERE created_at < NOW() - INTERVAL '30 days'")
-                await conn.execute("DELETE FROM events WHERE created_at < NOW() - INTERVAL '30 days'")
-                await conn.execute("DELETE FROM weekend_ideas_cache WHERE expires_at < NOW()")
-                await conn.execute("UPDATE users SET is_active = FALSE WHERE last_activity < NOW() - INTERVAL '90 days' AND is_active = TRUE")
+                await conn.execute("DELETE FROM fredi_messages WHERE created_at < NOW() - INTERVAL '30 days'")
+                await conn.execute("DELETE FROM fredi_events WHERE created_at < NOW() - INTERVAL '30 days'")
+                await conn.execute("DELETE FROM fredi_weekend_ideas_cache WHERE expires_at < NOW()")
+                await conn.execute("UPDATE fredi_users SET is_active = FALSE WHERE last_activity < NOW() - INTERVAL '90 days' AND is_active = TRUE")
                 logger.info("🧹 Cleanup completed")
         except asyncio.CancelledError:
             break
@@ -841,11 +885,11 @@ async def send_reminders():
         try:
             await asyncio.sleep(60)
             async with db.get_connection() as conn:
-                reminders = await conn.fetch("SELECT * FROM reminders WHERE is_sent = FALSE AND remind_at <= NOW() LIMIT 100")
+                reminders = await conn.fetch("SELECT * FROM fredi_reminders WHERE is_sent = FALSE AND remind_at <= NOW() LIMIT 100")
                 for reminder in reminders:
                     try:
                         logger.info(f"📬 Sending reminder {reminder['id']} to user {reminder['user_id']}")
-                        await conn.execute("UPDATE reminders SET is_sent = TRUE, sent_at = NOW() WHERE id = $1", reminder['id'])
+                        await conn.execute("UPDATE fredi_reminders SET is_sent = TRUE, sent_at = NOW() WHERE id = $1", reminder['id'])
                     except Exception as e:
                         logger.error(f"Failed to send reminder {reminder['id']}: {e}")
         except asyncio.CancelledError:
@@ -859,9 +903,9 @@ async def update_metrics():
         try:
             await asyncio.sleep(300)
             async with db.get_connection() as conn:
-                active_24h = await conn.fetchval("SELECT COUNT(DISTINCT user_id) FROM events WHERE created_at > NOW() - INTERVAL '24 hours'")
-                messages_1h = await conn.fetchval("SELECT COUNT(*) FROM messages WHERE created_at > NOW() - INTERVAL '1 hour'")
-                new_tests = await conn.fetchval("SELECT COUNT(*) FROM test_results WHERE created_at > NOW() - INTERVAL '24 hours'")
+                active_24h = await conn.fetchval("SELECT COUNT(DISTINCT user_id) FROM fredi_events WHERE created_at > NOW() - INTERVAL '24 hours'")
+                messages_1h = await conn.fetchval("SELECT COUNT(*) FROM fredi_messages WHERE created_at > NOW() - INTERVAL '1 hour'")
+                new_tests = await conn.fetchval("SELECT COUNT(*) FROM fredi_test_results WHERE created_at > NOW() - INTERVAL '24 hours'")
                 logger.info(f"📊 Metrics: active_24h={active_24h}, messages_1h={messages_1h}, new_tests={new_tests}")
         except asyncio.CancelledError:
             break
@@ -1278,10 +1322,10 @@ async def process_voice(
         except ValueError:
             user_id_for_db = user_id
             async with db.get_connection() as conn:
-                exists = await conn.fetchval("SELECT 1 FROM users WHERE user_id::text = $1", user_id)
+                exists = await conn.fetchval("SELECT 1 FROM fredi_users WHERE user_id::text = $1", user_id)
                 if not exists:
                     await conn.execute(
-                        "INSERT INTO users (user_id, username, created_at) VALUES ($1, $2, NOW())",
+                        "INSERT INTO fredi_users (user_id, username, created_at) VALUES ($1, $2, NOW())",
                         user_id, f"user_{user_id}"
                     )
 
@@ -1657,7 +1701,7 @@ async def get_morning_message(request: Request, user_id: int, day: int = 1):
 
         async with db.get_connection() as conn:
             await conn.execute("""
-                INSERT INTO morning_messages (user_id, message_text, message_type, day_number)
+                INSERT INTO fredi_morning_messages (user_id, message_text, message_type, day_number)
                 VALUES ($1, $2, $3, $4)
             """, user_id, message, "morning", day)
 
@@ -1693,7 +1737,7 @@ async def schedule_morning_messages(request: Request):
             messages.append({"day": day, "message": message})
             async with db.get_connection() as conn:
                 await conn.execute(
-                    "INSERT INTO morning_messages (user_id, message_text, message_type, day_number) VALUES ($1, $2, $3, $4)",
+                    "INSERT INTO fredi_morning_messages (user_id, message_text, message_type, day_number) VALUES ($1, $2, $3, $4)",
                     user_id, message, "morning", day
                 )
 
@@ -1775,7 +1819,7 @@ async def find_psychometric_doubles(request: Request, user_id: str, limit: int =
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
                 SELECT DISTINCT u.user_id, u.profile, u.username
-                FROM users u
+                FROM fredi_users u
                 WHERE u.user_id::text != $1
                 AND u.profile IS NOT NULL
                 AND u.profile != '{}'
@@ -1835,18 +1879,18 @@ async def find_psychometric_doubles(request: Request, user_id: str, limit: int =
 async def get_user_stats(request: Request, user_id: int):
     try:
         async with db.get_connection() as conn:
-            messages_count = await conn.fetchval("SELECT COUNT(*) FROM messages WHERE user_id = $1", user_id)
-            sessions = await conn.fetchval("SELECT COUNT(DISTINCT DATE_TRUNC('hour', created_at)) FROM messages WHERE user_id = $1", user_id)
+            messages_count = await conn.fetchval("SELECT COUNT(*) FROM fredi_messages WHERE user_id = $1", user_id)
+            sessions = await conn.fetchval("SELECT COUNT(DISTINCT DATE_TRUNC('hour', created_at)) FROM fredi_messages WHERE user_id = $1", user_id)
             weekly_activity = await conn.fetch("""
                 SELECT DATE(created_at) as date, COUNT(*) as count
-                FROM messages WHERE user_id = $1 AND created_at > NOW() - INTERVAL '7 days'
+                FROM fredi_messages WHERE user_id = $1 AND created_at > NOW() - INTERVAL '7 days'
                 GROUP BY DATE(created_at) ORDER BY date
             """, user_id)
             test_results = await conn.fetch("""
-                SELECT test_type, profile_code, created_at FROM test_results
+                SELECT test_type, profile_code, created_at FROM fredi_test_results
                 WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5
             """, user_id)
-            morning_messages_count = await conn.fetchval("SELECT COUNT(*) FROM morning_messages WHERE user_id = $1", user_id)
+            morning_messages_count = await conn.fetchval("SELECT COUNT(*) FROM fredi_morning_messages WHERE user_id = $1", user_id)
 
         return {
             "success": True,
@@ -2099,7 +2143,7 @@ async def get_user_anchors(user_id: int):
                 SELECT metadata->>'name' as name,
                        thought_text as phrase,
                        metadata->>'state' as state
-                FROM psychologist_thoughts
+                FROM fredi_psychologist_thoughts
                 WHERE user_id = $1 AND thought_type = 'anchor'
                 ORDER BY created_at DESC LIMIT 20
             """, user_id)
@@ -2128,7 +2172,7 @@ async def set_anchor(request: Request):
             return {"success": False, "error": "Missing fields"}
         async with db.get_connection() as conn:
             await conn.execute("""
-                INSERT INTO psychologist_thoughts (user_id, thought_type, thought_text, metadata)
+                INSERT INTO fredi_psychologist_thoughts (user_id, thought_type, thought_text, metadata)
                 VALUES ($1, 'anchor', $2, $3)
             """, user_id, phrase, json.dumps({"name": anchor_name, "state": state}))
         await log_event(user_id, "set_anchor", {"name": anchor_name, "state": state})
@@ -2195,10 +2239,10 @@ async def user_status(user_id: Optional[str] = None):
         except ValueError:
             user_id_int = None
             async with db.get_connection() as conn:
-                exists = await conn.fetchval("SELECT 1 FROM users WHERE user_id::text = $1", user_id)
+                exists = await conn.fetchval("SELECT 1 FROM fredi_users WHERE user_id::text = $1", user_id)
                 if not exists:
                     await conn.execute(
-                        "INSERT INTO users (user_id, username, created_at) VALUES ($1, $2, NOW())",
+                        "INSERT INTO fredi_users (user_id, username, created_at) VALUES ($1, $2, NOW())",
                         user_id, f"user_{user_id}"
                     )
             user_id_int = user_id
@@ -2381,7 +2425,7 @@ async def get_test_results(request: Request, user_id: int):
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
                 SELECT id, test_type, results, profile_code, perception_type, thinking_level, created_at
-                FROM test_results WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5
+                FROM fredi_test_results WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5
             """, user_id)
             results = []
             for row in rows:
@@ -2440,7 +2484,7 @@ async def get_generated_profile(request: Request, user_id: int):
                 if thought:
                     async with db.get_connection() as conn:
                         test_result = await conn.fetchrow(
-                            "SELECT id FROM test_results WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1", user_id
+                            "SELECT id FROM fredi_test_results WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1", user_id
                         )
                         test_result_id = test_result['id'] if test_result else None
                     await user_repo.save_psychologist_thought(user_id, thought, test_result_id)
@@ -2533,7 +2577,7 @@ async def create_reminder(
         remind_dt = datetime.fromisoformat(remind_at)
         async with db.get_connection() as conn:
             reminder_id = await conn.fetchval("""
-                INSERT INTO reminders (user_id, reminder_type, remind_at) VALUES ($1, $2, $3) RETURNING id
+                INSERT INTO fredi_reminders (user_id, reminder_type, remind_at) VALUES ($1, $2, $3) RETURNING id
             """, user_id, reminder_type, remind_dt)
         await log_event(user_id, "create_reminder", {"type": reminder_type})
         return {"success": True, "reminder_id": reminder_id}
@@ -2552,12 +2596,12 @@ async def migrate_user(request: Request):
         if not old_user_id or not new_user_id:
             return {"success": False, "error": "Missing ids"}
         async with db.get_connection() as conn:
-            await conn.execute("UPDATE messages SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
-            await conn.execute("UPDATE user_contexts SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
-            await conn.execute("UPDATE test_results SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
-            await conn.execute("UPDATE psychologist_thoughts SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
-            await conn.execute("UPDATE events SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
-            await conn.execute("DELETE FROM users WHERE user_id::text = $1", old_user_id)
+            await conn.execute("UPDATE fredi_messages SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
+            await conn.execute("UPDATE fredi_user_contexts SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
+            await conn.execute("UPDATE fredi_test_results SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
+            await conn.execute("UPDATE fredi_psychologist_thoughts SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
+            await conn.execute("UPDATE fredi_events SET user_id = $1 WHERE user_id::text = $2", new_user_id, old_user_id)
+            await conn.execute("DELETE FROM fredi_users WHERE user_id::text = $1", old_user_id)
         logger.info(f"✅ Миграция: {old_user_id} → {new_user_id}")
         return {"success": True}
     except Exception as e:
@@ -2570,12 +2614,12 @@ async def migrate_user(request: Request):
 async def admin_stats(request: Request):
     try:
         async with db.get_connection() as conn:
-            total_users = await conn.fetchval("SELECT COUNT(*) FROM users")
-            active_today = await conn.fetchval("SELECT COUNT(DISTINCT user_id) FROM events WHERE created_at > NOW() - INTERVAL '24 hours'")
-            total_messages = await conn.fetchval("SELECT COUNT(*) FROM messages")
-            total_tests = await conn.fetchval("SELECT COUNT(*) FROM test_results")
-            total_morning = await conn.fetchval("SELECT COUNT(*) FROM morning_messages")
-            modes_stats = await conn.fetch("SELECT context->>'communication_mode' as mode, COUNT(*) as count FROM user_contexts WHERE context->>'communication_mode' IS NOT NULL GROUP BY context->>'communication_mode'")
+            total_users = await conn.fetchval("SELECT COUNT(*) FROM fredi_users")
+            active_today = await conn.fetchval("SELECT COUNT(DISTINCT user_id) FROM fredi_events WHERE created_at > NOW() - INTERVAL '24 hours'")
+            total_messages = await conn.fetchval("SELECT COUNT(*) FROM fredi_messages")
+            total_tests = await conn.fetchval("SELECT COUNT(*) FROM fredi_test_results")
+            total_morning = await conn.fetchval("SELECT COUNT(*) FROM fredi_morning_messages")
+            modes_stats = await conn.fetch("SELECT communication_mode as mode, COUNT(*) as count FROM fredi_user_contexts WHERE communication_mode IS NOT NULL GROUP BY communication_mode")
         return {
             "total_users": total_users,
             "active_today": active_today,
@@ -2598,18 +2642,18 @@ async def admin_mirrors_stats(request: Request):
     """Статистика зеркал для секретной комнаты"""
     try:
         async with db.get_connection() as conn:
-            total_created   = await conn.fetchval("SELECT COUNT(*) FROM mirrors") or 0
-            total_completed = await conn.fetchval("SELECT COUNT(*) FROM mirrors WHERE status='used'") or 0
+            total_created   = await conn.fetchval("SELECT COUNT(*) FROM fredi_mirrors") or 0
+            total_completed = await conn.fetchval("SELECT COUNT(*) FROM fredi_mirrors WHERE status='used'") or 0
 
             by_platform = await conn.fetch(
-                "SELECT mirror_type, COUNT(*) as cnt FROM mirrors GROUP BY mirror_type")
+                "SELECT mirror_type, COUNT(*) as cnt FROM fredi_mirrors GROUP BY mirror_type")
 
             recent = await conn.fetch("""
                 SELECT m.mirror_code, m.mirror_type, m.status,
                        m.friend_name, m.created_at, m.completed_at,
                        u.username as user_name
-                FROM mirrors m
-                LEFT JOIN users u ON u.user_id = m.user_id
+                FROM fredi_mirrors m
+                LEFT JOIN fredi_users u ON u.user_id = m.user_id
                 ORDER BY m.created_at DESC LIMIT 10
             """)
 
@@ -2617,8 +2661,8 @@ async def admin_mirrors_stats(request: Request):
                 SELECT COALESCE(u.username, 'user_'||m.user_id::text) as user_name,
                        COUNT(*) as count,
                        COUNT(*) FILTER (WHERE m.status='used') as completed
-                FROM mirrors m
-                LEFT JOIN users u ON u.user_id = m.user_id
+                FROM fredi_mirrors m
+                LEFT JOIN fredi_users u ON u.user_id = m.user_id
                 GROUP BY m.user_id, u.username
                 ORDER BY count DESC LIMIT 5
             """)
@@ -2667,9 +2711,9 @@ async def admin_recent_users(request: Request):
                 SELECT u.user_id, u.username, u.first_name,
                        u.last_activity, u.created_at,
                        t.profile_code
-                FROM users u
+                FROM fredi_users u
                 LEFT JOIN LATERAL (
-                    SELECT profile_code FROM test_results
+                    SELECT profile_code FROM fredi_test_results
                     WHERE user_id = u.user_id
                     ORDER BY created_at DESC LIMIT 1
                 ) t ON true
@@ -2700,7 +2744,7 @@ async def admin_logs(request: Request, limit: int = 50):
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
                 SELECT user_id, event_type, event_data, created_at
-                FROM events
+                FROM fredi_events
                 ORDER BY created_at DESC
                 LIMIT $1
             """, limit)
@@ -2794,7 +2838,7 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
     try:
         async with db.get_connection() as conn:
             await conn.execute("""
-                INSERT INTO events (user_id, event_type, event_data) VALUES ($1, $2, $3)
+                INSERT INTO fredi_events (user_id, event_type, event_data) VALUES ($1, $2, $3)
             """, user_id, event_type, json.dumps(event_data) if event_data else None)
     except Exception as e:
         logger.error(f"Error logging event for user {user_id}: {type(e).__name__}: {e}")
@@ -2840,12 +2884,12 @@ async def create_mirror(request: Request):
         invite_text = invite_texts.get(mirror_type, invite_texts["web"])
         async with db.get_connection() as conn:
             await conn.execute("""
-                INSERT INTO users (user_id, created_at, updated_at, last_activity)
+                INSERT INTO fredi_users (user_id, created_at, updated_at, last_activity)
                 VALUES ($1, NOW(), NOW(), NOW())
                 ON CONFLICT (user_id) DO UPDATE SET last_activity = NOW()
             """, int(user_id))
             await conn.execute("""
-                INSERT INTO mirrors (user_id, mirror_code, mirror_type, status, created_at)
+                INSERT INTO fredi_mirrors (user_id, mirror_code, mirror_type, status, created_at)
                 VALUES ($1, $2, $3, 'active', NOW())
             """, int(user_id), mirror_code, mirror_type)
         await log_event(int(user_id), "mirror_created", {"mirror_code": mirror_code, "mirror_type": mirror_type})
@@ -2864,7 +2908,7 @@ async def get_user_reflections(user_id: int):
                        friend_profile_code, friend_vectors, friend_deep_patterns,
                        friend_ai_profile, friend_perception_type, friend_thinking_level,
                        completed_at, created_at
-                FROM mirrors WHERE user_id = $1 AND status = 'used'
+                FROM fredi_mirrors WHERE user_id = $1 AND status = 'used'
                 ORDER BY completed_at DESC
             """, user_id)
             reflections = []
@@ -2873,7 +2917,7 @@ async def get_user_reflections(user_id: int):
                 if r.get("completed_at"): r["completed_at"] = r["completed_at"].isoformat()
                 if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
                 reflections.append(r)
-            total = await conn.fetchval("SELECT COUNT(*) FROM mirrors WHERE user_id = $1", user_id)
+            total = await conn.fetchval("SELECT COUNT(*) FROM fredi_mirrors WHERE user_id = $1", user_id)
         return {"success": True, "reflections": reflections, "stats": {"total_mirrors": total or 0, "total_reflections": len(reflections)}}
     except Exception as e:
         logger.error(f"Ошибка получения отражений: {e}")
@@ -2887,7 +2931,7 @@ async def get_user_mirrors(user_id: int):
             rows = await conn.fetch("""
                 SELECT mirror_code, mirror_type, status, created_at,
                        friend_name, friend_profile_code, completed_at
-                FROM mirrors WHERE user_id = $1 ORDER BY created_at DESC
+                FROM fredi_mirrors WHERE user_id = $1 ORDER BY created_at DESC
             """, user_id)
             mirrors = []
             for row in rows:
@@ -2914,7 +2958,7 @@ async def complete_mirror(request: Request):
         friend_deep_patterns = data.get("friend_deep_patterns", {})
         async with db.get_connection() as conn:
             await conn.execute("""
-                UPDATE mirrors SET
+                UPDATE fredi_mirrors SET
                     status = 'used', friend_user_id = $2, friend_name = $3,
                     friend_profile_code = $4, friend_vectors = $5, friend_deep_patterns = $6,
                     friend_ai_profile = $7, friend_perception_type = $8,
@@ -2931,7 +2975,7 @@ async def complete_mirror(request: Request):
                 data.get("friend_perception_type"),
                 int(data.get("friend_thinking_level")) if data.get("friend_thinking_level") else None
             )
-            owner = await conn.fetchrow("SELECT user_id FROM mirrors WHERE mirror_code = $1", mirror_code)
+            owner = await conn.fetchrow("SELECT user_id FROM fredi_mirrors WHERE mirror_code = $1", mirror_code)
         if owner:
             await log_event(owner["user_id"], "mirror_completed", {"mirror_code": mirror_code})
             # Отправляем push владельцу зеркала
@@ -2979,7 +3023,7 @@ async def generate_intimate_profile(mirror_code: str):
                 SELECT friend_vectors, friend_deep_patterns, friend_profile_code,
                        friend_perception_type, friend_thinking_level, friend_ai_profile,
                        intimate_profile_cache
-                FROM mirrors WHERE mirror_code = $1 AND status = 'used'
+                FROM fredi_mirrors WHERE mirror_code = $1 AND status = 'used'
             """, mirror_code)
         if not row:
             return {"success": False, "error": "Зеркало не найдено или ещё не активировано"}
@@ -3008,7 +3052,7 @@ async def generate_intimate_profile(mirror_code: str):
         intimate_data = json.loads(clean)
         async with db.get_connection() as conn:
             await conn.execute("""
-                UPDATE mirrors SET intimate_profile_cache=$1, intimate_generated_at=NOW()
+                UPDATE fredi_mirrors SET intimate_profile_cache=$1, intimate_generated_at=NOW()
                 WHERE mirror_code=$2
             """, json.dumps(intimate_data, ensure_ascii=False), mirror_code)
         return {"success": True, "intimate": intimate_data, "cached": False}
@@ -3027,7 +3071,7 @@ async def generate_4f_keys(mirror_code: str):
                 SELECT friend_vectors, friend_deep_patterns, friend_profile_code,
                        friend_perception_type, friend_thinking_level,
                        four_f_cache
-                FROM mirrors WHERE mirror_code = $1 AND status = 'used'
+                FROM fredi_mirrors WHERE mirror_code = $1 AND status = 'used'
             """, mirror_code)
         if not row:
             return {"success": False, "error": "Зеркало не найдено или ещё не активировано"}
@@ -3055,7 +3099,7 @@ async def generate_4f_keys(mirror_code: str):
         keys_data = json.loads(clean)
         async with db.get_connection() as conn:
             await conn.execute("""
-                UPDATE mirrors SET four_f_cache=$1, four_f_generated_at=NOW()
+                UPDATE fredi_mirrors SET four_f_cache=$1, four_f_generated_at=NOW()
                 WHERE mirror_code=$2
             """, json.dumps(keys_data, ensure_ascii=False), mirror_code)
         return {"success": True, "keys": keys_data, "cached": False}
