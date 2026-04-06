@@ -635,7 +635,7 @@ function _strBindHandlers() {
             const done = _str.progress.includes(step.number);
             txt += `${done?'✅':'⏳'} Шаг ${step.number}: ${step.title}\n${step.description}\n⏱ ${step.duration}\n\n`;
         });
-        navigator.clipboard.writeText(txt)
+        copyToClipboard(txt)
             .then(() => _strToast('📋 Стратегия скопирована', 'success'))
             .catch(() => _strToast('Не удалось скопировать'));
     });
@@ -644,7 +644,7 @@ function _strBindHandlers() {
     document.getElementById('strResetBtn')?.addEventListener('click', async () => {
         // Кастомный confirm
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px';
         overlay.innerHTML = `<div style="background:var(--carbon-fiber,#1a1a1a);border:1px solid rgba(224,224,224,0.2);border-radius:22px;padding:24px;max-width:320px;width:100%">
             <div style="font-size:14px;color:var(--text-primary);margin-bottom:20px">Сбросить прогресс стратегии?</div>
             <div style="display:flex;gap:10px">

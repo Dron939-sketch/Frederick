@@ -489,14 +489,14 @@ function renderEmotionResult(container, emotionName, analysis, userText = null) 
         if (navigator.share) {
             navigator.share({ title: 'Фреди: работа с эмоциями', text: text });
         } else {
-            navigator.clipboard.writeText(text);
+            copyToClipboard(text);
             showToastMessage('📋 Результат скопирован', 'success');
         }
     });
     document.querySelector('.emotion-copy-btn')?.addEventListener('click', (e) => {
         const text = e.currentTarget.dataset.text;
         if (text) {
-            navigator.clipboard.writeText(text);
+            copyToClipboard(text);
             showToastMessage('📋 Аффирмация скопирована', 'success');
         }
     });

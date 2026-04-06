@@ -525,7 +525,7 @@ async function generateMirrorLink(mirrorType) {
 }
 
 function copyMirrorLink(link) {
-    navigator.clipboard.writeText(link).then(() => {
+    copyToClipboard(link).then(() => {
         if (typeof showToast === 'function') showToast('✅ Ссылка скопирована!');
     }).catch(() => {
         const el = document.createElement('textarea');
@@ -537,7 +537,7 @@ function copyMirrorLink(link) {
 
 function copyMirrorWithText(link, text) {
     const full = text + '\n\n' + link;
-    navigator.clipboard.writeText(full).then(() => {
+    copyToClipboard(full).then(() => {
         if (typeof showToast === 'function') showToast('✅ Текст и ссылка скопированы!');
     }).catch(() => {
         const el = document.createElement('textarea');

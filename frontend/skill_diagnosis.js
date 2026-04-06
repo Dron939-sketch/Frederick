@@ -788,7 +788,7 @@ function _sdBindHandlers() {
         const avg = (Object.values(_sd.result.scores).reduce((a,b)=>a+b,0) / qs.length / 4 * 100).toFixed(0);
         let txt   = `🧠 Диагностика навыков\nСредний уровень: ${avg}%\n\n`;
         qs.forEach((q, i) => { txt += `${q.name}: ${_sd.result.scores[i]||0}/4\n`; });
-        navigator.clipboard.writeText(txt)
+        copyToClipboard(txt)
             .then(() => _sdToast('📋 Скопировано', 'success'))
             .catch(() => _sdToast('Не удалось скопировать'));
     });

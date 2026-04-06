@@ -24,6 +24,26 @@ const CONFIG = {
 
 window.CONFIG = CONFIG;
 
+// Кроссбраузерное копирование в буфер обмена
+function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    }
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.style.cssText = 'position:fixed;opacity:0;left:-9999px';
+    document.body.appendChild(el);
+    el.select();
+    try {
+        document.execCommand('copy');
+        return Promise.resolve();
+    } catch (e) {
+        return Promise.reject(e);
+    } finally {
+        document.body.removeChild(el);
+    }
+}
+
 // ============================================
 // РЕЖИМЫ
 // ============================================

@@ -617,7 +617,7 @@ function _motBindHandlers() {
         btn.addEventListener('click', () => {
             const text = btn.dataset.text;
             if (!text) return;
-            navigator.clipboard.writeText(text)
+            copyToClipboard(text)
                 .then(() => _motToast('📋 Скопировано', 'success'))
                 .catch(() => _motToast('Не удалось скопировать'));
         });

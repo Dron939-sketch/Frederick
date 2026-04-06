@@ -338,7 +338,7 @@ function renderHealingContent(container, content) {
         btn.addEventListener('click', () => {
             const text = document.querySelector(`.healing-affirmation[data-aff-idx="${idx}"] .healing-affirmation-text`)?.innerText;
             if (text) {
-                navigator.clipboard.writeText(text);
+                copyToClipboard(text);
                 showToastMessage('📋 Аффирмация скопирована', 'success');
             }
         });
