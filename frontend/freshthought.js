@@ -474,7 +474,7 @@ function _ftRender(picked) {
 }
 
 function _ftCopy(text) {
-    navigator.clipboard.writeText(text)
+    copyToClipboard(text)
         .then(() => _ftToast('📋 Скопировано', 'success'))
         .catch(() => _ftToast('Не удалось скопировать', 'error'));
 }

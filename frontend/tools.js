@@ -545,7 +545,7 @@ function bindPostForm(profileType) {
     document.getElementById('copyResultBtn')?.addEventListener('click', () => {
         const content = document.getElementById('aiResultContent')?.innerText;
         if (content) {
-            navigator.clipboard.writeText(content);
+            copyToClipboard(content);
             showToastMessage('📋 Пост скопирован', 'success');
         }
     });

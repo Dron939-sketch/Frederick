@@ -695,7 +695,7 @@ ${genderNote}
     document.getElementById('tlCopyBtn')?.addEventListener('click', () => {
         const text = _tl.isPersonal ? _tl.personalText : TL_TALES[_tl.selectedId]?.text;
         if (!text) return;
-        navigator.clipboard.writeText(text)
+        copyToClipboard(text)
             .then(() => _tlToast('📋 Сказка скопирована', 'success'))
             .catch(() => _tlToast('Не удалось скопировать'));
     });

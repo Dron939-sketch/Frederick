@@ -370,7 +370,7 @@ function _wiRender(gen) {
 }
 
 function _wiCopy(text) {
-    navigator.clipboard.writeText(text)
+    copyToClipboard(text)
         .then(() => _wiToast('📋 Скопировано', 'success'))
         .catch(() => _wiToast('Не удалось скопировать', 'error'));
 }

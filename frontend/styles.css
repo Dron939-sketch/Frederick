@@ -50,6 +50,10 @@ body {
     -webkit-user-select: none;
     -moz-user-select: none;
     user-select: none;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 /* Разрешаем выделение текста там где нужно */
@@ -87,7 +91,7 @@ body::before {
 body::after {
     content: '';
     position: fixed;
-    inset: 0;
+    inset: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0) 0;
     background: repeating-linear-gradient(45deg,
         rgba(224, 224, 224, 0.008) 0px, rgba(224, 224, 224, 0.008) 2px,
         transparent 2px, transparent 8px);
@@ -167,7 +171,7 @@ body::after {
     border: 1px solid rgba(224, 224, 224, 0.2);
     border-radius: 30px;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 16px;
     font-family: inherit;
     outline: none;
     -moz-appearance: none;

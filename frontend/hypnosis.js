@@ -562,7 +562,7 @@ function _hyBindHandlers() {
 function _hyBindResultHandlers() {
     document.getElementById('hyCopyBtn')?.addEventListener('click', () => {
         if (!_hy.result) return;
-        navigator.clipboard.writeText(_hy.result.text)
+        copyToClipboard(_hy.result.text)
             .then(() => _hyToast('📋 Скопировано', 'success'))
             .catch(() => _hyToast('Не удалось скопировать'));
     });
