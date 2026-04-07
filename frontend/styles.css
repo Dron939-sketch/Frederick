@@ -1843,7 +1843,11 @@ body::after {
     .modules-grid { gap: 8px; }
     .hero-section { padding: 16px; }
     .greeting-text h2 { font-size: 18px; }
-    .full-content-page { padding: 16px; border-radius: 20px; }
+    .full-content-page {
+        padding: 16px;
+        padding-bottom: max(32px, calc(env(safe-area-inset-bottom) + 24px));
+        border-radius: 20px;
+    }
     .test-message-bubble { max-width: 92%; }
     .test-message-button { padding: 8px 12px; font-size: 13px; }
     .test-message-text { font-size: 14px; }
