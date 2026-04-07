@@ -284,7 +284,8 @@ async def lifespan(app: FastAPI):
         background_tasks = [
             asyncio.create_task(cleanup_old_data()),
             asyncio.create_task(send_reminders()),
-            asyncio.create_task(update_metrics())
+            asyncio.create_task(update_metrics()),
+            asyncio.create_task(morning_messages_scheduler())
         ]
         logger.info("✅ Фоновые задачи запущены")
 
@@ -812,6 +813,9 @@ async def init_database_tables():
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_push_user ON fredi_push_subscriptions(user_id) WHERE is_active = TRUE")
+
+        # Колонка для отслеживания когда последний раз отправляли утреннее сообщение
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS last_morning_sent_at TIMESTAMP WITH TIME ZONE")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_mirrors (
                 id BIGSERIAL PRIMARY KEY,
@@ -915,6 +919,142 @@ async def update_metrics():
             break
         except Exception as e:
             logger.error(f"Metrics error: {e}")
+
+
+async def morning_messages_scheduler():
+    """
+    Каждую минуту проверяет всех пользователей с пройденным тестом
+    и активной push-подпиской. Если у пользователя сейчас 9:00-9:05
+    по местному времени и день недели пн-пт, и сегодня ещё не отправляли —
+    генерирует короткое утреннее сообщение (или пятничное с идеями на выходные)
+    и шлёт через Web Push.
+    """
+    from datetime import timezone as _tz
+    logger.info("🌅 Morning messages scheduler запущен")
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+
+            if morning_manager is None or push_service is None:
+                continue
+
+            now_utc = datetime.now(_tz.utc)
+
+            async with db.get_connection() as conn:
+                # Все юзеры с пройденным тестом, активной push-подпиской,
+                # которым ещё не слали сегодня (UTC-эвристика — фильтр окончательный
+                # ниже по локальному времени)
+                rows = await conn.fetch("""
+                    SELECT u.user_id,
+                           u.profile,
+                           u.last_morning_sent_at,
+                           c.name, c.gender, c.timezone_offset,
+                           c.weather_cache
+                    FROM fredi_users u
+                    LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
+                    WHERE u.is_active = TRUE
+                      AND EXISTS (
+                          SELECT 1 FROM fredi_push_subscriptions ps
+                          WHERE ps.user_id = u.user_id AND ps.is_active = TRUE
+                      )
+                """)
+
+            sent_count = 0
+            for row in rows:
+                try:
+                    user_id = row["user_id"]
+                    profile = row["profile"] or {}
+                    if isinstance(profile, str):
+                        try:
+                            profile = json.loads(profile)
+                        except Exception:
+                            profile = {}
+                    if not (profile.get("profile_data") or profile.get("ai_generated_profile")):
+                        continue
+
+                    tz_offset = row["timezone_offset"] if row["timezone_offset"] is not None else 3
+                    local_now = now_utc + timedelta(hours=int(tz_offset))
+                    local_hour = local_now.hour
+                    local_weekday = local_now.weekday()  # 0=пн, 4=пт, 5=сб
+
+                    # Только пн-пт и только в окне 9:00-9:05 местного времени
+                    if local_weekday > 4 or local_hour != 9 or local_now.minute > 5:
+                        continue
+
+                    # Защита от дублей: если last_morning_sent_at уже был сегодня (по UTC) — скип
+                    last_sent = row["last_morning_sent_at"]
+                    if last_sent:
+                        last_sent_local = last_sent + timedelta(hours=int(tz_offset)) if last_sent.tzinfo is None else last_sent.astimezone(_tz.utc) + timedelta(hours=int(tz_offset))
+                        if last_sent_local.date() == local_now.date():
+                            continue
+
+                    # Готовим контекст
+                    weather_cache = row["weather_cache"]
+                    if isinstance(weather_cache, str):
+                        try:
+                            weather_cache = json.loads(weather_cache)
+                        except Exception:
+                            weather_cache = None
+
+                    context = {
+                        "name": row["name"] or "друг",
+                        "gender": row["gender"] or "other",
+                        "weather_cache": weather_cache,
+                        "timezone_offset": tz_offset,
+                    }
+
+                    # Считаем баллы по векторам
+                    scores = {}
+                    for k in ["СБ", "ТФ", "УБ", "ЧВ"]:
+                        levels = profile.get("behavioral_levels", {}).get(k, [])
+                        scores[k] = sum(levels) / len(levels) if levels else 3
+
+                    # day = 1..5 = пн..пт
+                    day = local_weekday + 1
+
+                    message = await morning_manager.generate_morning_message(
+                        user_id=user_id,
+                        user_name=context["name"],
+                        scores=scores,
+                        profile_data=profile,
+                        context=context,
+                        day=day
+                    )
+
+                    # Сохраняем полный текст
+                    async with db.get_connection() as conn2:
+                        await conn2.execute(
+                            "INSERT INTO fredi_morning_messages (user_id, message_text, message_type, day_number) VALUES ($1, $2, $3, $4)",
+                            user_id, message, "weekend" if day == 5 else "morning", day
+                        )
+                        await conn2.execute(
+                            "UPDATE fredi_users SET last_morning_sent_at = NOW() WHERE user_id = $1",
+                            user_id
+                        )
+
+                    # Отправляем push (заголовок + первые ~120 символов)
+                    title = "🎉 Идеи на выходные" if day == 5 else "🌅 Доброе утро от Фреди"
+                    body = re.sub(r'\*\*(.*?)\*\*', r'\1', message)
+                    body = body.replace('\n', ' ').strip()
+                    if len(body) > 120:
+                        body = body[:117] + "..."
+
+                    await push_service.send_to_user(user_id, title, body, "/")
+                    sent_count += 1
+                    logger.info(f"🌅 Morning sent to user {user_id} (day={day})")
+
+                except Exception as e:
+                    logger.error(f"Morning scheduler error for user {row.get('user_id')}: {e}")
+
+            if sent_count:
+                logger.info(f"🌅 Morning scheduler: sent {sent_count} messages this minute")
+
+        except asyncio.CancelledError:
+            logger.info("🛑 Morning scheduler остановлен")
+            break
+        except Exception as e:
+            logger.error(f"Morning scheduler loop error: {e}")
 
 
 # ============================================
