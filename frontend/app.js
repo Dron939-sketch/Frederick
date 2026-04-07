@@ -1727,7 +1727,11 @@ async function init() {
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => showAnchors(),
                 statistics: () => showStatistics(),
-                mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); }
+                mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); },
+                settings: () => {
+                    if (typeof showSettingsScreen === 'function') showSettingsScreen();
+                    else { showToast('⚙️ Загрузка...', 'info'); const s=document.createElement('script'); s.src='settings.js'; s.onload=()=>{ if(typeof showSettingsScreen==='function') showSettingsScreen(); }; document.head.appendChild(s); }
+                }
             };
             (actions[chat] || renderDashboard)();
 

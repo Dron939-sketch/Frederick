@@ -816,6 +816,24 @@ async def init_database_tables():
 
         # Колонка для отслеживания когда последний раз отправляли утреннее сообщение
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS last_morning_sent_at TIMESTAMP WITH TIME ZONE")
+
+        # Канал доставки уведомлений: 'push' (default) | 'telegram' | 'max' | 'none'
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS notification_channel TEXT DEFAULT 'push'")
+
+        # Таблица связок web_user_id ↔ messenger chat_id (для деплинков из бота)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_messenger_links (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                username TEXT,
+                linked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                is_active BOOLEAN DEFAULT TRUE,
+                UNIQUE (user_id, platform)
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_messenger_links_user ON fredi_messenger_links(user_id) WHERE is_active = TRUE")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_mirrors (
                 id BIGSERIAL PRIMARY KEY,
@@ -921,6 +939,86 @@ async def update_metrics():
             logger.error(f"Metrics error: {e}")
 
 
+async def _send_via_telegram(chat_id: str, text: str) -> bool:
+    """Шлёт сообщение через Telegram Bot API напрямую."""
+    token = os.environ.get("TELEGRAM_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.warning("TELEGRAM_TOKEN не задан — не могу отправить через Telegram")
+        return False
+    try:
+        import httpx
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True}
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(url, json=payload)
+            if r.status_code == 200:
+                return True
+            logger.error(f"Telegram sendMessage failed: {r.status_code} {r.text[:200]}")
+            return False
+    except Exception as e:
+        logger.error(f"Telegram send error: {e}")
+        return False
+
+
+async def _send_via_max(chat_id: str, text: str) -> bool:
+    """Шлёт сообщение через Max Platform API напрямую."""
+    token = os.environ.get("MAX_TOKEN")
+    if not token:
+        logger.warning("MAX_TOKEN не задан — не могу отправить через Max")
+        return False
+    try:
+        import httpx
+        url = "https://platform-api.max.ru/messages"
+        params = {"chat_id": chat_id}
+        body = {"text": text, "attachments": [], "format": "markdown", "notify": True}
+        headers = {"Authorization": token, "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            r = await client.post(url, params=params, json=body, headers=headers)
+            if r.status_code in (200, 201):
+                return True
+            logger.error(f"Max sendMessage failed: {r.status_code} {r.text[:200]}")
+            return False
+    except Exception as e:
+        logger.error(f"Max send error: {e}")
+        return False
+
+
+async def _deliver_morning_message(user_id: int, channel: str, title: str, body_short: str, full_text: str) -> bool:
+    """
+    Маршрутизирует доставку утреннего сообщения по выбранному каналу.
+    push: только короткий body (полный текст читается в приложении).
+    telegram/max: полный текст (мессенджеры не имеют ограничения).
+    none: ничего не отправляем.
+    """
+    if channel == "none":
+        return False
+
+    if channel == "push":
+        if push_service:
+            return await push_service.send_to_user(user_id, title, body_short, "/")
+        return False
+
+    if channel in ("telegram", "max"):
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT chat_id FROM fredi_messenger_links "
+                "WHERE user_id = $1 AND platform = $2 AND is_active = TRUE",
+                user_id, channel
+            )
+        if not row:
+            logger.info(f"User {user_id}: канал {channel} выбран, но мессенджер не привязан — fallback на push")
+            if push_service:
+                return await push_service.send_to_user(user_id, title, body_short, "/")
+            return False
+
+        chat_id = row["chat_id"]
+        if channel == "telegram":
+            return await _send_via_telegram(chat_id, full_text)
+        return await _send_via_max(chat_id, full_text)
+
+    return False
+
+
 async def morning_messages_scheduler():
     """
     Каждую минуту проверяет всех пользователей с пройденным тестом
@@ -942,21 +1040,29 @@ async def morning_messages_scheduler():
             now_utc = datetime.now(_tz.utc)
 
             async with db.get_connection() as conn:
-                # Все юзеры с пройденным тестом, активной push-подпиской,
-                # которым ещё не слали сегодня (UTC-эвристика — фильтр окончательный
-                # ниже по локальному времени)
+                # Все юзеры с пройденным тестом и каналом доставки ≠ 'none',
+                # у которых либо есть push-подписка, либо привязан мессенджер.
+                # Окончательный фильтр по локальному времени — ниже.
                 rows = await conn.fetch("""
                     SELECT u.user_id,
                            u.profile,
                            u.last_morning_sent_at,
+                           COALESCE(u.notification_channel, 'push') AS notification_channel,
                            c.name, c.gender, c.timezone_offset,
                            c.weather_cache
                     FROM fredi_users u
                     LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
                     WHERE u.is_active = TRUE
-                      AND EXISTS (
-                          SELECT 1 FROM fredi_push_subscriptions ps
-                          WHERE ps.user_id = u.user_id AND ps.is_active = TRUE
+                      AND COALESCE(u.notification_channel, 'push') <> 'none'
+                      AND (
+                          EXISTS (
+                              SELECT 1 FROM fredi_push_subscriptions ps
+                              WHERE ps.user_id = u.user_id AND ps.is_active = TRUE
+                          )
+                          OR EXISTS (
+                              SELECT 1 FROM fredi_messenger_links ml
+                              WHERE ml.user_id = u.user_id AND ml.is_active = TRUE
+                          )
                       )
                 """)
 
@@ -1033,16 +1139,26 @@ async def morning_messages_scheduler():
                             user_id
                         )
 
-                    # Отправляем push (заголовок + первые ~120 символов)
+                    # Маршрутизация по выбранному каналу
                     title = "🎉 Идеи на выходные" if day == 5 else "🌅 Доброе утро от Фреди"
-                    body = re.sub(r'\*\*(.*?)\*\*', r'\1', message)
-                    body = body.replace('\n', ' ').strip()
-                    if len(body) > 120:
-                        body = body[:117] + "..."
+                    body_short = re.sub(r'\*\*(.*?)\*\*', r'\1', message)
+                    body_short = body_short.replace('\n', ' ').strip()
+                    if len(body_short) > 120:
+                        body_short = body_short[:117] + "..."
 
-                    await push_service.send_to_user(user_id, title, body, "/")
-                    sent_count += 1
-                    logger.info(f"🌅 Morning sent to user {user_id} (day={day})")
+                    channel = row["notification_channel"] or "push"
+                    delivered = await _deliver_morning_message(
+                        user_id=user_id,
+                        channel=channel,
+                        title=title,
+                        body_short=body_short,
+                        full_text=message,
+                    )
+                    if delivered:
+                        sent_count += 1
+                        logger.info(f"🌅 Morning sent to user {user_id} via {channel} (day={day})")
+                    else:
+                        logger.warning(f"🌅 Morning NOT delivered to user {user_id} via {channel}")
 
                 except Exception as e:
                     logger.error(f"Morning scheduler error for user {row.get('user_id')}: {e}")
@@ -2982,6 +3098,147 @@ async def push_broadcast(request: Request):
         return {"success": False}
     except Exception as e:
         logger.error(f"Push broadcast error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# НАСТРОЙКИ УВЕДОМЛЕНИЙ + СВЯЗКА С МЕССЕНДЖЕРАМИ
+# ============================================
+
+ALLOWED_NOTIFICATION_CHANNELS = {"push", "telegram", "max", "none"}
+ALLOWED_LINK_PLATFORMS = {"telegram", "max"}
+
+
+@app.get("/api/settings/notifications/{user_id}")
+@limiter.limit("30/minute")
+async def get_notification_settings(request: Request, user_id: int):
+    """Возвращает текущий канал уведомлений + список привязанных мессенджеров."""
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT notification_channel FROM fredi_users WHERE user_id = $1",
+                user_id
+            )
+            channel = (row["notification_channel"] if row else None) or "push"
+
+            links = await conn.fetch(
+                "SELECT platform, username, linked_at FROM fredi_messenger_links "
+                "WHERE user_id = $1 AND is_active = TRUE",
+                user_id
+            )
+
+        return {
+            "success": True,
+            "channel": channel,
+            "linked": [
+                {
+                    "platform": l["platform"],
+                    "username": l["username"],
+                    "linked_at": l["linked_at"].isoformat() if l["linked_at"] else None,
+                }
+                for l in links
+            ],
+        }
+    except Exception as e:
+        logger.error(f"get_notification_settings error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/settings/notifications")
+@limiter.limit("20/minute")
+async def set_notification_settings(request: Request):
+    """Меняет канал доставки утренних сообщений (push/telegram/max/none)."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        channel = (data.get("channel") or "push").strip().lower()
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        if channel not in ALLOWED_NOTIFICATION_CHANNELS:
+            return {"success": False, "error": f"channel must be one of {sorted(ALLOWED_NOTIFICATION_CHANNELS)}"}
+
+        async with db.get_connection() as conn:
+            # Создаём юзера если его ещё нет
+            await conn.execute(
+                "INSERT INTO fredi_users (user_id, created_at, updated_at) VALUES ($1, NOW(), NOW()) "
+                "ON CONFLICT (user_id) DO NOTHING",
+                int(user_id)
+            )
+            await conn.execute(
+                "UPDATE fredi_users SET notification_channel = $1, updated_at = NOW() WHERE user_id = $2",
+                channel, int(user_id)
+            )
+
+        await log_event(int(user_id), "notification_channel_changed", {"channel": channel})
+        return {"success": True, "channel": channel}
+    except Exception as e:
+        logger.error(f"set_notification_settings error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/messenger/link")
+@limiter.limit("30/minute")
+async def link_messenger(request: Request):
+    """
+    Вызывается из бота при /start web_<id>.
+    Сохраняет связку web_user_id ↔ chat_id для нужной платформы.
+    """
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        platform = (data.get("platform") or "").strip().lower()
+        chat_id = data.get("chat_id")
+        username = data.get("username")
+
+        if not user_id or not platform or not chat_id:
+            return {"success": False, "error": "user_id, platform, chat_id required"}
+        if platform not in ALLOWED_LINK_PLATFORMS:
+            return {"success": False, "error": f"platform must be one of {sorted(ALLOWED_LINK_PLATFORMS)}"}
+
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO fredi_users (user_id, created_at, updated_at) VALUES ($1, NOW(), NOW()) "
+                "ON CONFLICT (user_id) DO NOTHING",
+                int(user_id)
+            )
+            await conn.execute("""
+                INSERT INTO fredi_messenger_links (user_id, platform, chat_id, username, linked_at, is_active)
+                VALUES ($1, $2, $3, $4, NOW(), TRUE)
+                ON CONFLICT (user_id, platform) DO UPDATE SET
+                    chat_id = EXCLUDED.chat_id,
+                    username = EXCLUDED.username,
+                    linked_at = NOW(),
+                    is_active = TRUE
+            """, int(user_id), platform, str(chat_id), username)
+
+        await log_event(int(user_id), "messenger_linked", {"platform": platform})
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"link_messenger error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/messenger/unlink")
+@limiter.limit("30/minute")
+async def unlink_messenger(request: Request):
+    """Отвязка платформы (по запросу из веб-приложения)."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        platform = (data.get("platform") or "").strip().lower()
+        if not user_id or platform not in ALLOWED_LINK_PLATFORMS:
+            return {"success": False, "error": "bad params"}
+
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "UPDATE fredi_messenger_links SET is_active = FALSE WHERE user_id = $1 AND platform = $2",
+                int(user_id), platform
+            )
+
+        await log_event(int(user_id), "messenger_unlinked", {"platform": platform})
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"unlink_messenger error: {e}")
         return {"success": False, "error": str(e)}
 
 
