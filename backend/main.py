@@ -3278,10 +3278,13 @@ async def create_mirror(request: Request):
             return {"success": False, "error": "user_id обязателен"}
         import uuid as _uuid
         mirror_code = f"mirror_{_uuid.uuid4().hex[:12]}"
+        web_base = os.environ.get("FREDI_WEB_BASE", "https://meysternlp.ru/fredi/")
+        if not web_base.endswith("/"):
+            web_base += "/"
         links = {
             "telegram": f"https://t.me/Nanotech_varik_bot?start={mirror_code}",
             "max": f"https://max.ru/id502238728185_bot?start={mirror_code}",
-            "web": f"https://fredi-frontend.onrender.com/?ref={mirror_code}"
+            "web": f"{web_base}?ref={mirror_code}"
         }
         link = links.get(mirror_type, links["web"])
         invite_texts = {
