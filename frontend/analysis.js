@@ -636,7 +636,6 @@ function _renderScreen() {
     });
 
     _renderTab('overview');
-    _renderFooter();
 }
 
 // ============================================
