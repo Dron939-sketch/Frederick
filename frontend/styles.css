@@ -1173,7 +1173,7 @@ body::after {
 .test-message-user .test-message-avatar { display: none; }
 
 .test-message-bubble {
-    max-width: 82%;
+    max-width: 95%;
     padding: 14px 18px;
     border-radius: 20px;
     word-wrap: break-word;
@@ -1848,7 +1848,7 @@ body::after {
         padding-bottom: max(32px, calc(env(safe-area-inset-bottom) + 24px));
         border-radius: 20px;
     }
-    .test-message-bubble { max-width: 92%; }
+    .test-message-bubble { max-width: 97%; }
     .test-message-button { padding: 8px 12px; font-size: 13px; }
     .test-message-text { font-size: 14px; }
 
@@ -1918,7 +1918,7 @@ body::after {
     .action-icon { font-size: 18px; }
     .action-name { font-size: 8px; }
     .mode-btn { font-size: 10px; }
-    .test-message-bubble { max-width: 95%; }
+    .test-message-bubble { max-width: 98%; }
 }
 
 /* Очень маленькие телефоны (320px) */
