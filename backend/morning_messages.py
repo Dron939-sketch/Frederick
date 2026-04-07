@@ -22,33 +22,26 @@ class MorningMessageManager:
         self.scheduled_tasks = {}
     
     async def generate_morning_message(
-        self, 
-        user_id: int, 
-        user_name: str, 
-        scores: Dict, 
+        self,
+        user_id: int,
+        user_name: str,
+        scores: Dict,
         profile_data: Dict,
         context: Dict,
         day: int = 1
     ) -> str:
         """
-        Генерирует утреннее сообщение для пользователя
-        
-        Args:
-            user_id: ID пользователя
-            user_name: имя
-            scores: баллы по векторам
-            profile_data: данные профиля
-            context: контекст (город, погода, пол)
-            day: день сообщения (1, 2 или 3)
-        
-        Returns:
-            текст сообщения
+        Генерирует утреннее сообщение для пользователя.
+
+        day: 1..5 — день недели (1=пн, 2=вт, 3=ср, 4=чт, 5=пт).
+        Для day=5 (пятница) генерируется weekend-message с идеями на выходные.
+        Для day=1 без AI используется быстрый шаблон.
         """
         # Получаем время
         now = datetime.now()
         hour = now.hour
         weekday = now.weekday()
-        
+
         # Определяем основной вектор
         if scores:
             min_vector = min(scores.items(), key=lambda x: x[1])
@@ -57,7 +50,7 @@ class MorningMessageManager:
         else:
             main_vector = "СБ"
             level = 3
-        
+
         # Описание вектора
         vector_names = {
             "СБ": "страх конфликтов и защиту границ",
@@ -65,22 +58,29 @@ class MorningMessageManager:
             "УБ": "понимание мира и поиск смыслов",
             "ЧВ": "отношения с людьми и эмоциональные связи"
         }
-        
+
         # Пол для обращения
         gender = context.get('gender', 'other')
         address = self._get_address(gender)
-        
+
         # Погода
         weather_text = self._get_weather_text(context, hour)
-        
-        # Генерация в зависимости от дня
+
+        # Пятница → weekend message
+        if day == 5:
+            return await self._generate_weekend_message(
+                user_name=user_name, address=address, scores=scores,
+                main_vector=main_vector, level=level,
+                weather_text=weather_text, hour=hour
+            )
+
+        # Понедельник (day=1) — быстрый шаблон без AI
         if day == 1:
             greeting = self._get_greeting(hour, user_name, address)
             inspiration = self._get_profile_inspiration(scores)
             daily_tip = self._get_daily_tip(scores)
-            
-            return f"""
-🌅 **{greeting}**
+
+            return f"""🌅 **{greeting}**
 
 {weather_text}
 
@@ -89,42 +89,46 @@ class MorningMessageManager:
 💡 **Совет на сегодня:**
 {daily_tip}
 
-✨ Хорошего дня!
-""".strip()
-        
-        else:
-            # Дни 2 и 3 - через ИИ
-            theme = "маленькие действия и эксперименты" if day == 2 else "интеграция опыта и взгляд в будущее"
-            
-            prompt = self._build_ai_prompt(
-                user_name=user_name,
-                address=address,
-                main_vector=main_vector,
-                vector_desc=vector_names.get(main_vector, ""),
-                level=level,
-                weekday=weekday,
-                hour=hour,
-                weather_text=weather_text,
-                day=day,
-                theme=theme
+✨ Хорошего дня!""".strip()
+
+        # Дни 2-4 (вт, ср, чт) — через AI с темой дня
+        weekday_themes = {
+            2: ("вторник — фокус на действии", "энергия движения"),
+            3: ("среда — середина недели", "не сдавайся, ты идёшь"),
+            4: ("четверг — финишная прямая", "осознанность результата"),
+        }
+        theme_pair = weekday_themes.get(day, ("обычный день", "поддержка"))
+        theme = f"{theme_pair[0]}; настроение: {theme_pair[1]}"
+
+        prompt = self._build_ai_prompt(
+            user_name=user_name,
+            address=address,
+            main_vector=main_vector,
+            vector_desc=vector_names.get(main_vector, ""),
+            level=level,
+            weekday=weekday,
+            hour=hour,
+            weather_text=weather_text,
+            day=day,
+            theme=theme
+        )
+
+        try:
+            response = await self.ai_service._call_deepseek(
+                system_prompt="Ты психолог Фреди. Напиши КОРОТКОЕ утреннее мотивационное сообщение.",
+                user_prompt=prompt,
+                max_tokens=350,
+                temperature=0.8
             )
-            
-            try:
-                response = await self.ai_service._call_deepseek(
-                    system_prompt="Ты психолог Фреди. Напиши утреннее мотивационное сообщение.",
-                    user_prompt=prompt,
-                    max_tokens=800,
-                    temperature=0.8
-                )
-                
-                if response:
-                    return self._format_ai_response(response, day, address)
-                
-            except Exception as e:
-                logger.error(f"Ошибка генерации ИИ: {e}")
-            
-            # Запасной вариант
-            return self._get_fallback_text(day, address)
+
+            if response:
+                return self._format_ai_response(response, day, address)
+
+        except Exception as e:
+            logger.error(f"Ошибка генерации ИИ: {e}")
+
+        # Запасной вариант
+        return self._get_fallback_text(day, address)
     
     def _build_ai_prompt(self, user_name: str, address: str, main_vector: str,
                          vector_desc: str, level: int, weekday: int, hour: int,
@@ -135,28 +139,25 @@ class MorningMessageManager:
         weekday_name = weekdays[weekday] if weekday < 7 else "день"
         
         return f"""
-Ты - психолог Фреди. Напиши утреннее мотивационное сообщение для пользователя.
+Ты - психолог Фреди. Напиши КОРОТКОЕ утреннее мотивационное сообщение.
 
-ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ:
-- Имя: {user_name}
-- Обращение: {address}
-- Основной вектор: {main_vector} ({vector_desc})
-- Уровень: {level}/6
-- День недели: {weekday_name}
-- Время суток: {hour} часов
+ПОЛЬЗОВАТЕЛЬ:
+- Имя: {user_name}, обращение: {address}
+- Слабый вектор: {main_vector} ({vector_desc}), уровень {level}/6
+- День недели: {weekday_name}, время: {hour}:00
 - {weather_text}
 
-КОНТЕКСТ:
-- Это ДЕНЬ {day} из 3-дневной серии
-- Тема дня: {theme}
+ТЕМА ДНЯ: {theme}
 
-ТРЕБОВАНИЯ:
-1. Тёплое, поддерживающее, без нравоучений
-2. Учитывай профиль пользователя
-3. Используй обращение "{address}" в тексте
-4. Добавь 1-2 риторических вопроса
-5. Длина: 3-5 абзацев
-6. НЕ ИСПОЛЬЗУЙ звёздочки, решётки, markdown
+ЖЁСТКИЕ ТРЕБОВАНИЯ К ФОРМАТУ:
+1. ОЧЕНЬ КОРОТКО: 2 абзаца, 60-100 слов ВСЕГО (не больше!)
+2. Каждое предложение должно нести смысл, без воды
+3. Используй обращение "{address}" один раз
+4. 1 риторический вопрос — не больше
+5. Учти слабый вектор и тему дня
+6. Тёплое, поддерживающее, без нравоучений и пафоса
+7. НЕ ИСПОЛЬЗУЙ звёздочки, решётки, markdown
+8. Закончи короткой ободряющей фразой
 
 Напиши сообщение:
 """
@@ -166,10 +167,98 @@ class MorningMessageManager:
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'__(.*?)__', r'\1', text)
         
-        emoji = "⚡" if day == 2 else "🌟"
-        
+        emoji_by_day = {2: "⚡", 3: "🌤", 4: "🚀", 5: "🌟"}
+        emoji = emoji_by_day.get(day, "🌅")
+
         return f"{emoji} **Доброе утро, {address}!**\n\n{text}"
-    
+
+    async def _generate_weekend_message(
+        self, user_name: str, address: str, scores: Dict,
+        main_vector: str, level: int, weather_text: str, hour: int
+    ) -> str:
+        """
+        Генерирует пятничное сообщение: тёплое утро + 3 короткие идеи
+        на выходные с учётом слабого вектора пользователя.
+        """
+        vector_names = {
+            "СБ": "укрепить границы и устойчивость",
+            "ТФ": "ресурсы и финансовая осознанность",
+            "УБ": "понимание мира и поиск смыслов",
+            "ЧВ": "тёплые отношения и эмпатия"
+        }
+        vector_desc = vector_names.get(main_vector, "психологический рост")
+
+        prompt = f"""
+Ты - психолог Фреди. Сегодня ПЯТНИЦА. Напиши КОРОТКОЕ утреннее сообщение
+с идеями на выходные для пользователя.
+
+ПОЛЬЗОВАТЕЛЬ:
+- Имя: {user_name}, обращение: {address}
+- Слабый вектор: {main_vector} ({vector_desc}), уровень {level}/6
+- {weather_text}
+
+СТРУКТУРА (СТРОГО):
+1. Одна короткая тёплая фраза-приветствие про пятницу (10-15 слов)
+2. Три конкретные идеи на выходные — по одной строке каждая, начинай с "•"
+3. Идеи должны помогать развивать слабый вектор {main_vector}
+4. Идеи разные: что-то для тела, что-то для ума, что-то для души/общения
+5. Одна короткая ободряющая фраза в конце (5-10 слов)
+
+ОГРАНИЧЕНИЯ:
+- ВСЕГО 60-90 слов (не больше!)
+- НЕ используй markdown (звёздочки, решётки)
+- Используй обращение "{address}" один раз — в приветствии
+- Без воды, конкретно
+"""
+
+        try:
+            response = await self.ai_service._call_deepseek(
+                system_prompt="Ты психолог Фреди. Пятничное утреннее сообщение с идеями на выходные.",
+                user_prompt=prompt,
+                max_tokens=400,
+                temperature=0.85
+            )
+
+            if response:
+                cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', response)
+                cleaned = re.sub(r'__(.*?)__', r'\1', cleaned)
+                return f"🎉 **Доброе утро, {address}!**\n\n{cleaned.strip()}"
+
+        except Exception as e:
+            logger.error(f"Ошибка генерации weekend-message: {e}")
+
+        # Fallback — статические идеи по вектору
+        fallback_ideas = {
+            "СБ": [
+                "Прогулка в новом для тебя месте — почувствуй опору",
+                "Скажи 'нет' одной просьбе, на которую обычно соглашаешься",
+                "Запиши 3 границы, которые хочешь укрепить"
+            ],
+            "ТФ": [
+                "Разобрать расходы за неделю и поблагодарить себя",
+                "Прочитать одну статью или главу про деньги",
+                "Сделать маленький подарок себе в рамках бюджета"
+            ],
+            "УБ": [
+                "Посмотреть документальный фильм на новую тему",
+                "Записать одну мысль, которая сегодня кажется важной",
+                "Поговорить с тем, кто старше и мудрее"
+            ],
+            "ЧВ": [
+                "Позвонить близкому человеку просто так",
+                "Встретиться с другом, которого давно не видел",
+                "Написать письмо благодарности — себе или другому"
+            ]
+        }
+        ideas = fallback_ideas.get(main_vector, fallback_ideas["ЧВ"])
+        ideas_text = "\n".join(f"• {idea}" for idea in ideas)
+        return (
+            f"🎉 **Доброе утро, {address}!**\n\n"
+            f"Пятница — твоё время сделать паузу и побыть с собой. "
+            f"Вот идеи на выходные:\n\n{ideas_text}\n\n"
+            f"Хороших выходных! ✨"
+        )
+
     def _get_fallback_text(self, day: int, address: str) -> str:
         """Запасной текст"""
         if day == 2:
