@@ -7,8 +7,8 @@
     if (window._settingsLoaded) return;
     window._settingsLoaded = true;
 
-    const TG_BOT_USERNAME = window.CONFIG?.TG_BOT_USERNAME || 'fredi_psy_bot';
-    const MAX_BOT_LINK = window.CONFIG?.MAX_BOT_LINK || 'https://max.ru/fredi_bot';
+    const TG_BOT_USERNAME = window.CONFIG?.TG_BOT_USERNAME || 'Nanotech_varik_bot';
+    const MAX_BOT_LINK = window.CONFIG?.MAX_BOT_LINK || 'https://max.ru/id502238728185_bot';
 
     function _setApi() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
     function _setUid() { return window.CONFIG?.USER_ID; }
