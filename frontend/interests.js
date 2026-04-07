@@ -291,7 +291,7 @@ async function _loadVectors() {
 // ============================================
 // ГЛАВНЫЙ ЭКРАН
 // ============================================
-function _renderMain() {
+function _intRenderMain() {
     _intInjectStyles();
     const c = document.getElementById('screenContainer');
     if (!c) return;
@@ -342,7 +342,7 @@ function _renderMain() {
     document.getElementById('intBack').onclick = () => _intHome();
     document.getElementById('intRefresh').onclick = () => {
         _intToast('Рекомендации обновлены');
-        _renderMain();
+        _intRenderMain();
     };
 
     document.querySelectorAll('.int-cat-card').forEach(card => {
@@ -413,7 +413,7 @@ function _renderCategory(category) {
             <div class="int-list">${cards}</div>
         </div>`;
 
-    document.getElementById('intCatBack').onclick = () => _renderMain();
+    document.getElementById('intCatBack').onclick = () => _intRenderMain();
 
     c.querySelectorAll('.int-detail').forEach(b   => b.addEventListener('click', () => _intToast('Подробный анализ — скоро')));
     c.querySelectorAll('.int-dl').forEach(b        => b.addEventListener('click', () => _intToast('Скачивание — скоро')));
@@ -426,7 +426,7 @@ function _renderCategory(category) {
 // ============================================
 async function showInterestsScreen() {
     // Сразу рендерим скелет чтобы уйти от чата
-    _renderMain();
+    _intRenderMain();
 
     // Проверяем профиль в фоне
     try {
@@ -439,7 +439,7 @@ async function showInterestsScreen() {
     } catch { /* показываем с дефолтными векторами */ }
 
     await _loadVectors();
-    _renderMain(); // перерендер с загруженными векторами
+    _intRenderMain(); // перерендер с загруженными векторами
 }
 
 // ============================================
