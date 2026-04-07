@@ -27,6 +27,7 @@ function _hyInjectStyles() {
 
         /* ===== ТИПЫ ВОЗДЕЙСТВИЯ ===== */
         .hy-types-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+        .hy-types-grid > * { min-width: 0; }
         .hy-type-card {
             background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
             border-radius: 16px; padding: 14px; cursor: pointer;
@@ -47,19 +48,19 @@ function _hyInjectStyles() {
 
         /* ===== ЦЕЛИ ===== */
         .hy-goals-grid {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;
+            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px;
         }
         .hy-goal-btn {
             background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
-            border-radius: 30px; padding: 9px 12px; cursor: pointer;
+            border-radius: 20px; padding: 9px 10px; cursor: pointer;
             display: flex; align-items: center; justify-content: center; gap: 6px;
             transition: background 0.18s, border-color 0.18s; touch-action: manipulation;
-            font-family: inherit;
+            font-family: inherit; min-width: 0;
         }
         .hy-goal-btn:active { transform: scale(0.97); }
         .hy-goal-btn.sel { background: rgba(224,224,224,0.14); border-color: rgba(224,224,224,0.35); }
-        .hy-goal-emoji { font-size: 15px; }
-        .hy-goal-name  { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+        .hy-goal-emoji { font-size: 15px; flex-shrink: 0; }
+        .hy-goal-name  { font-size: 12px; font-weight: 500; color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; text-align: center; line-height: 1.2; }
         .hy-goal-btn.sel .hy-goal-name { color: var(--text-primary); }
 
         /* ===== СВОЁ ВНУШЕНИЕ ===== */
@@ -160,9 +161,11 @@ function _hyInjectStyles() {
         .hy-tip strong { color: var(--chrome); }
 
         @media (max-width: 480px) {
-            .hy-types-grid  { grid-template-columns: 1fr 1fr; }
-            .hy-goals-grid  { grid-template-columns: repeat(3, 1fr); }
+            .hy-types-grid  { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+            .hy-goals-grid  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .hy-suggestion-text { font-size: 14px; }
+            .hy-result-card { padding: 16px; }
+            .hy-suggestion-box { padding: 14px; }
         }
     `;
     document.head.appendChild(s);
