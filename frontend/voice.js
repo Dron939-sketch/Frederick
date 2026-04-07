@@ -213,9 +213,11 @@ const VoiceConfig = {
     forceHTTPoniOS: true,
 
     recording: {
-        sampleRate: /iPhone|iPad|iPod/.test(navigator.userAgent) ? 44100 : 16000,
+        // 16000 Hz — оптимально для STT (DeepGram), iOS Safari принимает.
+        // Раньше для iOS использовали 44100 — большие файлы и лишняя нагрузка.
+        sampleRate: 16000,
         maxDuration: 60000,
-        minDuration: 800,
+        minDuration: 500,         // 500мс минимум для distress-tap
         chunkSize: 4096,
         format: 'wav',
         mimeType: 'audio/wav'
@@ -282,47 +284,35 @@ class VoiceRecorder {
     async start() {
         if (this.recording) return false;
         try {
+            // На iOS Safari MediaRecorder выдаёт fragmented MP4, который часто
+            // невалиден для STT (см. WebKit Bug #216832 и issues с DeepGram/Whisper).
+            // Поэтому ВЕЗДЕ используем ScriptProcessor → WAV — это работает на 100%
+            // на всех браузерах, формат гарантированно валиден для бэкенда.
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
-                    echoCancellation: true, noiseSuppression: true,
-                    autoGainControl: true, channelCount: 1,
-                    ...(this.isIOS ? {} : { sampleRate: this.config.sampleRate })
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    channelCount: 1,
                 }
             });
             this.mediaStream = stream;
-            this.wavData = []; this.mrChunks = [];
-            this.speechSeen = false; this.silenceStart = null;
+            this.wavData = [];
+            this.mrChunks = [];
+            this.speechSeen = false;
+            this.silenceStart = null;
             this.recording = true;
+            this._recordingStartTs = Date.now();
+            this._actualSampleRate = null;
 
-            if (this.isIOS && window.MediaRecorder) {
-                const types = ['audio/mp4', 'audio/aac', 'audio/webm'];
-                const mime  = types.find(t => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } });
-                if (mime) {
-                    this.mediaRecorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 128000 });
-                    this.mediaRecorder.ondataavailable = e => { if (e.data?.size > 0) this.mrChunks.push(e.data); };
-                    this.mediaRecorder.onstop = () => {
-                        const blob = new Blob(this.mrChunks, { type: mime });
-                        this.mediaRecorder = null;
-                        this.mrChunks = [];
-                        this._finish(blob);
-                    };
-                    // Без timeslice — получаем один полный mp4/aac контейнер
-                    // (с timeslice фрагменты не имеют валидных заголовков и
-                    // вторая запись могла стать невалидной)
-                    this.mediaRecorder.start();
-                    this._setupAnalyser(stream);
-                } else {
-                    await this._setupScriptProcessor(stream);
-                }
-            } else {
-                await this._setupScriptProcessor(stream);
-            }
+            await this._setupScriptProcessor(stream);
 
             this.stopTimer = setTimeout(() => this.stop(), this.config.maxDuration);
             if (this.onRecordingStart) this.onRecordingStart();
             return true;
         } catch (err) {
             this.recording = false;
+            console.error('VoiceRecorder.start error:', err);
             const msgs = {
                 NotAllowedError:  'Разрешите доступ к микрофону в настройках браузера',
                 NotFoundError:    'Микрофон не найден',
@@ -334,12 +324,28 @@ class VoiceRecorder {
     }
 
     async _setupScriptProcessor(stream) {
-        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.config.sampleRate });
-        if (this.audioCtx.state === 'suspended') { try { await this.audioCtx.resume(); } catch {} }
+        // Создаём AudioContext. На iOS Safari нельзя жёстко задать sampleRate
+        // (выбрасывает NotSupportedError), поэтому пробуем — если не вышло,
+        // создаём дефолтный и берём фактический sampleRate из контекста.
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        try {
+            this.audioCtx = new Ctx({ sampleRate: this.config.sampleRate });
+        } catch (e) {
+            console.warn('AudioContext: fallback to default sampleRate', e?.message);
+            this.audioCtx = new Ctx();
+        }
+        // КРИТИЧНО для iOS: контекст может быть suspended после первого create
+        if (this.audioCtx.state === 'suspended') {
+            try { await this.audioCtx.resume(); } catch (e) { console.warn('audioCtx.resume failed:', e); }
+        }
+        this._actualSampleRate = this.audioCtx.sampleRate;
+        console.log(`🎤 AudioContext sampleRate: ${this._actualSampleRate}`);
+
         const src = this.audioCtx.createMediaStreamSource(stream);
         this.analyser = this.audioCtx.createAnalyser();
         this.analyser.fftSize = 256;
         src.connect(this.analyser);
+
         this.processor = this.audioCtx.createScriptProcessor(this.config.chunkSize, 1, 1);
         this.processor.onaudioprocess = e => {
             if (!this.recording) return;
@@ -361,13 +367,9 @@ class VoiceRecorder {
             } else if (this.speechSeen && !this.silenceStart) {
                 this.silenceStart = Date.now();
             }
-            // autoStopAfterSilence отключён — пользователь останавливает кнопкой
-            // if (VoiceConfig.ui.autoStopAfterSilence && this.speechSeen && this.silenceStart &&
-            //     (Date.now() - this.silenceStart) > VoiceConfig.ui.silenceTimeout) {
-            //     this.stop();
-            // }
         };
         src.connect(this.processor);
+        // На iOS обязательно подключить процессор к destination иначе onaudioprocess не вызывается
         this.processor.connect(this.audioCtx.destination);
         this._startVolumeRaf();
     }
@@ -410,19 +412,30 @@ class VoiceRecorder {
         this.recording = false;
         this.silenceStart = null;
         this.speechSeen = false;
+        const durationMs = this._recordingStartTs ? (Date.now() - this._recordingStartTs) : 0;
+        this._lastDurationMs = durationMs;
+
         if (this.stopTimer) { clearTimeout(this.stopTimer); this.stopTimer = null; }
         if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
-        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-            this.mediaRecorder.stop(); return;
-        }
         if (this.processor) { try { this.processor.disconnect(); } catch {} this.processor = null; }
         if (this.audioCtx)  { this.audioCtx.close().catch(() => {}); this.audioCtx = null; }
         if (this._volCtx)   { this._volCtx.close().catch(() => {}); this._volCtx = null; }
         this._stopStream();
+
+        // Проверка длительности — единственный надёжный критерий "слишком короткое"
+        if (durationMs < this.config.minDuration) {
+            console.warn(`🎤 Recording too short: ${durationMs}ms < ${this.config.minDuration}ms`);
+            if (this.onError) this.onError('Говорите немного дольше');
+            if (this.onRecordingStop) this.onRecordingStop(null);
+            return;
+        }
+
         if (this.wavData.length > 0) {
-            this._finish(this._buildWav());
+            const blob = this._buildWav();
+            console.log(`🎤 Recording finished: ${durationMs}ms, ${blob.size}b WAV @${this._actualSampleRate}Hz`);
+            this._finish(blob);
         } else {
-            this._stopStream();
+            console.warn('🎤 No audio data captured');
             if (this.onError) this.onError('Не удалось получить аудио');
             if (this.onRecordingStop) this.onRecordingStop(null);
         }
@@ -435,9 +448,14 @@ class VoiceRecorder {
     _finish(blob) { this._stopStream(); if (this.onRecordingStop) this.onRecordingStop(blob); }
 
     _buildWav() {
+        // Реальный sampleRate берём из AudioContext (на iOS он часто 48000
+        // даже если запросили 16000). Это критично для корректного WAV,
+        // иначе DeepGram расшифровывает речь "ускоренной/замедленной".
+        const sr = this._actualSampleRate || this.config.sampleRate;
+
         let total = 0;
         for (const c of this.wavData) total += c.length;
-        const MAX = Math.floor((this.config.maxDuration / 1000) * this.config.sampleRate);
+        const MAX = Math.floor((this.config.maxDuration / 1000) * sr);
         if (total > MAX) total = MAX;
         const combined = new Int16Array(total);
         let offset = 0;
@@ -447,15 +465,15 @@ class VoiceRecorder {
             combined.set(c.subarray(0, len), offset);
             offset += len;
         }
-        const sr = this.config.sampleRate;
+
         const buf = new ArrayBuffer(44 + combined.length * 2);
         const v   = new DataView(buf);
         const ws  = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
         ws(0, 'RIFF'); v.setUint32(4, 36 + combined.length * 2, true);
         ws(8, 'WAVE'); ws(12, 'fmt '); v.setUint32(16, 16, true);
-        v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-        v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
-        v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+        v.setUint16(20, 1, true); v.setUint16(22, 1, true);  // PCM, mono
+        v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);  // sample rate, byte rate
+        v.setUint16(32, 2, true); v.setUint16(34, 16, true); // block align, bits per sample
         ws(36, 'data'); v.setUint32(40, combined.length * 2, true);
         for (let i = 0; i < combined.length; i++) v.setInt16(44 + i * 2, combined[i], true);
         return new Blob([buf], { type: 'audio/wav' });
@@ -761,19 +779,13 @@ class VoiceTransport {
     // ---- ОТПРАВКА АУДИО ----
 
     async sendAudio(audioBlob) {
-        const blobType = audioBlob.type || '';
-        const isCompressed = blobType.includes('mp4') || blobType.includes('aac') ||
-                             blobType.includes('webm') || blobType.includes('ogg');
-        // Сжатые форматы (iOS MediaRecorder) весят в ~10-20 раз меньше PCM WAV
-        const minBytes = isCompressed
-            ? 1000
-            : (VoiceConfig.recording.minDuration / 1000) * VoiceConfig.recording.sampleRate * 2;
-        if (audioBlob.size < minBytes) {
-            if (this.onError) this.onError('Говорите немного дольше');
+        // Длительность уже проверена в VoiceRecorder.stop() — здесь только sanity check.
+        if (!audioBlob || audioBlob.size < 200) {
+            if (this.onError) this.onError('Не удалось получить аудио');
             return false;
         }
 
-        console.log(`📤 sendAudio: ${audioBlob.size}b via ${this._mode.toUpperCase()}`);
+        console.log(`📤 sendAudio: ${audioBlob.size}b (${audioBlob.type}) via ${this._mode.toUpperCase()}`);
 
         if (this._mode === 'ws' && this._wsReady && this._ws?.readyState === WebSocket.OPEN) {
             return this._sendWS(audioBlob);
@@ -1048,10 +1060,10 @@ class VoiceManager {
             this.isRecording = false;
             this._status('idle');
             if (this.onRecordingStop) this.onRecordingStop(blob);
-            if (blob && blob.size > 100) {
+            if (blob) {
+                // Длительность уже проверена в VoiceRecorder.stop() —
+                // если blob есть, значит запись валидная
                 await this._transport.sendAudio(blob);
-            } else {
-                if (this.onError) this.onError('Аудио слишком короткое');
             }
         };
 
