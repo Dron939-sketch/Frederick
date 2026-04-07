@@ -1882,7 +1882,7 @@ body::after {
 
     .screen-container {
         padding: 16px;
-        padding-bottom: 0;
+        padding-bottom: max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px));
     }
 
     .swipe-indicator {
