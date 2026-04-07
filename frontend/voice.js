@@ -10,7 +10,6 @@
 
 class AudioPlayer {
     constructor() {
-        this.audio = null;
         this.currentUrl = null;
         this.onPlayStart = null;
         this.onPlayEnd = null;
@@ -18,10 +17,24 @@ class AudioPlayer {
         this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         this._unlocked = false;
 
+        // Единственный персистентный Audio-элемент.
+        // iOS Safari разрешает .play() только на том элементе,
+        // которому play() уже вызывали во время user gesture.
+        this.audio = new Audio();
+        this.audio.preload = 'auto';
+        this.audio.volume = 1.0;
+        this.audio.playsInline = true;
+        this.audio.setAttribute('playsinline', '');
+        this.audio.setAttribute('webkit-playsinline', '');
+
         const unlock = () => {
+            if (this._unlocked) return;
             this._unlocked = true;
-            const a = new Audio();
-            a.play().catch(() => {});
+            // Беззвучный data URI — короткий валидный mp3
+            const silent = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAACpgCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgID///////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAqaJ7Z/XAAAAAAAAAAAAAAAAAAAAAP/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+            this.audio.src = silent;
+            const p = this.audio.play();
+            if (p && p.then) p.then(() => { try { this.audio.pause(); this.audio.currentTime = 0; } catch {} }).catch(() => {});
             document.removeEventListener('touchstart', unlock, true);
             document.removeEventListener('touchend', unlock, true);
             document.removeEventListener('click', unlock, true);
@@ -29,6 +42,19 @@ class AudioPlayer {
         document.addEventListener('touchstart', unlock, true);
         document.addEventListener('touchend', unlock, true);
         document.addEventListener('click', unlock, true);
+    }
+
+    // Принудительный unlock — вызывается из onTouchStart кнопки записи,
+    // т.к. реальный user gesture именно там, а не на document
+    primeForPlayback() {
+        if (this._unlocked) return;
+        this._unlocked = true;
+        const silent = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAACpgCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgID///////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAqaJ7Z/XAAAAAAAAAAAAAAAAAAAAAP/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+        try {
+            this.audio.src = silent;
+            const p = this.audio.play();
+            if (p && p.then) p.then(() => { try { this.audio.pause(); this.audio.currentTime = 0; } catch {} }).catch(() => {});
+        } catch {}
     }
 
     async play(audioData, mimeType = 'audio/mpeg') {
@@ -65,21 +91,21 @@ class AudioPlayer {
 
             if (!audioUrl) throw new Error('Не удалось создать URL аудио');
             this.currentUrl = isObjectUrl ? audioUrl : null;
-            this.audio = new Audio();
-            this.audio.preload = 'auto';
-            this.audio.volume = 1.0;
 
             return new Promise((resolve, reject) => {
                 const cleanup = () => {
-                    if (isObjectUrl && audioUrl) URL.revokeObjectURL(audioUrl);
+                    if (isObjectUrl && this.currentUrl) {
+                        try { URL.revokeObjectURL(this.currentUrl); } catch {}
+                        this.currentUrl = null;
+                    }
                 };
                 this.audio.onended = () => {
-                    cleanup(); this.audio = null;
+                    cleanup();
                     if (this.onPlayEnd) this.onPlayEnd();
                     resolve();
                 };
-                this.audio.onerror = (e) => {
-                    cleanup(); this.audio = null;
+                this.audio.onerror = () => {
+                    cleanup();
                     if (this.onError) this.onError('Не удалось воспроизвести аудио');
                     reject(new Error('Audio error'));
                 };
@@ -87,12 +113,11 @@ class AudioPlayer {
                 this.audio.load();
 
                 const doPlay = () => {
-                    if (!this.audio) { resolve(); return; }
                     const p = this.audio.play();
                     if (p && p.then) {
                         p.then(() => { if (this.onPlayStart) this.onPlayStart(); })
                          .catch(err => {
-                             cleanup(); this.audio = null;
+                             cleanup();
                              if (this.onError) this.onError('Нажмите на экран для включения звука');
                              reject(err);
                          });
@@ -114,10 +139,7 @@ class AudioPlayer {
     }
 
     stop() {
-        if (this.audio) {
-            try { this.audio.pause(); this.audio.src = ''; } catch {}
-            this.audio = null;
-        }
+        try { this.audio.pause(); } catch {}
         if (this.currentUrl) {
             try { URL.revokeObjectURL(this.currentUrl); } catch {}
             this.currentUrl = null;
@@ -280,9 +302,14 @@ class VoiceRecorder {
                     this.mediaRecorder.ondataavailable = e => { if (e.data?.size > 0) this.mrChunks.push(e.data); };
                     this.mediaRecorder.onstop = () => {
                         const blob = new Blob(this.mrChunks, { type: mime });
+                        this.mediaRecorder = null;
+                        this.mrChunks = [];
                         this._finish(blob);
                     };
-                    this.mediaRecorder.start(500);
+                    // Без timeslice — получаем один полный mp4/aac контейнер
+                    // (с timeslice фрагменты не имеют валидных заголовков и
+                    // вторая запись могла стать невалидной)
+                    this.mediaRecorder.start();
                     this._setupAnalyser(stream);
                 } else {
                     await this._setupScriptProcessor(stream);
@@ -993,23 +1020,15 @@ class VoiceManager {
         };
 
         // Плеер для транспорта (и WS и HTTP используют один)
+        // Используем this._player — у него персистентный Audio-элемент
+        // который unlocked при user gesture (нажатие кнопки записи)
         this._transport._onPlayAudio = async url => {
             this.isAISpeaking = true;
             this._status('speaking');
             try {
-                const audio = new Audio();
-                audio.volume = 1.0;
-                audio.src = url;
-                await new Promise((resolve) => {
-                    audio.onended = resolve;
-                    audio.onerror = resolve;
-                    const doPlay = () => {
-                        const p = audio.play();
-                        if (p) p.catch(resolve);
-                    };
-                    if (this.isIOS) { audio.oncanplaythrough = doPlay; setTimeout(doPlay, 300); }
-                    else            { audio.oncanplay = doPlay; setTimeout(doPlay, 100); }
-                });
+                await this._player.play(url);
+            } catch (e) {
+                console.error('Audio playback error:', e);
             } finally {
                 this.isAISpeaking = false;
                 this._status('idle');
@@ -1053,6 +1072,9 @@ class VoiceManager {
     _status(s) { if (this.onStatusChange) this.onStatusChange(s); }
 
     startRecording() {
+        // Unlock плеера прямо здесь — это вызывается из обработчика
+        // нажатия кнопки, т.е. внутри user gesture (критично для iOS)
+        this._player.primeForPlayback();
         if (this.isAISpeaking) {
             this._player.stop();
             this.isAISpeaking = false;
