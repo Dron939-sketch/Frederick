@@ -35,6 +35,7 @@ from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel, Field
 import uvicorn
 from services.voice_service import VoiceService, normalize_tts_text
+from services.freddy_service import get_freddy_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1379,7 +1380,54 @@ async def chat(request: Request, data: ChatRequest):
             except Exception as e:
                 logger.warning(f"Error in question analysis: {e}")
 
-        result = mode_instance.process_question(data.message)
+        # --- Freddy SDK: для пользователей без теста ---
+        if not has_profile:
+            # Предложение теста после 4 сообщений (сохраняем логику BasicMode)
+            test_offered = context_obj.get("basic_test_offered", False)
+            if msg_count >= 4 and not test_offered:
+                import random as _rnd
+                test_offered = True
+                context_obj["basic_test_offered"] = True
+                await context_repo.save(data.user_id, context_obj)
+                test_response = _rnd.choice([
+                    "Знаешь... У меня есть одна идея. Небольшой тест — минут на десять. Он помогает понять себя лучше. Попробуешь, да?",
+                    "Слушай, я хочу предложить кое-что. Есть тест... Занимает минут десять. Он как зеркало — показывает, что внутри. Интересно?",
+                    "Дай-ка подумаю, как тебе помочь лучше... Есть небольшой тест. Десять минут — и я пойму тебя гораздо глубже. Попробуем?",
+                ])
+                await message_repo.save(data.user_id, "user", data.message)
+                await message_repo.save(data.user_id, "assistant", test_response)
+                await log_event(data.user_id, "chat", {
+                    "mode": "basic", "message_length": len(data.message),
+                    "tools_used": ["test_offer"], "has_profile": False
+                })
+                return {
+                    "success": True, "response": test_response,
+                    "mode_used": "basic", "reflection": None
+                }
+
+            # Пробуем FreddyService, fallback на BasicMode
+            freddy_reply = None
+            try:
+                freddy = get_freddy_service()
+                freddy_result = await freddy.chat(
+                    user_id=data.user_id,
+                    message=data.message,
+                    history=history,
+                )
+                if freddy_result.get("reply"):
+                    freddy_reply = freddy_result["reply"]
+                    mode_name = "freddy"
+                    logger.info(f"FreddyService replied for user {data.user_id}, model={freddy_result.get('model')}")
+            except Exception as e:
+                logger.warning(f"FreddyService failed for user {data.user_id}: {e}")
+
+            if freddy_reply:
+                result = {"response": freddy_reply, "tools_used": ["freddy_sdk"]}
+            else:
+                logger.info(f"FreddyService unavailable, falling back to BasicMode for user {data.user_id}")
+                result = mode_instance.process_question(data.message)
+        else:
+            result = mode_instance.process_question(data.message)
 
         # Persist test_offered for BasicMode after processing
         if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):

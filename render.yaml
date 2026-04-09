@@ -45,6 +45,12 @@ services:
         sync: false
       - key: OPENWEATHER_API_KEY
         sync: false
+      - key: FREDDY_URL
+        value: https://agent-ynlg.onrender.com
+      - key: FREDDY_USERNAME
+        sync: false
+      - key: FREDDY_PASSWORD
+        sync: false
 
     disk:
       name: backend-tmp
