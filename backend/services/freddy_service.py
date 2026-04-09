@@ -46,12 +46,11 @@ class FreddyService:
         return self._session
 
     async def _ensure_auth(self) -> bool:
-        """Логинится если нет токена."""
+        """Логинится если нет токена. При 401 пробует register + login."""
         if self.token:
             return True
         if not FREDDY_USERNAME or not FREDDY_PASSWORD:
             logger.warning("FreddyService: нет credentials (FREDDY_TOKEN или FREDDY_USERNAME+PASSWORD)")
-            logger.warning(f"FreddyService: FREDDY_USERNAME='{FREDDY_USERNAME}', FREDDY_PASSWORD={'set' if FREDDY_PASSWORD else 'empty'}, FREDDY_URL='{FREDDY_URL}'")
             return False
         if self._logged_in:
             return True
@@ -59,6 +58,8 @@ class FreddyService:
         try:
             session = await self._get_session()
             logger.info(f"FreddyService: attempting login as '{FREDDY_USERNAME}' to {self.url}")
+
+            # Попытка логина
             async with session.post(
                 f"{self.url}/api/auth/login",
                 json={"username": FREDDY_USERNAME, "password": FREDDY_PASSWORD},
@@ -70,10 +71,44 @@ class FreddyService:
                     self._logged_in = True
                     logger.info("FreddyService: авторизация успешна")
                     return True
-                else:
-                    body = await resp.text()
-                    logger.error(f"FreddyService login failed: {resp.status} {body[:200]}")
-                    return False
+
+                # Если 401 — пробуем зарегистрироваться и залогиниться снова
+                if resp.status == 401:
+                    logger.info("FreddyService: login 401, trying auto-register...")
+                    try:
+                        async with session.post(
+                            f"{self.url}/api/auth/register",
+                            json={
+                                "username": FREDDY_USERNAME,
+                                "email": f"{FREDDY_USERNAME}@freddy.local",
+                                "password": FREDDY_PASSWORD,
+                            },
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as reg_resp:
+                            reg_body = await reg_resp.text()
+                            logger.info(f"FreddyService: register response: {reg_resp.status} {reg_body[:200]}")
+                    except Exception as reg_err:
+                        logger.warning(f"FreddyService: register error: {reg_err}")
+
+                    # Повторный логин после регистрации
+                    async with session.post(
+                        f"{self.url}/api/auth/login",
+                        json={"username": FREDDY_USERNAME, "password": FREDDY_PASSWORD},
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp2:
+                        if resp2.status == 200:
+                            data = await resp2.json()
+                            self.token = data.get("access_token", "")
+                            self._logged_in = True
+                            logger.info("FreddyService: авторизация успешна после auto-register")
+                            return True
+                        body2 = await resp2.text()
+                        logger.error(f"FreddyService: login after register failed: {resp2.status} {body2[:200]}")
+                        return False
+
+                body = await resp.text()
+                logger.error(f"FreddyService login failed: {resp.status} {body[:200]}")
+                return False
         except Exception as exc:
             logger.error(f"FreddyService login error: {exc}")
             return False
