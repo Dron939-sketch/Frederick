@@ -41,8 +41,13 @@ class FreddyService:
         logger.info(f"FreddyService: url={self.url}, token={'set' if self.token else 'not set'}")
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+        # Новая сессия каждый раз — предотвращает зависание пула соединений
+        # после streaming TTS ответов
+        if self._session and not self._session.closed:
+            await self._session.close()
+        self._session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(force_close=True)
+        )
         return self._session
 
     async def _ensure_auth(self) -> bool:
