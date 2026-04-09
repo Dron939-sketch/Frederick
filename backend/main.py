@@ -563,8 +563,8 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         cur_count = context.get("basic_message_count", 0)
                         context["basic_message_count"] = cur_count + 1
                         # Persist test_offered so it survives reconnections
-                        if hasattr(mode, 'test_offered'):
-                            context["basic_test_offered"] = mode.test_offered
+                        if hasattr(mode_instance, 'test_offered'):
+                            context["basic_test_offered"] = mode_instance.test_offered
                         await context_repo.save(user_id_for_db, context)
                     except Exception as _e:
                         logger.warning(f"Не удалось сохранить basic_message_count: {_e}")
