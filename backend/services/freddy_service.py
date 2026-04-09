@@ -51,12 +51,14 @@ class FreddyService:
             return True
         if not FREDDY_USERNAME or not FREDDY_PASSWORD:
             logger.warning("FreddyService: нет credentials (FREDDY_TOKEN или FREDDY_USERNAME+PASSWORD)")
+            logger.warning(f"FreddyService: FREDDY_USERNAME='{FREDDY_USERNAME}', FREDDY_PASSWORD={'set' if FREDDY_PASSWORD else 'empty'}, FREDDY_URL='{FREDDY_URL}'")
             return False
         if self._logged_in:
             return True
 
         try:
             session = await self._get_session()
+            logger.info(f"FreddyService: attempting login as '{FREDDY_USERNAME}' to {self.url}")
             async with session.post(
                 f"{self.url}/api/auth/login",
                 json={"username": FREDDY_USERNAME, "password": FREDDY_PASSWORD},
