@@ -529,6 +529,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
 
                 # --- Freddy SDK для голосового режима (basic) ---
                 response_text = ""
+                freddy_audio = None
                 if mode_name == "basic":
                     try:
                         freddy = get_freddy_service()
@@ -541,6 +542,13 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                             response_text = freddy_result["reply"]
                             await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {response_text}"})
                             logger.info(f"FreddyService voice reply for user {user_id_for_db}")
+                            # Озвучка голосом Джарвиса
+                            try:
+                                freddy_audio = await freddy.speak(response_text, voice="jarvis", tone="warm")
+                                if freddy_audio:
+                                    logger.info(f"FreddyService TTS: {len(freddy_audio)} bytes (Jarvis)")
+                            except Exception as tts_err:
+                                logger.warning(f"FreddyService TTS error, fallback to Yandex: {tts_err}")
                     except Exception as e:
                         logger.warning(f"FreddyService voice error: {e}")
 
@@ -571,16 +579,24 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 await websocket.send_json({"type": "status", "status": "speaking"})
 
                 try:
-                    async for audio_chunk in voice_service.text_to_speech_streaming(
-                        response_text, mode_name, chunk_size=4096
-                    ):
-                        if audio_chunk:
-                            audio_base64 = base64.b64encode(audio_chunk).decode()
-                            await websocket.send_json({"type": "audio", "data": audio_base64, "is_final": False})
-                            await asyncio.sleep(0.05)
+                    if freddy_audio:
+                        # Голос Джарвиса от Freddy SDK
+                        audio_base64 = base64.b64encode(freddy_audio).decode()
+                        await websocket.send_json({"type": "audio", "data": audio_base64, "is_final": False})
+                        await websocket.send_json({"type": "audio", "data": "", "is_final": True})
+                        logger.info(f"✅ TTS complete (Freddy Jarvis)")
+                    else:
+                        # Yandex TTS fallback
+                        async for audio_chunk in voice_service.text_to_speech_streaming(
+                            response_text, mode_name, chunk_size=4096
+                        ):
+                            if audio_chunk:
+                                audio_base64 = base64.b64encode(audio_chunk).decode()
+                                await websocket.send_json({"type": "audio", "data": audio_base64, "is_final": False})
+                                await asyncio.sleep(0.05)
 
-                    await websocket.send_json({"type": "audio", "data": "", "is_final": True})
-                    logger.info(f"✅ TTS complete")
+                        await websocket.send_json({"type": "audio", "data": "", "is_final": True})
+                        logger.info(f"✅ TTS complete (Yandex fallback)")
 
                     await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True})
                     await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True})
