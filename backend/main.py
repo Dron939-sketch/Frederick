@@ -538,6 +538,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                             message=recognized_text,
                             history=history,
                         )
+                        logger.info(f"FreddyService chat result: reply={bool(freddy_result.get('reply'))}, model={freddy_result.get('model','?')}, error={freddy_result.get('error','none')}")
                         if freddy_result.get("reply"):
                             response_text = freddy_result["reply"]
                             await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {response_text}"})
@@ -547,8 +548,12 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                                 freddy_audio = await freddy.speak(response_text, voice="jarvis", tone="warm")
                                 if freddy_audio:
                                     logger.info(f"FreddyService TTS: {len(freddy_audio)} bytes (Jarvis)")
+                                else:
+                                    logger.warning(f"FreddyService TTS returned None, fallback to Yandex")
                             except Exception as tts_err:
                                 logger.warning(f"FreddyService TTS error, fallback to Yandex: {tts_err}")
+                        else:
+                            logger.info(f"FreddyService returned empty reply, fallback to BasicMode")
                     except Exception as e:
                         logger.warning(f"FreddyService voice error: {e}")
 
