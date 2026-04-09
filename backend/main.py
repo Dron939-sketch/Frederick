@@ -527,11 +527,29 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
             if recognized_text and len(recognized_text.strip()) > 0:
                 await websocket.send_json({"type": "text", "data": f"🎤 Вы: {recognized_text}"})
 
+                # --- Freddy SDK для голосового режима (basic) ---
                 response_text = ""
-                async for chunk in mode_instance.process_question_streaming(recognized_text):
-                    if chunk:
-                        response_text += chunk
-                        await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
+                if mode_name == "basic":
+                    try:
+                        freddy = get_freddy_service()
+                        freddy_result = await freddy.chat(
+                            user_id=user_id_for_db,
+                            message=recognized_text,
+                            history=history,
+                        )
+                        if freddy_result.get("reply"):
+                            response_text = freddy_result["reply"]
+                            await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {response_text}"})
+                            logger.info(f"FreddyService voice reply for user {user_id_for_db}")
+                    except Exception as e:
+                        logger.warning(f"FreddyService voice error: {e}")
+
+                # Fallback на process_question_streaming (или основной путь для не-basic)
+                if not response_text:
+                    async for chunk in mode_instance.process_question_streaming(recognized_text):
+                        if chunk:
+                            response_text += chunk
+                            await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
 
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
