@@ -58,6 +58,7 @@ from confinement.intervention_library import InterventionLibrary
 from confinement.question_analyzer import QuestionContextAnalyzer, create_analyzer_from_user_data
 from hypno.hypno_module import HypnoOrchestrator
 from hypno.therapeutic_tales import TherapeuticTales
+from payment_routes import register_payment_routes
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -279,14 +280,17 @@ async def lifespan(app: FastAPI):
 
         logger.info("📦 Проверка и создание таблиц...")
         await init_database_tables()
-        logger.info("✅ Таблицы готовы")
+        _pay_init, _pay_scheduler = register_payment_routes(app, db, limiter)
+        await _pay_init()
+        logger.info("✅ Таблицы готовы (включая платежи)")
 
         logger.info("📦 Запуск фоновых задач...")
         background_tasks = [
             asyncio.create_task(cleanup_old_data()),
             asyncio.create_task(send_reminders()),
             asyncio.create_task(update_metrics()),
-            asyncio.create_task(morning_messages_scheduler())
+            asyncio.create_task(morning_messages_scheduler()),
+            asyncio.create_task(_pay_scheduler()),
         ]
         logger.info("✅ Фоновые задачи запущены")
 
