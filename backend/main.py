@@ -1,4 +1,4 @@
-[Resource from github at repo://dron939-sketch/frederick/sha/1aba3cff11db19664f60418b671af164d639745b/contents/backend/main.py] #!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Фреди - Виртуальный психолог
@@ -58,8 +58,7 @@ from confinement.intervention_library import InterventionLibrary
 from confinement.question_analyzer import QuestionContextAnalyzer, create_analyzer_from_user_data
 from hypno.hypno_module import HypnoOrchestrator
 from hypno.therapeutic_tales import TherapeuticTales
-from payment import PaymentService
-from payment_routes import register_payment_routes, init_payment_tables, subscription_renewal_scheduler
+from payment_routes import register_payment_routes
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -98,7 +97,6 @@ intervention_lib: Optional[InterventionLibrary] = None
 morning_manager: Optional[MorningMessageManager] = None
 push_service = None
 weekend_planner: Optional[WeekendPlanner] = None
-payment_service: Optional[PaymentService] = None
 
 # ============================================
 # VOICE CONNECTION MANAGER
@@ -278,21 +276,13 @@ async def lifespan(app: FastAPI):
         global push_service
         push_service = PushService(db)
         logger.info("✅ PushService готов")
-
-        # Платёжный сервис YooKassa
-        global payment_service
-        payment_service = PaymentService(db)
-        logger.info("✅ PaymentService готов")
         logger.info("✅ VoiceConnectionManager готов")
 
         logger.info("📦 Проверка и создание таблиц...")
         await init_database_tables()
-        logger.info("✅ Таблицы готовы")
-
-        logger.info("📦 Инициализация платёжных таблиц...")
-        await init_payment_tables(db)
-        register_payment_routes(app, db, payment_service, limiter, log_event)
-        logger.info("✅ Платёжная система готова")
+        _pay_init, _pay_scheduler = register_payment_routes(app, db, limiter)
+        await _pay_init()
+        logger.info("✅ Таблицы готовы (включая платежи)")
 
         logger.info("📦 Запуск фоновых задач...")
         background_tasks = [
@@ -300,7 +290,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(send_reminders()),
             asyncio.create_task(update_metrics()),
             asyncio.create_task(morning_messages_scheduler()),
-            asyncio.create_task(subscription_renewal_scheduler(payment_service)),
+            asyncio.create_task(_pay_scheduler()),
         ]
         logger.info("✅ Фоновые задачи запущены")
 
