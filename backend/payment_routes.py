@@ -1,1 +1,149 @@
-"""\npayment_routes.py \u2014 API \u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442\u044b \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438, \u0442\u0430\u0431\u043b\u0438\u0446\u044b \u0411\u0414, \u0444\u043e\u043d\u043e\u0432\u0430\u044f \u0437\u0430\u0434\u0430\u0447\u0430 \u0430\u0432\u0442\u043e\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0439.\n\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0430\u0435\u0442\u0441\u044f \u0438\u0437 main.py \u043e\u0434\u043d\u043e\u0439 \u0441\u0442\u0440\u043e\u043a\u043e\u0439: register_payment_routes(app, db, limiter)\n"""\n\nimport asyncio\nimport json\nimport logging\nfrom fastapi import Request\nfrom payment import PaymentService\n\nlogger = logging.getLogger(__name__)\n\npayment_service = None\n\n\ndef register_payment_routes(app, db, limiter):\n    \"\"\"\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u0443\u0435\u0442 \u043f\u043b\u0430\u0442\u0451\u0436\u043d\u044b\u0435 \u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442\u044b \u043d\u0430 FastAPI app.\"\"\"\n    global payment_service\n    payment_service = PaymentService(db)\n    logger.info(\"PaymentService initialized\")\n\n    async def init_payment_tables():\n        async with db.get_connection() as conn:\n            await conn.execute(\"\"\"\n                CREATE TABLE IF NOT EXISTS fredi_payments (\n                    id BIGSERIAL PRIMARY KEY,\n                    user_id BIGINT NOT NULL,\n                    yookassa_id TEXT UNIQUE NOT NULL,\n                    amount NUMERIC(10,2) NOT NULL DEFAULT 690.00,\n                    status TEXT NOT NULL DEFAULT 'pending',\n                    payment_type TEXT NOT NULL DEFAULT 'subscription_first',\n                    description TEXT,\n                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n                )\n            \"\"\")\n            await conn.execute(\"\"\"\n                CREATE TABLE IF NOT EXISTS fredi_subscriptions (\n                    id BIGSERIAL PRIMARY KEY,\n                    user_id BIGINT UNIQUE NOT NULL,\n                    status TEXT NOT NULL DEFAULT 'active',\n                    started_at TIMESTAMP WITH TIME ZONE,\n                    expires_at TIMESTAMP WITH TIME ZONE,\n                    auto_renew BOOLEAN DEFAULT TRUE,\n                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n                )\n            \"\"\")\n            await conn.execute(\"\"\"\n                CREATE TABLE IF NOT EXISTS fredi_payment_methods (\n                    id BIGSERIAL PRIMARY KEY,\n                    user_id BIGINT UNIQUE NOT NULL,\n                    payment_method_id TEXT NOT NULL,\n                    card_last4 TEXT DEFAULT '****',\n                    card_type TEXT DEFAULT 'Unknown',\n                    is_active BOOLEAN DEFAULT TRUE,\n                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n                )\n            \"\"\")\n            await conn.execute(\"CREATE INDEX IF NOT EXISTS idx_fredi_payments_user ON fredi_payments(user_id, created_at DESC)\")\n            await conn.execute(\"CREATE INDEX IF NOT EXISTS idx_fredi_payments_yookassa ON fredi_payments(yookassa_id)\")\n            await conn.execute(\"CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_user ON fredi_subscriptions(user_id)\")\n            await conn.execute(\"CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_expires ON fredi_subscriptions(expires_at) WHERE status = 'active' AND auto_renew = TRUE\")\n        logger.info(\"Payment tables ready\")\n\n    @app.post(\"/api/subscription/create-payment\")\n    @limiter.limit(\"10/minute\")\n    async def create_subscription_payment(request: Request):\n        try:\n            data = await request.json()\n            user_id = data.get(\"user_id\")\n            return_url = data.get(\"return_url\", \"https://fredi-frontend.onrender.com\")\n            if not user_id:\n                return {\"success\": False, \"error\": \"user_id required\"}\n            async with db.get_connection() as conn:\n                await conn.execute(\n                    \"INSERT INTO fredi_users (user_id, created_at, updated_at) \"\n                    \"VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING\",\n                    int(user_id)\n                )\n            result = await payment_service.create_subscription_payment(int(user_id), return_url)\n            if result[\"success\"]:\n                async with db.get_connection() as conn:\n                    await conn.execute(\n                        \"INSERT INTO fredi_events (user_id, event_type, event_data) VALUES ($1, $2, $3)\",\n                        int(user_id), \"subscription_payment_created\",\n                        json.dumps({\"payment_id\": result[\"payment_id\"]})\n                    )\n            return result\n        except Exception as e:\n            logger.error(f\"create_subscription_payment error: {e}\")\n            return {\"success\": False, \"error\": str(e)}\n\n    @app.get(\"/api/subscription/status/{user_id}\")\n    @limiter.limit(\"30/minute\")\n    async def get_subscription_status(request: Request, user_id: int):\n        try:\n            return await payment_service.get_subscription_status(user_id)\n        except Exception as e:\n            logger.error(f\"get_subscription_status error: {e}\")\n            return {\"has_subscription\": False, \"status\": \"error\", \"card\": None}\n\n    @app.post(\"/api/subscription/toggle-auto-renew\")\n    @limiter.limit(\"10/minute\")\n    async def toggle_auto_renew(request: Request):\n        try:\n            data = await request.json()\n            user_id = data.get(\"user_id\")\n            enabled = data.get(\"enabled\", True)\n            if not user_id:\n                return {\"success\": False, \"error\": \"user_id required\"}\n            result = await payment_service.toggle_auto_renew(int(user_id), bool(enabled))\n            async with db.get_connection() as conn:\n                await conn.execute(\n                    \"INSERT INTO fredi_events (user_id, event_type, event_data) VALUES ($1, $2, $3)\",\n                    int(user_id), \"auto_renew_toggled\", json.dumps({\"enabled\": enabled})\n                )\n            return result\n        except Exception as e:\n            logger.error(f\"toggle_auto_renew error: {e}\")\n            return {\"success\": False, \"error\": str(e)}\n\n    @app.post(\"/api/yookassa-webhook\")\n    async def yookassa_webhook(request: Request):\n        try:\n            body = await request.json()\n            event = body.get(\"event\", \"\")\n            payment_obj = body.get(\"object\", {})\n            logger.info(f\"YooKassa webhook: event={event}, id={payment_obj.get('id')}\")\n            await payment_service.process_webhook(event, payment_obj)\n            return {\"success\": True}\n        except Exception as e:\n            logger.error(f\"yookassa_webhook error: {e}\")\n            return {\"success\": False, \"error\": str(e)}\n\n    async def subscription_renewal_scheduler():\n        await asyncio.sleep(60)\n        while True:\n            try:\n                if payment_service:\n                    result = await payment_service.process_renewals()\n                    logger.info(f\"Subscription renewals: {result}\")\n            except Exception as e:\n                logger.error(f\"subscription_renewal_scheduler error: {e}\")\n            await asyncio.sleep(86400)\n\n    return init_payment_tables, subscription_renewal_scheduler\n
+"""
+payment_routes.py — API endpoints for YooKassa subscription payments.
+Usage: register_payment_routes(app, db, limiter)
+"""
+
+import asyncio
+import json
+import logging
+from fastapi import Request
+from payment import PaymentService
+
+logger = logging.getLogger(__name__)
+
+payment_service = None
+
+
+def register_payment_routes(app, db, limiter):
+    """Register payment endpoints on FastAPI app."""
+    global payment_service
+    payment_service = PaymentService(db)
+    logger.info("PaymentService initialized")
+
+    async def init_payment_tables():
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_payments (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    yookassa_id TEXT UNIQUE NOT NULL,
+                    amount NUMERIC(10,2) NOT NULL DEFAULT 690.00,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    payment_type TEXT NOT NULL DEFAULT 'subscription_first',
+                    description TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_subscriptions (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT UNIQUE NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    started_at TIMESTAMP WITH TIME ZONE,
+                    expires_at TIMESTAMP WITH TIME ZONE,
+                    auto_renew BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_payment_methods (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT UNIQUE NOT NULL,
+                    payment_method_id TEXT NOT NULL,
+                    card_last4 TEXT DEFAULT '****',
+                    card_type TEXT DEFAULT 'Unknown',
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_payments_user ON fredi_payments(user_id, created_at DESC)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_payments_yookassa ON fredi_payments(yookassa_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_user ON fredi_subscriptions(user_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_expires ON fredi_subscriptions(expires_at) WHERE status = 'active' AND auto_renew = TRUE")
+        logger.info("Payment tables ready")
+
+    @app.post("/api/subscription/create-payment")
+    @limiter.limit("10/minute")
+    async def create_subscription_payment(request: Request):
+        try:
+            data = await request.json()
+            user_id = data.get("user_id")
+            return_url = data.get("return_url", "https://fredi-frontend.onrender.com")
+            if not user_id:
+                return {"success": False, "error": "user_id required"}
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    "INSERT INTO fredi_users (user_id, created_at, updated_at) "
+                    "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
+                    int(user_id)
+                )
+            result = await payment_service.create_subscription_payment(int(user_id), return_url)
+            if result["success"]:
+                async with db.get_connection() as conn:
+                    await conn.execute(
+                        "INSERT INTO fredi_events (user_id, event_type, event_data) VALUES ($1, $2, $3)",
+                        int(user_id), "subscription_payment_created",
+                        json.dumps({"payment_id": result["payment_id"]})
+                    )
+            return result
+        except Exception as e:
+            logger.error(f"create_subscription_payment error: {e}")
+            return {"success": False, "error": str(e)}
+
+    @app.get("/api/subscription/status/{user_id}")
+    @limiter.limit("30/minute")
+    async def get_subscription_status(request: Request, user_id: int):
+        try:
+            return await payment_service.get_subscription_status(user_id)
+        except Exception as e:
+            logger.error(f"get_subscription_status error: {e}")
+            return {"has_subscription": False, "status": "error", "card": None}
+
+    @app.post("/api/subscription/toggle-auto-renew")
+    @limiter.limit("10/minute")
+    async def toggle_auto_renew(request: Request):
+        try:
+            data = await request.json()
+            user_id = data.get("user_id")
+            enabled = data.get("enabled", True)
+            if not user_id:
+                return {"success": False, "error": "user_id required"}
+            result = await payment_service.toggle_auto_renew(int(user_id), bool(enabled))
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    "INSERT INTO fredi_events (user_id, event_type, event_data) VALUES ($1, $2, $3)",
+                    int(user_id), "auto_renew_toggled", json.dumps({"enabled": enabled})
+                )
+            return result
+        except Exception as e:
+            logger.error(f"toggle_auto_renew error: {e}")
+            return {"success": False, "error": str(e)}
+
+    @app.post("/api/yookassa-webhook")
+    async def yookassa_webhook(request: Request):
+        try:
+            body = await request.json()
+            event = body.get("event", "")
+            payment_obj = body.get("object", {})
+            logger.info(f"YooKassa webhook: event={event}, id={payment_obj.get('id')}")
+            await payment_service.process_webhook(event, payment_obj)
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"yookassa_webhook error: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def subscription_renewal_scheduler():
+        await asyncio.sleep(60)
+        while True:
+            try:
+                if payment_service:
+                    result = await payment_service.process_renewals()
+                    logger.info(f"Subscription renewals: {result}")
+            except Exception as e:
+                logger.error(f"subscription_renewal_scheduler error: {e}")
+            await asyncio.sleep(86400)
+
+    return init_payment_tables, subscription_renewal_scheduler
