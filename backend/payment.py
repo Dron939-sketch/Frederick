@@ -1,1 +1,252 @@
-"""\npayment.py — Сервис платежей YooKassa для подписки Фреди\nРекуррентные платежи: первый платёж с сохранением карты, далее автосписания\n"""\n\nimport os\nimport logging\nimport uuid\nimport httpx\nfrom datetime import datetime, timedelta\nfrom typing import Optional, Dict, Any\n\nlogger = logging.getLogger(__name__)\n\nYOOKASSA_API_URL = "https://api.yookassa.ru/v3"\nSUBSCRIPTION_AMOUNT = "690.00"\nSUBSCRIPTION_CURRENCY = "RUB"\nSUBSCRIPTION_PERIOD_DAYS = 30\n\n\nclass PaymentService:\n    """Сервис для работы с YooKassa API"""\n\n    def __init__(self, db):\n        self.db = db\n        self.shop_id = os.environ.get("YOOKASSA_SHOP_ID", "")\n        self.secret_key = os.environ.get("YOOKASSA_SECRET_KEY", "")\n\n    def _auth(self) -> tuple:\n        return (self.shop_id, self.secret_key)\n\n    def _idempotence_key(self) -> str:\n        return str(uuid.uuid4())\n\n    # ------------------------------------------------------------------\n    # Создание первого платежа (с сохранением карты)\n    # ------------------------------------------------------------------\n    async def create_subscription_payment(\n        self,\n        user_id: int,\n        return_url: str,\n    ) -> Dict[str, Any]:\n        """\n        Создаёт платёж 690₽ с save_payment_method=true.\n        Пользователь вводит карту, после успешной оплаты\n        payment_method.id сохраняется для автосписаний.\n        """\n        if not self.shop_id or not self.secret_key:\n            return {"success": False, "error": "YooKassa credentials not configured"}\n\n        payment_data = {\n            "amount": {\n                "value": SUBSCRIPTION_AMOUNT,\n                "currency": SUBSCRIPTION_CURRENCY,\n            },\n            "capture": True,\n            "confirmation": {\n                "type": "redirect",\n                "return_url": return_url,\n            },\n            "save_payment_method": True,\n            "description": "Подписка Фреди — 690₽/мес",\n            "metadata": {\n                "user_id": str(user_id),\n                "type": "subscription",\n            },\n        }\n\n        try:\n            async with httpx.AsyncClient(timeout=30) as client:\n                resp = await client.post(\n                    f"{YOOKASSA_API_URL}/payments",\n                    json=payment_data,\n                    auth=self._auth(),\n                    headers={"Idempotence-Key": self._idempotence_key()},\n                )\n                resp.raise_for_status()\n                result = resp.json()\n\n            yookassa_id = result["id"]\n            confirmation_url = result["confirmation"]["confirmation_url"]\n\n            # Сохраняем платёж в БД\n            async with self.db.get_connection() as conn:\n                await conn.execute("""\n                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)\n                    VALUES ($1, $2, $3, 'pending', 'subscription_first', $4)\n                    ON CONFLICT (yookassa_id) DO NOTHING\n                """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT),\n                    "Подписка Фреди — 690₽/мес")\n\n            logger.info(f"Payment created: {yookassa_id} for user {user_id}")\n            return {\n                "success": True,\n                "payment_id": yookassa_id,\n                "confirmation_url": confirmation_url,\n            }\n\n        except httpx.HTTPStatusError as e:\n            logger.error(f"YooKassa API error: {e.response.status_code} {e.response.text}")\n            return {"success": False, "error": f"YooKassa error: {e.response.status_code}"}\n        except Exception as e:\n            logger.error(f"Payment creation error: {e}")\n            return {"success": False, "error": str(e)}\n\n    # ------------------------------------------------------------------\n    # Автосписание (рекуррентный платёж без участия пользователя)\n    # ------------------------------------------------------------------\n    async def charge_recurring(\n        self,\n        user_id: int,\n        payment_method_id: str,\n    ) -> Dict[str, Any]:\n        """\n        Списывает 690₽ с сохранённой карты (autopay).\n        Вызывается по крону каждый день для просроченных подписок.\n        """\n        payment_data = {\n            "amount": {\n                "value": SUBSCRIPTION_AMOUNT,\n                "currency": SUBSCRIPTION_CURRENCY,\n            },\n            "capture": True,\n            "payment_method_id": payment_method_id,\n            "description": "Автопродление подписки Фреди",\n            "metadata": {\n                "user_id": str(user_id),\n                "type": "subscription_recurring",\n            },\n        }\n\n        try:\n            async with httpx.AsyncClient(timeout=30) as client:\n                resp = await client.post(\n                    f"{YOOKASSA_API_URL}/payments",\n                    json=payment_data,\n                    auth=self._auth(),\n                    headers={"Idempotence-Key": self._idempotence_key()},\n                )\n                resp.raise_for_status()\n                result = resp.json()\n\n            yookassa_id = result["id"]\n            status = result["status"]\n\n            async with self.db.get_connection() as conn:\n                await conn.execute("""\n                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)\n                    VALUES ($1, $2, $3, $4, 'subscription_recurring', $5)\n                    ON CONFLICT (yookassa_id) DO NOTHING\n                """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT), status,\n                    "Автопродление подписки Фреди")\n\n            logger.info(f"Recurring payment {yookassa_id}: {status} for user {user_id}")\n            return {"success": True, "payment_id": yookassa_id, "status": status}\n\n        except Exception as e:\n            logger.error(f"Recurring payment error for user {user_id}: {e}")\n            return {"success": False, "error": str(e)}\n\n    # ------------------------------------------------------------------\n    # Обработка вебхука от YooKassa\n    # ------------------------------------------------------------------\n    async def process_webhook(self, event: str, payment_obj: Dict) -> Dict[str, Any]:\n        """\n        Обрабатывает webhook от YooKassa.\n        При успешном платеже — активирует/продлевает подписку.\n        """\n        yookassa_id = payment_obj.get("id", "")\n        status = payment_obj.get("status", "")\n        metadata = payment_obj.get("metadata", {})\n        user_id_str = metadata.get("user_id")\n        payment_method = payment_obj.get("payment_method", {})\n        payment_method_id = payment_method.get("id") if payment_method.get("saved") else None\n\n        if not user_id_str:\n            logger.warning(f"Webhook without user_id: {yookassa_id}")\n            return {"success": False, "error": "No user_id in metadata"}\n\n        user_id = int(user_id_str)\n\n        async with self.db.get_connection() as conn:\n            # Обновляем статус платежа\n            await conn.execute("""\n                UPDATE fredi_payments\n                SET status = $1, updated_at = NOW()\n                WHERE yookassa_id = $2\n            """, status, yookassa_id)\n\n            if event == "payment.succeeded" and status == "succeeded":\n                # Сохраняем метод оплаты если это первый платёж\n                if payment_method_id:\n                    card_info = payment_method.get("card", {})\n                    card_last4 = card_info.get("last4", "****")\n                    card_type = card_info.get("card_type", "Unknown")\n\n                    await conn.execute("""\n                        INSERT INTO fredi_payment_methods\n                            (user_id, payment_method_id, card_last4, card_type, is_active)\n                        VALUES ($1, $2, $3, $4, TRUE)\n                        ON CONFLICT (user_id) DO UPDATE SET\n                            payment_method_id = $2,\n                            card_last4 = $3,\n                            card_type = $4,\n                            is_active = TRUE,\n                            updated_at = NOW()\n                    """, user_id, payment_method_id, card_last4, card_type)\n\n                # Активируем / продлеваем подписку\n                now = datetime.utcnow()\n                # Проверяем текущую подписку\n                row = await conn.fetchrow("""\n                    SELECT expires_at FROM fredi_subscriptions\n                    WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()\n                """, user_id)\n\n                if row:\n                    # Продлеваем от текущего expires_at\n                    new_expires = row["expires_at"] + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)\n                    await conn.execute("""\n                        UPDATE fredi_subscriptions\n                        SET expires_at = $1, updated_at = NOW()\n                        WHERE user_id = $2 AND status = 'active'\n                    """, new_expires, user_id)\n                else:\n                    # Новая подписка\n                    new_expires = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)\n                    await conn.execute("""\n                        INSERT INTO fredi_subscriptions\n                            (user_id, status, started_at, expires_at, auto_renew)\n                        VALUES ($1, 'active', $2, $3, TRUE)\n                        ON CONFLICT (user_id) DO UPDATE SET\n                            status = 'active',\n                            started_at = $2,\n                            expires_at = $3,\n                            auto_renew = TRUE,\n                            updated_at = NOW()\n                    """, user_id, now, new_expires)\n\n                logger.info(f"Subscription activated for user {user_id} until {new_expires}")\n                return {"success": True, "user_id": user_id, "expires_at": str(new_expires)}\n\n            elif event == "payment.canceled":\n                logger.info(f"Payment canceled: {yookassa_id}")\n                return {"success": True, "status": "canceled"}\n\n        return {"success": True, "status": status}\n\n    # ------------------------------------------------------------------\n    # Получить статус подписки\n    # ------------------------------------------------------------------\n    async def get_subscription_status(self, user_id: int) -> Dict[str, Any]:\n        async with self.db.get_connection() as conn:\n            sub = await conn.fetchrow("""\n                SELECT status, started_at, expires_at, auto_renew\n                FROM fredi_subscriptions\n                WHERE user_id = $1\n                ORDER BY expires_at DESC\n                LIMIT 1\n            """, user_id)\n\n            card = await conn.fetchrow("""\n                SELECT card_last4, card_type\n                FROM fredi_payment_methods\n                WHERE user_id = $1 AND is_active = TRUE\n            """, user_id)\n\n        if not sub:\n            return {\n                "has_subscription": False,\n                "status": "none",\n                "card": None,\n            }\n\n        is_active = (\n            sub["status"] == "active"\n            and sub["expires_at"]\n            and sub["expires_at"] > datetime.utcnow()\n        )\n\n        return {\n            "has_subscription": is_active,\n            "status": "active" if is_active else "expired",\n            "started_at": str(sub["started_at"]) if sub["started_at"] else None,\n            "expires_at": str(sub["expires_at"]) if sub["expires_at"] else None,\n            "auto_renew": sub["auto_renew"],\n            "card": {\n                "last4": card["card_last4"],\n                "type": card["card_type"],\n            } if card else None,\n        }\n\n    # ------------------------------------------------------------------\n    # Отключить автопродление\n    # ------------------------------------------------------------------\n    async def toggle_auto_renew(self, user_id: int, enabled: bool) -> Dict[str, Any]:\n        async with self.db.get_connection() as conn:\n            await conn.execute("""\n                UPDATE fredi_subscriptions\n                SET auto_renew = $1, updated_at = NOW()\n                WHERE user_id = $2\n            """, enabled, user_id)\n\n        return {"success": True, "auto_renew": enabled}\n\n    # ------------------------------------------------------------------\n    # Ежедневная проверка и автосписание (вызывать по крону)\n    # ------------------------------------------------------------------\n    async def process_renewals(self) -> Dict[str, Any]:\n        """\n        Находит подписки с auto_renew=true, у которых expires_at прошёл,\n        и пытается списать деньги с сохранённой карты.\n        """\n        renewed = 0\n        failed = 0\n\n        async with self.db.get_connection() as conn:\n            rows = await conn.fetch("""\n                SELECT s.user_id, pm.payment_method_id\n                FROM fredi_subscriptions s\n                JOIN fredi_payment_methods pm ON pm.user_id = s.user_id AND pm.is_active = TRUE\n                WHERE s.auto_renew = TRUE\n                  AND s.status = 'active'\n                  AND s.expires_at <= NOW()\n            """)\n\n        for row in rows:\n            result = await self.charge_recurring(row["user_id"], row["payment_method_id"])\n            if result["success"]:\n                renewed += 1\n            else:\n                failed += 1\n                # Если автосписание не удалось — помечаем подписку как expired\n                async with self.db.get_connection() as conn:\n                    await conn.execute("""\n                        UPDATE fredi_subscriptions\n                        SET status = 'expired', updated_at = NOW()\n                        WHERE user_id = $1\n                    """, row["user_id"])\n\n        logger.info(f"Renewals processed: {renewed} ok, {failed} failed")\n        return {"renewed": renewed, "failed": failed}\n
+"""
+payment.py — YooKassa payment service for Fredi subscription.
+Recurring payments: first payment saves card, then autopay.
+"""
+
+import os
+import logging
+import uuid
+import httpx
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+YOOKASSA_API_URL = "https://api.yookassa.ru/v3"
+SUBSCRIPTION_AMOUNT = "690.00"
+SUBSCRIPTION_CURRENCY = "RUB"
+SUBSCRIPTION_PERIOD_DAYS = 30
+
+
+class PaymentService:
+    """YooKassa API service"""
+
+    def __init__(self, db):
+        self.db = db
+        self.shop_id = os.environ.get("YOOKASSA_SHOP_ID", "")
+        self.secret_key = os.environ.get("YOOKASSA_SECRET_KEY", "")
+
+    def _auth(self) -> tuple:
+        return (self.shop_id, self.secret_key)
+
+    def _idempotence_key(self) -> str:
+        return str(uuid.uuid4())
+
+    async def create_subscription_payment(
+        self,
+        user_id: int,
+        return_url: str,
+    ) -> Dict[str, Any]:
+        if not self.shop_id or not self.secret_key:
+            return {"success": False, "error": "YooKassa credentials not configured"}
+
+        payment_data = {
+            "amount": {"value": SUBSCRIPTION_AMOUNT, "currency": SUBSCRIPTION_CURRENCY},
+            "capture": True,
+            "confirmation": {"type": "redirect", "return_url": return_url},
+            "save_payment_method": True,
+            "description": "Podpiska Fredi — 690 RUB/month",
+            "metadata": {"user_id": str(user_id), "type": "subscription"},
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{YOOKASSA_API_URL}/payments",
+                    json=payment_data,
+                    auth=self._auth(),
+                    headers={"Idempotence-Key": self._idempotence_key()},
+                )
+                resp.raise_for_status()
+                result = resp.json()
+
+            yookassa_id = result["id"]
+            confirmation_url = result["confirmation"]["confirmation_url"]
+
+            async with self.db.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)
+                    VALUES ($1, $2, $3, 'pending', 'subscription_first', $4)
+                    ON CONFLICT (yookassa_id) DO NOTHING
+                """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT),
+                    "Podpiska Fredi — 690 RUB/month")
+
+            logger.info(f"Payment created: {yookassa_id} for user {user_id}")
+            return {
+                "success": True,
+                "payment_id": yookassa_id,
+                "confirmation_url": confirmation_url,
+            }
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"YooKassa API error: {e.response.status_code} {e.response.text}")
+            return {"success": False, "error": f"YooKassa error: {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Payment creation error: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def charge_recurring(
+        self,
+        user_id: int,
+        payment_method_id: str,
+    ) -> Dict[str, Any]:
+        payment_data = {
+            "amount": {"value": SUBSCRIPTION_AMOUNT, "currency": SUBSCRIPTION_CURRENCY},
+            "capture": True,
+            "payment_method_id": payment_method_id,
+            "description": "Auto-renewal Fredi subscription",
+            "metadata": {"user_id": str(user_id), "type": "subscription_recurring"},
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{YOOKASSA_API_URL}/payments",
+                    json=payment_data,
+                    auth=self._auth(),
+                    headers={"Idempotence-Key": self._idempotence_key()},
+                )
+                resp.raise_for_status()
+                result = resp.json()
+
+            yookassa_id = result["id"]
+            status = result["status"]
+
+            async with self.db.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)
+                    VALUES ($1, $2, $3, $4, 'subscription_recurring', $5)
+                    ON CONFLICT (yookassa_id) DO NOTHING
+                """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT), status,
+                    "Auto-renewal Fredi subscription")
+
+            logger.info(f"Recurring payment {yookassa_id}: {status} for user {user_id}")
+            return {"success": True, "payment_id": yookassa_id, "status": status}
+
+        except Exception as e:
+            logger.error(f"Recurring payment error for user {user_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def process_webhook(self, event: str, payment_obj: Dict) -> Dict[str, Any]:
+        yookassa_id = payment_obj.get("id", "")
+        status = payment_obj.get("status", "")
+        metadata = payment_obj.get("metadata", {})
+        user_id_str = metadata.get("user_id")
+        payment_method = payment_obj.get("payment_method", {})
+        payment_method_id = payment_method.get("id") if payment_method.get("saved") else None
+
+        if not user_id_str:
+            logger.warning(f"Webhook without user_id: {yookassa_id}")
+            return {"success": False, "error": "No user_id in metadata"}
+
+        user_id = int(user_id_str)
+
+        async with self.db.get_connection() as conn:
+            await conn.execute("""
+                UPDATE fredi_payments SET status = $1, updated_at = NOW() WHERE yookassa_id = $2
+            """, status, yookassa_id)
+
+            if event == "payment.succeeded" and status == "succeeded":
+                if payment_method_id:
+                    card_info = payment_method.get("card", {})
+                    card_last4 = card_info.get("last4", "****")
+                    card_type = card_info.get("card_type", "Unknown")
+                    await conn.execute("""
+                        INSERT INTO fredi_payment_methods (user_id, payment_method_id, card_last4, card_type, is_active)
+                        VALUES ($1, $2, $3, $4, TRUE)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            payment_method_id = $2, card_last4 = $3, card_type = $4,
+                            is_active = TRUE, updated_at = NOW()
+                    """, user_id, payment_method_id, card_last4, card_type)
+
+                now = datetime.utcnow()
+                row = await conn.fetchrow("""
+                    SELECT expires_at FROM fredi_subscriptions
+                    WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
+                """, user_id)
+
+                if row:
+                    new_expires = row["expires_at"] + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                    await conn.execute("""
+                        UPDATE fredi_subscriptions SET expires_at = $1, updated_at = NOW()
+                        WHERE user_id = $2 AND status = 'active'
+                    """, new_expires, user_id)
+                else:
+                    new_expires = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                    await conn.execute("""
+                        INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew)
+                        VALUES ($1, 'active', $2, $3, TRUE)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            status = 'active', started_at = $2, expires_at = $3,
+                            auto_renew = TRUE, updated_at = NOW()
+                    """, user_id, now, new_expires)
+
+                logger.info(f"Subscription activated for user {user_id} until {new_expires}")
+                return {"success": True, "user_id": user_id, "expires_at": str(new_expires)}
+
+            elif event == "payment.canceled":
+                logger.info(f"Payment canceled: {yookassa_id}")
+                return {"success": True, "status": "canceled"}
+
+        return {"success": True, "status": status}
+
+    async def get_subscription_status(self, user_id: int) -> Dict[str, Any]:
+        async with self.db.get_connection() as conn:
+            sub = await conn.fetchrow("""
+                SELECT status, started_at, expires_at, auto_renew
+                FROM fredi_subscriptions WHERE user_id = $1
+                ORDER BY expires_at DESC LIMIT 1
+            """, user_id)
+            card = await conn.fetchrow("""
+                SELECT card_last4, card_type
+                FROM fredi_payment_methods WHERE user_id = $1 AND is_active = TRUE
+            """, user_id)
+
+        if not sub:
+            return {"has_subscription": False, "status": "none", "card": None}
+
+        is_active = (
+            sub["status"] == "active"
+            and sub["expires_at"]
+            and sub["expires_at"] > datetime.utcnow()
+        )
+
+        return {
+            "has_subscription": is_active,
+            "status": "active" if is_active else "expired",
+            "started_at": str(sub["started_at"]) if sub["started_at"] else None,
+            "expires_at": str(sub["expires_at"]) if sub["expires_at"] else None,
+            "auto_renew": sub["auto_renew"],
+            "card": {"last4": card["card_last4"], "type": card["card_type"]} if card else None,
+        }
+
+    async def toggle_auto_renew(self, user_id: int, enabled: bool) -> Dict[str, Any]:
+        async with self.db.get_connection() as conn:
+            await conn.execute("""
+                UPDATE fredi_subscriptions SET auto_renew = $1, updated_at = NOW() WHERE user_id = $2
+            """, enabled, user_id)
+        return {"success": True, "auto_renew": enabled}
+
+    async def process_renewals(self) -> Dict[str, Any]:
+        renewed = 0
+        failed = 0
+        async with self.db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT s.user_id, pm.payment_method_id
+                FROM fredi_subscriptions s
+                JOIN fredi_payment_methods pm ON pm.user_id = s.user_id AND pm.is_active = TRUE
+                WHERE s.auto_renew = TRUE AND s.status = 'active' AND s.expires_at <= NOW()
+            """)
+        for row in rows:
+            result = await self.charge_recurring(row["user_id"], row["payment_method_id"])
+            if result["success"]:
+                renewed += 1
+            else:
+                failed += 1
+                async with self.db.get_connection() as conn:
+                    await conn.execute("""
+                        UPDATE fredi_subscriptions SET status = 'expired', updated_at = NOW()
+                        WHERE user_id = $1
+                    """, row["user_id"])
+        logger.info(f"Renewals processed: {renewed} ok, {failed} failed")
+        return {"renewed": renewed, "failed": failed}
