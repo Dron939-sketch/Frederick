@@ -58,6 +58,7 @@ from confinement.intervention_library import InterventionLibrary
 from confinement.question_analyzer import QuestionContextAnalyzer, create_analyzer_from_user_data
 from hypno.hypno_module import HypnoOrchestrator
 from hypno.therapeutic_tales import TherapeuticTales
+from payment import PaymentService
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -96,6 +97,7 @@ intervention_lib: Optional[InterventionLibrary] = None
 morning_manager: Optional[MorningMessageManager] = None
 push_service = None
 weekend_planner: Optional[WeekendPlanner] = None
+payment_service: Optional[PaymentService] = None
 
 # ============================================
 # VOICE CONNECTION MANAGER
@@ -275,6 +277,11 @@ async def lifespan(app: FastAPI):
         global push_service
         push_service = PushService(db)
         logger.info("✅ PushService готов")
+
+        # Платёжный сервис YooKassa
+        global payment_service
+        payment_service = PaymentService(db)
+        logger.info("✅ PaymentService готов")
         logger.info("✅ VoiceConnectionManager готов")
 
         logger.info("📦 Проверка и создание таблиц...")
@@ -286,7 +293,8 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(cleanup_old_data()),
             asyncio.create_task(send_reminders()),
             asyncio.create_task(update_metrics()),
-            asyncio.create_task(morning_messages_scheduler())
+            asyncio.create_task(morning_messages_scheduler()),
+            asyncio.create_task(subscription_renewal_scheduler()),
         ]
         logger.info("✅ Фоновые задачи запущены")
 
@@ -924,6 +932,48 @@ async def init_database_tables():
                 await conn.execute(f"ALTER TABLE fredi_test_results ADD COLUMN IF NOT EXISTS {col} {coltype}")
             except Exception:
                 pass
+        # ---------- ТАБЛИЦЫ ПЛАТЕЖЕЙ И ПОДПИСОК ----------
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_payments (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                yookassa_id TEXT UNIQUE NOT NULL,
+                amount NUMERIC(10,2) NOT NULL DEFAULT 690.00,
+                status TEXT NOT NULL DEFAULT 'pending',
+                payment_type TEXT NOT NULL DEFAULT 'subscription_first',
+                description TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_subscriptions (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                started_at TIMESTAMP WITH TIME ZONE,
+                expires_at TIMESTAMP WITH TIME ZONE,
+                auto_renew BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_payment_methods (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL,
+                payment_method_id TEXT NOT NULL,
+                card_last4 TEXT DEFAULT '****',
+                card_type TEXT DEFAULT 'Unknown',
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_payments_user ON fredi_payments(user_id, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_payments_yookassa ON fredi_payments(yookassa_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_user ON fredi_subscriptions(user_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_expires ON fredi_subscriptions(expires_at) WHERE status = 'active' AND auto_renew = TRUE")
         logger.info("✅ Все таблицы и индексы созданы")
 
 
@@ -3327,6 +3377,97 @@ async def unlink_messenger(request: Request):
     except Exception as e:
         logger.error(f"unlink_messenger error: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ============================================
+# ПОДПИСКА / ПЛАТЕЖИ (YooKassa)
+# ============================================
+
+@app.post("/api/subscription/create-payment")
+@limiter.limit("10/minute")
+async def create_subscription_payment(request: Request):
+    """Создаёт платёж 690₽ с сохранением карты для рекуррентных списаний."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        return_url = data.get("return_url", "https://fredi-frontend.onrender.com")
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+
+        # Убеждаемся что пользователь существует
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO fredi_users (user_id, created_at, updated_at) "
+                "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
+                int(user_id)
+            )
+
+        result = await payment_service.create_subscription_payment(int(user_id), return_url)
+        if result["success"]:
+            await log_event(int(user_id), "subscription_payment_created", {
+                "payment_id": result["payment_id"]
+            })
+        return result
+    except Exception as e:
+        logger.error(f"create_subscription_payment error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/subscription/status/{user_id}")
+@limiter.limit("30/minute")
+async def get_subscription_status(request: Request, user_id: int):
+    """Возвращает статус подписки пользователя."""
+    try:
+        return await payment_service.get_subscription_status(user_id)
+    except Exception as e:
+        logger.error(f"get_subscription_status error: {e}")
+        return {"has_subscription": False, "status": "error", "card": None}
+
+
+@app.post("/api/subscription/toggle-auto-renew")
+@limiter.limit("10/minute")
+async def toggle_auto_renew(request: Request):
+    """Включает/выключает автопродление подписки."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        enabled = data.get("enabled", True)
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        result = await payment_service.toggle_auto_renew(int(user_id), bool(enabled))
+        await log_event(int(user_id), "auto_renew_toggled", {"enabled": enabled})
+        return result
+    except Exception as e:
+        logger.error(f"toggle_auto_renew error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/yookassa-webhook")
+async def yookassa_webhook(request: Request):
+    """Webhook от YooKassa — обработка статуса платежа."""
+    try:
+        body = await request.json()
+        event = body.get("event", "")
+        payment_obj = body.get("object", {})
+        logger.info(f"YooKassa webhook: event={event}, id={payment_obj.get('id')}")
+        result = await payment_service.process_webhook(event, payment_obj)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"yookassa_webhook error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def subscription_renewal_scheduler():
+    """Фоновая задача: раз в день проверяет и продлевает подписки."""
+    await asyncio.sleep(60)  # даём приложению подняться
+    while True:
+        try:
+            if payment_service:
+                result = await payment_service.process_renewals()
+                logger.info(f"Subscription renewals: {result}")
+        except Exception as e:
+            logger.error(f"subscription_renewal_scheduler error: {e}")
+        await asyncio.sleep(86400)  # раз в сутки
 
 
 async def log_event(user_id: int, event_type: str, event_data: Dict = None):
