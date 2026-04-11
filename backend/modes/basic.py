@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 BasicMode - Fredi with Bikovic voice, memory, emotions.
-Parallel processing for speed.
+Primary LLM: Anthropic Claude. Fallback: DeepSeek.
 """
 
 import re
@@ -46,6 +46,20 @@ class BasicMode(BaseMode):
         self._current_emotion = {"emotion": "neutral", "tone": "friendly", "instruction": ""}
 
         logger.info(f"BasicMode init user_id={user_id}, msgs={self.message_counter}")
+
+    async def _call_llm(self, prompt: str, max_tokens: int = 150, temperature: float = 0.8) -> Optional[str]:
+        """Call Anthropic first, fallback to DeepSeek."""
+        try:
+            from services.anthropic_client import call_anthropic, is_available
+            if is_available():
+                result = await call_anthropic(prompt, max_tokens=max_tokens, temperature=temperature)
+                if result:
+                    return result
+                logger.info("Anthropic failed, falling back to DeepSeek")
+        except Exception as e:
+            logger.warning(f"Anthropic import/call error: {e}")
+
+        return await self.ai_service._simple_call(prompt, max_tokens=max_tokens, temperature=temperature)
 
     async def _get_memory(self):
         if self._memory is None:
@@ -203,7 +217,7 @@ class BasicMode(BaseMode):
         few_shot = (
             "\nПРИМЕРЫ:\n\n"
             "Пользователь: Я застрял. Ничего не хочу делать.\n"
-            "Фреди: Понимаю... Дай-ка подумаю... А что, если сегодня просто разрешить себе ничего не делать? Один час - без надо.\n\n"
+            "Фреди: Понимаю... А что, если сегодня просто разрешить себе ничего не делать? Один час - без надо.\n\n"
             "Пользователь: Стресс на работе.\n"
             "Фреди: Слушай... Это выматывает. Тебе сейчас тяжело - и это нормально. Что именно давит?\n\n"
             "Пользователь: Все хорошо.\n"
@@ -222,11 +236,10 @@ class BasicMode(BaseMode):
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
 
-        # Load memory on first message
         if self.message_counter == 1:
             await self._load_memory()
 
-        # PARALLEL: emotion + rule + golden phrase at once (saves 2-4 sec)
+        # PARALLEL: emotion + rule + golden (saves 2-4 sec)
         emotion_task = asyncio.create_task(self._detect_emotion(question))
         rule_task = asyncio.create_task(self._extract_rule(question))
         golden_task = asyncio.create_task(self._extract_golden_phrase(question))
@@ -253,45 +266,38 @@ class BasicMode(BaseMode):
 
         q_lower = question.lower()
         if re.search(r"(да|хочу|давай|погнали|ок|тест|попробую|можно)", q_lower) and self.test_offered:
-            yield random.choice([
-                "Отлично. Давай начнем.",
-                "Хорошо. Тогда начнем.",
-                "Слушай, отлично. Первый вопрос..."
-            ])
+            yield random.choice(["Отлично. Давай начнем.", "Хорошо. Тогда начнем.", "Первый вопрос..."])
             return
 
         if re.search(r"(нет|не хочу|потом|отстань|не надо|не сейчас)", q_lower):
             yield random.choice([
-                "Хорошо. Не надо так не надо. Просто поговорим.",
+                "Хорошо. Просто поговорим.",
                 "Ладно. Тогда просто побудем здесь.",
                 "Нормально. Давай просто поговорим."
             ])
             return
 
+        # Main response: Anthropic -> DeepSeek fallback
         full_prompt = self._build_prompt(question)
-
         try:
-            response = await self.ai_service._simple_call(
-                prompt=full_prompt, max_tokens=150, temperature=0.8
-            )
+            response = await self._call_llm(full_prompt, max_tokens=150, temperature=0.8)
             if response and response.strip():
                 yield self._simple_clean(response)
             else:
                 yield random.choice([
                     "Дай-ка еще раз. Что именно ты имеешь в виду?",
                     "Слушай, расскажи чуть подробнее.",
-                    "Мне кажется, я не уловил. Скажи еще раз."
+                    "Скажи еще раз - что происходит?"
                 ])
         except Exception as e:
             logger.error(f"BasicMode error: {e}")
             yield random.choice([
                 "Что-то пошло не так. Попробуем снова?",
-                "Маленький сбой. Скажи еще раз - я слушаю.",
-                "Дай-ка еще раз... Я хочу услышать тебя правильно."
+                "Маленький сбой. Скажи еще раз.",
+                "Дай-ка еще раз..."
             ])
 
     async def _save_fact_bg(self, fact: str):
-        """Save fact in background - don't block response."""
         try:
             await self._save_fact(fact)
         except Exception:
