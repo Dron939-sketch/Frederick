@@ -1,6 +1,7 @@
 """
 fish_audio_service.py — Fish Audio TTS provider.
-Primary voice for ALL modes (Jarvis voice).
+Primary voice for psychologist/coach/trainer modes.
+Basic mode uses Freddy Agent voice (Jarvis) — NOT Fish Audio.
 Fallback to Yandex if Fish Audio is unavailable.
 """
 
@@ -14,15 +15,15 @@ FISH_AUDIO_API_KEY = os.environ.get("FISH_AUDIO_API_KEY", "")
 FISH_AUDIO_VOICE_ID = os.environ.get("FISH_AUDIO_VOICE_ID", "")
 FISH_AUDIO_API_URL = "https://api.fish.audio/v1/tts"
 
-# All modes use Fish Audio now
-FISH_AUDIO_MODES = {"psychologist", "coach", "trainer", "basic", "default"}
+# Only these modes use Fish Audio. Basic uses Freddy Agent TTS.
+FISH_AUDIO_MODES = {"psychologist", "coach", "trainer"}
 
 
 async def synthesize_fish_audio(text: str, mode: str = "psychologist") -> bytes | None:
     """
     Synthesize speech via Fish Audio API.
     Returns MP3 bytes or None if unavailable.
-    Works for all modes.
+    Only works for psychologist/coach/trainer.
     """
     if mode not in FISH_AUDIO_MODES:
         return None
