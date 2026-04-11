@@ -14,6 +14,12 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 MAX_TOKEN = os.environ.get("MAX_TOKEN", "").strip()
 BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com").strip()
 
+# Тексты сообщений
+MSG_LINK_SUCCESS = "Привет, {name}! Аккаунт успешно привязан к Фреди. Теперь утренние сообщения будут приходить сюда."
+MSG_LINK_ERROR = "Неверная ссылка привязки. Попробуйте ещё раз из настроек Фреди."
+MSG_START_TG = "Привет! Я бот Фреди — виртуальный психолог.\n\nЧтобы привязать аккаунт, откройте Настройки в приложении Фреди и нажмите «Связать аккаунт» в разделе Telegram."
+MSG_START_MAX = "Привет! Я бот Фреди — виртуальный психолог.\n\nЧтобы привязать аккаунт, откройте Настройки в приложении Фреди и нажмите «Связать аккаунт» в разделе Max."
+
 
 def register_bot_webhooks(app, db):
 
@@ -41,7 +47,7 @@ def register_bot_webhooks(app, db):
                     try:
                         web_user_id_int = int(web_user_id)
                     except ValueError:
-                        await _tg_send(chat_id, "Nevernaya ssylka privyazki.")
+                        await _tg_send(chat_id, MSG_LINK_ERROR)
                         return {"ok": True}
 
                     async with db.get_connection() as conn:
@@ -57,11 +63,11 @@ def register_bot_webhooks(app, db):
                                 chat_id = $2, username = $3, linked_at = NOW(), is_active = TRUE
                         """, web_user_id_int, chat_id, username or first_name)
 
-                    display_name = username or first_name or "friend"
-                    await _tg_send(chat_id, f"Privet, {display_name}! Akkaunt uspeshno privyazan k Fredi.")
+                    display_name = username or first_name or "друг"
+                    await _tg_send(chat_id, MSG_LINK_SUCCESS.format(name=display_name))
                     logger.info(f"Telegram linked: user {web_user_id} -> chat {chat_id}")
                 else:
-                    await _tg_send(chat_id, "Privet! Ya bot Fredi.\n\nChtoby privyazat' akkaunt, otkroyte Nastroyki v prilozhenii Fredi i nazhmite Svyazat' akkaunt.")
+                    await _tg_send(chat_id, MSG_START_TG)
 
             return {"ok": True}
         except Exception as e:
@@ -98,7 +104,7 @@ def register_bot_webhooks(app, db):
                         try:
                             web_user_id_int = int(web_user_id)
                         except ValueError:
-                            await _max_send(chat_id, "Nevernaya ssylka privyazki.")
+                            await _max_send(chat_id, MSG_LINK_ERROR)
                             return {"ok": True}
 
                         async with db.get_connection() as conn:
@@ -114,11 +120,11 @@ def register_bot_webhooks(app, db):
                                     chat_id = $2, username = $3, linked_at = NOW(), is_active = TRUE
                             """, web_user_id_int, chat_id, sender_name)
 
-                        display_name = sender_name or "friend"
-                        await _max_send(chat_id, f"Privet, {display_name}! Akkaunt uspeshno privyazan k Fredi.")
+                        display_name = sender_name or "друг"
+                        await _max_send(chat_id, MSG_LINK_SUCCESS.format(name=display_name))
                         logger.info(f"Max linked: user {web_user_id} -> chat {chat_id}")
                     else:
-                        await _max_send(chat_id, "Privet! Ya bot Fredi.\n\nChtoby privyazat' akkaunt, otkroyte Nastroyki v prilozhenii Fredi.")
+                        await _max_send(chat_id, MSG_START_MAX)
 
             return {"ok": True}
         except Exception as e:
