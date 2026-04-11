@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 BasicMode - for users who have not taken the test yet.
-Fredi is a warm, supportive friend with Bikovic-style voice.
+Fredi with Bikovic-style voice, memory, and emotion detection.
 """
 
 import re
@@ -40,7 +40,56 @@ class BasicMode(BaseMode):
         self.rules: List[str] = []
         self.golden_phrases: List[str] = []
 
+        # Memory and emotion services (lazy init)
+        self._memory = None
+        self._emotion = None
+        self._memory_text = ""
+        self._current_emotion = {"emotion": "neutral", "tone": "friendly", "instruction": ""}
+
         logger.info(f"BasicMode init user_id={user_id}, msgs={self.message_counter}")
+
+    async def _get_memory(self):
+        if self._memory is None:
+            try:
+                from services.user_memory import get_user_memory
+                self._memory = get_user_memory()
+            except Exception:
+                pass
+        return self._memory
+
+    async def _get_emotion_detector(self):
+        if self._emotion is None:
+            try:
+                from services.emotion_detector import EmotionDetector
+                self._emotion = EmotionDetector()
+            except Exception:
+                pass
+        return self._emotion
+
+    async def _load_memory(self):
+        mem = await self._get_memory()
+        if mem:
+            try:
+                self._memory_text = await mem.get_facts_text(self.user_id)
+            except Exception:
+                self._memory_text = ""
+
+    async def _save_fact(self, fact: str):
+        mem = await self._get_memory()
+        if mem and fact:
+            try:
+                await mem.store_fact(self.user_id, fact)
+            except Exception:
+                pass
+
+    async def _detect_emotion(self, text: str):
+        detector = await self._get_emotion_detector()
+        if detector:
+            try:
+                self._current_emotion = await detector.detect(text)
+                logger.info(f"Emotion: {self._current_emotion['emotion']} -> {self._current_emotion['tone']}")
+            except Exception:
+                pass
 
     def _get_address(self) -> str:
         return random.choice(["слушай", "знаешь", "дай подумаю", "мне кажется", "в общем", "друг"])
@@ -93,19 +142,13 @@ class BasicMode(BaseMode):
             "- Начинай с вводных: Знаешь..., Слушай..., Дай-ка подумаю..., В общем..., Мне кажется...\n"
             "- НЕ заканчивай каждый ответ вопросом. Чередуй утверждения, мысли и вопросы.\n"
             "- Будь конкретным. Один шаг, одна мысль.\n\n"
-            "ЭМОЦИОНАЛЬНАЯ АДАПТАЦИЯ:\n"
-            "- Грусть: сначала прими, потом мягко направь.\n"
-            "- Злость: не спорь, дай выговориться, потом помоги увидеть суть.\n"
-            "- Тревога: заземли, верни в настоящий момент.\n"
-            "- Радость: раздели, усиль, помоги запомнить это состояние.\n"
-            "- Растерянность: упрости, дай один конкретный шаг.\n\n"
             "ЧЕГО НЕЛЬЗЯ:\n"
             "- Готовые диагнозы и советы сверху.\n"
             "- Молодежный сленг: краш, хайп, зашквар.\n"
             "- Длинные монологи и объяснения.\n"
             "- Дисклеймеры в каждом ответе.\n"
             "- Повторять вопрос пользователя.\n\n"
-            "Ты помнишь весь предыдущий разговор - учитывай контекст."
+            "Ты помнишь факты о собеседнике между сессиями. Используй их естественно."
         )
 
     def get_greeting(self) -> str:
@@ -140,6 +183,19 @@ class BasicMode(BaseMode):
         if self.golden_phrases:
             golden_text = f"\n\nОн говорил: {self.golden_phrases[-1]}\n"
 
+        # Memory facts from DB
+        memory_text = ""
+        if self._memory_text:
+            memory_text = f"\n\n{self._memory_text}\n"
+
+        # Emotion instruction
+        emotion_instr = ""
+        if self._current_emotion.get("instruction"):
+            emotion_instr = (
+                f"\n\nЭМОЦИЯ СОБЕСЕДНИКА: {self._current_emotion['emotion']}. "
+                f"ИНСТРУКЦИЯ: {self._current_emotion['instruction']}\n"
+            )
+
         few_shot = (
             "\nПРИМЕРЫ ПРАВИЛЬНЫХ ОТВЕТОВ:\n\n"
             "Пользователь: Я чувствую, что застрял. Ничего не хочу делать.\n"
@@ -148,18 +204,13 @@ class BasicMode(BaseMode):
             "Пользователь: У меня стресс на работе.\n"
             "Фреди: Слушай... Это выматывает. Мне кажется, тебе сейчас тяжело - и это нормально. "
             "Ты имеешь право на это. Что именно больше всего давит прямо сейчас?\n\n"
-            "Пользователь: Не знаю, что делать с отношениями.\n"
-            "Фреди: Мне кажется, ты сейчас на развилке. И это непростое место. "
-            "Расскажи - что происходит между вами?\n\n"
-            "Пользователь: Сын матерится во время игры.\n"
-            "Фреди: Слушай... Там свои правила, дома - другие. "
-            "Мне кажется, тебя беспокоит не столько слова, а то, куда он в этот момент уходит от тебя.\n\n"
             "Пользователь: Все хорошо, просто зашел поговорить.\n"
             "Фреди: Рад это слышать. Знаешь, иногда просто поговорить - это и есть самое важное. Я здесь.\n"
         )
 
         return (
-            f"{self.get_system_prompt()}\n{few_shot}\n{rules_text}{golden_text}\n"
+            f"{self.get_system_prompt()}\n{few_shot}\n"
+            f"{memory_text}{rules_text}{golden_text}{emotion_instr}\n"
             f"История разговора:\n{combined}\n\n"
             f"Сообщение пользователя: {question}\n\n"
             "Ответь коротко (1-3 фразы), живо, прямо. Адаптируй тон под эмоцию собеседника."
@@ -169,10 +220,19 @@ class BasicMode(BaseMode):
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
 
+        # Load memory on first message
+        if self.message_counter == 1:
+            await self._load_memory()
+
+        # Detect emotion
+        await self._detect_emotion(question)
+
+        # Extract fact and save to memory
         rule = await self._extract_rule(question)
         if rule:
             self.rules.append(rule)
-            logger.info(f"Правило {len(self.rules)}: {rule}")
+            await self._save_fact(rule)
+            logger.info(f"Факт {len(self.rules)}: {rule}")
 
         golden = await self._extract_golden_phrase(question)
         if golden:
