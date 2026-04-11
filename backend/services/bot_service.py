@@ -9,9 +9,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-MAX_TOKEN = os.environ.get("MAX_TOKEN", "")
-BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
+MAX_TOKEN = os.environ.get("MAX_TOKEN", "").strip()
+BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com").strip()
 
 
 def register_bot_webhooks(app, db):
@@ -150,13 +150,13 @@ def register_bot_webhooks(app, db):
             logger.error(f"Max send error: {e}")
 
     async def setup_bot_webhooks():
-        webhook_base = BACKEND_URL.rstrip("/")
-        logger.info(f"Bot webhook base URL: {webhook_base}")
+        webhook_base = BACKEND_URL.strip().rstrip("/")
+        logger.info(f"Bot webhook base URL: [{webhook_base}]")
 
         if TELEGRAM_TOKEN:
             try:
                 url = f"{webhook_base}/api/telegram/webhook"
-                logger.info(f"Setting Telegram webhook to: {url}")
+                logger.info(f"Setting Telegram webhook to: [{url}]")
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
                         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
@@ -173,7 +173,7 @@ def register_bot_webhooks(app, db):
         if MAX_TOKEN:
             try:
                 url = f"{webhook_base}/api/max/webhook"
-                logger.info(f"Setting Max webhook to: {url}")
+                logger.info(f"Setting Max webhook to: [{url}]")
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
                         "https://platform-api.max.ru/subscriptions",
