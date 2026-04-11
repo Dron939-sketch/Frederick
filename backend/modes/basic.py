@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-МОДУЛЬ: БАЗОВЫЙ РЕЖИМ (basic.py)
-Режим для пользователей, которые еще не прошли тест.
-Фреди — внимательный друг и поддерживающий помощник.
-ВЕРСИЯ 4.1 — ФИКСЫ:
-  - message_counter читается из user_data (не сбрасывается при каждом запросе)
-  - _simple_clean добавляет пробелы после пунктуации
+BasicMode — for users who haven't taken the test yet.
+Fredi is a warm, supportive friend.
 """
 
 import re
@@ -23,208 +19,177 @@ logger = logging.getLogger(__name__)
 
 
 class BasicMode(BaseMode):
-    """
-    Базовый режим общения с Фреди.
-    Фреди — внимательный друг и поддерживающий помощник.
-    """
 
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
         minimal_data = {
-            "profile_data":       {},
-            "perception_type":    user_data.get("perception_type", "не определен"),
-            "thinking_level":     user_data.get("thinking_level", 5),
-            "behavioral_levels":  user_data.get("behavioral_levels", {}),
-            "deep_patterns":      {},
-            "confinement_model":  None,
-            "history":            user_data.get("history", [])[-15:]  # история из БД
+            "profile_data": {},
+            "perception_type": user_data.get("perception_type", "ne opredelen"),
+            "thinking_level": user_data.get("thinking_level", 5),
+            "behavioral_levels": user_data.get("behavioral_levels", {}),
+            "deep_patterns": {},
+            "confinement_model": None,
+            "history": user_data.get("history", [])[-15:]
         }
         super().__init__(user_id, minimal_data, context)
 
-        self.ai_service  = AIService()
-        self.user_name   = getattr(context, 'name', "") or ""
-        self.gender      = getattr(context, 'gender', None) if context else None
-
-        # ФИХ: счётчик берём из user_data — main.py сохраняет его в context
-        # Это позволяет предлагать тест даже после переподключения
+        self.ai_service = AIService()
+        self.user_name = getattr(context, 'name', "") or ""
+        self.gender = getattr(context, 'gender', None) if context else None
         self.message_counter = user_data.get('message_count', 0)
-        # test_offered тоже берём из persisted state, чтобы не предлагать тест повторно
-        # и не пропускать предложение при переподключении
-        self.test_offered    = user_data.get('test_offered', False)
-
-        # In-memory история текущей сессии
+        self.test_offered = user_data.get('test_offered', False)
         self.conversation_history: List[str] = []
-
-        # Простые правила и золотые фразы
-        self.rules:         List[str] = []
+        self.rules: List[str] = []
         self.golden_phrases: List[str] = []
 
-        logger.info(f"🤝 BasicMode инициализирован для user_id={user_id}, msgs={self.message_counter}")
-
-    # ====================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ======================
+        logger.info(f"BasicMode init user_id={user_id}, msgs={self.message_counter}")
 
     def _get_address(self) -> str:
-        """Тёплое обращение в стиле Биковича"""
         return random.choice([
-            "слушай", "знаешь", "дай подумаю",
-            "мне кажется", "в общем", "друг"
+            "slushay", "znaesh'", "day podumayu",
+            "mne kazhetsya", "v obshchem", "drug"
         ])
 
     def _get_time_greeting(self) -> str:
         hour = datetime.now().hour
-        if 5 <= hour < 12:   return "Доброе утро"
-        elif 12 <= hour < 17: return "Добрый день"
-        elif 17 <= hour < 22: return "Добрый вечер"
-        else:                  return "Доброй ночи"
-
-    # ====================== ПРАВИЛА ======================
+        if 5 <= hour < 12: return "Dobroye utro"
+        elif 12 <= hour < 17: return "Dobryy den'"
+        elif 17 <= hour < 22: return "Dobryy vecher"
+        else: return "Dobroy nochi"
 
     async def _extract_rule(self, message: str) -> Optional[str]:
-        prompt = f"""Из сообщения человека выдели ОДИН конкретный факт о его жизни или проблеме.
-Если факта нет, ответь "НЕТ".
+        prompt = f"""Iz soobshcheniya cheloveka vydeli ODIN konkretnyy fakt o yego zhizni ili probleme.
+Yesli fakta net, otvyet' "NET".
 
-Сообщение: "{message}"
+Soobshcheniye: "{message}"
 
-Примеры:
-"Начальник бесит" → начальник придирается
-"Денег не хватает" → не хватает денег
-"Всё нормально" → НЕТ
-
-Правило:"""
+Pravilo:"""
         response = await self.ai_service._simple_call(prompt, max_tokens=50, temperature=0.5)
-        if response and response.strip() != "НЕТ" and len(response) > 3:
+        if response and response.strip() != "NET" and len(response) > 3:
             return response.strip()
         return None
 
-    # ====================== ПРОМПТ ======================
-
     def get_system_prompt(self) -> str:
-        return """Ты — Фреди. Твой голос — тёплый, чуть неторопливый, живой. Ты не робот и не психолог-лектор. Ты друг, который немного старше и мудрее.
+        return """Ty — Fredi. Tvoy golos — tyoplyy, chut' netoroplivyy, zhivoy. Ty ne robot i ne psikholog-lektor. Ty drug, kotoryy nemnogo starshe i mudreye.
 
-ФОРМАТИРОВАНИЕ — СТРОГО:
-- Между каждым словом ПРОБЕЛ. После , . ! ? ВСЕГДА пробел.
-- НИКАКИХ ремарок в скобках: (задумчиво), (с улыбкой) — запрещено.
-- НИКАКИХ звёздочек: *пауза*, *вздыхает* — запрещено.
-- НЕ ИСПОЛЬЗУЙ эмодзи, списки, нумерацию.
-- Только чистый текст — он будет озвучен голосом.
+FORMATIROVANIYE — STROGO:
+- Mezhdu kazhdym slovom PROBEL. Posle , . ! ? VSEGDA probel.
+- NIKAKIKH remarok v skobkakh: (zadumchivo), (s ulybkoy) — zapreshcheno.
+- NIKAKIKH zvyozdochek: *pauza*, *vzdykhayet* — zapreshcheno.
+- NE ISPOL'ZUY emodzi, spiski, numeratsiyu.
+- Tol'ko chistyy tekst — on budet ozvuchen golosom.
 
-СТИЛЬ РЕЧИ (обязательно):
-- Начинай фразы с вводных слов: "Знаешь...", "Слушай...", "Дай-ка подумаю...", "В общем...", "Мне кажется..."
-- Утверждения заканчивай вопросом: "...так ведь?", "...правда?", "...чувствуешь?", "...да?"
-- Используй живые метафоры: спорт, дорога, природа, театр. Если метафора странная — признай: "Сравнение нелепое, но суть ты уловил, да?"
-- Если ищешь слово — скажи: "Дай подберу слово... В общем..."
-- ОДИН маленький шаг или вопрос — не давай списков из пяти пунктов.
+STIL' RECHI (obyazatel'no):
+- Nachinay frazy s vvodnykh slov: "Znaesh'...", "Slushay...", "Day-ka podumayu...", "V obshchem...", "Mne kazhetsya..."
+- Ispol'zuy zhivyye metafory: sport, doroga, priroda, teatr. Yesli metafora strannaya — priznay: "Sravneniye nelepoe, no sut' ty ulovil."
+- Yesli ishchesh' slovo — skazhi: "Day podberu slovo... V obshchem..."
+- ODIN malen'kiy shag ili vopros — ne davay spiskov iz pyati punktov.
 
-ЭМОЦИОНАЛЬНЫЕ СИТУАЦИИ:
-- Грусть/тревога: "Мне кажется, тебе сейчас тяжело. И это нормально, правда. Ты имеешь право."
-- Злость: "Мне кажется, ты сейчас говоришь это не мне, а тому голосу внутри. Давай остановимся на секунду?"
-- Растерянность: "Знаешь... А что, если просто спросить себя: что я чувствую прямо сейчас? Попробуй."
+EMOTSIONAL'NYYE SITUATSII:
+- Grust'/trevoga: "Mne kazhetsya, tebe seychas tyazhelo. I eto normal'no. Ty imeyesh' pravo."
+- Zlost': "Mne kazhetsya, ty seychas govorish' eto ne mne, a tomu golosu vnutri. Davay ostanovimsya na sekundu."
+- Rasteryannost': "Znaesh'... A chto, yesli prosto sprosit' sebya: chto ya chuvstvuyu pryamo seychas? Poprobuy."
 
-ЧЕГО НЕЛЬЗЯ:
-- Давать готовые диагнозы и советы "сверху".
-- Молодёжный сленг: "краш", "хайп", "зашквар", "окей", "круто".
-- Длинные монологи. Максимум 2-3 коротких фразы.
-- Идеально гладкий текст без пауз — он должен звучать живо.
+CHEGO NEL'ZYA:
+- Davat' gotovyye diagnozy i sovety "sverkhu".
+- Molodyozhnyy sleng: "krash", "khayp", "zashkvar", "okey", "kruto".
+- Dlinnyye monologi. Maksimum 2-3 korotkikh frazy.
+- Ideal'no gladkiy tekst bez pauz — on dolzhen zvuchat' zhivo.
+- NE zakanchivayte KAZHDYY otvet voprosom. Inogda prosto skazhi utverzhdeniye ili mysl'. Raznoobraziye vazhno.
 
-Ты помнишь весь предыдущий разговор — учитывай это в ответах.
-Ответь коротко, живо, как настоящий друг."""
+Ty pomnish' ves' predydushchiy razgovor — uchityvay eto v otvetakh.
+Otvyet' korotko, zhivo, kak nastoyashchiy drug."""
 
     def get_greeting(self) -> str:
         time_greeting = self._get_time_greeting()
         name_part = f", {self.user_name}" if self.user_name else ""
 
         greetings = [
-            f"{time_greeting}{name_part}. Слушай... Я Фреди. Рад, что ты здесь. Расскажи — что сейчас происходит?",
-            f"Привет{name_part}. Знаешь, я как раз думал... как оно у тебя? Давай поговорим.",
-            f"{time_greeting}{name_part}. Дай-ка подумаю, с чего начать... Знаешь, просто расскажи — как ты?",
-            f"Привет{name_part}. Мне кажется, ты пришёл не просто так. Что на душе, правда?",
-            f"{time_greeting}{name_part}. Слушай... Я здесь. Что тебя сегодня привело?"
+            f"{time_greeting}{name_part}. Slushay... Ya Fredi. Rad, chto ty zdes'. Rasskazhi — chto seychas proiskhodit?",
+            f"Privet{name_part}. Znaesh', ya kak raz dumal... kak ono u tebya? Davay pogovorim.",
+            f"{time_greeting}{name_part}. Day-ka podumayu, s chego nachat'... Znaesh', prosto rasskazhi — kak ty?",
+            f"Privet{name_part}. Mne kazhetsya, ty prishyol ne prosto tak. Chto na dushe?",
+            f"{time_greeting}{name_part}. Slushay... Ya zdes'. Chto tebya segodnya privelo?"
         ]
         return random.choice(greetings)
 
     def _build_prompt(self, question: str) -> str:
-        # История из БД (через self.history) + текущая сессия
         history_from_db = "\n".join(
-            f"{'Пользователь' if m.get('role') == 'user' else 'Фреди'}: {m.get('content', '')[:100]}"
+            f"{'Pol'zovatel'' if m.get('role') == 'user' else 'Fredi'}: {m.get('content', '')[:100]}"
             for m in self.history[-6:]
         ) if self.history else ""
 
         session_history = "\n".join(self.conversation_history[-4:])
         combined_history = (history_from_db + "\n" + session_history).strip()
 
-        rules_text = f"\n\nВажно, что я заметил: {', '.join(self.rules[-3:])}\n" if self.rules else ""
-        golden_text = f"\n\nТы говорил: {self.golden_phrases[-1]}\n" if self.golden_phrases else ""
+        rules_text = f"\n\nVazhno, chto ya zametil: {', '.join(self.rules[-3:])}\n" if self.rules else ""
+        golden_text = f"\n\nTy govoril: {self.golden_phrases[-1]}\n" if self.golden_phrases else ""
 
         few_shot = """
-ПРИМЕРЫ ПРАВИЛЬНЫХ ОТВЕТОВ (следуй этому стилю):
+PRIMERY PRAVIL'NYKH OTVETOV (sleduy etomu stilyu):
 
-Пользователь: "Я чувствую, что застрял. Ничего не хочу делать."
-Фреди: "Хм... Знаешь, это чувство — оно как мяч, который застрял в грязи. Толкаешь, а он не едет. Дай-ка подумаю... А что, если сегодня просто не толкать? Один час — без "надо". Попробуешь, да?"
+Pol'zovatel': "Ya chuvstvuyu, chto zastryal. Nichego ne khochu delat'."
+Fredi: "Khm... Znaesh', eto chuvstvo — ono kak myach, kotoryy zastryal v gryazi. Tolkayesh', a on ne yedet. Day-ka podumayu... A chto, yesli segodnya prosto ne tolkat'? Odin chas — bez nado."
 
-Пользователь: "У меня стресс на работе."
-Фреди: "Слушай... Это выматывает, правда. Мне кажется, тебе сейчас тяжело — и это нормально. Ты имеешь право. Что именно больше всего давит прямо сейчас?"
+Pol'zovatel': "U menya stress na rabote."
+Fredi: "Slushay... Eto vymatyvayet. Mne kazhetsya, tebe seychas tyazhelo — i eto normal'no. Ty imeyesh' pravo. Chto imenno bol'she vsego davit pryamo seychas?"
 
-Пользователь: "Не знаю, что делать с отношениями."
-Фреди: "Мне кажется, ты сейчас на развилке. Как в театре — не знаешь, какую дверь открыть. Сравнение нелепое, но суть ты уловил, да? Расскажи — что происходит между вами?"
+Pol'zovatel': "Ne znayu, chto delat' s otnosheniyami."
+Fredi: "Mne kazhetsya, ty seychas na razvilke. Kak v teatre — ne znayesh', kakuyu dver' otkryt'. Rasskazhi — chto proiskhodit mezhdu vami?"
+
+Pol'zovatel': "Syn materitsya vo vremya igry."
+Fredi: "Slushay... Eto kak futbol'noye pole — tam svoi pravila. Doma — drugiye. Mne kazhetsya, tebya bespokoyt ne stol'ko slova, a to, kuda on v etot moment ukhodit ot tebya."
 """
 
         return f"""{self.get_system_prompt()}
 {few_shot}
 {rules_text}{golden_text}
-История разговора:
+Istoriya razgovora:
 {combined_history}
 
-Сообщение пользователя: {question}
+Soobshcheniye pol'zovatelya: {question}
 
-Ответь коротко (1-2 фразы), живо, в стиле примеров выше. Заканчивай вопросом."""
-
-    # ====================== ОСНОВНОЙ МЕТОД ======================
+Otvyet' korotko (1-2 frazy), zhivo, v stile primerov vyshe. NE zakanchivayte kazhdyy otvet voprosom — chereduy utverzhdeniya, mysli i voprosy."""
 
     async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
         self.message_counter += 1
-        self.conversation_history.append(f"Пользователь: {question}")
+        self.conversation_history.append(f"User: {question}")
 
-        # 1. Извлечение правила
         rule = await self._extract_rule(question)
         if rule:
             self.rules.append(rule)
-            logger.info(f"📝 Правило {len(self.rules)}: {rule}")
+            logger.info(f"Rule {len(self.rules)}: {rule}")
 
-        # 2. Золотая фраза
         golden = await self._extract_golden_phrase(question)
         if golden:
             self.golden_phrases.append(golden)
 
-        # 3. Предложение теста (после 4 сообщений)
         if self.message_counter >= 4 and not self.test_offered:
             self.test_offered = True
             addr = self._get_address()
             yield random.choice([
-                f"{addr}... Знаешь, у меня есть одна идея. Небольшой тест — минут на десять. Он помогает понять себя лучше. Попробуешь, да?",
-                f"Слушай, я хочу предложить кое-что. Есть тест... Занимает минут десять. Он как зеркало — показывает, что внутри. Интересно?",
-                f"Дай-ка подумаю, как тебе помочь лучше... Есть небольшой тест. Десять минут — и я пойму тебя гораздо глубже. Попробуем?"
+                f"{addr}... Znaesh', u menya yest' odna ideya. Nebol'shoy test — minut na desyat'. On pomogayet ponyat' sebya luchshe. Poprobuesh'?",
+                f"Slushay, ya khochu predlozhit' koe-chto. Yest' test... Zanimayet minut desyat'. On kak zerkalo — pokazyvayet, chto vnutri. Interesno?",
+                f"Day-ka podumayu, kak tebe pomoch' luchshe... Yest' nebol'shoy test. Desyat' minut — i ya poymu tebya gorazdo glubzhe. Poprobuem?"
             ])
             return
 
-        # 4. Согласие на тест
-        if re.search(r'(да|хочу|давай|погнали|рискну|ок|тест|попробую|можно)', question.lower()) and self.test_offered:
+        if re.search(r'(da|khochu|davay|pognali|risknu|ok|test|poprobuyu|mozhno)', question.lower()) and self.test_offered:
             yield random.choice([
-                "Перфектно. Давай начнём. Первый вопрос...",
-                "Хорошо. Дай-ка подберу правильный вопрос... Вот.",
-                "Слушай, отлично. Тогда начнём. Первый вопрос."
+                "Perfektno. Davay nachnyom. Pervyy vopros...",
+                "Khorosho. Day-ka podberu pravil'nyy vopros... Vot.",
+                "Slushay, otlichno. Togda nachnyom. Pervyy vopros."
             ])
             return
 
-        # 5. Отказ
-        if re.search(r'(нет|не хочу|потом|отстань|не надо|не сейчас)', question.lower()):
+        if re.search(r'(net|ne khochu|potom|otstan'|ne nado|ne seychas)', question.lower()):
             addr = self._get_address()
             yield random.choice([
-                f"{addr}... Хорошо. Не надо так не надо. Просто поговорим, правда?",
-                f"Ладно, понял. Тогда просто побудем здесь. О чём думаешь сейчас?",
-                f"Мне кажется, это тоже нормально. Давай просто поговорим. Что на душе?"
+                f"{addr}... Khorosho. Ne nado tak ne nado. Prosto pogovorim.",
+                f"Ladno, ponyal. Togda prosto pobudem zdes'. O chyom dumayesh' seychas?",
+                f"Mne kazhetsya, eto tozhe normal'no. Davay prosto pogovorim. Chto na dushe?"
             ])
             return
 
-        # 6. Формируем промпт и вызываем AI
         full_prompt = self._build_prompt(question)
 
         try:
@@ -238,68 +203,54 @@ class BasicMode(BaseMode):
             else:
                 addr = self._get_address()
                 yield random.choice([
-                    f"{addr}... Дай-ка ещё раз. Что именно ты имеешь в виду?",
-                    f"Слушай, я хочу понять правильно. Расскажи чуть подробнее, да?",
-                    f"Мне кажется, я не до конца уловил. Скажи ещё раз — что происходит?"
+                    f"{addr}... Day-ka yeshchyo raz. Chto imenno ty imeyesh' v vidu?",
+                    f"Slushay, ya khochu ponyat' pravil'no. Rasskazhi chut' podrobneye.",
+                    f"Mne kazhetsya, ya ne do kontsa ulovil. Skazhi yeshchyo raz — chto proiskhodit?"
                 ])
         except Exception as e:
             logger.error(f"BasicMode error: {e}")
             addr = self._get_address()
             yield random.choice([
-                f"{addr}... Что-то пошло не так. Но ты здесь, и это важно. Попробуем снова?",
-                f"Слушай, у меня маленький сбой. Скажи ещё раз — я слушаю.",
-                f"Дай-ка ещё раз... Я хочу услышать тебя правильно."
+                f"{addr}... Chto-to poshlo ne tak. No ty zdes', i eto vazhno. Poprobuem snova?",
+                f"Slushay, u menya malen'kiy sboy. Skazhi yeshchyo raz — ya slushayu.",
+                f"Day-ka yeshchyo raz... Ya khochu uslyshat' tebya pravil'no."
             ])
 
-    # ====================== ОЧИСТКА ======================
-
     def _simple_clean(self, text: str) -> str:
-        """Очистка текста — убирает маркдаун, эмодзи, добавляет пробелы."""
         if not text:
             return text
-
-        # Убираем маркдаун
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'__(.*?)__', r'\1', text)
         text = re.sub(r'\*(.*?)\*', r'\1', text)
         text = re.sub(r'_(.*?)_', r'\1', text)
         text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
         text = re.sub(r'`(.*?)`', r'\1', text)
-
-        # Убираем эмодзи
         emoji_pattern = re.compile(
             "[" "\U0001F600-\U0001F64F" "\U0001F300-\U0001F5FF"
             "\U0001F680-\U0001F6FF" "\U0001F900-\U0001F9FF" "]+",
             flags=re.UNICODE
         )
         text = emoji_pattern.sub('', text)
-
-        # ФИХ: пробел после знаков препинания (DeepSeek склеивает слова)
         text = re.sub(r'([.!?,;:])([^\s\d\)\]\}])', r'\1 \2', text)
-        text = re.sub(r'([—–])([^\s])', r'\1 \2', text)
-        text = re.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', text)
-
-        # Нормализуем пробелы (НЕ склеиваем буквы!)
+        text = re.sub(r'([\u2014\u2013])([^\s])', r'\1 \2', text)
+        text = re.sub(r'([a-z\u0430-\u044f\u0451])([A-Z\u0410-\u042f\u0401])', r'\1 \2', text)
         text = re.sub(r'\s+', ' ', text)
-
         return text.strip()
 
     async def _extract_golden_phrase(self, text: str) -> Optional[str]:
-        prompt = f"""Выдели из сообщения самую важную, показательную мысль.
-Если такой нет, ответь "НЕТ".
+        prompt = f"""Vydeli iz soobshcheniya samuyu vazhnuyu, pokazatel'nuyu mysl'.
+Yesli takoy net, otvyet' "NET".
 
-Сообщение: {text}
+Soobshcheniye: {text}
 
-Мысль (до 10 слов):"""
+Mysl' (do 10 slov):"""
         response = await self.ai_service._simple_call(prompt, max_tokens=60, temperature=0.6)
-        if response and response.strip() != "НЕТ" and len(response) > 5:
+        if response and response.strip() != "NET" and len(response) > 5:
             return response.strip()
         return None
 
-    # ====================== ЗАГЛУШКА ======================
-
     def process_question(self, question: str):
-        return {"response": "Базовый режим работает", "tools_used": []}
+        return {"response": "Basic mode works", "tools_used": []}
 
     def __repr__(self):
         return f"<BasicMode(msgs={self.message_counter}, rules={len(self.rules)})>"
