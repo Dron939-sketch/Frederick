@@ -1,55 +1,72 @@
 // ============================================
-// settings.js — Экран настроек (подписка + уведомления)
-// Версия 2.0
+// settings.js — Settings screen v3.0
+// Sections: Subscription, Active Tasks, Notifications, Appearance, Profile
 // ============================================
 
 (function () {
     if (window._settingsLoaded) return;
     window._settingsLoaded = true;
 
-    const TG_BOT_USERNAME = window.CONFIG?.TG_BOT_USERNAME || 'Frederick777bot';
-    const MAX_BOT_LINK = window.CONFIG?.MAX_BOT_LINK || 'https://max.ru/id502238728185_1_bot';
+    const TG_BOT = window.CONFIG?.TG_BOT_USERNAME || 'Frederick777bot';
+    const MAX_LINK = window.CONFIG?.MAX_BOT_LINK || 'https://max.ru/id502238728185_1_bot';
 
-    function _setApi() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
-    function _setUid() { return window.CONFIG?.USER_ID; }
-    function _setToast(msg, type) { if (window.showToast) window.showToast(msg, type || 'info'); }
+    function _api() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+    function _uid() { return window.CONFIG?.USER_ID; }
+    function _toast(msg, t) { if (window.showToast) window.showToast(msg, t || 'info'); }
 
-    function _injectSettingsStyles() {
-        if (document.getElementById('settings-v1-styles')) return;
+    function _injectStyles() {
+        if (document.getElementById('st3-styles')) return;
         const s = document.createElement('style');
-        s.id = 'settings-v1-styles';
+        s.id = 'st3-styles';
         s.textContent = `
-            .st-section { margin-bottom: 24px; }
-            .st-section-label { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 12px; }
+            .st-section { margin-bottom: 8px; }
+            .st-acc-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.08); border-radius: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background 0.15s; margin-bottom: 2px; }
+            .st-acc-header:hover { background: rgba(224,224,224,0.06); }
+            .st-acc-header.open { border-radius: 14px 14px 0 0; border-bottom: none; }
+            .st-acc-left { display: flex; align-items: center; gap: 10px; }
+            .st-acc-icon { font-size: 18px; }
+            .st-acc-title { font-size: 13px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; color: var(--text-secondary); }
+            .st-acc-arrow { font-size: 10px; color: var(--text-secondary); transition: transform 0.2s; }
+            .st-acc-header.open .st-acc-arrow { transform: rotate(90deg); }
+            .st-acc-body { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; background: rgba(224,224,224,0.02); border: 1px solid rgba(224,224,224,0.08); border-top: none; border-radius: 0 0 14px 14px; }
+            .st-acc-body.open { max-height: 800px; }
+            .st-acc-content { padding: 16px; }
             .st-channel-grid { display: flex; flex-direction: column; gap: 10px; }
-            .st-channel-card { display: flex; align-items: center; gap: 14px; background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1); border-radius: 18px; padding: 16px; cursor: pointer; transition: background 0.18s, border-color 0.18s, transform 0.15s; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-            .st-channel-card:active { transform: scale(0.99); }
+            .st-channel-card { display: flex; align-items: center; gap: 14px; background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1); border-radius: 14px; padding: 14px; cursor: pointer; transition: background 0.18s, border-color 0.18s; touch-action: manipulation; }
             .st-channel-card.active { background: rgba(224,224,224,0.13); border-color: rgba(224,224,224,0.4); }
-            .st-channel-icon { font-size: 26px; flex-shrink: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(224,224,224,0.07); border-radius: 14px; }
+            .st-channel-icon { font-size: 22px; flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: rgba(224,224,224,0.07); border-radius: 12px; }
             .st-channel-body { flex: 1; min-width: 0; }
-            .st-channel-title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
-            .st-channel-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.4; overflow-wrap: anywhere; }
-            .st-channel-check { font-size: 18px; flex-shrink: 0; opacity: 0; transition: opacity 0.18s; color: var(--chrome); }
+            .st-channel-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+            .st-channel-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+            .st-channel-check { font-size: 16px; flex-shrink: 0; opacity: 0; transition: opacity 0.18s; color: var(--chrome); }
             .st-channel-card.active .st-channel-check { opacity: 1; }
-            .st-link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(224,224,224,0.1); }
+            .st-link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(224,224,224,0.1); }
             .st-link-status { font-size: 11px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; }
             .st-link-status.linked { color: rgba(120, 200, 140, 0.95); }
-            .st-link-btn { padding: 7px 14px; border-radius: 30px; font-size: 12px; font-weight: 500; font-family: inherit; cursor: pointer; background: rgba(224,224,224,0.07); border: 1px solid rgba(224,224,224,0.18); color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: background 0.18s, color 0.18s; touch-action: manipulation; }
+            .st-link-btn { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 500; font-family: inherit; cursor: pointer; background: rgba(224,224,224,0.07); border: 1px solid rgba(224,224,224,0.18); color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: background 0.18s; touch-action: manipulation; }
             .st-link-btn:hover { background: rgba(224,224,224,0.14); color: var(--text-primary); }
             .st-link-btn.danger { color: rgba(255, 140, 140, 0.85); }
-            .st-info-tip { background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.08); border-radius: 14px; padding: 12px 14px; font-size: 12px; color: var(--text-secondary); line-height: 1.55; margin-top: 16px; }
-            .st-info-tip strong { color: var(--chrome); }
+            .st-tasks-empty { font-size: 12px; color: var(--text-secondary); font-style: italic; padding: 8px 0; }
+            .st-theme-grid { display: flex; gap: 10px; }
+            .st-theme-card { flex: 1; padding: 16px; border-radius: 14px; cursor: pointer; text-align: center; border: 2px solid transparent; transition: border-color 0.18s; touch-action: manipulation; }
+            .st-theme-card.active { border-color: var(--chrome); }
+            .st-theme-dark { background: #111; color: #fff; }
+            .st-theme-light { background: #f0f0f0; color: #111; }
+            .st-theme-label { font-size: 12px; font-weight: 600; margin-top: 8px; }
+            .st-profile-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(224,224,224,0.06); font-size: 13px; }
+            .st-profile-label { color: var(--text-secondary); }
+            .st-profile-value { color: var(--text-primary); font-weight: 500; }
         `;
         document.head.appendChild(s);
     }
 
-    let _state = { channel: 'push', linked: { telegram: null, max: null } };
+    let _state = { channel: 'push', linked: { telegram: null, max: null }, theme: 'dark' };
 
     async function _loadSettings() {
-        const uid = _setUid();
+        const uid = _uid();
         if (!uid) return;
         try {
-            const r = await fetch(`${_setApi()}/api/settings/notifications/${uid}`);
+            const r = await fetch(`${_api()}/api/settings/notifications/${uid}`);
             const d = await r.json();
             if (d.success) {
                 _state.channel = d.channel || 'push';
@@ -59,105 +76,185 @@
                     if (l.platform === 'max') _state.linked.max = l;
                 }
             }
-        } catch (e) { console.error('settings load error:', e); }
+        } catch (e) { console.error('settings load:', e); }
+        _state.theme = localStorage.getItem('fredi_theme') || 'dark';
     }
 
-    async function _saveChannel(channel) {
-        const uid = _setUid();
+    async function _saveChannel(ch) {
+        const uid = _uid();
         if (!uid) return;
         try {
-            const r = await fetch(`${_setApi()}/api/settings/notifications`, {
+            const r = await fetch(`${_api()}/api/settings/notifications`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: uid, channel })
+                body: JSON.stringify({ user_id: uid, channel: ch })
             });
             const d = await r.json();
-            if (d.success) { _state.channel = channel; _setToast('Способ уведомлений сохранён', 'info'); }
-            else { _setToast(d.error || 'Не удалось сохранить', 'error'); }
-        } catch (e) { _setToast('Ошибка сети', 'error'); }
+            if (d.success) { _state.channel = ch; _toast('Сохранено', 'info'); }
+        } catch (e) { _toast('Ошибка сети', 'error'); }
     }
 
     async function _unlink(platform) {
-        const uid = _setUid();
+        const uid = _uid();
         if (!uid) return;
         try {
-            const r = await fetch(`${_setApi()}/api/messenger/unlink`, {
+            const r = await fetch(`${_api()}/api/messenger/unlink`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: uid, platform })
             });
             const d = await r.json();
-            if (d.success) { _state.linked[platform] = null; _setToast(`${platform} отвязан`, 'info'); _renderSettings(); }
-        } catch (e) { _setToast('Ошибка сети', 'error'); }
+            if (d.success) { _state.linked[platform] = null; _toast(platform + ' отвязан', 'info'); _renderSettings(); }
+        } catch (e) { _toast('Ошибка сети', 'error'); }
     }
 
-    function _channelCard(key, icon, title, desc, extraHtml) {
-        const active = _state.channel === key;
-        return `<div class="st-channel-card ${active ? 'active' : ''}" data-channel="${key}"><div class="st-channel-icon">${icon}</div><div class="st-channel-body"><div class="st-channel-title">${title}</div><div class="st-channel-desc">${desc}</div>${extraHtml || ''}</div><div class="st-channel-check">✓</div></div>`;
+    function _setTheme(theme) {
+        _state.theme = theme;
+        localStorage.setItem('fredi_theme', theme);
+        document.documentElement.setAttribute('data-theme', theme);
+        _toast(theme === 'light' ? 'Светлая тема' : 'Темная тема', 'info');
+        _renderSettings();
     }
 
-    function _linkRow(platform, deepLink) {
-        const linked = _state.linked[platform];
-        if (linked) {
-            const u = linked.username ? `@${linked.username}` : 'привязан';
-            return `<div class="st-link-row" onclick="event.stopPropagation()"><span class="st-link-status linked">✓ Связан: ${u}</span><button class="st-link-btn danger" data-action="unlink" data-platform="${platform}">Отвязать</button></div>`;
+    function _accordion(id, icon, title) {
+        return `<div class="st-acc-header" data-acc="${id}"><div class="st-acc-left"><span class="st-acc-icon">${icon}</span><span class="st-acc-title">${title}</span></div><span class="st-acc-arrow">&#9654;</span></div><div class="st-acc-body" data-acc-body="${id}"><div class="st-acc-content" id="stAcc_${id}"></div></div>`;
+    }
+
+    function _channelCard(key, icon, title, desc, extra) {
+        const act = _state.channel === key;
+        return `<div class="st-channel-card ${act ? 'active' : ''}" data-channel="${key}"><div class="st-channel-icon">${icon}</div><div class="st-channel-body"><div class="st-channel-title">${title}</div><div class="st-channel-desc">${desc}</div>${extra || ''}</div><div class="st-channel-check">\u2713</div></div>`;
+    }
+
+    function _linkRow(platform, link) {
+        const l = _state.linked[platform];
+        if (l) {
+            const u = l.username ? '@' + l.username : 'привязан';
+            return `<div class="st-link-row" onclick="event.stopPropagation()"><span class="st-link-status linked">\u2713 ${u}</span><button class="st-link-btn danger" data-action="unlink" data-platform="${platform}">Отвязать</button></div>`;
         }
-        return `<div class="st-link-row" onclick="event.stopPropagation()"><span class="st-link-status">Не связан</span><a class="st-link-btn" href="${deepLink}" target="_blank" rel="noopener">🔗 Связать аккаунт</a></div>`;
+        return `<div class="st-link-row" onclick="event.stopPropagation()"><span class="st-link-status">Не связан</span><a class="st-link-btn" href="${link}" target="_blank" rel="noopener">\uD83D\uDD17 Связать</a></div>`;
     }
 
     function _renderSettings() {
-        _injectSettingsStyles();
+        _injectStyles();
         const c = document.getElementById('screenContainer');
         if (!c) return;
-        const uid = _setUid() || 0;
-        const tgDeepLink = `https://t.me/${TG_BOT_USERNAME}?start=web_${uid}`;
-        const maxDeepLink = `${MAX_BOT_LINK}?start=web_${uid}`;
-
-        const pushCard = _channelCard('push', '🔔', 'Web Push (браузер)', 'Уведомления в этом браузере. На iPhone требуется добавить приложение на экран Дом.', '');
-        const tgCard = _channelCard('telegram', '✈️', 'Telegram', 'Утренние сообщения будут приходить в Telegram-бот Фреди.', _linkRow('telegram', tgDeepLink));
-        const maxCard = _channelCard('max', '💬', 'Max', 'Утренние сообщения будут приходить в Max-бот Фреди.', _linkRow('max', maxDeepLink));
-        const noneCard = _channelCard('none', '🔕', 'Не отправлять', 'Не присылать утренние сообщения.', '');
+        const uid = _uid() || 0;
 
         c.innerHTML = `
             <div class="full-content-page">
-                <button class="back-btn" id="stBack">◀️ НАЗАД</button>
+                <button class="back-btn" id="stBack">\u25C0\uFE0F НАЗАД</button>
                 <div class="content-header">
-                    <div class="content-emoji">⚙️</div>
+                    <div class="content-emoji">\u2699\uFE0F</div>
                     <h1 class="content-title">Настройки</h1>
-                    <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Подписка и уведомления</p>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Управление Фреди</p>
                 </div>
-                <div class="st-section">
-                    <div class="st-section-label">💎 Подписка</div>
-                    <div id="subscriptionSection"></div>
-                </div>
-                <div class="st-section">
-                    <div class="st-section-label">📬 Куда присылать утренние сообщения</div>
-                    <div class="st-channel-grid">${pushCard}${tgCard}${maxCard}${noneCard}</div>
-                </div>
-                <div class="st-info-tip">💡 <strong>Как это работает:</strong> каждое утро в 9:00 по вашему местному времени Фреди будет присылать короткое мотивационное сообщение с учётом вашего профиля. По <strong>пятницам</strong> — идеи на выходные.</div>
+                ${_accordion('subscription', '\uD83D\uDC8E', 'Подписка')}
+                ${_accordion('tasks', '\uD83D\uDCCB', 'Активные задачи')}
+                ${_accordion('notifications', '\uD83D\uDD14', 'Уведомления')}
+                ${_accordion('appearance', '\uD83C\uDFA8', 'Оформление')}
+                ${_accordion('profile', '\uD83D\uDC64', 'Профиль')}
             </div>`;
 
         document.getElementById('stBack').onclick = () => { if (typeof renderDashboard === 'function') renderDashboard(); };
 
-        document.querySelectorAll('.st-channel-card').forEach(card => {
-            card.addEventListener('click', async (e) => {
-                if (e.target.closest('.st-link-btn') || e.target.closest('.st-link-row')) return;
-                const ch = card.dataset.channel;
-                if (ch === _state.channel) return;
-                await _saveChannel(ch);
-                _renderSettings();
+        // Accordion toggle
+        document.querySelectorAll('.st-acc-header').forEach(h => {
+            h.addEventListener('click', () => {
+                const id = h.dataset.acc;
+                const body = document.querySelector(`[data-acc-body="${id}"]`);
+                const isOpen = h.classList.contains('open');
+                document.querySelectorAll('.st-acc-header').forEach(x => x.classList.remove('open'));
+                document.querySelectorAll('.st-acc-body').forEach(x => x.classList.remove('open'));
+                if (!isOpen) {
+                    h.classList.add('open');
+                    body.classList.add('open');
+                    _renderSection(id);
+                }
             });
         });
 
-        document.querySelectorAll('[data-action="unlink"]').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation(); e.preventDefault();
-                const p = btn.dataset.platform;
-                if (confirm(`Отвязать ${p}?`)) await _unlink(p);
-            });
-        });
+        // Auto-open subscription
+        const subH = document.querySelector('[data-acc="subscription"]');
+        if (subH) { subH.click(); }
+    }
 
-        const subContainer = document.getElementById('subscriptionSection');
-        if (subContainer && typeof window.renderSubscriptionSection === 'function') {
-            window.renderSubscriptionSection(subContainer);
+    function _renderSection(id) {
+        const el = document.getElementById('stAcc_' + id);
+        if (!el) return;
+
+        if (id === 'subscription') {
+            el.innerHTML = '<div id="subscriptionSection"></div>';
+            const sub = document.getElementById('subscriptionSection');
+            if (sub && typeof window.renderSubscriptionSection === 'function') {
+                window.renderSubscriptionSection(sub);
+            }
+        }
+
+        if (id === 'tasks') {
+            el.innerHTML = `
+                <div class="st-tasks-empty">Пока нет активных задач. Скажи Фреди: "хочу сформировать привычку" или "поставь цель" - и задача появится здесь.</div>
+                <div style="margin-top:12px;font-size:11px;color:var(--text-secondary)">
+                    <b>Что здесь будет:</b><br>
+                    \u2022 Привычки с отслеживанием streak<br>
+                    \u2022 Цели с прогрессом<br>
+                    \u2022 Напоминания от Фреди
+                </div>`;
+        }
+
+        if (id === 'notifications') {
+            const uid = _uid() || 0;
+            const tgLink = 'https://t.me/' + TG_BOT + '?start=web_' + uid;
+            const maxLink = MAX_LINK + '?start=web_' + uid;
+
+            el.innerHTML = `
+                <div class="st-channel-grid">
+                    ${_channelCard('push', '\uD83D\uDD14', 'Web Push', 'Уведомления в браузере', '')}
+                    ${_channelCard('telegram', '\u2708\uFE0F', 'Telegram', 'Утренние сообщения в Telegram', _linkRow('telegram', tgLink))}
+                    ${_channelCard('max', '\uD83D\uDCAC', 'Max', 'Утренние сообщения в Max', _linkRow('max', maxLink))}
+                    ${_channelCard('none', '\uD83D\uDD15', 'Не отправлять', 'Отключить уведомления', '')}
+                </div>
+                <div style="margin-top:12px;font-size:11px;color:var(--text-secondary)">\uD83D\uDCA1 Каждое утро в 9:00 Фреди присылает сообщение. По пятницам - идеи на выходные.</div>`;
+
+            el.querySelectorAll('.st-channel-card').forEach(card => {
+                card.addEventListener('click', async (e) => {
+                    if (e.target.closest('.st-link-btn') || e.target.closest('.st-link-row')) return;
+                    const ch = card.dataset.channel;
+                    if (ch === _state.channel) return;
+                    await _saveChannel(ch);
+                    _renderSection('notifications');
+                });
+            });
+
+            el.querySelectorAll('[data-action="unlink"]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation(); e.preventDefault();
+                    if (confirm('Отвязать ' + btn.dataset.platform + '?')) await _unlink(btn.dataset.platform);
+                });
+            });
+        }
+
+        if (id === 'appearance') {
+            el.innerHTML = `
+                <div class="st-theme-grid">
+                    <div class="st-theme-card st-theme-dark ${_state.theme === 'dark' ? 'active' : ''}" data-theme="dark">
+                        \uD83C\uDF19
+                        <div class="st-theme-label">Темная</div>
+                    </div>
+                    <div class="st-theme-card st-theme-light ${_state.theme === 'light' ? 'active' : ''}" data-theme="light">
+                        \u2600\uFE0F
+                        <div class="st-theme-label">Светлая</div>
+                    </div>
+                </div>`;
+
+            el.querySelectorAll('.st-theme-card').forEach(card => {
+                card.addEventListener('click', () => _setTheme(card.dataset.theme));
+            });
+        }
+
+        if (id === 'profile') {
+            const name = localStorage.getItem('fredi_user_name') || 'Не указано';
+            el.innerHTML = `
+                <div class="st-profile-row"><span class="st-profile-label">Имя</span><span class="st-profile-value">${name}</span></div>
+                <div class="st-profile-row"><span class="st-profile-label">User ID</span><span class="st-profile-value">${_uid() || '-'}</span></div>
+                <div class="st-profile-row" style="border-bottom:none"><span class="st-profile-label">Версия</span><span class="st-profile-value">Фреди v3.2</span></div>`;
         }
     }
 
@@ -168,5 +265,5 @@
     }
 
     window.showSettingsScreen = showSettingsScreen;
-    console.log('settings.js loaded');
+    console.log('settings.js v3 loaded');
 })();
