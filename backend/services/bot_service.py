@@ -6,6 +6,7 @@ Handles /start web_{user_id} for account linking.
 import os
 import logging
 import httpx
+from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com
 def register_bot_webhooks(app, db):
 
     @app.post("/api/telegram/webhook")
-    async def telegram_webhook(request):
+    async def telegram_webhook(request: Request):
         try:
             body = await request.json()
             message = body.get("message", {})
@@ -68,7 +69,7 @@ def register_bot_webhooks(app, db):
             return {"ok": True}
 
     @app.post("/api/max/webhook")
-    async def max_webhook(request):
+    async def max_webhook(request: Request):
         try:
             body = await request.json()
             update_type = body.get("update_type", "")
