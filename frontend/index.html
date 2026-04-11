@@ -10,14 +10,19 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="format-detection" content="telephone=no">
     <meta name="mobile-web-app-capable" content="yes">
-
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .menu-accordion-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+        .menu-accordion-header:hover { background: rgba(224,224,224,0.04); }
+        .menu-accordion-arrow { font-size: 10px; color: var(--text-secondary); transition: transform 0.2s ease; }
+        .menu-accordion-header.open .menu-accordion-arrow { transform: rotate(90deg); }
+        .menu-accordion-body { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
+        .menu-accordion-body.open { max-height: 500px; }
+    </style>
 </head>
 <body>
     <div class="app" id="appRoot">
-
-        <!-- ===== ЛЕВАЯ ПАНЕЛЬ ===== -->
         <div class="chats-panel" id="chatsPanel">
             <div class="chats-header">
                 <div style="display:flex;justify-content:space-between;align-items:center">
@@ -65,63 +70,71 @@
                 </div>
 
                 <div class="menu-divider"></div>
-                <div class="menu-section-title">ИНСТРУМЕНТЫ</div>
 
-                <div class="chat-item" data-chat="diary">
-                    <div class="chat-avatar">📓</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Дневник</div>
-                        <div class="chat-preview">AI-рефлексия каждой записи</div>
-                    </div>
-                    <div class="chat-time"></div>
+                <!-- ИНСТРУМЕНТЫ аккордеон -->
+                <div class="menu-accordion-header" onclick="toggleAccordion(this)">
+                    <div class="menu-section-title" style="margin:0">ИНСТРУМЕНТЫ</div>
+                    <span class="menu-accordion-arrow">&#9654;</span>
                 </div>
-
-                <div class="chat-item" data-chat="berne">
-                    <div class="chat-avatar">🎭</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Роли и игры</div>
-                        <div class="chat-preview">Транзактный анализ по Берну</div>
+                <div class="menu-accordion-body">
+                    <div class="chat-item" data-chat="diary">
+                        <div class="chat-avatar">📓</div>
+                        <div class="chat-info">
+                            <div class="chat-name">Дневник</div>
+                            <div class="chat-preview">AI-рефлексия каждой записи</div>
+                        </div>
+                        <div class="chat-time"></div>
                     </div>
-                    <div class="chat-time"></div>
-                </div>
-
-                <div class="chat-item" data-chat="tales">
-                    <div class="chat-avatar">🧿</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Сказки-катарсис</div>
-                        <div class="chat-preview">Одна сказка — одна задача</div>
+                    <div class="chat-item" data-chat="berne">
+                        <div class="chat-avatar">🎭</div>
+                        <div class="chat-info">
+                            <div class="chat-name">Роли и игры</div>
+                            <div class="chat-preview">Транзактный анализ по Берну</div>
+                        </div>
+                        <div class="chat-time"></div>
                     </div>
-                    <div class="chat-time"></div>
+                    <div class="chat-item" data-chat="tales">
+                        <div class="chat-avatar">🧿</div>
+                        <div class="chat-info">
+                            <div class="chat-name">Сказки-катарсис</div>
+                            <div class="chat-preview">Одна сказка — одна задача</div>
+                        </div>
+                        <div class="chat-time"></div>
+                    </div>
                 </div>
 
                 <div class="menu-divider"></div>
-                <div class="menu-section-title">ПРАКТИКИ</div>
 
-                <div class="chat-item" data-chat="practices">
-                    <div class="chat-avatar">🧘</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Практики</div>
-                        <div class="chat-preview">Утренние и вечерние практики</div>
-                    </div>
-                    <div class="chat-time"></div>
+                <!-- ПРАКТИКИ аккордеон -->
+                <div class="menu-accordion-header" onclick="toggleAccordion(this)">
+                    <div class="menu-section-title" style="margin:0">ПРАКТИКИ</div>
+                    <span class="menu-accordion-arrow">&#9654;</span>
                 </div>
-
-                <div class="chat-item" data-chat="hypnosis">
-                    <div class="chat-avatar">🌙</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Гипноз</div>
-                        <div class="chat-preview">Гипнотические сессии</div>
+                <div class="menu-accordion-body">
+                    <div class="chat-item" data-chat="practices">
+                        <div class="chat-avatar">🧘</div>
+                        <div class="chat-info">
+                            <div class="chat-name">Практики</div>
+                            <div class="chat-preview">Утренние и вечерние практики</div>
+                        </div>
+                        <div class="chat-time"></div>
                     </div>
-                    <div class="chat-time"></div>
-                </div>
-
-                <div class="chat-item" data-chat="anchors">
-                    <div class="chat-avatar">⚓</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Якоря</div>
-                        <div class="chat-preview">Эмоциональные якоря</div>
+                    <div class="chat-item" data-chat="hypnosis">
+                        <div class="chat-avatar">🌙</div>
+                        <div class="chat-info">
+                            <div class="chat-name">Гипноз</div>
+                            <div class="chat-preview">Гипнотические сессии</div>
+                        </div>
+                        <div class="chat-time"></div>
                     </div>
-                    <div class="chat-time"></div>
+                    <div class="chat-item" data-chat="anchors">
+                        <div class="chat-avatar">⚓</div>
+                        <div class="chat-info">
+                            <div class="chat-name">Якоря</div>
+                            <div class="chat-preview">Эмоциональные якоря</div>
+                        </div>
+                        <div class="chat-time"></div>
+                    </div>
                 </div>
 
                 <div class="menu-divider"></div>
@@ -134,10 +147,7 @@
                     <div class="chat-time"></div>
                 </div>
 
-                <div class="chat-item" id="secretRoomBtn"
-                    style="opacity:0.35;transition:opacity 0.2s;-webkit-tap-highlight-color:transparent;"
-                    onmouseover="this.style.opacity='0.85'"
-                    onmouseout="this.style.opacity='0.35'">
+                <div class="chat-item" id="secretRoomBtn" style="opacity:0.35;transition:opacity 0.2s;-webkit-tap-highlight-color:transparent;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='0.35'">
                     <div class="chat-avatar">🔐</div>
                     <div class="chat-info">
                         <div class="chat-name">Секретная комната</div>
@@ -149,7 +159,6 @@
             <div class="chats-footer"></div>
         </div>
 
-        <!-- ===== ПРАВАЯ ПАНЕЛЬ ===== -->
         <div class="chat-panel" id="chatPanel">
             <div class="chat-header">
                 <div class="chat-header-left">
@@ -177,7 +186,6 @@
         </div>
     </div>
 
-    <!-- ===== TOAST ===== -->
     <div id="toastMessage" class="floating-message">
         <div class="floating-message-content">
             <div class="floating-message-text" id="toastText"></div>
@@ -192,8 +200,22 @@
             var uid = stored && !isNaN(parseInt(stored)) ? parseInt(stored) : Date.now();
             localStorage.setItem('fredi_user_id', uid);
             window.USER_ID = uid;
-            console.log('USER_ID:', window.USER_ID);
         })();
+
+        function toggleAccordion(header) {
+            var body = header.nextElementSibling;
+            var isOpen = header.classList.contains('open');
+            // Close all accordions first
+            document.querySelectorAll('.menu-accordion-header').forEach(function(h) {
+                h.classList.remove('open');
+                h.nextElementSibling.classList.remove('open');
+            });
+            // Toggle clicked one
+            if (!isOpen) {
+                header.classList.add('open');
+                body.classList.add('open');
+            }
+        }
 
         window.addEventListener('load', function() {
             if (window.PushManager_Fredi && window.USER_ID) {
