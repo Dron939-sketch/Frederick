@@ -1,5 +1,7 @@
 """
 bot_routes.py — Register bot webhooks and setup.
+Also applies Fish Audio TTS patch at import time.
+
 Usage in main.py:
     from bot_routes import register_bot_routes
     setup_bots = register_bot_routes(app, db)
@@ -7,6 +9,10 @@ Usage in main.py:
 """
 
 from services.bot_service import register_bot_webhooks
+from voice_fish_patch import apply_fish_audio_patch
+
+# Apply Fish Audio patch on import — wraps TTS for psychologist/coach/trainer
+apply_fish_audio_patch()
 
 
 def register_bot_routes(app, db):
