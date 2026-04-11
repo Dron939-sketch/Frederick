@@ -1,16 +1,12 @@
 """
 Freddy Service for Frederick — connects smart AI for users without test.
-
-Usage:
-    from services.freddy_service import get_freddy_service
-    freddy = get_freddy_service()
-    response = await freddy.chat(user_id, message, history=history)
-    audio = await freddy.speak(response["reply"])
+Pre-authenticates on startup, keeps persistent session warm.
 """
 
 import os
 import logging
 import time
+import asyncio
 import aiohttp
 from typing import Optional, Dict, Any, List
 
@@ -24,6 +20,7 @@ FREDDY_TOKEN = os.environ.get("FREDDY_TOKEN", "")
 CHAT_TIMEOUT = 90
 TTS_TIMEOUT = 60
 AUTH_TIMEOUT = 15
+KEEPALIVE_INTERVAL = 300  # ping every 5 min
 
 
 class FreddyService:
@@ -32,15 +29,63 @@ class FreddyService:
         self.token = FREDDY_TOKEN
         self._session = None
         self._logged_in = False
+        self._keepalive_task = None
         logger.info(f"FreddyService: url={self.url}, token={'set' if self.token else 'not set'}")
 
     async def _get_session(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
-        self._session = aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(force_close=True)
-        )
+        """Get or create persistent session (reuse, don't recreate)."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(
+                    limit=10,
+                    keepalive_timeout=60,
+                    enable_cleanup_closed=True,
+                ),
+                timeout=aiohttp.ClientTimeout(total=CHAT_TIMEOUT),
+            )
         return self._session
+
+    async def warmup(self):
+        """Pre-authenticate and warm up connection. Call on startup."""
+        logger.info("FreddyService: warming up...")
+        try:
+            ok = await self._ensure_auth()
+            if ok:
+                available = await self.is_available()
+                logger.info(f"FreddyService: warmup done, auth={'OK' if ok else 'FAIL'}, available={available}")
+            else:
+                logger.warning("FreddyService: warmup auth failed")
+        except Exception as e:
+            logger.error(f"FreddyService: warmup error: {e}")
+
+    async def start_keepalive(self):
+        """Start background keepalive pinger."""
+        if self._keepalive_task:
+            return
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+        logger.info("FreddyService: keepalive started")
+
+    async def _keepalive_loop(self):
+        """Ping agent every 5 min to keep connection warm."""
+        while True:
+            try:
+                await asyncio.sleep(KEEPALIVE_INTERVAL)
+                session = await self._get_session()
+                async with session.get(
+                    f"{self.url}/health",
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status == 200:
+                        logger.debug("FreddyService: keepalive OK")
+                    else:
+                        logger.warning(f"FreddyService: keepalive {resp.status}")
+                # Re-auth if token expired
+                if not self.token and not self._logged_in:
+                    await self._ensure_auth()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"FreddyService: keepalive error: {e}")
 
     async def _ensure_auth(self):
         if self.token:
@@ -53,7 +98,7 @@ class FreddyService:
 
         try:
             session = await self._get_session()
-            logger.info(f"FreddyService: attempting login as '{FREDDY_USERNAME}' to {self.url}")
+            logger.info(f"FreddyService: login as '{FREDDY_USERNAME}'")
 
             async with session.post(
                 f"{self.url}/api/auth/login",
@@ -68,7 +113,7 @@ class FreddyService:
                     return True
 
                 if resp.status == 401:
-                    logger.info("FreddyService: login 401, trying auto-register...")
+                    logger.info("FreddyService: 401, trying register...")
                     try:
                         async with session.post(
                             f"{self.url}/api/auth/register",
@@ -79,10 +124,9 @@ class FreddyService:
                             },
                             timeout=aiohttp.ClientTimeout(total=AUTH_TIMEOUT),
                         ) as reg_resp:
-                            reg_body = await reg_resp.text()
-                            logger.info(f"FreddyService: register: {reg_resp.status} {reg_body[:200]}")
-                    except Exception as reg_err:
-                        logger.warning(f"FreddyService: register error: {reg_err}")
+                            logger.info(f"FreddyService: register {reg_resp.status}")
+                    except Exception:
+                        pass
 
                     async with session.post(
                         f"{self.url}/api/auth/login",
@@ -95,8 +139,6 @@ class FreddyService:
                             self._logged_in = True
                             logger.info("FreddyService: auth OK after register")
                             return True
-                        body2 = await resp2.text()
-                        logger.error(f"FreddyService: login after register failed: {resp2.status} {body2[:200]}")
                         return False
 
                 body = await resp.text()
@@ -113,7 +155,6 @@ class FreddyService:
         return h
 
     async def chat(self, user_id, message, *, history=None, profile="fast"):
-        """Chat with Freddy agent. Default profile is 'fast' for basic mode speed."""
         if not await self._ensure_auth():
             return {"reply": "", "model": "unavailable", "error": "auth_failed"}
 
@@ -134,17 +175,17 @@ class FreddyService:
                 elapsed = time.time() - start
                 if resp.status == 200:
                     data = await resp.json()
-                    logger.info(f"FreddyService: reply from {data.get('model','?')}, {len(data.get('reply',''))} chars, {elapsed:.1f}s, profile={profile}")
+                    logger.info(f"FreddyService: reply {data.get('model','?')}, {len(data.get('reply',''))}ch, {elapsed:.1f}s")
                     return data
                 else:
                     body = await resp.text()
-                    logger.error(f"FreddyService chat error: {resp.status} {body[:200]} ({elapsed:.1f}s)")
+                    logger.error(f"FreddyService chat: {resp.status} {body[:200]} ({elapsed:.1f}s)")
                     if resp.status == 401:
                         self.token = ""
                         self._logged_in = False
                     return {"reply": "", "model": "error", "error": body[:200]}
         except Exception as exc:
-            logger.error(f"FreddyService chat exception: {type(exc).__name__}: {repr(exc)}")
+            logger.error(f"FreddyService chat: {type(exc).__name__}: {repr(exc)}")
             return {"reply": "", "model": "error", "error": f"{type(exc).__name__}"}
 
     async def speak(self, text, *, voice="jarvis", tone="warm"):
@@ -163,10 +204,10 @@ class FreddyService:
                     logger.info(f"FreddyService: TTS {len(audio)} bytes")
                     return audio
                 else:
-                    logger.error(f"FreddyService TTS error: {resp.status}")
+                    logger.error(f"FreddyService TTS: {resp.status}")
                     return None
         except Exception as exc:
-            logger.error(f"FreddyService TTS exception: {type(exc).__name__}: {repr(exc)}")
+            logger.error(f"FreddyService TTS: {type(exc).__name__}: {repr(exc)}")
             return None
 
     async def is_available(self):
@@ -178,6 +219,9 @@ class FreddyService:
             return False
 
     async def close(self):
+        if self._keepalive_task:
+            self._keepalive_task.cancel()
+            self._keepalive_task = None
         if self._session and not self._session.closed:
             await self._session.close()
 
