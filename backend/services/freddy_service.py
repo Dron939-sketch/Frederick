@@ -10,6 +10,7 @@ Usage:
 
 import os
 import logging
+import time
 import aiohttp
 from typing import Optional, Dict, Any, List
 
@@ -20,8 +21,7 @@ FREDDY_USERNAME = os.environ.get("FREDDY_USERNAME", "")
 FREDDY_PASSWORD = os.environ.get("FREDDY_PASSWORD", "")
 FREDDY_TOKEN = os.environ.get("FREDDY_TOKEN", "")
 
-# Timeouts
-CHAT_TIMEOUT = 90   # seconds — agent needs time for DeepSeek + memory + context
+CHAT_TIMEOUT = 90
 TTS_TIMEOUT = 60
 AUTH_TIMEOUT = 15
 
@@ -112,24 +112,29 @@ class FreddyService:
             h["Authorization"] = f"Bearer {self.token}"
         return h
 
-    async def chat(self, user_id, message, *, history=None, profile="smart"):
+    async def chat(self, user_id, message, *, history=None, profile="fast"):
+        """Chat with Freddy agent. Default profile is 'fast' for basic mode speed."""
         if not await self._ensure_auth():
             return {"reply": "", "model": "unavailable", "error": "auth_failed"}
 
         try:
-            import time
             start = time.time()
             session = await self._get_session()
             async with session.post(
                 f"{self.url}/api/chat/",
-                json={"message": message, "profile": profile, "use_memory": True},
+                json={
+                    "message": message,
+                    "profile": profile,
+                    "use_memory": True,
+                    "use_tools": False,
+                },
                 headers=self._headers(),
                 timeout=aiohttp.ClientTimeout(total=CHAT_TIMEOUT),
             ) as resp:
                 elapsed = time.time() - start
                 if resp.status == 200:
                     data = await resp.json()
-                    logger.info(f"FreddyService: reply from {data.get('model','?')}, {len(data.get('reply',''))} chars, {elapsed:.1f}s")
+                    logger.info(f"FreddyService: reply from {data.get('model','?')}, {len(data.get('reply',''))} chars, {elapsed:.1f}s, profile={profile}")
                     return data
                 else:
                     body = await resp.text()
