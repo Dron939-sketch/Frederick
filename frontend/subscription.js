@@ -36,11 +36,14 @@
             .sub-btn-secondary { background: rgba(224,224,224,0.07); border: 1px solid rgba(224,224,224,0.18); color: var(--text-secondary); }
             .sub-btn-secondary:hover { background: rgba(224,224,224,0.14); color: var(--text-primary); }
             .sub-btn-danger { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: rgba(239,68,68,0.85); }
+            .sub-btn-small { display: inline-flex; padding: 6px 14px; border-radius: 10px; font-size: 12px; font-weight: 500; width: auto; }
             .sub-info-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(224,224,224,0.06); font-size: 13px; }
             .sub-info-label { color: var(--text-secondary); }
             .sub-info-value { color: var(--text-primary); font-weight: 500; }
-            .sub-card-icon { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); background: rgba(224,224,224,0.05); padding: 6px 12px; border-radius: 10px; margin-bottom: 16px; }
+            .sub-card-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+            .sub-card-icon { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); background: rgba(224,224,224,0.05); padding: 6px 12px; border-radius: 10px; }
             .sub-divider { height: 1px; background: rgba(224,224,224,0.08); margin: 16px 0; }
+            .sub-btn-group { display: flex; flex-direction: column; gap: 10px; }
             .sub-loading { text-align: center; padding: 40px 0; color: var(--text-secondary); font-size: 14px; }
             .sub-loading-spinner { font-size: 28px; animation: sub-spin 1.2s linear infinite; margin-bottom: 12px; }
             @keyframes sub-spin { to { transform: rotate(360deg); } }
@@ -88,6 +91,21 @@
         } catch (e) { _toast('Ошибка сети', 'error'); }
     }
 
+    async function _deleteCard() {
+        const uid = _uid();
+        if (!uid) return;
+        try {
+            const r = await fetch(`${_api()}/api/subscription/delete-card`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: uid })
+            });
+            const data = await r.json();
+            if (data.success) { _toast('Карта удалена. Автопродление отключено.', 'info'); }
+            else { _toast('Не удалось удалить карту', 'error'); }
+        } catch (e) { _toast('Ошибка сети', 'error'); }
+    }
+
     function _formatDate(dateStr) {
         if (!dateStr) return '—';
         const d = new Date(dateStr);
@@ -100,26 +118,40 @@
         return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
     }
 
+    function _cardTypeIcon(type) {
+        const t = (type || '').toLowerCase();
+        if (t.includes('visa')) return '&#x1F4B3;';
+        if (t.includes('master')) return '&#x1F4B3;';
+        if (t.includes('mir')) return '&#x1F4B3;';
+        return '&#x1F4B3;';
+    }
+
     function _renderActiveSubscription(sub) {
         const days = _daysLeft(sub.expires_at);
-        const cardInfo = sub.card
-            ? `<div class="sub-card-icon">${_cardTypeIcon(sub.card.type)} **** ${sub.card.last4}</div>`
+        const cardSection = sub.card
+            ? `<div class="sub-card-row">
+                    <div class="sub-card-icon">${_cardTypeIcon(sub.card.type)} **** ${sub.card.last4}</div>
+                    <button class="sub-btn sub-btn-danger sub-btn-small" id="subDeleteCard">Удалить карту</button>
+               </div>`
             : '';
+
         return `
             <div class="sub-card sub-card-premium">
                 <div class="sub-badge sub-badge-active">&#x2713; Активна</div>
                 <div class="sub-title">Подписка Фреди Premium</div>
                 <div class="sub-desc">Полный доступ ко всем возможностям</div>
-                ${cardInfo}
+                ${cardSection}
                 <div class="sub-info-row"><span class="sub-info-label">Следующее списание</span><span class="sub-info-value">${_formatDate(sub.expires_at)}</span></div>
                 <div class="sub-info-row"><span class="sub-info-label">Осталось дней</span><span class="sub-info-value">${days}</span></div>
                 <div class="sub-info-row"><span class="sub-info-label">Стоимость</span><span class="sub-info-value">690 &#8381;/мес</span></div>
                 <div class="sub-info-row" style="border-bottom:none"><span class="sub-info-label">Автопродление</span><span class="sub-info-value">${sub.auto_renew ? 'Включено' : 'Выключено'}</span></div>
                 <div class="sub-divider"></div>
-                ${sub.auto_renew
-                    ? `<button class="sub-btn sub-btn-danger" id="subToggleAutoRenew">Отключить автопродление</button>`
-                    : `<button class="sub-btn sub-btn-secondary" id="subToggleAutoRenew">Включить автопродление</button>`
-                }
+                <div class="sub-btn-group">
+                    ${sub.auto_renew
+                        ? `<button class="sub-btn sub-btn-danger" id="subToggleAutoRenew">Отключить автопродление</button>`
+                        : `<button class="sub-btn sub-btn-secondary" id="subToggleAutoRenew">Включить автопродление</button>`
+                    }
+                </div>
             </div>`;
     }
 
@@ -145,14 +177,6 @@
             </div>`;
     }
 
-    function _cardTypeIcon(type) {
-        const t = (type || '').toLowerCase();
-        if (t.includes('visa')) return '&#x1F4B3;';
-        if (t.includes('master')) return '&#x1F4B3;';
-        if (t.includes('mir')) return '&#x1F4B3;';
-        return '&#x1F4B3;';
-    }
-
     async function renderSubscriptionSection(container) {
         _injectSubscriptionStyles();
         container.innerHTML = `<div class="sub-loading"><div class="sub-loading-spinner">&#x2B50;</div><div>Загрузка...</div></div>`;
@@ -165,6 +189,14 @@
                     const newState = !sub.auto_renew;
                     if (!newState && !confirm('Отключить автопродление? Подписка останется активной до конца оплаченного периода.')) return;
                     await _toggleAutoRenew(newState);
+                    await renderSubscriptionSection(container);
+                });
+            }
+            const deleteBtn = document.getElementById('subDeleteCard');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', async () => {
+                    if (!confirm('Удалить привязанную карту? Автопродление будет отключено.')) return;
+                    await _deleteCard();
                     await renderSubscriptionSection(container);
                 });
             }
