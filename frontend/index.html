@@ -192,7 +192,7 @@
             var uid = stored && !isNaN(parseInt(stored)) ? parseInt(stored) : Date.now();
             localStorage.setItem('fredi_user_id', uid);
             window.USER_ID = uid;
-            console.log('✅ USER_ID установлен:', window.USER_ID);
+            console.log('USER_ID:', window.USER_ID);
         })();
 
         window.addEventListener('load', function() {
@@ -250,6 +250,7 @@
     <script src="mirrors.js"></script>
     <script src="admin.js"></script>
     <script src="push.js"></script>
+    <script src="meter.js"></script>
     <script src="subscription.js"></script>
     <script src="settings.js"></script>
     <script src="app.js"></script>
