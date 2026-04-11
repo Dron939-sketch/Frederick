@@ -1,6 +1,6 @@
 """
 fish_audio_service.py — Fish Audio TTS provider.
-Primary voice for psychologist/coach/trainer modes.
+Primary voice for ALL modes (Jarvis voice).
 Fallback to Yandex if Fish Audio is unavailable.
 """
 
@@ -14,15 +14,15 @@ FISH_AUDIO_API_KEY = os.environ.get("FISH_AUDIO_API_KEY", "")
 FISH_AUDIO_VOICE_ID = os.environ.get("FISH_AUDIO_VOICE_ID", "")
 FISH_AUDIO_API_URL = "https://api.fish.audio/v1/tts"
 
-# Modes that use Fish Audio (not basic)
-FISH_AUDIO_MODES = {"psychologist", "coach", "trainer"}
+# All modes use Fish Audio now
+FISH_AUDIO_MODES = {"psychologist", "coach", "trainer", "basic", "default"}
 
 
 async def synthesize_fish_audio(text: str, mode: str = "psychologist") -> bytes | None:
     """
     Synthesize speech via Fish Audio API.
     Returns MP3 bytes or None if unavailable.
-    Only works for psychologist/coach/trainer modes.
+    Works for all modes.
     """
     if mode not in FISH_AUDIO_MODES:
         return None
