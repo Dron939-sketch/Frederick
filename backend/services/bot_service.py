@@ -18,9 +18,6 @@ BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com
 def register_bot_webhooks(app, db):
     """Register /api/telegram/webhook and /api/max/webhook on FastAPI app."""
 
-    # ================================================================
-    # TELEGRAM WEBHOOK
-    # ================================================================
     @app.post("/api/telegram/webhook")
     async def telegram_webhook(request):
         try:
@@ -38,7 +35,6 @@ def register_bot_webhooks(app, db):
             if not chat_id or not text:
                 return {"ok": True}
 
-            # Handle /start web_{user_id}
             if text.startswith("/start"):
                 parts = text.split()
                 if len(parts) >= 2 and parts[1].startswith("web_"):
@@ -46,18 +42,15 @@ def register_bot_webhooks(app, db):
                     try:
                         web_user_id_int = int(web_user_id)
                     except ValueError:
-                        await _tg_send(chat_id, "Неверная ссылка привязки. Попробуйте ещё раз из настроек Фреди.")
+                        await _tg_send(chat_id, "Nevernaya ssylka privyazki.")
                         return {"ok": True}
 
-                    # Link accounts
                     async with db.get_connection() as conn:
-                        # Ensure user exists
                         await conn.execute(
                             "INSERT INTO fredi_users (user_id, created_at, updated_at) "
                             "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
                             web_user_id_int
                         )
-                        # Save link
                         await conn.execute("""
                             INSERT INTO fredi_messenger_links (user_id, platform, chat_id, username, linked_at, is_active)
                             VALUES ($1, 'telegram', $2, $3, NOW(), TRUE)
@@ -65,51 +58,40 @@ def register_bot_webhooks(app, db):
                                 chat_id = $2, username = $3, linked_at = NOW(), is_active = TRUE
                         """, web_user_id_int, chat_id, username or first_name)
 
-                    display_name = username or first_name or "друг"
-                    await _tg_send(chat_id, f"Привет, {display_name}! Аккаунт успешно привязан к Фреди. Теперь утренние сообщения будут приходить сюда.")
+                    display_name = username or first_name or "friend"
+                    await _tg_send(chat_id, f"Privet, {display_name}! Akkaunt uspeshno privyazan k Fredi. Teper' utrennie soobshcheniya budut prikhodit' syuda.")
                     logger.info(f"Telegram linked: user {web_user_id} -> chat {chat_id}")
                 else:
-                    # Regular /start without deep link
-                    await _tg_send(chat_id, "Привет! Я бот Фреди — виртуальный психолог.\n\nЧтобы привязать аккаунт, откройте Настройки в приложении Фреди и нажмите \"Связать аккаунт\" в разделе Telegram.")
+                    await _tg_send(chat_id, "Privet! Ya bot Fredi — virtual'nyy psikholog.\n\nChtoby privyazat' akkaunt, otkroyte Nastroyki v prilozhenii Fredi i nazhmite \"Svyazat' akkaunt\" v razdele Telegram.")
 
             return {"ok": True}
         except Exception as e:
             logger.error(f"Telegram webhook error: {e}")
             return {"ok": True}
 
-    # ================================================================
-    # MAX WEBHOOK
-    # ================================================================
     @app.post("/api/max/webhook")
     async def max_webhook(request):
         try:
             body = await request.json()
-
-            # Max sends updates in different formats
-            # Check for message_created event
             update_type = body.get("update_type", "")
             message = body.get("message", {})
-            
+
             if update_type == "message_created" or message:
                 msg_body = message.get("body", {})
                 text = (msg_body.get("text") or "").strip() if isinstance(msg_body, dict) else ""
-                
-                # Also try top-level text
                 if not text:
                     text = (body.get("text") or "").strip()
-                
+
                 chat_id = str(message.get("recipient", {}).get("chat_id", "") or body.get("chat_id", ""))
                 sender = message.get("sender", {})
                 sender_name = sender.get("name", "")
                 user_id_max = str(sender.get("user_id", ""))
-
                 if not chat_id:
                     chat_id = user_id_max
 
                 if not text:
                     return {"ok": True}
 
-                # Handle /start web_{user_id}
                 if text.startswith("/start"):
                     parts = text.split()
                     if len(parts) >= 2 and parts[1].startswith("web_"):
@@ -117,10 +99,9 @@ def register_bot_webhooks(app, db):
                         try:
                             web_user_id_int = int(web_user_id)
                         except ValueError:
-                            await _max_send(chat_id, "Неверная ссылка привязки. Попробуйте ещё раз из настроек Фреди.")
+                            await _max_send(chat_id, "Nevernaya ssylka privyazki.")
                             return {"ok": True}
 
-                        # Link accounts
                         async with db.get_connection() as conn:
                             await conn.execute(
                                 "INSERT INTO fredi_users (user_id, created_at, updated_at) "
@@ -134,93 +115,78 @@ def register_bot_webhooks(app, db):
                                     chat_id = $2, username = $3, linked_at = NOW(), is_active = TRUE
                             """, web_user_id_int, chat_id, sender_name)
 
-                        display_name = sender_name or "друг"
-                        await _max_send(chat_id, f"Привет, {display_name}! Аккаунт успешно привязан к Фреди. Теперь утренние сообщения будут приходить сюда.")
+                        display_name = sender_name or "friend"
+                        await _max_send(chat_id, f"Privet, {display_name}! Akkaunt uspeshno privyazan k Fredi.")
                         logger.info(f"Max linked: user {web_user_id} -> chat {chat_id}")
                     else:
-                        await _max_send(chat_id, "Привет! Я бот Фреди — виртуальный психолог.\n\nЧтобы привязать аккаунт, откройте Настройки в приложении Фреди и нажмите \"Связать аккаунт\" в разделе Max.")
+                        await _max_send(chat_id, "Privet! Ya bot Fredi.\n\nChtoby privyazat' akkaunt, otkroyte Nastroyki v prilozhenii Fredi.")
 
             return {"ok": True}
         except Exception as e:
             logger.error(f"Max webhook error: {e}")
             return {"ok": True}
 
-    # ================================================================
-    # HELPER: Send message via Telegram
-    # ================================================================
     async def _tg_send(chat_id, text):
         if not TELEGRAM_TOKEN:
-            logger.warning("TELEGRAM_TOKEN not set")
             return
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 await client.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                    json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+                    json={"chat_id": chat_id, "text": text}
                 )
         except Exception as e:
             logger.error(f"Telegram send error: {e}")
 
-    # ================================================================
-    # HELPER: Send message via Max
-    # ================================================================
     async def _max_send(chat_id, text):
         if not MAX_TOKEN:
-            logger.warning("MAX_TOKEN not set")
             return
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 await client.post(
                     "https://platform-api.max.ru/messages",
                     json={"chat_id": chat_id, "text": text},
-                    params={"access_token": MAX_TOKEN}
+                    headers={"Authorization": f"access_token={MAX_TOKEN}"}
                 )
         except Exception as e:
             logger.error(f"Max send error: {e}")
 
-    # ================================================================
-    # Setup webhooks on startup
-    # ================================================================
     async def setup_bot_webhooks():
         """Register webhook URLs with Telegram and Max APIs."""
         webhook_base = BACKEND_URL.rstrip("/")
 
-        # Telegram webhook
         if TELEGRAM_TOKEN:
             try:
                 url = f"{webhook_base}/api/telegram/webhook"
+                logger.info(f"Setting Telegram webhook to: {url}")
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
                         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-                        json={"url": url}
+                        json={"url": url, "allowed_updates": ["message"]}
                     )
                     result = resp.json()
                     if result.get("ok"):
-                        logger.info(f"Telegram webhook set: {url}")
+                        logger.info(f"Telegram webhook set OK: {url}")
                     else:
                         logger.error(f"Telegram webhook failed: {result}")
             except Exception as e:
                 logger.error(f"Telegram webhook setup error: {e}")
-        else:
-            logger.warning("TELEGRAM_TOKEN not set, skipping webhook")
 
-        # Max webhook
         if MAX_TOKEN:
             try:
                 url = f"{webhook_base}/api/max/webhook"
+                logger.info(f"Setting Max webhook to: {url}")
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
                         "https://platform-api.max.ru/subscriptions",
-                        json={"url": url},
-                        params={"access_token": MAX_TOKEN}
+                        json={"url": url, "update_types": ["message_created"]},
+                        headers={"Authorization": f"access_token={MAX_TOKEN}"}
                     )
                     if resp.status_code in (200, 201):
-                        logger.info(f"Max webhook set: {url}")
+                        logger.info(f"Max webhook set OK: {url}")
                     else:
-                        logger.error(f"Max webhook failed: {resp.status_code} {resp.text}")
+                        logger.error(f"Max webhook failed: {resp.status_code} {resp.text[:200]}")
             except Exception as e:
                 logger.error(f"Max webhook setup error: {e}")
-        else:
-            logger.warning("MAX_TOKEN not set, skipping webhook")
 
     return setup_bot_webhooks
