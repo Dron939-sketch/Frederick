@@ -122,6 +122,35 @@ def register_payment_routes(app, db, limiter):
             logger.error(f"toggle_auto_renew error: {e}")
             return {"success": False, "error": str(e)}
 
+    @app.post("/api/subscription/delete-card")
+    @limiter.limit("10/minute")
+    async def delete_saved_card(request: Request):
+        """Delete saved payment method (unlink card)."""
+        try:
+            data = await request.json()
+            user_id = data.get("user_id")
+            if not user_id:
+                return {"success": False, "error": "user_id required"}
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    "UPDATE fredi_payment_methods SET is_active = FALSE, updated_at = NOW() WHERE user_id = $1",
+                    int(user_id)
+                )
+                await conn.execute(
+                    "UPDATE fredi_subscriptions SET auto_renew = FALSE, updated_at = NOW() WHERE user_id = $1",
+                    int(user_id)
+                )
+            logger.info(f"Card deleted for user {user_id}")
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    "INSERT INTO fredi_events (user_id, event_type, event_data) VALUES ($1, $2, $3)",
+                    int(user_id), "card_deleted", json.dumps({})
+                )
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"delete_card error: {e}")
+            return {"success": False, "error": str(e)}
+
     @app.post("/api/yookassa-webhook")
     async def yookassa_webhook(request: Request):
         try:
