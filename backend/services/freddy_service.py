@@ -1,14 +1,11 @@
 """
-Freddy Service для Frederick — подключает умную говорилку для пользователей без теста.
+Freddy Service for Frederick — connects smart AI for users without test.
 
-Этот файл копируется в Frederick: backend/services/freddy_service.py
-
-Использование в Frederick main.py:
- from services.freddy_service import FreddyService
-
- freddy = FreddyService()
- response = await freddy.chat(user_id, message, history=history)
- audio = await freddy.speak(response["reply"])
+Usage:
+    from services.freddy_service import get_freddy_service
+    freddy = get_freddy_service()
+    response = await freddy.chat(user_id, message, history=history)
+    audio = await freddy.speak(response["reply"])
 """
 
 import os
@@ -18,31 +15,26 @@ from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
-# Конфигурация из .env
 FREDDY_URL = os.environ.get("FREDDY_URL", "https://agent-ynlg.onrender.com")
 FREDDY_USERNAME = os.environ.get("FREDDY_USERNAME", "")
 FREDDY_PASSWORD = os.environ.get("FREDDY_PASSWORD", "")
 FREDDY_TOKEN = os.environ.get("FREDDY_TOKEN", "")
 
+# Timeouts
+CHAT_TIMEOUT = 90   # seconds — agent needs time for DeepSeek + memory + context
+TTS_TIMEOUT = 60
+AUTH_TIMEOUT = 15
+
 
 class FreddyService:
-    """Сервис подключения к Freddy AI Assistant.
-
-    Для пользователей Frederick, которые ещё не прошли тест —
-    вместо простого BasicMode используем полноценного Фреди с памятью,
-    эмоциями, голосом Джарвиса и умным контекстом.
-    """
-
     def __init__(self):
         self.url = FREDDY_URL.rstrip("/")
         self.token = FREDDY_TOKEN
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session = None
         self._logged_in = False
         logger.info(f"FreddyService: url={self.url}, token={'set' if self.token else 'not set'}")
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        # Новая сессия каждый раз — предотвращает зависание пула соединений
-        # после streaming TTS ответов
+    async def _get_session(self):
         if self._session and not self._session.closed:
             await self._session.close()
         self._session = aiohttp.ClientSession(
@@ -50,12 +42,11 @@ class FreddyService:
         )
         return self._session
 
-    async def _ensure_auth(self) -> bool:
-        """Логинится если нет токена. При 401 пробует register + login."""
+    async def _ensure_auth(self):
         if self.token:
             return True
         if not FREDDY_USERNAME or not FREDDY_PASSWORD:
-            logger.warning("FreddyService: нет credentials (FREDDY_TOKEN или FREDDY_USERNAME+PASSWORD)")
+            logger.warning("FreddyService: no credentials")
             return False
         if self._logged_in:
             return True
@@ -64,20 +55,18 @@ class FreddyService:
             session = await self._get_session()
             logger.info(f"FreddyService: attempting login as '{FREDDY_USERNAME}' to {self.url}")
 
-            # Попытка логина
             async with session.post(
                 f"{self.url}/api/auth/login",
                 json={"username": FREDDY_USERNAME, "password": FREDDY_PASSWORD},
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=aiohttp.ClientTimeout(total=AUTH_TIMEOUT),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     self.token = data.get("access_token", "")
                     self._logged_in = True
-                    logger.info("FreddyService: авторизация успешна")
+                    logger.info("FreddyService: auth OK")
                     return True
 
-                # Если 401 — пробуем зарегистрироваться и залогиниться снова
                 if resp.status == 401:
                     logger.info("FreddyService: login 401, trying auto-register...")
                     try:
@@ -88,24 +77,23 @@ class FreddyService:
                                 "email": f"{FREDDY_USERNAME}@freddy.local",
                                 "password": FREDDY_PASSWORD,
                             },
-                            timeout=aiohttp.ClientTimeout(total=10),
+                            timeout=aiohttp.ClientTimeout(total=AUTH_TIMEOUT),
                         ) as reg_resp:
                             reg_body = await reg_resp.text()
-                            logger.info(f"FreddyService: register response: {reg_resp.status} {reg_body[:200]}")
+                            logger.info(f"FreddyService: register: {reg_resp.status} {reg_body[:200]}")
                     except Exception as reg_err:
                         logger.warning(f"FreddyService: register error: {reg_err}")
 
-                    # Повторный логин после регистрации
                     async with session.post(
                         f"{self.url}/api/auth/login",
                         json={"username": FREDDY_USERNAME, "password": FREDDY_PASSWORD},
-                        timeout=aiohttp.ClientTimeout(total=10),
+                        timeout=aiohttp.ClientTimeout(total=AUTH_TIMEOUT),
                     ) as resp2:
                         if resp2.status == 200:
                             data = await resp2.json()
                             self.token = data.get("access_token", "")
                             self._logged_in = True
-                            logger.info("FreddyService: авторизация успешна после auto-register")
+                            logger.info("FreddyService: auth OK after register")
                             return True
                         body2 = await resp2.text()
                         logger.error(f"FreddyService: login after register failed: {resp2.status} {body2[:200]}")
@@ -115,88 +103,55 @@ class FreddyService:
                 logger.error(f"FreddyService login failed: {resp.status} {body[:200]}")
                 return False
         except Exception as exc:
-            logger.error(f"FreddyService login error: {exc}")
+            logger.error(f"FreddyService login error: {type(exc).__name__}: {exc}")
             return False
 
-    def _headers(self) -> dict:
+    def _headers(self):
         h = {"Content-Type": "application/json"}
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
         return h
 
-    # === Основные методы ===
-
-    async def chat(
-        self,
-        user_id: int,
-        message: str,
-        *,
-        history: Optional[List[Dict]] = None,
-        profile: str = "smart",
-    ) -> Dict[str, Any]:
-        """Отправляет сообщение Фреди, получает умный ответ.
-
-        Args:
-            user_id: ID пользователя в Frederick
-            message: текст сообщения
-            history: история диалога (опционально)
-            profile: профиль LLM (smart/fast/cheap)
-
-        Returns:
-            {"reply": str, "model": str, "emotion": str, "tone": str}
-        """
+    async def chat(self, user_id, message, *, history=None, profile="smart"):
         if not await self._ensure_auth():
             return {"reply": "", "model": "unavailable", "error": "auth_failed"}
 
         try:
+            import time
+            start = time.time()
             session = await self._get_session()
             async with session.post(
                 f"{self.url}/api/chat/",
-                json={
-                    "message": message,
-                    "profile": profile,
-                    "use_memory": True,
-                },
+                json={"message": message, "profile": profile, "use_memory": True},
                 headers=self._headers(),
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=CHAT_TIMEOUT),
             ) as resp:
+                elapsed = time.time() - start
                 if resp.status == 200:
                     data = await resp.json()
-                    logger.info(f"FreddyService: reply from {data.get('model','?')}, {len(data.get('reply',''))} chars")
+                    logger.info(f"FreddyService: reply from {data.get('model','?')}, {len(data.get('reply',''))} chars, {elapsed:.1f}s")
                     return data
                 else:
                     body = await resp.text()
-                    logger.error(f"FreddyService chat error: {resp.status} {body[:200]}")
-                    # Retry auth если 401
+                    logger.error(f"FreddyService chat error: {resp.status} {body[:200]} ({elapsed:.1f}s)")
                     if resp.status == 401:
                         self.token = ""
                         self._logged_in = False
                     return {"reply": "", "model": "error", "error": body[:200]}
         except Exception as exc:
-            logger.error(f"FreddyService chat exception: {exc}")
-            return {"reply": "", "model": "error", "error": str(exc)}
+            logger.error(f"FreddyService chat exception: {type(exc).__name__}: {repr(exc)}")
+            return {"reply": "", "model": "error", "error": f"{type(exc).__name__}"}
 
-    async def speak(
-        self,
-        text: str,
-        *,
-        voice: str = "jarvis",
-        tone: str = "warm",
-    ) -> Optional[bytes]:
-        """Озвучивает текст голосом Джарвиса.
-
-        Returns: audio bytes (OGG/MP3) или None
-        """
+    async def speak(self, text, *, voice="jarvis", tone="warm"):
         if not await self._ensure_auth():
             return None
-
         try:
             session = await self._get_session()
             async with session.post(
                 f"{self.url}/api/voice/tts/stream",
                 json={"text": text[:1000], "voice": voice, "tone": tone},
                 headers=self._headers(),
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=TTS_TIMEOUT),
             ) as resp:
                 if resp.status == 200:
                     audio = await resp.read()
@@ -206,36 +161,13 @@ class FreddyService:
                     logger.error(f"FreddyService TTS error: {resp.status}")
                     return None
         except Exception as exc:
-            logger.error(f"FreddyService TTS exception: {exc}")
+            logger.error(f"FreddyService TTS exception: {type(exc).__name__}: {repr(exc)}")
             return None
 
-    async def remind(self, user_id: int, text: str) -> Dict[str, Any]:
-        """Создаёт напоминание через Фреди."""
-        if not await self._ensure_auth():
-            return {"error": "auth_failed"}
-
+    async def is_available(self):
         try:
             session = await self._get_session()
-            async with session.post(
-                f"{self.url}/api/reminders",
-                json={"text": text, "tz_offset": 3},
-                headers=self._headers(),
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status in (200, 201):
-                    return await resp.json()
-                return {"error": f"status {resp.status}"}
-        except Exception as exc:
-            return {"error": str(exc)}
-
-    async def is_available(self) -> bool:
-        """Проверяет доступность Freddy API."""
-        try:
-            session = await self._get_session()
-            async with session.get(
-                f"{self.url}/health",
-                timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
+            async with session.get(f"{self.url}/health", timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 return resp.status == 200
         except Exception:
             return False
@@ -245,11 +177,9 @@ class FreddyService:
             await self._session.close()
 
 
-# === Singleton ===
-_instance: Optional[FreddyService] = None
+_instance = None
 
-
-def get_freddy_service() -> FreddyService:
+def get_freddy_service():
     global _instance
     if _instance is None:
         _instance = FreddyService()
