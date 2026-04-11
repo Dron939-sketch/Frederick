@@ -1,7 +1,6 @@
 """
 bot_service.py — Telegram + Max bot webhook handlers.
 Handles /start web_{user_id} for account linking.
-Registers webhook endpoints on the FastAPI app.
 """
 
 import os
@@ -16,7 +15,6 @@ BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com
 
 
 def register_bot_webhooks(app, db):
-    """Register /api/telegram/webhook and /api/max/webhook on FastAPI app."""
 
     @app.post("/api/telegram/webhook")
     async def telegram_webhook(request):
@@ -59,10 +57,10 @@ def register_bot_webhooks(app, db):
                         """, web_user_id_int, chat_id, username or first_name)
 
                     display_name = username or first_name or "friend"
-                    await _tg_send(chat_id, f"Privet, {display_name}! Akkaunt uspeshno privyazan k Fredi. Teper' utrennie soobshcheniya budut prikhodit' syuda.")
+                    await _tg_send(chat_id, f"Privet, {display_name}! Akkaunt uspeshno privyazan k Fredi.")
                     logger.info(f"Telegram linked: user {web_user_id} -> chat {chat_id}")
                 else:
-                    await _tg_send(chat_id, "Privet! Ya bot Fredi — virtual'nyy psikholog.\n\nChtoby privyazat' akkaunt, otkroyte Nastroyki v prilozhenii Fredi i nazhmite \"Svyazat' akkaunt\" v razdele Telegram.")
+                    await _tg_send(chat_id, "Privet! Ya bot Fredi.\n\nChtoby privyazat' akkaunt, otkroyte Nastroyki v prilozhenii Fredi i nazhmite Svyazat' akkaunt.")
 
             return {"ok": True}
         except Exception as e:
@@ -146,14 +144,14 @@ def register_bot_webhooks(app, db):
                 await client.post(
                     "https://platform-api.max.ru/messages",
                     json={"chat_id": chat_id, "text": text},
-                    headers={"Authorization": f"access_token={MAX_TOKEN}"}
+                    headers={"Authorization": MAX_TOKEN}
                 )
         except Exception as e:
             logger.error(f"Max send error: {e}")
 
     async def setup_bot_webhooks():
-        """Register webhook URLs with Telegram and Max APIs."""
         webhook_base = BACKEND_URL.rstrip("/")
+        logger.info(f"Bot webhook base URL: {webhook_base}")
 
         if TELEGRAM_TOKEN:
             try:
@@ -166,7 +164,7 @@ def register_bot_webhooks(app, db):
                     )
                     result = resp.json()
                     if result.get("ok"):
-                        logger.info(f"Telegram webhook set OK: {url}")
+                        logger.info(f"Telegram webhook set OK")
                     else:
                         logger.error(f"Telegram webhook failed: {result}")
             except Exception as e:
@@ -180,10 +178,10 @@ def register_bot_webhooks(app, db):
                     resp = await client.post(
                         "https://platform-api.max.ru/subscriptions",
                         json={"url": url, "update_types": ["message_created"]},
-                        headers={"Authorization": f"access_token={MAX_TOKEN}"}
+                        headers={"Authorization": MAX_TOKEN}
                     )
                     if resp.status_code in (200, 201):
-                        logger.info(f"Max webhook set OK: {url}")
+                        logger.info(f"Max webhook set OK")
                     else:
                         logger.error(f"Max webhook failed: {resp.status_code} {resp.text[:200]}")
             except Exception as e:
