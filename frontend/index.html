@@ -12,6 +12,8 @@
     <meta name="mobile-web-app-capable" content="yes">
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="theme-light.css">
+    <script src="theme.js"></script>
     <style>
         .menu-accordion-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
         .menu-accordion-header:hover { background: rgba(224,224,224,0.04); }
@@ -71,7 +73,6 @@
 
                 <div class="menu-divider"></div>
 
-                <!-- ИНСТРУМЕНТЫ аккордеон -->
                 <div class="menu-accordion-header" onclick="toggleAccordion(this)">
                     <div class="menu-section-title" style="margin:0">ИНСТРУМЕНТЫ</div>
                     <span class="menu-accordion-arrow">&#9654;</span>
@@ -105,7 +106,6 @@
 
                 <div class="menu-divider"></div>
 
-                <!-- ПРАКТИКИ аккордеон -->
                 <div class="menu-accordion-header" onclick="toggleAccordion(this)">
                     <div class="menu-section-title" style="margin:0">ПРАКТИКИ</div>
                     <span class="menu-accordion-arrow">&#9654;</span>
@@ -205,12 +205,10 @@
         function toggleAccordion(header) {
             var body = header.nextElementSibling;
             var isOpen = header.classList.contains('open');
-            // Close all accordions first
             document.querySelectorAll('.menu-accordion-header').forEach(function(h) {
                 h.classList.remove('open');
                 h.nextElementSibling.classList.remove('open');
             });
-            // Toggle clicked one
             if (!isOpen) {
                 header.classList.add('open');
                 body.classList.add('open');
