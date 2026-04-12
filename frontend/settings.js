@@ -1,6 +1,6 @@
 // ============================================
 // settings.js — Экран настроек
-// Версия 3.1 — аккордеон, описания секций
+// Версия 3.2 — FrediTheme integration
 // ============================================
 
 (function () {
@@ -128,7 +128,7 @@
         const uid = _setUid();
         if (!uid) return;
         _state.name = localStorage.getItem('fredi_user_name') || '';
-        _state.theme = localStorage.getItem('fredi_theme') || 'dark';
+        _state.theme = window.FrediTheme ? window.FrediTheme.get() : (localStorage.getItem('fredi_theme') || 'dark');
         try {
             const r = await fetch(`${_setApi()}/api/settings/notifications/${uid}`);
             const d = await r.json();
@@ -180,7 +180,11 @@
     }
 
     function _saveTheme(theme) {
-        localStorage.setItem('fredi_theme', theme);
+        if (window.FrediTheme) {
+            window.FrediTheme.set(theme);
+        } else {
+            localStorage.setItem('fredi_theme', theme);
+        }
         _state.theme = theme;
         _setToast(theme === 'dark' ? 'Тёмная тема' : 'Светлая тема', 'info');
     }
@@ -194,7 +198,7 @@
                 <div class="st-channel-desc">${desc}</div>
                 ${extraHtml || ''}
             </div>
-            <div class="st-channel-check">✓</div>
+            <div class="st-channel-check">\u2713</div>
         </div>`;
     }
 
@@ -203,7 +207,7 @@
         if (linked) {
             const u = linked.username ? `@${linked.username}` : 'привязан';
             return `<div class="st-link-row" onclick="event.stopPropagation()">
-                <span class="st-link-status linked">✓ Связан: ${u}</span>
+                <span class="st-link-status linked">\u2713 Связан: ${u}</span>
                 <button class="st-link-btn danger" data-action="unlink" data-platform="${platform}">Отвязать</button>
             </div>`;
         }
@@ -218,7 +222,7 @@
         return `<div class="st-section" data-section="${key}">
             <div class="st-section-header ${open ? 'open' : ''}" data-toggle="${key}">
                 <div class="st-section-label">${icon} ${title}</div>
-                <div class="st-section-arrow">▼</div>
+                <div class="st-section-arrow">\u25BC</div>
             </div>
             <div class="st-section-body ${open ? 'open' : ''}">${bodyHtml}</div>
         </div>`;
@@ -240,10 +244,10 @@
             <div class="st-hint">Здесь отображаются задачи, которые Фреди выполняет для вас в фоне. Например: ежедневные тренировки, анализ привычек, отслеживание целей.</div>
             <div class="st-tasks-empty">Нет активных задач</div>`;
 
-        const pushCard = _channelCard('push', '🔔', 'Web Push', 'Уведомления в этом браузере. На iPhone добавьте приложение на экран Домой.', '');
-        const tgCard = _channelCard('telegram', '✈️', 'Telegram', 'Сообщения в Telegram-бот Фреди.', _linkRow('telegram', tgDeepLink));
-        const maxCard = _channelCard('max', '💬', 'Max', 'Сообщения в Max-бот Фреди.', _linkRow('max', maxDeepLink));
-        const noneCard = _channelCard('none', '🔕', 'Не отправлять', 'Отключить все уведомления.', '');
+        const pushCard = _channelCard('push', '\uD83D\uDD14', 'Web Push', 'Уведомления в этом браузере. На iPhone добавьте приложение на экран Домой.', '');
+        const tgCard = _channelCard('telegram', '\u2708\uFE0F', 'Telegram', 'Сообщения в Telegram-бот Фреди.', _linkRow('telegram', tgDeepLink));
+        const maxCard = _channelCard('max', '\uD83D\uDCAC', 'Max', 'Сообщения в Max-бот Фреди.', _linkRow('max', maxDeepLink));
+        const noneCard = _channelCard('none', '\uD83D\uDD15', 'Не отправлять', 'Отключить все уведомления.', '');
 
         const notificationsBody = `
             <div class="st-hint">Выберите, куда Фреди будет отправлять сообщения. Фреди присылает: утренние мотивационные сообщения, напоминания о задачах, идеи на выходные, уведомления после перерыва.</div>
@@ -255,11 +259,11 @@
             <div class="st-hint">Выберите тему оформления приложения.</div>
             <div class="st-theme-grid">
                 <div class="st-theme-card ${darkActive}" data-theme="dark">
-                    <div class="st-theme-icon">🌙</div>
+                    <div class="st-theme-icon">\uD83C\uDF19</div>
                     <div class="st-theme-name">Тёмная</div>
                 </div>
                 <div class="st-theme-card ${lightActive}" data-theme="light">
-                    <div class="st-theme-icon">☀️</div>
+                    <div class="st-theme-icon">\u2600\uFE0F</div>
                     <div class="st-theme-name">Светлая</div>
                 </div>
             </div>`;
@@ -274,16 +278,16 @@
 
         c.innerHTML = `
             <div class="full-content-page">
-                <button class="back-btn" id="stBack">◀️ НАЗАД</button>
+                <button class="back-btn" id="stBack">\u25C0\uFE0F НАЗАД</button>
                 <div class="content-header">
-                    <div class="content-emoji">⚙️</div>
+                    <div class="content-emoji">\u2699\uFE0F</div>
                     <h1 class="content-title">Настройки</h1>
                 </div>
-                ${_sectionHtml('subscription', '💎', 'Подписка', subscriptionBody)}
-                ${_sectionHtml('tasks', '📋', 'Активные задачи', tasksBody)}
-                ${_sectionHtml('notifications', '📬', 'Уведомления', notificationsBody)}
-                ${_sectionHtml('appearance', '🎨', 'Оформление', appearanceBody)}
-                ${_sectionHtml('profile', '👤', 'Профиль', profileBody)}
+                ${_sectionHtml('subscription', '\uD83D\uDC8E', 'Подписка', subscriptionBody)}
+                ${_sectionHtml('tasks', '\uD83D\uDCCB', 'Активные задачи', tasksBody)}
+                ${_sectionHtml('notifications', '\uD83D\uDCEC', 'Уведомления', notificationsBody)}
+                ${_sectionHtml('appearance', '\uD83C\uDFA8', 'Оформление', appearanceBody)}
+                ${_sectionHtml('profile', '\uD83D\uDC64', 'Профиль', profileBody)}
             </div>`;
 
         document.getElementById('stBack').onclick = () => { if (typeof renderDashboard === 'function') renderDashboard(); };
@@ -346,5 +350,5 @@
     }
 
     window.showSettingsScreen = showSettingsScreen;
-    console.log('settings.js v3.1 loaded');
+    console.log('settings.js v3.2 loaded');
 })();
