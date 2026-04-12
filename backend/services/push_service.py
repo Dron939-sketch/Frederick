@@ -5,6 +5,7 @@ import os
 import asyncio
 from typing import List, Dict
 
+import httpx
 from pywebpush import webpush, WebPushException
 from db import Database
 
@@ -110,12 +111,65 @@ class PushService:
         )
 
     async def notify_mirror_completed(self, owner_user_id: int, friend_name: str):
-        return await self.send_to_user(
-            owner_user_id,
-            title="\uD83E\uDE9E Зеркало сработало!",
-            body=f"{friend_name} прошёл тест. Открой его профиль \u2192",
-            url="/?action=mirrors"
-        )
+        """Оповещает владельца зеркала: сначала мессенджер, если нет — web push."""
+        msg = f"🪞 Зеркало сработало!\n{friend_name} прошёл тест. Открой профиль в приложении Фреди."
+
+        # Пробуем отправить в привязанный мессенджер
+        sent_via_messenger = await self._send_to_messenger(owner_user_id, msg)
+
+        if not sent_via_messenger:
+            # Нет привязанного мессенджера — отправляем web push
+            await self.send_to_user(
+                owner_user_id,
+                title="🪞 Зеркало сработало!",
+                body=f"{friend_name} прошёл тест. Открой его профиль →",
+                url="/?action=mirrors"
+            )
+
+    async def _send_to_messenger(self, user_id: int, text: str) -> bool:
+        """Отправляет сообщение в привязанный мессенджер. Возвращает True если отправлено."""
+        try:
+            async with self.db.get_connection() as conn:
+                row = await conn.fetchrow(
+                    "SELECT platform, chat_id FROM fredi_messenger_links "
+                    "WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+                    user_id
+                )
+            if not row:
+                return False
+
+            platform = row["platform"]
+            chat_id = row["chat_id"]
+
+            if platform == "telegram":
+                token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+                if not token:
+                    return False
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={"chat_id": chat_id, "text": text}
+                    )
+                    logger.info(f"Mirror notify TG: {resp.status_code}")
+                    return resp.status_code == 200
+
+            elif platform == "max":
+                token = os.environ.get("MAX_TOKEN", "").strip()
+                if not token:
+                    return False
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        f"https://platform-api.max.ru/messages?chat_id={chat_id}",
+                        json={"text": text},
+                        headers={"Authorization": token, "Content-Type": "application/json"}
+                    )
+                    logger.info(f"Mirror notify Max: {resp.status_code}")
+                    return resp.status_code == 200
+
+            return False
+        except Exception as e:
+            logger.error(f"Messenger notify error: {e}")
+            return False
 
     async def _deactivate_subscription(self, subscription: Dict):
         try:
