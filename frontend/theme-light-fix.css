@@ -28,7 +28,8 @@
 [data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#ff6b3b"][style*="color:#fff"],
 [data-theme="light"] #screenContainer button[style*="background:linear-gradient"][style*="color:rgba(255"],
 [data-theme="light"] #screenContainer a[style*="background:linear-gradient"][style*="color:rgba(255"],
-[data-theme="light"] .mirror-tab-btn.active {
+[data-theme="light"] .mirror-tab-btn.active,
+[data-theme="light"] .adm-tab-btn.on {
     color: #fff !important;
 }
 
@@ -42,13 +43,17 @@
 [data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.2)"] { background: rgba(0,0,0,0.10) !important; }
 [data-theme="light"] #screenContainer [style*="background: rgba(255,255,255"] { background: rgba(0,0,0,0.05) !important; }
 
+/* === BLACK BACKGROUNDS → LIGHT === */
+[data-theme="light"] #screenContainer [style*="background:rgba(0,0,0,0.5)"] { background: rgba(0,0,0,0.03) !important; }
+[data-theme="light"] #screenContainer [style*="background:rgba(0,0,0,0.3)"] { background: rgba(0,0,0,0.02) !important; }
+
 /* === WHITE BORDERS → DARK === */
 [data-theme="light"] #screenContainer [style*="border:1px solid rgba(255,255,255"] { border-color: rgba(0,0,0,0.08) !important; }
 [data-theme="light"] #screenContainer [style*="border-bottom:1px solid rgba(255,255,255"] { border-bottom-color: rgba(0,0,0,0.06) !important; }
 [data-theme="light"] #screenContainer [style*="border-top:1px solid rgba(255,255,255"] { border-top-color: rgba(0,0,0,0.06) !important; }
 [data-theme="light"] #screenContainer [style*="border:1px solid rgba(224,224,224"] { border-color: rgba(0,0,0,0.08) !important; }
 
-/* === MIRRORS MODULE (CSS classes from injected <style>) === */
+/* === MIRRORS MODULE === */
 [data-theme="light"] .mirror-tab-btn.inactive { color: rgba(0,0,0,0.4) !important; }
 [data-theme="light"] .mirror-tab-btn.inactive:hover { color: rgba(0,0,0,0.7) !important; background: rgba(0,0,0,0.04) !important; }
 [data-theme="light"] .mirror-action-btn { color: #1c1c1e !important; background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.08) !important; }
@@ -60,6 +65,17 @@
 [data-theme="light"] .mirror-info-block-left { border-left-color: rgba(255,107,59,0.6) !important; }
 [data-theme="light"] .mirror-vector-bar-track { background: rgba(0,0,0,0.06) !important; }
 [data-theme="light"] .mirror-4f-card { background: rgba(0,0,0,0.02) !important; }
+
+/* === ADMIN / SECRET ROOM === */
+[data-theme="light"] .adm-card { background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .adm-label { color: rgba(0,0,0,0.35) !important; }
+[data-theme="light"] .adm-tab-btn.off { color: rgba(0,0,0,0.4) !important; }
+[data-theme="light"] .adm-tab-btn.off:hover { color: rgba(0,0,0,0.7) !important; }
+[data-theme="light"] .adm-row { border-bottom-color: rgba(0,0,0,0.04) !important; }
+[data-theme="light"] .adm-bar-track { background: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .adm-tabs-wrap { background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .adm-login-wrap input { background: rgba(0,0,0,0.04) !important; color: #1c1c1e !important; border-color: rgba(0,0,0,0.10) !important; }
+[data-theme="light"] .adm-login-wrap input::placeholder { color: rgba(0,0,0,0.35) !important; }
 
 /* === DARK BACKGROUND ELEMENTS === */
 [data-theme="light"] #screenContainer [style*="background:#111"],
@@ -73,7 +89,7 @@
 /* === APP LOADER === */
 [data-theme="light"] .fredi-loader-sub { color: rgba(0,0,0,0.35) !important; }
 
-/* === INPUTS === */
+/* === INPUTS (all inline-styled) === */
 [data-theme="light"] #screenContainer input[style*="color:white"],
 [data-theme="light"] #screenContainer textarea[style*="color:white"],
 [data-theme="light"] #screenContainer input[style*="color:#fff"],
@@ -81,13 +97,17 @@
     color: #1c1c1e !important;
 }
 [data-theme="light"] #screenContainer input[style*="background:rgba(255,255,255"],
-[data-theme="light"] #screenContainer textarea[style*="background:rgba(255,255,255"] {
+[data-theme="light"] #screenContainer textarea[style*="background:rgba(255,255,255"],
+[data-theme="light"] #screenContainer input[style*="background:rgba(0,0,0"],
+[data-theme="light"] #screenContainer textarea[style*="background:rgba(0,0,0"] {
     background: rgba(0,0,0,0.04) !important;
     color: #1c1c1e !important;
 }
 
 /* === METER MODULE === */
 [data-theme="light"] .meter-modal { color: #1c1c1e !important; }
+[data-theme="light"] .meter-modal { background: #fff !important; border-color: rgba(0,0,0,0.10) !important; }
+[data-theme="light"] .meter-overlay { background: rgba(0,0,0,0.3) !important; }
 
 /* === SUBSCRIPTION CARDS === */
 [data-theme="light"] .sub-card {
