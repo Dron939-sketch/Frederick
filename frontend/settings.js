@@ -1,5 +1,5 @@
 // ============================================
-// settings.js v3.1 — with section descriptions
+// settings.js v3.2 — with section descriptions + FrediTheme
 // ============================================
 
 (function () {
@@ -76,7 +76,7 @@
                 }
             }
         } catch (e) {}
-        _state.theme = localStorage.getItem('fredi_theme') || 'dark';
+        _state.theme = window.FrediTheme ? window.FrediTheme.get() : (localStorage.getItem('fredi_theme') || 'dark');
     }
 
     async function _saveChannel(ch) {
@@ -105,8 +105,13 @@
 
     function _setTheme(theme) {
         _state.theme = theme;
-        localStorage.setItem('fredi_theme', theme);
-        document.documentElement.setAttribute('data-theme', theme);
+        if (window.FrediTheme) {
+            window.FrediTheme.set(theme);
+        } else {
+            localStorage.setItem('fredi_theme', theme);
+            document.documentElement.setAttribute('data-theme', theme);
+            if (document.body) document.body.setAttribute('data-theme', theme);
+        }
         _toast(theme === 'light' ? 'Светлая тема' : 'Темная тема', 'info');
         _renderSettings();
     }
@@ -244,5 +249,5 @@
     async function showSettingsScreen() { _renderSettings(); await _loadSettings(); _renderSettings(); }
 
     window.showSettingsScreen = showSettingsScreen;
-    console.log('settings.js v3.1 loaded');
+    console.log('settings.js v3.2 loaded');
 })();
