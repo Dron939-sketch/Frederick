@@ -3429,6 +3429,25 @@ async def get_user_reflections(user_id: int):
         return {"success": False, "reflections": [], "stats": {}}
 
 
+@app.get("/api/mirrors/pending/{friend_user_id}")
+async def get_pending_mirror(friend_user_id: int):
+    """Возвращает mirror_code если для этого friend_user_id есть активное зеркало."""
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT mirror_code FROM fredi_mirrors "
+                "WHERE friend_user_id = $1 AND status = 'active' "
+                "ORDER BY created_at DESC LIMIT 1",
+                friend_user_id
+            )
+        if row:
+            return {"mirror_code": row["mirror_code"]}
+        return {"mirror_code": None}
+    except Exception as e:
+        logger.error(f"Pending mirror error: {e}")
+        return {"mirror_code": None}
+
+
 @app.get("/api/mirrors/{user_id}")
 async def get_user_mirrors(user_id: int):
     try:
