@@ -1,40 +1,85 @@
 /* Global fix: inline white text + backgrounds on light theme */
+
+/* Solid white text */
 [data-theme="light"] #screenContainer [style*="color:#fff"],
 [data-theme="light"] #screenContainer [style*="color: #fff"],
 [data-theme="light"] #screenContainer [style*="color:white"],
 [data-theme="light"] #screenContainer [style*="color: white"] {
     color: #1c1c1e !important;
 }
+
+/* Semi-transparent white text (rgba) */
+[data-theme="light"] #screenContainer [style*="color:rgba(255,255,255"] {
+    color: rgba(0,0,0,0.6) !important;
+}
+[data-theme="light"] #screenContainer [style*="color: rgba(255,255,255"] {
+    color: rgba(0,0,0,0.6) !important;
+}
+[data-theme="light"] #screenContainer [style*="color:rgba(255, 255, 255"] {
+    color: rgba(0,0,0,0.6) !important;
+}
+
+/* Preserve white text on gradient buttons */
 [data-theme="light"] #screenContainer button[style*="background:linear-gradient"][style*="color:#fff"],
 [data-theme="light"] #screenContainer a[style*="background:linear-gradient"][style*="color:#fff"],
 [data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#00d4ff"][style*="color:#fff"],
-[data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#ff6b3b"][style*="color:#fff"] {
+[data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#ff6b3b"][style*="color:#fff"],
+[data-theme="light"] #screenContainer button[style*="background:linear-gradient"][style*="color:rgba(255"],
+[data-theme="light"] #screenContainer a[style*="background:linear-gradient"][style*="color:rgba(255"] {
     color: #fff !important;
 }
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.08)"] {
+
+/* White backgrounds → dark equivalents */
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.08)"],
+[data-theme="light"] #screenContainer [style*="background: rgba(255,255,255,0.08)"] {
     background: rgba(0,0,0,0.05) !important;
 }
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.1)"] {
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.1)"],
+[data-theme="light"] #screenContainer [style*="background: rgba(255,255,255,0.1)"] {
     background: rgba(0,0,0,0.06) !important;
 }
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.05)"] {
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.05)"],
+[data-theme="light"] #screenContainer [style*="background: rgba(255,255,255,0.05)"] {
     background: rgba(0,0,0,0.03) !important;
 }
-[data-theme="light"] #screenContainer [style*="border:1px solid rgba(255,255,255,0.1)"] {
-    border-color: rgba(0,0,0,0.08) !important;
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.15)"] {
+    background: rgba(0,0,0,0.08) !important;
 }
-[data-theme="light"] #screenContainer [style*="border:1px solid rgba(255,255,255,0.15)"] {
-    border-color: rgba(0,0,0,0.10) !important;
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.03)"] {
+    background: rgba(0,0,0,0.02) !important;
+}
+
+/* White borders → dark */
+[data-theme="light"] #screenContainer [style*="border:1px solid rgba(255,255,255"] {
+    border-color: rgba(0,0,0,0.08) !important;
 }
 [data-theme="light"] #screenContainer [style*="border-bottom:1px solid rgba(255,255,255"] {
     border-bottom-color: rgba(0,0,0,0.06) !important;
 }
+[data-theme="light"] #screenContainer [style*="border-top:1px solid rgba(255,255,255"] {
+    border-top-color: rgba(0,0,0,0.06) !important;
+}
+
+/* Mirrors module */
 [data-theme="light"] .mirror-tab-btn.active { color: #1c1c1e !important; }
+
+/* App loader */
 [data-theme="light"] .fredi-loader-sub { color: rgba(0,0,0,0.35) !important; }
+
+/* Inputs */
 [data-theme="light"] #screenContainer input[style*="color:white"],
-[data-theme="light"] #screenContainer textarea[style*="color:white"] {
+[data-theme="light"] #screenContainer textarea[style*="color:white"],
+[data-theme="light"] #screenContainer input[style*="color:#fff"],
+[data-theme="light"] #screenContainer textarea[style*="color:#fff"] {
     color: #1c1c1e !important;
 }
+[data-theme="light"] #screenContainer input[style*="background:rgba(255,255,255"],
+[data-theme="light"] #screenContainer textarea[style*="background:rgba(255,255,255"] {
+    background: rgba(0,0,0,0.04) !important;
+    color: #1c1c1e !important;
+}
+
+/* Subscription cards */
 [data-theme="light"] .sub-card {
     background: linear-gradient(135deg, rgba(59,130,255,0.08) 0%, rgba(255,107,59,0.04) 100%) !important;
     border-color: rgba(0,0,0,0.10) !important;
@@ -45,3 +90,4 @@
     border-color: rgba(0,0,0,0.12) !important;
 }
 [data-theme="light"] .sub-card-icon { background: rgba(0,0,0,0.03) !important; }
+[data-theme="light"] .sub-loading { color: var(--text-secondary) !important; }
