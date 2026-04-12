@@ -187,9 +187,16 @@ def register_bot_webhooks(app, db):
                         await _max_send(chat_id, MSG_START_MAX)
 
                 elif payload.startswith("mirror_"):
-                    link = f"{WEB_URL}?ref={payload}"
-                    await _max_send(chat_id, f"Привет! Тебя пригласили пройти психологический тест от Фреди.\n\n\ud83d\udc49 {link}\n\n\u23f1 Займёт 15 минут. Результат увидишь сразу!")
-                    logger.info(f"Max mirror invite via bot_started: {payload} -> chat {chat_id}")
+                    friend_uid = user.get("user_id")
+                    if friend_uid:
+                        async with db.get_connection() as conn:
+                            await conn.execute(
+                                "UPDATE fredi_mirrors SET friend_user_id = $1 "
+                                "WHERE mirror_code = $2 AND status = 'active'",
+                                int(friend_uid), payload
+                            )
+                        logger.info(f"🪞 Mirror friend saved: {payload} -> friend {friend_uid}")
+                    await _max_send(chat_id, MSG_START_MAX)
 
                 else:
                     await _max_send(chat_id, MSG_START_MAX)
