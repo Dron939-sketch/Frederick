@@ -1,6 +1,6 @@
 /* ============================================
    theme-light-fix.css — Global fixes for light theme
-   Catches inline white text, rgba backgrounds, borders
+   Catches inline white text, CSS classes, rgba backgrounds
    ============================================ */
 
 /* === SOLID WHITE TEXT (inline styles) === */
@@ -27,7 +27,8 @@
 [data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#00d4ff"][style*="color:#fff"],
 [data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#ff6b3b"][style*="color:#fff"],
 [data-theme="light"] #screenContainer button[style*="background:linear-gradient"][style*="color:rgba(255"],
-[data-theme="light"] #screenContainer a[style*="background:linear-gradient"][style*="color:rgba(255"] {
+[data-theme="light"] #screenContainer a[style*="background:linear-gradient"][style*="color:rgba(255"],
+[data-theme="light"] .mirror-tab-btn.active {
     color: #fff !important;
 }
 
@@ -47,9 +48,27 @@
 [data-theme="light"] #screenContainer [style*="border-top:1px solid rgba(255,255,255"] { border-top-color: rgba(0,0,0,0.06) !important; }
 [data-theme="light"] #screenContainer [style*="border:1px solid rgba(224,224,224"] { border-color: rgba(0,0,0,0.08) !important; }
 
-/* === CHROME COLOR FIX (var(--chrome) is overridden but ensure CSS classes too) === */
-[data-theme="light"] .mirror-tab-btn.active { color: #1c1c1e !important; }
-[data-theme="light"] .mirror-action-btn { color: #1c1c1e !important; }
+/* === MIRRORS MODULE (CSS classes from injected <style>) === */
+[data-theme="light"] .mirror-tab-btn.inactive { color: rgba(0,0,0,0.4) !important; }
+[data-theme="light"] .mirror-tab-btn.inactive:hover { color: rgba(0,0,0,0.7) !important; background: rgba(0,0,0,0.04) !important; }
+[data-theme="light"] .mirror-action-btn { color: #1c1c1e !important; background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.08) !important; }
+[data-theme="light"] .mirror-action-btn:hover { background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.12) !important; }
+[data-theme="light"] .mirror-link-box { background: rgba(0,0,0,0.04) !important; color: rgba(0,0,0,0.5) !important; border-color: rgba(0,0,0,0.08) !important; }
+[data-theme="light"] .mirror-section-label { color: rgba(0,0,0,0.35) !important; }
+[data-theme="light"] .mirror-stat-card { background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .mirror-info-block { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .mirror-info-block-left { border-left-color: rgba(255,107,59,0.6) !important; }
+[data-theme="light"] .mirror-vector-bar-track { background: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .mirror-4f-card { background: rgba(0,0,0,0.02) !important; }
+
+/* === DARK BACKGROUND ELEMENTS === */
+[data-theme="light"] #screenContainer [style*="background:#111"],
+[data-theme="light"] #screenContainer [style*="background: #111"],
+[data-theme="light"] #screenContainer [style*="background:#1a1a1a"],
+[data-theme="light"] #screenContainer [style*="background: #1a1a1a"],
+[data-theme="light"] #screenContainer [style*="background:#000"] {
+    background: #f5f5f7 !important;
+}
 
 /* === APP LOADER === */
 [data-theme="light"] .fredi-loader-sub { color: rgba(0,0,0,0.35) !important; }
@@ -67,19 +86,8 @@
     color: #1c1c1e !important;
 }
 
-/* === ADMIN MODULE === */
-[data-theme="light"] #screenContainer [style*="background:#111"],
-[data-theme="light"] #screenContainer [style*="background: #111"],
-[data-theme="light"] #screenContainer [style*="background:#1a1a1a"],
-[data-theme="light"] #screenContainer [style*="background: #1a1a1a"] {
-    background: #f5f5f7 !important;
-}
-
 /* === METER MODULE === */
-[data-theme="light"] .meter-modal,
-[data-theme="light"] .meter-overlay {
-    color: #1c1c1e !important;
-}
+[data-theme="light"] .meter-modal { color: #1c1c1e !important; }
 
 /* === SUBSCRIPTION CARDS === */
 [data-theme="light"] .sub-card {
@@ -94,7 +102,7 @@
 [data-theme="light"] .sub-card-icon { background: rgba(0,0,0,0.03) !important; }
 [data-theme="light"] .sub-loading { color: var(--text-secondary) !important; }
 
-/* === DOTS POPUP (Meysternlp) === */
+/* === DOTS POPUP === */
 [data-theme="light"] .dots-popup { background: rgba(255,255,255,0.97) !important; border-color: rgba(0,0,0,0.1) !important; }
 [data-theme="light"] .dots-item { color: #1c1c1e !important; }
 [data-theme="light"] .dots-item:hover { background: rgba(0,0,0,0.06) !important; }
