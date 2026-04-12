@@ -21,6 +21,12 @@ class PushService:
     async def save_subscription(self, user_id: int, subscription: Dict) -> bool:
         try:
             async with self.db.get_connection() as conn:
+                # Auto-create user if not exists (prevents foreign key violation)
+                await conn.execute(
+                    "INSERT INTO fredi_users (user_id, created_at, updated_at) "
+                    "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
+                    user_id
+                )
                 await conn.execute("""
                     UPDATE fredi_push_subscriptions SET is_active = FALSE WHERE user_id = $1
                 """, user_id)
@@ -29,7 +35,7 @@ class PushService:
                     VALUES ($1, $2, NOW())
                     ON CONFLICT DO NOTHING
                 """, user_id, json.dumps(subscription))
-            logger.info(f"✅ Push subscription saved for user {user_id}")
+            logger.info(f"Push subscription saved for user {user_id}")
             return True
         except Exception as e:
             logger.error(f"Error saving push subscription: {e}")
@@ -98,7 +104,7 @@ class PushService:
 
     async def broadcast_morning_message(self, message: str):
         return await self.broadcast(
-            title="🌅 Доброе утро от Фреди",
+            title="\uD83C\uDF05 Доброе утро от Фреди",
             body=message[:100] + "..." if len(message) > 100 else message,
             url="/"
         )
@@ -106,8 +112,8 @@ class PushService:
     async def notify_mirror_completed(self, owner_user_id: int, friend_name: str):
         return await self.send_to_user(
             owner_user_id,
-            title="🪞 Зеркало сработало!",
-            body=f"{friend_name} прошёл тест. Открой его профиль →",
+            title="\uD83E\uDE9E Зеркало сработало!",
+            body=f"{friend_name} прошёл тест. Открой его профиль \u2192",
             url="/?action=mirrors"
         )
 
