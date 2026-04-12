@@ -17,23 +17,21 @@
         s.id = 'meter-styles';
         s.textContent = [
             '.meter-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:16px}',
-            '.meter-modal{background:var(--black-matte,#111);border:1px solid rgba(224,224,224,0.1);border-radius:20px;padding:28px;max-width:380px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,0.6);color:var(--text-primary)}',
+            '.meter-modal{background:var(--black-matte,#111);border:1px solid rgba(224,224,224,0.1);border-radius:20px;padding:28px;max-width:400px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,0.6);color:var(--text-primary);max-height:90vh;overflow-y:auto}',
             '.meter-emoji{font-size:48px;text-align:center;margin-bottom:16px}',
             '.meter-title{font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:8px;text-align:center}',
-            '.meter-text{font-size:14px;color:var(--text-secondary);line-height:1.6;margin-bottom:20px}',
+            '.meter-text{font-size:14px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px}',
             '.meter-timer{font-size:28px;font-weight:700;color:#3b82ff;text-align:center;margin-bottom:16px;font-variant-numeric:tabular-nums}',
             '.meter-hint{background:rgba(59,130,255,0.08);border:1px solid rgba(59,130,255,0.15);border-radius:14px;padding:14px;margin-bottom:18px;font-size:13px;color:var(--text-primary);line-height:1.5}',
-            '.meter-hint-icon{font-size:15px;margin-right:4px}',
             '.meter-hint-path{font-weight:600;color:#3b82ff}',
             '.meter-features{list-style:none;padding:0;margin:0 0 18px 0}',
-            '.meter-features li{font-size:13px;color:var(--text-secondary);padding:5px 0;display:flex;align-items:center;gap:8px}',
-            '.meter-features-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);margin-bottom:8px}',
+            '.meter-features li{font-size:12px;color:var(--text-secondary);padding:4px 0;display:flex;align-items:center;gap:8px}',
+            '.meter-features li span{flex-shrink:0;width:18px;text-align:center;font-size:14px}',
+            '.meter-features-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);margin-bottom:8px}',
             '.meter-btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;text-align:center;margin-bottom:10px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:transform 0.15s}',
             '.meter-btn:active{transform:scale(0.98)}',
             '.meter-btn-primary{background:linear-gradient(135deg,#3b82ff 0%,#6366f1 100%);color:#fff}',
-            '.meter-btn-secondary{background:rgba(224,224,224,0.07);border:1px solid rgba(224,224,224,0.18);color:var(--text-secondary)}',
-            '.meter-progress{height:4px;background:rgba(224,224,224,0.08);border-radius:2px;margin-bottom:12px;overflow:hidden}',
-            '.meter-progress-bar{height:100%;border-radius:2px;transition:width 0.5s ease}'
+            '.meter-btn-secondary{background:rgba(224,224,224,0.07);border:1px solid rgba(224,224,224,0.18);color:var(--text-secondary)}'
         ].join('\n');
         document.head.appendChild(s);
     }
@@ -72,6 +70,22 @@
         } catch (e) {}
     }
 
+    var PREMIUM_FEATURES =
+        '<ul class="meter-features">' +
+        '<li><span>\u2728</span> \u0411\u0435\u0437\u043B\u0438\u043C\u0438\u0442\u043D\u043E\u0435 \u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0441 \u0424\u0440\u0435\u0434\u0438 24/7</li>' +
+        '<li><span>\uD83C\uDFAF</span> \u041F\u043E\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0430 \u0446\u0435\u043B\u0435\u0439 \u0438 \u0440\u0430\u0441\u0447\u0451\u0442 \u0448\u0430\u0433\u043E\u0432</li>' +
+        '<li><span>\uD83D\uDCC8</span> \u041F\u043E\u0441\u0442\u0440\u043E\u0435\u043D\u0438\u0435 \u043B\u0438\u0447\u043D\u044B\u0445 \u0441\u0442\u0440\u0430\u0442\u0435\u0433\u0438\u0439</li>' +
+        '<li><span>\uD83E\uDDE0</span> \u0415\u0436\u0435\u0434\u043D\u0435\u0432\u043D\u044B\u0435 \u0442\u0440\u0435\u043D\u0438\u0440\u043E\u0432\u043A\u0438 \u043D\u0430\u0432\u044B\u043A\u043E\u0432</li>' +
+        '<li><span>\uD83D\uDCCA</span> \u041E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u043D\u0438\u0435 \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0441\u0430 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A</li>' +
+        '<li><span>\uD83C\uDFA4</span> \u0413\u043E\u043B\u043E\u0441\u043E\u0432\u044B\u0435 \u0441\u0435\u0430\u043D\u0441\u044B \u0441 AI-\u043F\u0441\u0438\u0445\u043E\u043B\u043E\u0433\u043E\u043C</li>' +
+        '<li><span>\uD83E\uDE9E</span> \u0417\u0435\u0440\u043A\u0430\u043B\u043E \u2014 \u0433\u043B\u0443\u0431\u043E\u043A\u0438\u0439 \u0430\u043D\u0430\u043B\u0438\u0437 \u043E\u0442\u043D\u043E\u0448\u0435\u043D\u0438\u0439</li>' +
+        '<li><span>\uD83C\uDFAD</span> \u0422\u0440\u0430\u043D\u0437\u0430\u043A\u0442\u043D\u044B\u0439 \u0430\u043D\u0430\u043B\u0438\u0437 \u043F\u043E \u0411\u0435\u0440\u043D\u0443</li>' +
+        '<li><span>\uD83C\uDF19</span> \u0413\u0438\u043F\u043D\u043E\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0441\u0435\u0441\u0441\u0438\u0438</li>' +
+        '<li><span>\uD83D\uDCD3</span> AI-\u0434\u043D\u0435\u0432\u043D\u0438\u043A \u0441 \u0440\u0435\u0444\u043B\u0435\u043A\u0441\u0438\u0435\u0439</li>' +
+        '<li><span>\uD83E\uDDD8</span> \u0423\u0442\u0440\u0435\u043D\u043D\u0438\u0435 \u0438 \u0432\u0435\u0447\u0435\u0440\u043D\u0438\u0435 \u043F\u0440\u0430\u043A\u0442\u0438\u043A\u0438</li>' +
+        '<li><span>\uD83C\uDF05</span> \u041C\u043E\u0442\u0438\u0432\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 \u043F\u043E\u0441\u043B\u0430\u043D\u0438\u044F \u0438 \u0438\u0434\u0435\u0438 \u043D\u0430 \u0432\u044B\u0445\u043E\u0434\u043D\u044B\u0435</li>' +
+        '</ul>';
+
     function showFatigueModal(data) {
         _injectMeterStyles();
         var existing = document.getElementById('meterOverlay');
@@ -90,12 +104,12 @@
                 ? '\u0412\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0439\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' + remaining + ' \u043C\u0438\u043D\u0443\u0442 \u2014 \u0443 \u0442\u0435\u0431\u044F \u0431\u0443\u0434\u0435\u0442 ' + nextLimit + ' \u043C\u0438\u043D\u0443\u0442 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E\u0433\u043E \u043E\u0431\u0449\u0435\u043D\u0438\u044F.'
                 : '\u0411\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0437\u0430\u043A\u043E\u043D\u0447\u0438\u043B\u0438\u0441\u044C.';
             mainText = '\u041C\u044B \u043E\u0431\u0449\u0430\u043B\u0438\u0441\u044C, \u0438 \u043C\u043D\u0435 \u043D\u0443\u0436\u043D\u043E \u043E\u0442\u0434\u043E\u0445\u043D\u0443\u0442\u044C.<br>' + nextInfo;
-            hintText = '<span class="meter-hint-icon">\uD83D\uDC8E</span> \u0425\u043E\u0447\u0435\u0448\u044C \u0431\u0435\u0437 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u0439? \u0417\u0430\u0439\u0434\u0438 \u0432 <span class="meter-hint-path">\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u2192 \u041F\u043E\u0434\u043F\u0438\u0441\u043A\u0430</span> \u0432 \u043B\u0435\u0432\u043E\u043C \u043C\u0435\u043D\u044E';
+            hintText = '\uD83D\uDC8E \u0425\u043E\u0447\u0435\u0448\u044C \u0431\u0435\u0437 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u0439? \u0417\u0430\u0439\u0434\u0438 \u0432 <span class="meter-hint-path">\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u2192 \u041F\u043E\u0434\u043F\u0438\u0441\u043A\u0430</span> \u0432 \u043B\u0435\u0432\u043E\u043C \u043C\u0435\u043D\u044E';
         } else {
             emoji = '\uD83D\uDC94';
             title = '\u0411\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0437\u0430\u043A\u043E\u043D\u0447\u0438\u043B\u0438\u0441\u044C';
             mainText = '\u0422\u044B \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B \u0432\u0441\u0435 4 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438. \u0424\u0440\u0435\u0434\u0438 \u0431\u043E\u043B\u044C\u0448\u0435 \u043D\u0435 \u043C\u043E\u0436\u0435\u0442 \u043E\u0431\u0449\u0430\u0442\u044C\u0441\u044F \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E.';
-            hintText = '<span class="meter-hint-icon">\uD83D\uDC8E</span> \u041E\u0444\u043E\u0440\u043C\u0438 Premium \u0438 \u0424\u0440\u0435\u0434\u0438 \u043D\u0438\u043A\u043E\u0433\u0434\u0430 \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u0435\u0442! \u0417\u0430\u0439\u0434\u0438 \u0432 <span class="meter-hint-path">\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u2192 \u041F\u043E\u0434\u043F\u0438\u0441\u043A\u0430</span> \u0432 \u043B\u0435\u0432\u043E\u043C \u043C\u0435\u043D\u044E';
+            hintText = '\uD83D\uDC8E \u041E\u0444\u043E\u0440\u043C\u0438 Premium \u0438 \u0424\u0440\u0435\u0434\u0438 \u043D\u0438\u043A\u043E\u0433\u0434\u0430 \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u0435\u0442! \u0417\u0430\u0439\u0434\u0438 \u0432 <span class="meter-hint-path">\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u2192 \u041F\u043E\u0434\u043F\u0438\u0441\u043A\u0430</span> \u0432 \u043B\u0435\u0432\u043E\u043C \u043C\u0435\u043D\u044E';
         }
 
         var timerHtml = (isOnCooldown && remaining > 0)
@@ -113,14 +127,7 @@
                 '<div class="meter-text">' + mainText + '</div>' +
                 '<div class="meter-hint">' + hintText + '</div>' +
                 '<div class="meter-features-title">\u0427\u0442\u043E \u0434\u0430\u0451\u0442 \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0430:</div>' +
-                '<ul class="meter-features">' +
-                    '<li>\u2728 \u0411\u0435\u0437\u043B\u0438\u043C\u0438\u0442\u043D\u043E\u0435 \u043E\u0431\u0449\u0435\u043D\u0438\u0435 24/7</li>' +
-                    '<li>\uD83C\uDFA4 \u0413\u043E\u043B\u043E\u0441\u043E\u0432\u044B\u0435 \u0441\u0435\u0430\u043D\u0441\u044B</li>' +
-                    '<li>\uD83E\uDDD8 \u041F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u043F\u0440\u0430\u043A\u0442\u0438\u043A\u0438</li>' +
-                    '<li>\uD83C\uDF05 \u0423\u0442\u0440\u0435\u043D\u043D\u0438\u0435 \u043F\u043E\u0441\u043B\u0430\u043D\u0438\u044F</li>' +
-                    '<li>\uD83E\uDE9E \u0417\u0435\u0440\u043A\u0430\u043B\u043E \u2014 \u0430\u043D\u0430\u043B\u0438\u0437 \u043E\u0442\u043D\u043E\u0448\u0435\u043D\u0438\u0439</li>' +
-                    '<li>\uD83C\uDFAD \u0422\u0440\u0430\u043D\u0437\u0430\u043A\u0442\u043D\u044B\u0439 \u0430\u043D\u0430\u043B\u0438\u0437 \u043F\u043E \u0411\u0435\u0440\u043D\u0443</li>' +
-                '</ul>' +
+                PREMIUM_FEATURES +
                 '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0443 \u2014 690 \u20BD/\u043C\u0435\u0441</button>' +
                 '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u043D\u044F\u0442\u043D\u043E</button>' +
             '</div>';
@@ -130,7 +137,6 @@
         overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
         document.getElementById('meterSubscribeBtn').onclick = function() {
             overlay.remove();
-            // Open settings and click subscription accordion
             if (typeof showSettingsScreen === 'function') showSettingsScreen();
         };
 
@@ -153,63 +159,43 @@
         }
     }
 
-    // ------------------------------------------------------------------
-    // Auto-intercept: monkey-patch global apiCall
-    // ------------------------------------------------------------------
     function _patchApiCall() {
         if (!window.apiCall || window._apiCallPatched) return;
         var _origApiCall = window.apiCall;
         window._apiCallPatched = true;
-
         window.apiCall = async function(endpoint, options) {
             var isChatOrVoice = endpoint.includes('/api/chat') || endpoint.includes('/api/voice/process');
             if (isChatOrVoice && options && (options.method === 'POST' || options.body)) {
                 var check = await checkCanSend();
-                if (!check.can_send) {
-                    showFatigueModal(check);
-                    throw new Error('METER_BLOCKED');
-                }
+                if (!check.can_send) { showFatigueModal(check); throw new Error('METER_BLOCKED'); }
                 if (check.warning && !_warningShown) {
                     _warningShown = true;
                     _toast('\u26A1 \u041E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ' + Math.round(check.remaining_minutes || 5) + ' \u043C\u0438\u043D \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E', 'info');
                     setTimeout(function() { _warningShown = false; }, 60000);
                 }
             }
-
             var result = await _origApiCall(endpoint, options);
-
             if (isChatOrVoice && result && result.response) {
-                var estimatedSeconds = Math.min(Math.max(Math.ceil(result.response.length / 8), 10), 60);
-                recordUsage(estimatedSeconds);
+                recordUsage(Math.min(Math.max(Math.ceil(result.response.length / 8), 10), 60));
             }
-
             return result;
         };
         console.log('meter: apiCall patched');
     }
 
-    // ------------------------------------------------------------------
-    // Auto-intercept: monkey-patch fetch for voice/process
-    // ------------------------------------------------------------------
     function _patchFetch() {
         if (window._fetchMeterPatched) return;
         var _origFetch = window.fetch;
         window._fetchMeterPatched = true;
-
         window.fetch = async function(url, options) {
             var urlStr = typeof url === 'string' ? url : (url && url.url) || '';
             var isVoice = urlStr.includes('/api/voice/process');
             var isChat = urlStr.includes('/api/chat');
-
             if ((isVoice || isChat) && options && options.method === 'POST') {
                 var check = await checkCanSend();
                 if (!check.can_send) {
                     showFatigueModal(check);
-                    return new Response(JSON.stringify({
-                        success: false,
-                        error: 'METER_BLOCKED',
-                        response: check.message || '\u0424\u0440\u0435\u0434\u0438 \u0443\u0441\u0442\u0430\u043B'
-                    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                    return new Response(JSON.stringify({ success: false, error: 'METER_BLOCKED', response: check.message || '\u0424\u0440\u0435\u0434\u0438 \u0443\u0441\u0442\u0430\u043B' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
                 }
                 if (check.warning && !_warningShown) {
                     _warningShown = true;
@@ -217,13 +203,8 @@
                     setTimeout(function() { _warningShown = false; }, 60000);
                 }
             }
-
             var response = await _origFetch.call(window, url, options);
-
-            if ((isVoice || isChat) && response.ok) {
-                recordUsage(30);
-            }
-
+            if ((isVoice || isChat) && response.ok) recordUsage(30);
             return response;
         };
         console.log('meter: fetch patched');
@@ -231,9 +212,8 @@
 
     function _applyPatches() {
         _patchFetch();
-        if (window.apiCall) {
-            _patchApiCall();
-        } else {
+        if (window.apiCall) { _patchApiCall(); }
+        else {
             setTimeout(function() { if (window.apiCall) _patchApiCall(); }, 2000);
             setTimeout(function() { if (window.apiCall) _patchApiCall(); }, 5000);
         }
@@ -245,11 +225,6 @@
         _applyPatches();
     }
 
-    window.FrediMeter = {
-        checkCanSend: checkCanSend,
-        recordUsage: recordUsage,
-        showFatigueModal: showFatigueModal
-    };
-
+    window.FrediMeter = { checkCanSend: checkCanSend, recordUsage: recordUsage, showFatigueModal: showFatigueModal };
     console.log('meter.js loaded');
 })();
