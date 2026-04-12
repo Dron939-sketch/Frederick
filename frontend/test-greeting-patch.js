@@ -1,9 +1,10 @@
-// test-greeting-patch.js — Override greeting text in test
-// Loaded AFTER test.js, patches showIntroScreen and showBotInfo on window.Test
+// test-greeting-patch.js — Patches for Test module
+// Loaded AFTER test.js
 (function() {
     function patch() {
         if (!window.Test || !window.Test.showIntroScreen) return false;
 
+        // === PATCH 1: Greeting without Meister ===
         window.Test.showIntroScreen = function() {
             var name = (this.context && this.context.name) || (window.CONFIG && window.CONFIG.USER_NAME !== '\u0434\u0440\u0443\u0433' ? window.CONFIG.USER_NAME : '') || '';
             var greeting = name ? name + ', \u043f\u0440\u0438\u0432\u0435\u0442!' : '\u041f\u0440\u0438\u0432\u0435\u0442!';
@@ -21,7 +22,80 @@
             ]);
         };
 
-        console.log('test-greeting-patch: applied to window.Test');
+        // === PATCH 2: Fix sendTestResultsToServer — AI profile first, then mirror with correct vectors ===
+        var _origSendResults = window.Test.sendTestResultsToServer;
+        window.Test.sendTestResultsToServer = async function() {
+            if (!this.userId) { this.showFinalProfileButtons(); return; }
+            var profile = this.calculateFinalProfile();
+            var deep = this.deepPatterns || {attachment: '\uD83E\uDD17 \u041d\u0430\u0434\u0435\u0436\u043d\u044b\u0439'};
+            try {
+                var r = await fetch('https://fredi-backend-flz2.onrender.com/api/save-test-results', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: parseInt(this.userId), context: this.context,
+                        results: {
+                            perception_type: this.perceptionType,
+                            thinking_level: this.thinkingLevel,
+                            behavioral_levels: this.behavioralLevels,
+                            dilts_counts: this.diltsCounts,
+                            deep_patterns: deep,
+                            profile_data: profile,
+                            all_answers: this.answers,
+                            test_completed: true,
+                            test_completed_at: new Date().toISOString()
+                        }
+                    })
+                });
+                var data;
+                try { data = await r.json(); } catch(e) { data = {success: r.ok}; }
+                if (data.success) {
+                    // First fetch AI profile (so it's available for mirror)
+                    await this.fetchAIGeneratedProfile();
+                    // Then complete mirror with correct vectors from profile object
+                    await this._completeMirrorFixed(profile, deep);
+                } else {
+                    this.showFinalProfileButtons();
+                }
+            } catch(error) {
+                console.error('Network error:', error);
+                this.showFinalProfileButtons();
+            }
+        };
+
+        // === PATCH 3: Fixed mirror completion with proper vectors ===
+        window.Test._completeMirrorFixed = async function(profile, deep) {
+            var mirrorCode = this.getMirrorCode();
+            if (!mirrorCode) return;
+            try {
+                var vectors = {
+                    '\u0421\u0411': profile.sbLevel || 3,
+                    '\u0422\u0424': profile.tfLevel || 3,
+                    '\u0423\u0411': profile.ubLevel || 3,
+                    '\u0427\u0412': profile.chvLevel || 3
+                };
+                await fetch('https://fredi-backend-flz2.onrender.com/api/mirrors/complete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        mirror_code: mirrorCode,
+                        friend_user_id: this.userId,
+                        friend_name: (this.context && this.context.name) || '\u0414\u0440\u0443\u0433',
+                        friend_profile_code: profile.displayName || null,
+                        friend_vectors: vectors,
+                        friend_deep_patterns: deep || {},
+                        friend_ai_profile: this.aiGeneratedProfile || '',
+                        friend_perception_type: this.perceptionType,
+                        friend_thinking_level: this.thinkingLevel
+                    })
+                });
+                localStorage.removeItem('fredi_mirror_ref');
+                console.log('\uD83E\uDE9E Mirror activated:', mirrorCode, 'vectors:', vectors);
+            } catch(e) {
+                console.warn('Mirror activation error:', e);
+            }
+        };
+
+        console.log('test-greeting-patch: all patches applied to window.Test');
         return true;
     }
 
