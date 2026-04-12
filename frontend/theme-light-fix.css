@@ -1,26 +1,28 @@
-/* Global fix: inline white text + backgrounds on light theme */
+/* ============================================
+   theme-light-fix.css — Global fixes for light theme
+   Catches inline white text, rgba backgrounds, borders
+   ============================================ */
 
-/* Solid white text */
+/* === SOLID WHITE TEXT (inline styles) === */
 [data-theme="light"] #screenContainer [style*="color:#fff"],
 [data-theme="light"] #screenContainer [style*="color: #fff"],
+[data-theme="light"] #screenContainer [style*="color:#ffffff"],
+[data-theme="light"] #screenContainer [style*="color: #ffffff"],
 [data-theme="light"] #screenContainer [style*="color:white"],
 [data-theme="light"] #screenContainer [style*="color: white"] {
     color: #1c1c1e !important;
 }
 
-/* Semi-transparent white text (rgba) */
-[data-theme="light"] #screenContainer [style*="color:rgba(255,255,255"] {
-    color: rgba(0,0,0,0.6) !important;
-}
-[data-theme="light"] #screenContainer [style*="color: rgba(255,255,255"] {
-    color: rgba(0,0,0,0.6) !important;
-}
+/* === SEMI-TRANSPARENT WHITE TEXT (rgba inline) === */
+[data-theme="light"] #screenContainer [style*="color:rgba(255,255,255"],
+[data-theme="light"] #screenContainer [style*="color: rgba(255,255,255"],
 [data-theme="light"] #screenContainer [style*="color:rgba(255, 255, 255"] {
     color: rgba(0,0,0,0.6) !important;
 }
 
-/* Preserve white text on gradient buttons */
+/* === PRESERVE WHITE ON GRADIENT BUTTONS === */
 [data-theme="light"] #screenContainer button[style*="background:linear-gradient"][style*="color:#fff"],
+[data-theme="light"] #screenContainer button[style*="background:linear-gradient"][style*="color: #fff"],
 [data-theme="light"] #screenContainer a[style*="background:linear-gradient"][style*="color:#fff"],
 [data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#00d4ff"][style*="color:#fff"],
 [data-theme="light"] #screenContainer [style*="background:linear-gradient(135deg,#ff6b3b"][style*="color:#fff"],
@@ -29,44 +31,30 @@
     color: #fff !important;
 }
 
-/* White backgrounds → dark equivalents */
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.08)"],
-[data-theme="light"] #screenContainer [style*="background: rgba(255,255,255,0.08)"] {
-    background: rgba(0,0,0,0.05) !important;
-}
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.1)"],
-[data-theme="light"] #screenContainer [style*="background: rgba(255,255,255,0.1)"] {
-    background: rgba(0,0,0,0.06) !important;
-}
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.05)"],
-[data-theme="light"] #screenContainer [style*="background: rgba(255,255,255,0.05)"] {
-    background: rgba(0,0,0,0.03) !important;
-}
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.15)"] {
-    background: rgba(0,0,0,0.08) !important;
-}
-[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.03)"] {
-    background: rgba(0,0,0,0.02) !important;
-}
+/* === WHITE BACKGROUNDS → DARK === */
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.03)"] { background: rgba(0,0,0,0.02) !important; }
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.05)"] { background: rgba(0,0,0,0.03) !important; }
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.08)"] { background: rgba(0,0,0,0.05) !important; }
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.1)"] { background: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.12)"] { background: rgba(0,0,0,0.07) !important; }
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.15)"] { background: rgba(0,0,0,0.08) !important; }
+[data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.2)"] { background: rgba(0,0,0,0.10) !important; }
+[data-theme="light"] #screenContainer [style*="background: rgba(255,255,255"] { background: rgba(0,0,0,0.05) !important; }
 
-/* White borders → dark */
-[data-theme="light"] #screenContainer [style*="border:1px solid rgba(255,255,255"] {
-    border-color: rgba(0,0,0,0.08) !important;
-}
-[data-theme="light"] #screenContainer [style*="border-bottom:1px solid rgba(255,255,255"] {
-    border-bottom-color: rgba(0,0,0,0.06) !important;
-}
-[data-theme="light"] #screenContainer [style*="border-top:1px solid rgba(255,255,255"] {
-    border-top-color: rgba(0,0,0,0.06) !important;
-}
+/* === WHITE BORDERS → DARK === */
+[data-theme="light"] #screenContainer [style*="border:1px solid rgba(255,255,255"] { border-color: rgba(0,0,0,0.08) !important; }
+[data-theme="light"] #screenContainer [style*="border-bottom:1px solid rgba(255,255,255"] { border-bottom-color: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] #screenContainer [style*="border-top:1px solid rgba(255,255,255"] { border-top-color: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] #screenContainer [style*="border:1px solid rgba(224,224,224"] { border-color: rgba(0,0,0,0.08) !important; }
 
-/* Mirrors module */
+/* === CHROME COLOR FIX (var(--chrome) is overridden but ensure CSS classes too) === */
 [data-theme="light"] .mirror-tab-btn.active { color: #1c1c1e !important; }
+[data-theme="light"] .mirror-action-btn { color: #1c1c1e !important; }
 
-/* App loader */
+/* === APP LOADER === */
 [data-theme="light"] .fredi-loader-sub { color: rgba(0,0,0,0.35) !important; }
 
-/* Inputs */
+/* === INPUTS === */
 [data-theme="light"] #screenContainer input[style*="color:white"],
 [data-theme="light"] #screenContainer textarea[style*="color:white"],
 [data-theme="light"] #screenContainer input[style*="color:#fff"],
@@ -79,7 +67,21 @@
     color: #1c1c1e !important;
 }
 
-/* Subscription cards */
+/* === ADMIN MODULE === */
+[data-theme="light"] #screenContainer [style*="background:#111"],
+[data-theme="light"] #screenContainer [style*="background: #111"],
+[data-theme="light"] #screenContainer [style*="background:#1a1a1a"],
+[data-theme="light"] #screenContainer [style*="background: #1a1a1a"] {
+    background: #f5f5f7 !important;
+}
+
+/* === METER MODULE === */
+[data-theme="light"] .meter-modal,
+[data-theme="light"] .meter-overlay {
+    color: #1c1c1e !important;
+}
+
+/* === SUBSCRIPTION CARDS === */
 [data-theme="light"] .sub-card {
     background: linear-gradient(135deg, rgba(59,130,255,0.08) 0%, rgba(255,107,59,0.04) 100%) !important;
     border-color: rgba(0,0,0,0.10) !important;
@@ -91,3 +93,20 @@
 }
 [data-theme="light"] .sub-card-icon { background: rgba(0,0,0,0.03) !important; }
 [data-theme="light"] .sub-loading { color: var(--text-secondary) !important; }
+
+/* === DOTS POPUP (Meysternlp) === */
+[data-theme="light"] .dots-popup { background: rgba(255,255,255,0.97) !important; border-color: rgba(0,0,0,0.1) !important; }
+[data-theme="light"] .dots-item { color: #1c1c1e !important; }
+[data-theme="light"] .dots-item:hover { background: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .dots-title { color: #1c1c1e !important; }
+[data-theme="light"] .dots-sub { color: rgba(0,0,0,0.4) !important; }
+[data-theme="light"] .dots-divider { background: rgba(0,0,0,0.06) !important; }
+[data-theme="light"] .install-modal-inner { background: #fff !important; border-color: rgba(0,0,0,0.1) !important; }
+[data-theme="light"] .install-modal-title { color: #1c1c1e !important; }
+[data-theme="light"] .install-modal-text { color: rgba(0,0,0,0.55) !important; }
+
+/* === CHATS TITLE === */
+[data-theme="light"] .chats-title {
+    color: #333 !important;
+    -webkit-text-fill-color: #333 !important;
+}
