@@ -15,12 +15,26 @@
     <link rel="stylesheet" href="theme-light.css">
     <script src="theme.js"></script>
     <style>
-        .menu-accordion-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-        .menu-accordion-header:hover { background: rgba(224,224,224,0.04); }
-        .menu-accordion-arrow { font-size: 10px; color: var(--text-secondary); transition: transform 0.2s ease; }
-        .menu-accordion-header.open .menu-accordion-arrow { transform: rotate(90deg); }
-        .menu-accordion-body { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
-        .menu-accordion-body.open { max-height: 500px; }
+        /* Compact nav overrides */
+        .chats-list .chat-item { padding: 7px 12px; margin-bottom: 1px; border-radius: 10px; gap: 10px; min-height: 36px; border: 1px solid transparent; }
+        .chats-list .chat-item:hover { background: rgba(224,224,224,0.06); border-color: transparent; }
+        .chats-list .chat-item.active { background: rgba(224,224,224,0.08); border-color: transparent; }
+        .chats-footer .chat-item { padding: 7px 12px; margin-bottom: 1px; border-radius: 10px; gap: 10px; min-height: 36px; border: 1px solid transparent; }
+        .chats-footer .chat-item:hover { background: rgba(224,224,224,0.06); border-color: transparent; }
+        .nav-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; line-height: 1; }
+        .nav-name { font-size: 13px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-item.active .nav-name { font-weight: 600; }
+        .nav-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--success, #10b981); flex-shrink: 0; }
+        .nav-badge { font-size: 10px; font-weight: 700; background: #ff3b3b; color: #fff; padding: 1px 6px; border-radius: 10px; min-width: 16px; text-align: center; flex-shrink: 0; line-height: 1.4; }
+        .nav-section { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; color: var(--text-secondary); text-transform: uppercase; padding: 14px 12px 4px; }
+        .nav-divider { height: 1px; background: rgba(224,224,224,0.06); margin: 6px 12px; }
+        .chats-footer { padding: 8px; }
+        .chats-footer .chat-item:last-child { margin-bottom: 0; }
+        /* Light theme nav overrides */
+        [data-theme="light"] .chats-list .chat-item:hover { background: rgba(0,0,0,0.04); }
+        [data-theme="light"] .chats-list .chat-item.active { background: rgba(0,0,0,0.06); }
+        [data-theme="light"] .chats-footer .chat-item:hover { background: rgba(0,0,0,0.04); }
+        [data-theme="light"] .nav-divider { background: rgba(0,0,0,0.06); }
     </style>
 </head>
 <body>
@@ -33,130 +47,65 @@
             </div>
 
             <div class="chats-list" id="chatsList">
-                <div class="chat-item" data-chat="test">
-                    <div class="chat-avatar">📊</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Психологический тест</div>
-                        <div class="chat-preview">15 минут, 5 этапов</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-
                 <div class="chat-item active" data-chat="fredi">
-                    <div class="chat-avatar">⭐</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Фреди</div>
-                        <div class="chat-preview">Чем могу помочь?</div>
-                    </div>
-                    <div class="chat-time">сейчас</div>
+                    <span class="nav-icon">⭐</span>
+                    <span class="nav-name">Фреди</span>
+                    <span class="nav-indicator"></span>
                 </div>
-
+                <div class="chat-item" data-chat="test">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-name">Психологический тест</span>
+                </div>
                 <div class="chat-item" data-chat="messages" id="messagesChatItem">
-                    <div class="chat-avatar">💬</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Сообщения</div>
-                        <div class="chat-preview">Совпадения и чаты</div>
-                    </div>
-                    <div class="chat-time" id="messagesBadge" style="display:none">
-                        <span class="badge">0</span>
-                    </div>
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-name">Сообщения</span>
+                    <span class="nav-badge" id="messagesBadge" style="display:none">0</span>
                 </div>
-
                 <div class="chat-item" data-chat="mirrors">
-                    <div class="chat-avatar">🪞</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Зеркало</div>
-                        <div class="chat-preview">Отражения друзей</div>
-                    </div>
-                    <div class="chat-time"></div>
+                    <span class="nav-icon">🪞</span>
+                    <span class="nav-name">Зеркало</span>
                 </div>
 
-                <div class="menu-divider"></div>
-
-                <div class="menu-accordion-header" onclick="toggleAccordion(this)">
-                    <div class="menu-section-title" style="margin:0">ИНСТРУМЕНТЫ</div>
-                    <span class="menu-accordion-arrow">&#9654;</span>
+                <div class="nav-section">Инструменты</div>
+                <div class="chat-item" data-chat="diary">
+                    <span class="nav-icon">📓</span>
+                    <span class="nav-name">Дневник</span>
                 </div>
-                <div class="menu-accordion-body">
-                    <div class="chat-item" data-chat="diary">
-                        <div class="chat-avatar">📓</div>
-                        <div class="chat-info">
-                            <div class="chat-name">Дневник</div>
-                            <div class="chat-preview">AI-рефлексия каждой записи</div>
-                        </div>
-                        <div class="chat-time"></div>
-                    </div>
-                    <div class="chat-item" data-chat="berne">
-                        <div class="chat-avatar">🎭</div>
-                        <div class="chat-info">
-                            <div class="chat-name">Роли и игры</div>
-                            <div class="chat-preview">Транзактный анализ по Берну</div>
-                        </div>
-                        <div class="chat-time"></div>
-                    </div>
-                    <div class="chat-item" data-chat="tales">
-                        <div class="chat-avatar">🧿</div>
-                        <div class="chat-info">
-                            <div class="chat-name">Сказки-катарсис</div>
-                            <div class="chat-preview">Одна сказка — одна задача</div>
-                        </div>
-                        <div class="chat-time"></div>
-                    </div>
+                <div class="chat-item" data-chat="berne">
+                    <span class="nav-icon">🎭</span>
+                    <span class="nav-name">Роли и игры</span>
+                </div>
+                <div class="chat-item" data-chat="tales">
+                    <span class="nav-icon">🧿</span>
+                    <span class="nav-name">Сказки-катарсис</span>
                 </div>
 
-                <div class="menu-divider"></div>
-
-                <div class="menu-accordion-header" onclick="toggleAccordion(this)">
-                    <div class="menu-section-title" style="margin:0">ПРАКТИКИ</div>
-                    <span class="menu-accordion-arrow">&#9654;</span>
+                <div class="nav-section">Практики</div>
+                <div class="chat-item" data-chat="practices">
+                    <span class="nav-icon">🧘</span>
+                    <span class="nav-name">Практики</span>
                 </div>
-                <div class="menu-accordion-body">
-                    <div class="chat-item" data-chat="practices">
-                        <div class="chat-avatar">🧘</div>
-                        <div class="chat-info">
-                            <div class="chat-name">Практики</div>
-                            <div class="chat-preview">Утренние и вечерние практики</div>
-                        </div>
-                        <div class="chat-time"></div>
-                    </div>
-                    <div class="chat-item" data-chat="hypnosis">
-                        <div class="chat-avatar">🌙</div>
-                        <div class="chat-info">
-                            <div class="chat-name">Гипноз</div>
-                            <div class="chat-preview">Гипнотические сессии</div>
-                        </div>
-                        <div class="chat-time"></div>
-                    </div>
-                    <div class="chat-item" data-chat="anchors">
-                        <div class="chat-avatar">⚓</div>
-                        <div class="chat-info">
-                            <div class="chat-name">Якоря</div>
-                            <div class="chat-preview">Эмоциональные якоря</div>
-                        </div>
-                        <div class="chat-time"></div>
-                    </div>
+                <div class="chat-item" data-chat="hypnosis">
+                    <span class="nav-icon">🌙</span>
+                    <span class="nav-name">Гипноз</span>
                 </div>
-
-                <div class="menu-divider"></div>
-
-                <div class="chat-item" data-chat="settings" id="settingsBtn">
-                    <div class="chat-avatar">⚙️</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Настройки</div>
-                    </div>
-                    <div class="chat-time"></div>
-                </div>
-
-                <div class="chat-item" id="secretRoomBtn" style="opacity:0.35;transition:opacity 0.2s;-webkit-tap-highlight-color:transparent;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='0.35'">
-                    <div class="chat-avatar">🔐</div>
-                    <div class="chat-info">
-                        <div class="chat-name">Секретная комната</div>
-                    </div>
-                    <div class="chat-time"></div>
+                <div class="chat-item" data-chat="anchors">
+                    <span class="nav-icon">⚓</span>
+                    <span class="nav-name">Якоря</span>
                 </div>
             </div>
 
-            <div class="chats-footer"></div>
+            <div class="chats-footer">
+                <div class="nav-divider"></div>
+                <div class="chat-item" data-chat="settings" id="settingsBtn">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-name">Настройки</span>
+                </div>
+                <div class="chat-item" id="secretRoomBtn" style="opacity:0.3">
+                    <span class="nav-icon">🔐</span>
+                    <span class="nav-name" style="font-size:11px;color:var(--text-secondary)">Секретная комната</span>
+                </div>
+            </div>
         </div>
 
         <div class="chat-panel" id="chatPanel">
@@ -201,19 +150,6 @@
             localStorage.setItem('fredi_user_id', uid);
             window.USER_ID = uid;
         })();
-
-        function toggleAccordion(header) {
-            var body = header.nextElementSibling;
-            var isOpen = header.classList.contains('open');
-            document.querySelectorAll('.menu-accordion-header').forEach(function(h) {
-                h.classList.remove('open');
-                h.nextElementSibling.classList.remove('open');
-            });
-            if (!isOpen) {
-                header.classList.add('open');
-                body.classList.add('open');
-            }
-        }
 
         window.addEventListener('load', function() {
             if (window.PushManager_Fredi && window.USER_ID) {
