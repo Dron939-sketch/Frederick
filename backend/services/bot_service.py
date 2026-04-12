@@ -1,6 +1,7 @@
 """
 bot_service.py — Telegram + Max bot webhook handlers.
 Handles /start web_{user_id} for account linking.
+Handles /start mirror_{code} for mirror test invites.
 """
 
 import os
@@ -14,11 +15,13 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 MAX_TOKEN = os.environ.get("MAX_TOKEN", "").strip()
 BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com").strip()
+WEB_URL = os.environ.get("WEB_URL", "https://fredi-frontend.onrender.com").strip().rstrip("/")
 
 MSG_LINK_SUCCESS = "Привет, {name}! Аккаунт успешно привязан к Фреди. Теперь утренние сообщения будут приходить сюда."
 MSG_LINK_ERROR = "Неверная ссылка привязки. Попробуйте ещё раз из настроек Фреди."
 MSG_START_TG = "Привет! Я бот Фреди — виртуальный психолог.\n\nЧтобы привязать аккаунт, откройте Настройки в приложении Фреди и нажмите «Связать аккаунт» в разделе Telegram."
 MSG_START_MAX = "Привет! Я бот Фреди — виртуальный психолог.\n\nЧтобы привязать аккаунт, откройте Настройки в приложении Фреди и нажмите «Связать аккаунт» в разделе Max."
+MSG_MIRROR_INVITE = "Привет! Тебя пригласили пройти психологический тест от Фреди.\n\n\u0001f449 {link}\n\n\u0023f1 Займёт 15 минут. Результат увидишь сразу!"
 
 
 def register_bot_webhooks(app, db):
@@ -44,8 +47,10 @@ def register_bot_webhooks(app, db):
 
             if text.startswith("/start"):
                 parts = text.split()
-                if len(parts) >= 2 and parts[1].startswith("web_"):
-                    web_user_id = parts[1].replace("web_", "")
+                payload = parts[1] if len(parts) >= 2 else ""
+
+                if payload.startswith("web_"):
+                    web_user_id = payload.replace("web_", "")
                     try:
                         web_user_id_int = int(web_user_id)
                     except ValueError:
@@ -67,6 +72,12 @@ def register_bot_webhooks(app, db):
 
                     await _tg_send(chat_id, MSG_LINK_SUCCESS.format(name=username or first_name or "друг"))
                     logger.info(f"Telegram linked: user {web_user_id} -> chat {chat_id}")
+
+                elif payload.startswith("mirror_"):
+                    link = f"{WEB_URL}?ref={payload}"
+                    await _tg_send(chat_id, f"Привет! Тебя пригласили пройти психологический тест от Фреди.\n\n\ud83d\udc49 {link}\n\n\u23f1 Займёт 15 минут. Результат увидишь сразу!")
+                    logger.info(f"Telegram mirror invite sent: {payload} -> chat {chat_id}")
+
                 else:
                     await _tg_send(chat_id, MSG_START_TG)
 
@@ -112,8 +123,10 @@ def register_bot_webhooks(app, db):
 
                 if text.startswith("/start"):
                     parts = text.split()
-                    if len(parts) >= 2 and parts[1].startswith("web_"):
-                        web_user_id = parts[1].replace("web_", "")
+                    payload = parts[1] if len(parts) >= 2 else ""
+
+                    if payload.startswith("web_"):
+                        web_user_id = payload.replace("web_", "")
                         try:
                             web_user_id_int = int(web_user_id)
                         except ValueError:
@@ -135,6 +148,12 @@ def register_bot_webhooks(app, db):
 
                         await _max_send(chat_id, MSG_LINK_SUCCESS.format(name=sender_name or "друг"))
                         logger.info(f"Max linked: user {web_user_id} -> chat {chat_id}")
+
+                    elif payload.startswith("mirror_"):
+                        link = f"{WEB_URL}?ref={payload}"
+                        await _max_send(chat_id, f"Привет! Тебя пригласили пройти психологический тест от Фреди.\n\n\ud83d\udc49 {link}\n\n\u23f1 Займёт 15 минут. Результат увидишь сразу!")
+                        logger.info(f"Max mirror invite sent: {payload} -> chat {chat_id}")
+
                     else:
                         await _max_send(chat_id, MSG_START_MAX)
 
@@ -144,8 +163,9 @@ def register_bot_webhooks(app, db):
                 user_name = user.get("name", "")
                 logger.info(f"MAX bot_started: chat_id={chat_id}, user={user_name}")
 
-                payload = body.get("payload", "")
-                if payload and payload.startswith("web_"):
+                payload = body.get("payload", "") or ""
+
+                if payload.startswith("web_"):
                     web_user_id = payload.replace("web_", "")
                     try:
                         web_user_id_int = int(web_user_id)
@@ -165,6 +185,12 @@ def register_bot_webhooks(app, db):
                         logger.info(f"Max linked via bot_started: user {web_user_id} -> chat {chat_id}")
                     except ValueError:
                         await _max_send(chat_id, MSG_START_MAX)
+
+                elif payload.startswith("mirror_"):
+                    link = f"{WEB_URL}?ref={payload}"
+                    await _max_send(chat_id, f"Привет! Тебя пригласили пройти психологический тест от Фреди.\n\n\ud83d\udc49 {link}\n\n\u23f1 Займёт 15 минут. Результат увидишь сразу!")
+                    logger.info(f"Max mirror invite via bot_started: {payload} -> chat {chat_id}")
+
                 else:
                     await _max_send(chat_id, MSG_START_MAX)
             else:
