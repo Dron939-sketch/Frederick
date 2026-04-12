@@ -22,5 +22,5 @@ COPY . .
 # Открываем порт
 EXPOSE 10000
 
-# Запускаем сервер с поддержкой WebSocket
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000", "--timeout-keep-alive", "120"]
+# Запускаем через asgi.py (с security middleware)
+CMD ["uvicorn", "asgi:application", "--host", "0.0.0.0", "--port", "10000", "--timeout-keep-alive", "120"]
