@@ -71,7 +71,15 @@
     </div>
     <div id="toastMessage" class="floating-message"><div class="floating-message-content"><div class="floating-message-text" id="toastText"></div><div class="floating-message-close" id="toastClose">✕</div></div></div>
     <script>
-        (function(){window.API_BASE_URL='https://fredi-backend-flz2.onrender.com';var s=localStorage.getItem('fredi_user_id');var u=s&&!isNaN(parseInt(s))?parseInt(s):Date.now();localStorage.setItem('fredi_user_id',u);window.USER_ID=u;})();
+        (function(){
+            // ✅ ИСПРАВЛЕНО: используем СВОЙ домен вместо прямого обращения к Render
+            window.API_BASE_URL = 'https://api.fredium.ru';
+            
+            var s = localStorage.getItem('fredi_user_id');
+            var u = s && !isNaN(parseInt(s)) ? parseInt(s) : Date.now();
+            localStorage.setItem('fredi_user_id', u);
+            window.USER_ID = u;
+        })();
         window.addEventListener('load',function(){if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.init(window.USER_ID);var _p=false;document.getElementById('chatsList')?.addEventListener('click',function(){if(_p)return;_p=true;if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.request(window.USER_ID);},{once:true});var btn=document.getElementById('secretRoomBtn');if(btn)btn.addEventListener('click',function(){if(typeof openSecretRoom==='function')openSecretRoom();document.getElementById('chatsPanel')?.classList.remove('open');});});
     </script>
     <script src="tracker.js"></script>
