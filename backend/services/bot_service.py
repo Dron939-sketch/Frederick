@@ -74,8 +74,17 @@ def register_bot_webhooks(app, db):
                     logger.info(f"Telegram linked: user {web_user_id} -> chat {chat_id}")
 
                 elif payload.startswith("mirror_"):
-                    link = f"{WEB_URL}?ref={payload}"
-                    await _tg_send(chat_id, f"Привет! Тебя пригласили пройти психологический тест от Фреди.\n\n\ud83d\udc49 {link}\n\n\u23f1 Займёт 15 минут. Результат увидишь сразу!")
+                    # Сохраняем friend_user_id и имя в БД сразу
+                    tg_user_id = from_user.get("id")
+                    if tg_user_id:
+                        async with db.get_connection() as conn:
+                            await conn.execute(
+                                "UPDATE fredi_mirrors SET friend_user_id = $1, friend_name = $2 "
+                                "WHERE mirror_code = $3 AND status = 'active'",
+                                int(tg_user_id), first_name or username or "Друг", payload
+                            )
+                        logger.info(f"🪞 TG mirror friend saved: {payload} -> friend {tg_user_id} ({first_name})")
+                    await _tg_send(chat_id, MSG_START_TG)
                     logger.info(f"Telegram mirror invite sent: {payload} -> chat {chat_id}")
 
                 else:
@@ -191,11 +200,11 @@ def register_bot_webhooks(app, db):
                     if friend_uid:
                         async with db.get_connection() as conn:
                             await conn.execute(
-                                "UPDATE fredi_mirrors SET friend_user_id = $1 "
-                                "WHERE mirror_code = $2 AND status = 'active'",
-                                int(friend_uid), payload
+                                "UPDATE fredi_mirrors SET friend_user_id = $1, friend_name = $2 "
+                                "WHERE mirror_code = $3 AND status = 'active'",
+                                int(friend_uid), user_name or "Друг", payload
                             )
-                        logger.info(f"🪞 Mirror friend saved: {payload} -> friend {friend_uid}")
+                        logger.info(f"🪞 Mirror friend saved: {payload} -> friend {friend_uid} ({user_name})")
                     await _max_send(chat_id, MSG_START_MAX)
 
                 else:
