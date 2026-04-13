@@ -1,9 +1,70 @@
 // ============================================
 // 🪞 ЗЕРКАЛА / ОТРАЖЕНИЯ
-// Версия 2.0 — Premium Dark
+// Версия 2.1 — с фиксом JSONB и навигацией
 // ============================================
 
 const API_BASE = window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+
+// ============================================
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ============================================
+
+// Фикс двойной сериализации JSONB
+function _fixMirrorRef(ref) {
+    if (!ref) return ref;
+    
+    ['friend_vectors', 'friend_deep_patterns'].forEach(function(key) {
+        if (typeof ref[key] === 'string') {
+            try { 
+                ref[key] = JSON.parse(ref[key]); 
+            } catch(e) { 
+                ref[key] = {}; 
+            }
+        }
+        if (!ref[key]) ref[key] = {};
+    });
+    
+    var v = ref.friend_vectors;
+    if (v && typeof v === 'object') {
+        Object.keys(v).forEach(function(k) { 
+            v[k] = Number(v[k]) || 0; 
+        });
+    }
+    
+    return ref;
+}
+
+// Функция возврата на главный экран (без двойников!)
+function _mirrorsGoBack() {
+    if (typeof renderDashboard === 'function') {
+        renderDashboard();
+    } else if (window.renderDashboard) {
+        window.renderDashboard();
+    } else {
+        // Если ничего нет, просто перезагружаем зеркала
+        showMirrorsScreen();
+    }
+}
+
+// Копирование в буфер
+function _copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        try {
+            document.execCommand('copy');
+            resolve();
+        } catch(e) {
+            reject(e);
+        }
+        document.body.removeChild(el);
+    });
+}
 
 // ============================================
 // СТИЛИ
@@ -187,9 +248,16 @@ async function apiCreateMirror(userId, mirrorType) {
     });
     return res.json();
 }
+
 async function apiGetReflections(userId) {
     const res = await fetch(`${API_BASE}/api/mirrors/${userId}/reflections`);
-    return res.json();
+    const data = await res.json();
+    
+    // ПРИМЕНЯЕМ ФИКС JSONB СРАЗУ ПРИ ПОЛУЧЕНИИ
+    if (data && data.reflections) {
+        data.reflections.forEach(_fixMirrorRef);
+    }
+    return data;
 }
 
 // ============================================
@@ -366,6 +434,7 @@ async function showReflectionsTab(container) {
 
         container.innerHTML = html;
     } catch(e) {
+        console.error('Mirrors error:', e);
         container.innerHTML = `
             <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);
                         border-radius:16px;padding:24px;text-align:center;color:rgba(59,130,246,0.8);">
@@ -525,7 +594,7 @@ async function generateMirrorLink(mirrorType) {
 }
 
 function copyMirrorLink(link) {
-    copyToClipboard(link).then(() => {
+    _copyToClipboard(link).then(() => {
         if (typeof showToast === 'function') showToast('✅ Ссылка скопирована!');
     }).catch(() => {
         const el = document.createElement('textarea');
@@ -537,7 +606,7 @@ function copyMirrorLink(link) {
 
 function copyMirrorWithText(link, text) {
     const full = text + '\n\n' + link;
-    copyToClipboard(full).then(() => {
+    _copyToClipboard(full).then(() => {
         if (typeof showToast === 'function') showToast('✅ Текст и ссылка скопированы!');
     }).catch(() => {
         const el = document.createElement('textarea');
@@ -553,9 +622,12 @@ function shareMirrorLink(link, text) {
 }
 
 // ============================================
-// ПРОФИЛЬ ДРУГА
+// ПРОФИЛЬ ДРУГА (с фиксом JSONB)
 // ============================================
 async function showFriendProfile(ref) {
+    // Применяем фикс на всякий случай
+    ref = _fixMirrorRef(ref);
+    
     const container = document.getElementById('screenContainer');
     const name = ref.friend_name || 'Друг';
     const profile = ref.friend_profile_code || '—';
@@ -610,10 +682,10 @@ async function showFriendProfile(ref) {
                     <div style="margin-bottom:14px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                             <span style="font-size:13px;color:rgba(255,255,255,0.6);">${vNames[k]||k}</span>
-                            <span style="font-size:13px;font-weight:700;color:${vColor(v)};">${v.toFixed(1)}/6</span>
+                            <span style="font-size:13px;font-weight:700;color:${vColor(v)};">${typeof v === 'number' ? v.toFixed(1) : v}/6</span>
                         </div>
                         <div class="mirror-vector-bar-track">
-                            <div class="mirror-vector-bar-fill" style="width:${Math.round(v/6*100)}%;background:${vColor(v)};"></div>
+                            <div class="mirror-vector-bar-fill" style="width:${Math.round((typeof v === 'number' ? v : 0)/6*100)}%;background:${vColor(v)};"></div>
                         </div>
                     </div>`).join('')}
             </div>` : ''}
@@ -927,7 +999,9 @@ function showExample4F(c) {
         <div class="mirror-4f-card" style="border-color:${col};animation-delay:${idx*0.08}s">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
                 <span style="font-size:20px;">${emoji}</span>
-                <div style="font-size:14px;font-weight:700;color:#fff;">${code} — ${title}</div>
+                <div>
+                    <div style="font-size:14px;font-weight:700;color:#fff;">${code} — ${title}</div>
+                </div>
             </div>
             <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">🎯 ТРИГГЕРЫ</div>
             ${triggers.map(t=>`<div style="font-size:13px;color:rgba(255,255,255,0.65);padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);">• ${t}</div>`).join('')}
@@ -940,7 +1014,7 @@ function showExample4F(c) {
 }
 
 // ============================================
-// ЭКСПОРТ
+// ЭКСПОРТ (НЕТ ДВОЙНИКОВ!)
 // ============================================
 window.showMirrorsScreen = showMirrorsScreen;
 window.switchMirrorTab = switchMirrorTab;
@@ -953,3 +1027,5 @@ window.loadIntimateProfile = loadIntimateProfile;
 window.load4FKeys = load4FKeys;
 window.showProfileExample = showProfileExample;
 window.switchExampleTab = switchExampleTab;
+
+console.log('✅ mirrors.js v2.1 загружен (JSONB фикс встроен, двойников нет)');
