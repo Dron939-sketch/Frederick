@@ -22,8 +22,7 @@
             ]);
         };
 
-        // === PATCH 2: Fix sendTestResultsToServer — AI profile first, then mirror with correct vectors ===
-        var _origSendResults = window.Test.sendTestResultsToServer;
+        // === PATCH 2: Fix sendTestResultsToServer ===
         window.Test.sendTestResultsToServer = async function() {
             if (!this.userId) { this.showFinalProfileButtons(); return; }
             var profile = this.calculateFinalProfile();
@@ -34,32 +33,20 @@
                     body: JSON.stringify({
                         user_id: parseInt(this.userId), context: this.context,
                         results: {
-                            perception_type: this.perceptionType,
-                            thinking_level: this.thinkingLevel,
-                            behavioral_levels: this.behavioralLevels,
-                            dilts_counts: this.diltsCounts,
-                            deep_patterns: deep,
-                            profile_data: profile,
-                            all_answers: this.answers,
-                            test_completed: true,
-                            test_completed_at: new Date().toISOString()
+                            perception_type: this.perceptionType, thinking_level: this.thinkingLevel,
+                            behavioral_levels: this.behavioralLevels, dilts_counts: this.diltsCounts,
+                            deep_patterns: deep, profile_data: profile, all_answers: this.answers,
+                            test_completed: true, test_completed_at: new Date().toISOString()
                         }
                     })
                 });
                 var data;
                 try { data = await r.json(); } catch(e) { data = {success: r.ok}; }
                 if (data.success) {
-                    // First fetch AI profile (so it's available for mirror)
                     await this.fetchAIGeneratedProfile();
-                    // Then complete mirror with correct vectors from profile object
                     await this._completeMirrorFixed(profile, deep);
-                } else {
-                    this.showFinalProfileButtons();
-                }
-            } catch(error) {
-                console.error('Network error:', error);
-                this.showFinalProfileButtons();
-            }
+                } else { this.showFinalProfileButtons(); }
+            } catch(error) { console.error('Network error:', error); this.showFinalProfileButtons(); }
         };
 
         // === PATCH 3: Fixed mirror completion with proper vectors ===
@@ -67,35 +54,23 @@
             var mirrorCode = this.getMirrorCode();
             if (!mirrorCode) return;
             try {
-                var vectors = {
-                    '\u0421\u0411': profile.sbLevel || 3,
-                    '\u0422\u0424': profile.tfLevel || 3,
-                    '\u0423\u0411': profile.ubLevel || 3,
-                    '\u0427\u0412': profile.chvLevel || 3
-                };
+                var vectors = {'\u0421\u0411': profile.sbLevel||3, '\u0422\u0424': profile.tfLevel||3, '\u0423\u0411': profile.ubLevel||3, '\u0427\u0412': profile.chvLevel||3};
                 await fetch('https://fredi-backend-flz2.onrender.com/api/mirrors/complete', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
-                        mirror_code: mirrorCode,
-                        friend_user_id: this.userId,
+                        mirror_code: mirrorCode, friend_user_id: this.userId,
                         friend_name: (this.context && this.context.name) || '\u0414\u0440\u0443\u0433',
-                        friend_profile_code: profile.displayName || null,
-                        friend_vectors: vectors,
-                        friend_deep_patterns: deep || {},
-                        friend_ai_profile: this.aiGeneratedProfile || '',
-                        friend_perception_type: this.perceptionType,
-                        friend_thinking_level: this.thinkingLevel
+                        friend_profile_code: profile.displayName || null, friend_vectors: vectors,
+                        friend_deep_patterns: deep || {}, friend_ai_profile: this.aiGeneratedProfile || '',
+                        friend_perception_type: this.perceptionType, friend_thinking_level: this.thinkingLevel
                     })
                 });
                 localStorage.removeItem('fredi_mirror_ref');
                 console.log('\uD83E\uDE9E Mirror activated:', mirrorCode, 'vectors:', vectors);
-            } catch(e) {
-                console.warn('Mirror activation error:', e);
-            }
+            } catch(e) { console.warn('Mirror error:', e); }
         };
 
-        console.log('test-greeting-patch: all patches applied to window.Test');
+        console.log('test-greeting-patch: all patches applied');
         return true;
     }
 
@@ -103,5 +78,32 @@
         setTimeout(patch, 500);
         setTimeout(patch, 1500);
         setTimeout(patch, 3000);
+    }
+
+    // === PATCH 4: Auto-open test when URL has ?ref=mirror_ ===
+    function checkMirrorRef() {
+        var ref = new URLSearchParams(window.location.search).get('ref');
+        if (ref && ref.startsWith('mirror_')) {
+            localStorage.setItem('fredi_mirror_ref', ref);
+            console.log('\uD83E\uDE9E Mirror ref detected in URL:', ref, '- auto-starting test');
+            // Wait for app to initialize, then open test
+            setTimeout(function() {
+                if (typeof startTest === 'function') {
+                    startTest();
+                } else if (typeof window.startTest === 'function') {
+                    window.startTest();
+                } else {
+                    // Find and click the test menu item
+                    var testItem = document.querySelector('[data-chat="test"]');
+                    if (testItem) testItem.click();
+                }
+            }, 1500);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', checkMirrorRef);
+    } else {
+        checkMirrorRef();
     }
 })();
