@@ -1,15 +1,15 @@
 // ============================================
 // doubles.js — Психометрический мэтчмейкер
-// Версия 4.0 — единый стиль с проектом
+// Версия 5.0 — с уточняющими вопросами
 // ============================================
 
 // ============================================
 // CSS — инжектируем один раз
 // ============================================
 function _doublesInjectStyles() {
-    if (document.getElementById('doubles-v4-styles')) return;
+    if (document.getElementById('doubles-v5-styles')) return;
     const s = document.createElement('style');
-    s.id = 'doubles-v4-styles';
+    s.id = 'doubles-v5-styles';
     s.textContent = `
         /* ===== КАРТОЧКА ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ ===== */
         .db-own-card {
@@ -52,6 +52,55 @@ function _doublesInjectStyles() {
             color: var(--text-secondary);
         }
 
+        /* ===== ВОПРОСЫ ===== */
+        .db-question-card {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.12);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .db-question-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            line-height: 1.4;
+        }
+        .db-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .db-option-btn {
+            background: rgba(224,224,224,0.05);
+            border: 1px solid rgba(224,224,224,0.15);
+            border-radius: 16px;
+            padding: 14px 16px;
+            text-align: left;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            touch-action: manipulation;
+        }
+        .db-option-btn:hover {
+            background: rgba(224,224,224,0.1);
+            border-color: rgba(224,224,224,0.3);
+            transform: translateX(4px);
+        }
+        .db-option-btn.selected {
+            background: rgba(224,224,224,0.15);
+            border-color: var(--chrome);
+        }
+        .db-question-progress {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 16px;
+            text-align: center;
+        }
+
         /* ===== РЕЖИМЫ (MODE CARDS) ===== */
         .db-mode-card {
             border-radius: 20px;
@@ -79,31 +128,6 @@ function _doublesInjectStyles() {
         .db-mode-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
         .db-mode-tags { font-size: 10px; color: var(--text-secondary); margin-top: 8px; line-height: 1.6; }
         .db-mode-arrow { font-size: 18px; color: var(--silver-brushed); flex-shrink: 0; }
-
-        /* ===== ЦЕЛИ (GOAL ITEMS) ===== */
-        .db-goal-item {
-            background: rgba(224,224,224,0.04);
-            border: 1px solid rgba(224,224,224,0.12);
-            border-radius: 16px;
-            padding: 14px 16px;
-            margin-bottom: 10px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            transition: background 0.2s, border-color 0.2s, transform 0.15s;
-            touch-action: manipulation;
-        }
-        .db-goal-item:hover {
-            background: rgba(224,224,224,0.09);
-            border-color: rgba(224,224,224,0.25);
-            transform: translateX(4px);
-        }
-        .db-goal-item:active { transform: scale(0.98); }
-        .db-goal-icon { font-size: 32px; line-height: 1; flex-shrink: 0; }
-        .db-goal-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-        .db-goal-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
-        .db-goal-arrow { font-size: 16px; color: var(--silver-brushed); flex-shrink: 0; }
 
         /* ===== ФИЛЬТРЫ ===== */
         .db-filters {
@@ -436,7 +460,6 @@ function _doublesInjectStyles() {
 
         @media (max-width: 480px) {
             .db-mode-icon { font-size: 32px; }
-            .db-goal-icon { font-size: 26px; }
         }
     `;
     document.head.appendChild(s);
@@ -446,10 +469,11 @@ function _doublesInjectStyles() {
 // СОСТОЯНИЕ
 // ============================================
 let doublesState = {
-    searchMode: null,
-    searchGoal: null,
+    searchMode: null,      // 'twin' или 'match'
+    searchGoal: null,      // 'lover', 'employee' и т.д.
+    searchParams: {},      // ответы на уточняющие вопросы
     foundDoubles: [],
-    filters: { distance: 'any', gender: 'any' }
+    filters: { distance: 'any', gender: 'any', ageFrom: null, ageTo: null }
 };
 
 let userDoublesProfile = {
@@ -519,41 +543,597 @@ async function _loadProfile() {
 }
 
 // ============================================
-// СПРАВОЧНИКИ
+// УТОЧНЯЮЩИЕ ВОПРОСЫ (ДИНАМИЧЕСКИЕ)
 // ============================================
-const GOALS = {
-    twin:      { emoji: '👥', name: 'Похожий профиль', desc: 'Люди с максимально близким психотипом' },
-    lover:     { emoji: '💕', name: 'Любовник',        desc: 'Страсть, романтика, влечение' },
-    spouse:    { emoji: '💍', name: 'Муж / Жена',      desc: 'Семья, стабильность, общее будущее' },
-    friend:    { emoji: '👥', name: 'Друг',             desc: 'Поддержка, общение, доверие' },
-    companion: { emoji: '🤝', name: 'Бизнес-партнёр',  desc: 'Проекты, капитал, синергия' },
-    employee:  { emoji: '👔', name: 'Сотрудник',        desc: 'Работа, команда, исполнительность' },
-    boss:      { emoji: '👑', name: 'Начальник',        desc: 'Карьера, лидерство, рост' },
-    mentor:    { emoji: '🦉', name: 'Ментор',           desc: 'Мудрость, обучение, развитие' },
-    travel:    { emoji: '✈️', name: 'Попутчик',         desc: 'Путешествия, приключения' }
+
+const CLARIFYING_QUESTIONS = {
+    // 👥 ДВОЙНИК - почти без вопросов, только уточнение по полу
+    twin: {
+        getQuestions: (userProfile, currentParams) => {
+            return [
+                {
+                    id: 'gender_preference',
+                    text: 'Кого вы хотите найти?',
+                    options: [
+                        { value: 'any', text: '👤 Любой пол' },
+                        { value: 'male', text: '👨 Мужчин' },
+                        { value: 'female', text: '👩 Женщин' }
+                    ]
+                }
+            ];
+        },
+        buildSearchParams: (answers) => {
+            return {
+                gender: answers.gender_preference || 'any'
+            };
+        }
+    },
+
+    // 💕 ЛЮБОВНИК
+    lover: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            const chv = userProfile.vectors.ЧВ;
+            
+            // Вопрос 1: интенсивность (зависит от ЧВ пользователя)
+            if (chv >= 5) {
+                questions.push({
+                    id: 'intensity',
+                    text: 'Какой тип страсти вы ищете?',
+                    options: [
+                        { value: 'extreme', text: '🔥 Экстрим, драйв, приключения' },
+                        { value: 'romantic', text: '🌹 Романтика, нежность, забота' },
+                        { value: 'balanced', text: '⚖️ Гармоничное сочетание' }
+                    ]
+                });
+            } else if (chv <= 2) {
+                questions.push({
+                    id: 'intensity',
+                    text: 'Вам нужен кто-то, кто разбудит чувства, или спокойный партнёр?',
+                    options: [
+                        { value: 'awaken', text: '🔥 Разбудить эмоции и страсть' },
+                        { value: 'calm', text: '🌊 Спокойный и нежный' }
+                    ]
+                });
+            } else {
+                questions.push({
+                    id: 'intensity',
+                    text: 'Какая атмосфера вам ближе?',
+                    options: [
+                        { value: 'passionate', text: '🔥 Страстная и яркая' },
+                        { value: 'tender', text: '💕 Нежная и романтичная' },
+                        { value: 'playful', text: '🎭 Игривая и лёгкая' }
+                    ]
+                });
+            }
+            
+            // Вопрос 2: формат отношений
+            questions.push({
+                id: 'format',
+                text: 'Какой формат отношений вам подходит?',
+                options: [
+                    { value: 'regular', text: '📅 Регулярные встречи (1-2 раза в неделю)' },
+                    { value: 'rare', text: '✨ Редко, но ярко (раз в месяц)' },
+                    { value: 'open', text: '🕊️ Свободные, без обязательств' },
+                    { value: 'serious', text: '💍 С перспективой серьёзных отношений' }
+                ]
+            });
+            
+            // Вопрос 3: возраст (если не задан)
+            if (!currentParams.age_range) {
+                questions.push({
+                    id: 'age_range',
+                    text: 'Какой возраст партнёра вам интересен?',
+                    options: [
+                        { value: 'younger', text: '🪶 Моложе меня' },
+                        { value: 'same', text: '👥 Мой возраст (±3 года)' },
+                        { value: 'older', text: '🦉 Старше меня' },
+                        { value: 'any', text: '🌍 Не важно' }
+                    ]
+                });
+            }
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                intensity: answers.intensity || 'balanced',
+                format: answers.format || 'regular',
+                age_range: answers.age_range || 'any'
+            };
+        }
+    },
+
+    // 💍 МУЖ/ЖЕНА
+    spouse: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            const weakSpots = [];
+            if (userProfile.vectors.СБ < 3) weakSpots.push('стратегическое мышление');
+            if (userProfile.vectors.ТФ < 3) weakSpots.push('гибкость и адаптивность');
+            if (userProfile.vectors.УБ < 3) weakSpots.push('надёжность и безопасность');
+            if (userProfile.vectors.ЧВ < 3) weakSpots.push('эмоциональный интеллект');
+            
+            if (weakSpots.length > 0) {
+                questions.push({
+                    id: 'compensation',
+                    text: `Что для вас важнее всего в партнёре? (у вас развито ${weakSpots.join(', ')})`,
+                    options: [
+                        { value: 'balance', text: '⚖️ Чтобы дополнял мои слабые стороны' },
+                        { value: 'similar', text: '👥 Чтобы был похож на меня' },
+                        { value: 'support', text: '🤝 Чтобы поддерживал и вдохновлял' }
+                    ]
+                });
+            }
+            
+            questions.push({
+                id: 'family_values',
+                text: 'Какие семейные ценности для вас приоритет?',
+                options: [
+                    { value: 'traditional', text: '🏠 Традиционные (дети, дом, уют)' },
+                    { value: 'modern', text: '💼 Современные (карьера + семья)' },
+                    { value: 'free', text: '🕊️ Свободные (партнёрство без рамок)' }
+                ]
+            });
+            
+            questions.push({
+                id: 'children',
+                text: 'Отношение к детям?',
+                options: [
+                    { value: 'want', text: '👶 Хочу детей' },
+                    { value: 'maybe', text: '🤔 Пока не решил(а)' },
+                    { value: 'no', text: '🚫 Не хочу детей' },
+                    { value: 'have', text: '👨‍👩‍👧 Уже есть дети' }
+                ]
+            });
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                compensation: answers.compensation || 'balance',
+                family_values: answers.family_values || 'modern',
+                children: answers.children || 'maybe'
+            };
+        }
+    },
+
+    // 👥 ДРУГ
+    friend: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            
+            questions.push({
+                id: 'interests',
+                text: 'Какие интересы должны быть общими?',
+                options: [
+                    { value: 'hobbies', text: '🎨 Хобби и увлечения' },
+                    { value: 'work', text: '💼 Работа и карьера' },
+                    { value: 'philosophy', text: '🧠 Мировоззрение и ценности' },
+                    { value: 'all', text: '🌟 Всё перечисленное' }
+                ]
+            });
+            
+            questions.push({
+                id: 'communication',
+                text: 'Как часто вы хотите общаться?',
+                options: [
+                    { value: 'daily', text: '💬 Ежедневно' },
+                    { value: 'weekly', text: '📅 Пару раз в неделю' },
+                    { value: 'rare', text: '🌙 Изредка, но душевно' }
+                ]
+            });
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                interests: answers.interests || 'all',
+                communication: answers.communication || 'weekly'
+            };
+        }
+    },
+
+    // 🤝 БИЗНЕС-ПАРТНЁР
+    companion: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            const sb = userProfile.vectors.СБ;
+            
+            if (sb >= 4) {
+                questions.push({
+                    id: 'role',
+                    text: 'Какую роль должен закрыть партнёр?',
+                    options: [
+                        { value: 'executor', text: '📋 Исполнитель (реализовывать идеи)' },
+                        { value: 'finance', text: '💰 Финансист (деньги и риски)' },
+                        { value: 'operations', text: '⚙️ Операционный директор (процессы)' },
+                        { value: 'equal', text: '🤝 Равный партнёр (разделять всё)' }
+                    ]
+                });
+            } else {
+                questions.push({
+                    id: 'role',
+                    text: 'Какой тип партнёра вам нужен?',
+                    options: [
+                        { value: 'strategist', text: '🎯 Стратег (видеть цель и пути)' },
+                        { value: 'executor', text: '📋 Надёжный исполнитель' },
+                        { value: 'mentor', text: '🦉 Наставник и инвестор' }
+                    ]
+                });
+            }
+            
+            questions.push({
+                id: 'risk',
+                text: 'Ваше отношение к риску в бизнесе?',
+                options: [
+                    { value: 'low', text: '🛡️ Низкий (стабильность и предсказуемость)' },
+                    { value: 'medium', text: '⚖️ Средний (просчитанные риски)' },
+                    { value: 'high', text: '🚀 Высокий (быстрый рост, стартап)' }
+                ]
+            });
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                role: answers.role || 'equal',
+                risk_tolerance: answers.risk || 'medium'
+            };
+        }
+    },
+
+    // 👔 СОТРУДНИК
+    employee: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            
+            questions.push({
+                id: 'position',
+                text: 'На какую роль ищете сотрудника?',
+                options: [
+                    { value: 'junior', text: '🌱 Junior (обучаемый, недорогой)' },
+                    { value: 'middle', text: '📈 Middle (самодостаточный)' },
+                    { value: 'senior', text: '🏆 Senior (эксперт, дорогой)' },
+                    { value: 'lead', text: '👑 Team Lead (управлять людьми)' }
+                ]
+            });
+            
+            questions.push({
+                id: 'qualities',
+                text: 'Какие качества важнее всего?',
+                options: [
+                    { value: 'discipline', text: '⏰ Дисциплина и исполнительность' },
+                    { value: 'initiative', text: '💡 Инициативность и креатив' },
+                    { value: 'loyalty', text: '🤝 Лояльность и надёжность' },
+                    { value: 'growth', text: '📚 Готовность расти' }
+                ]
+            });
+            
+            questions.push({
+                id: 'format',
+                text: 'Формат работы?',
+                options: [
+                    { value: 'office', text: '🏢 Офис' },
+                    { value: 'remote', text: '🏠 Удалённо' },
+                    { value: 'hybrid', text: '🔄 Гибрид' }
+                ]
+            });
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                position: answers.position || 'middle',
+                qualities: answers.qualities || 'discipline',
+                work_format: answers.format || 'remote'
+            };
+        }
+    },
+
+    // 👑 НАЧАЛЬНИК
+    boss: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            
+            questions.push({
+                id: 'style',
+                text: 'Какой стиль управления вам подходит?',
+                options: [
+                    { value: 'democratic', text: '🗳️ Демократичный (обсуждать решения)' },
+                    { value: 'autocratic', text: '👑 Авторитарный (чёткие указания)' },
+                    { value: 'mentor', text: '🦉 Менторский (учить и развивать)' },
+                    { value: 'laissez', text: '🌊 Либеральный (давать свободу)' }
+                ]
+            });
+            
+            questions.push({
+                id: 'expectations',
+                text: 'Что вы ждёте от начальника?',
+                options: [
+                    { value: 'growth', text: '📈 Карьерный рост и развитие' },
+                    { value: 'stability', text: '🛡️ Стабильность и защиту' },
+                    { value: 'freedom', text: '🕊️ Свободу и доверие' },
+                    { value: 'money', text: '💰 Высокий доход' }
+                ]
+            });
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                management_style: answers.style || 'democratic',
+                expectations: answers.expectations || 'growth'
+            };
+        }
+    },
+
+    // 🦉 МЕНТОР
+    mentor: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            const weakVectors = [];
+            if (userProfile.vectors.СБ < 4) weakVectors.push('стратегия и видение');
+            if (userProfile.vectors.ТФ < 4) weakVectors.push('гибкость и адаптивность');
+            if (userProfile.vectors.ЧВ < 4) weakVectors.push('эмоциональный интеллект');
+            
+            const areaText = weakVectors.length > 0 
+                ? `В какой области нужен ментор? (ваши зоны роста: ${weakVectors.join(', ')})`
+                : 'В какой области нужен ментор?';
+            
+            questions.push({
+                id: 'area',
+                text: areaText,
+                options: [
+                    { value: 'career', text: '💼 Карьера и бизнес' },
+                    { value: 'personal', text: '🧠 Личностный рост' },
+                    { value: 'emotional', text: '💖 Эмоциональный интеллект' },
+                    { value: 'spiritual', text: '🕯️ Духовное развитие' }
+                ]
+            });
+            
+            questions.push({
+                id: 'format',
+                text: 'Какой формат менторства предпочитаете?',
+                options: [
+                    { value: 'regular', text: '📅 Регулярные сессии (раз в неделю)' },
+                    { value: 'project', text: '🎯 Проектный (под конкретную задачу)' },
+                    { value: 'crisis', text: '🆘 Кризисный (когда нужна помощь)' }
+                ]
+            });
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                mentor_area: answers.area || 'career',
+                mentor_format: answers.format || 'regular'
+            };
+        }
+    },
+
+    // ✈️ ПОПУТЧИК
+    travel: {
+        getQuestions: (userProfile, currentParams) => {
+            const questions = [];
+            
+            questions.push({
+                id: 'travel_type',
+                text: 'Какой тип путешествий предпочитаете?',
+                options: [
+                    { value: 'adventure', text: '🏔️ Активный (горы, походы, экстрим)' },
+                    { value: 'cultural', text: '🏛️ Культурный (музеи, экскурсии)' },
+                    { value: 'relax', text: '🏖️ Расслабленный (пляж, спа)' },
+                    { value: 'spontaneous', text: '🎲 Спонтанный (куда глаза глядят)' }
+                ]
+            });
+            
+            questions.push({
+                id: 'budget',
+                text: 'Какой бюджет на поездки?',
+                options: [
+                    { value: 'budget', text: '🎒 Бюджетный (хостелы, автобусы)' },
+                    { value: 'comfort', text: '🏨 Комфортный (отели, рестораны)' },
+                    { value: 'luxury', text: '💎 Люкс (5 звёзд, бизнес-класс)' }
+                ]
+            });
+            
+            return questions;
+        },
+        buildSearchParams: (answers) => {
+            return {
+                travel_type: answers.travel_type || 'adventure',
+                budget: answers.budget || 'comfort'
+            };
+        }
+    }
 };
 
-function _goalInfo(id) { return GOALS[id] || { emoji: '🎯', name: 'Поиск', desc: '' }; }
+// ============================================
+// РАСЧЁТ СОВМЕСТИМОСТИ (ДЕФИЦИТ-ОРИЕНТИРОВАННЫЙ)
+// ============================================
 
-function _insight(similarity, isTwin) {
-    if (isTwin) {
-        if (similarity >= 90) return 'Ваш психологический близнец — возможно, у вас похожие жизненные сценарии.';
-        if (similarity >= 75) return 'Очень похожий профиль. Общение даст ценные инсайты.';
-        return 'Несмотря на различия, у вас много общего в базовых настройках психики.';
+function _calculateCompatibility(user, candidate, goal, params) {
+    const u = user.vectors;
+    const c = candidate.vectors;
+    
+    switch(goal) {
+        case 'twin':
+            // Максимальное совпадение
+            return Math.round(100 - (
+                Math.abs(u.СБ - c.СБ) * 10 +
+                Math.abs(u.ТФ - c.ТФ) * 10 +
+                Math.abs(u.УБ - c.УБ) * 10 +
+                Math.abs(u.ЧВ - c.ЧВ) * 10
+            ));
+            
+        case 'lover':
+            let score = 0;
+            // Страсть: высокий ЧВ у кандидата
+            if (params.intensity === 'extreme') score += Math.min(35, c.ЧВ * 7);
+            else if (params.intensity === 'romantic') score += Math.min(30, (6 - Math.abs(u.ЧВ - c.ЧВ)) * 6);
+            else score += 25 - Math.abs(u.ЧВ - c.ЧВ) * 4;
+            
+            // Дополнение по слабым местам
+            if (u.ЧВ < 3 && c.ЧВ > 4) score += 15;
+            if (u.ТФ < 3 && c.ТФ > 4) score += 10;
+            
+            // Стабильность (УБ не должен сильно отличаться)
+            score += 30 - Math.abs(u.УБ - c.УБ) * 6;
+            // Интеллектуальная совместимость
+            score += 20 - Math.abs(u.СБ - c.СБ) * 5;
+            
+            return Math.min(98, Math.max(0, Math.round(score)));
+            
+        case 'spouse':
+            let spouseScore = 0;
+            // Безопасность критична
+            if (Math.abs(u.УБ - c.УБ) <= 1) spouseScore += 40;
+            else if (Math.abs(u.УБ - c.УБ) <= 2) spouseScore += 20;
+            else spouseScore += 5;
+            
+            // Компенсация слабых мест
+            if (params.compensation === 'balance') {
+                if (u.СБ < 3 && c.СБ > 4) spouseScore += 10;
+                if (u.ТФ < 3 && c.ТФ > 4) spouseScore += 10;
+                if (u.УБ < 3 && c.УБ > 4) spouseScore += 15;
+                if (u.ЧВ < 3 && c.ЧВ > 4) spouseScore += 10;
+            } else if (params.compensation === 'similar') {
+                spouseScore += 30 - (Math.abs(u.СБ - c.СБ) + Math.abs(u.ТФ - c.ТФ) + 
+                                     Math.abs(u.УБ - c.УБ) + Math.abs(u.ЧВ - c.ЧВ)) * 3;
+            }
+            
+            // Общие ценности (влияют на итоговый процент)
+            if (params.family_values === 'traditional') spouseScore += 10;
+            if (params.children === 'want') spouseScore += 5;
+            
+            return Math.min(98, Math.max(0, Math.round(spouseScore)));
+            
+        case 'employee':
+            let empScore = 0;
+            // Надёжность (УБ)
+            if (params.position === 'junior') empScore += c.УБ * 5;
+            else empScore += c.УБ * 8;
+            
+            // Исполнительность (ТФ)
+            if (params.qualities === 'discipline') empScore += c.ТФ * 8;
+            else empScore += c.ТФ * 5;
+            
+            // Комплементарность с руководителем
+            if (u.СБ > 4 && c.ТФ > 4) empScore += 15;
+            if (u.ТФ > 4 && c.УБ > 4) empScore += 10;
+            
+            return Math.min(98, Math.round(empScore));
+            
+        case 'companion':
+            let compScore = 0;
+            // Стратегия + исполнение
+            if (params.role === 'strategist' && c.СБ > 4) compScore += 40;
+            else if (params.role === 'executor' && c.ТФ > 4) compScore += 40;
+            else if (params.role === 'equal') {
+                compScore += 30 - Math.abs(u.СБ - c.СБ) * 5;
+                compScore += 30 - Math.abs(u.ТФ - c.ТФ) * 5;
+            }
+            
+            // Управление рисками (УБ)
+            if (params.risk_tolerance === 'low' && c.УБ > 4) compScore += 20;
+            else if (params.risk_tolerance === 'high' && c.УБ < 3) compScore += 20;
+            else compScore += 10;
+            
+            return Math.min(98, Math.round(compScore));
+            
+        case 'friend':
+            let friendScore = 50; // база
+            // Общие интересы = близость по векторам
+            friendScore += 25 - (Math.abs(u.СБ - c.СБ) + Math.abs(u.ТФ - c.ТФ)) * 3;
+            friendScore += 25 - (Math.abs(u.УБ - c.УБ) + Math.abs(u.ЧВ - c.ЧВ)) * 2;
+            return Math.min(98, Math.max(0, Math.round(friendScore)));
+            
+        case 'mentor':
+            let mentorScore = 0;
+            // Ментор должен быть выше по нужным векторам
+            if (params.mentor_area === 'career') {
+                mentorScore += c.СБ > u.СБ ? 40 : 20;
+                mentorScore += c.УБ > u.УБ ? 20 : 10;
+            } else if (params.mentor_area === 'emotional') {
+                mentorScore += c.ЧВ > u.ЧВ ? 50 : 25;
+            } else {
+                mentorScore += c.СБ > u.СБ ? 30 : 15;
+                mentorScore += c.ЧВ > u.ЧВ ? 30 : 15;
+            }
+            
+            // Эмпатия и способность обучать
+            mentorScore += c.ТФ * 5;
+            
+            return Math.min(98, Math.round(mentorScore));
+            
+        case 'boss':
+            let bossScore = 0;
+            // Лидерские качества (СБ + ЧВ)
+            if (params.management_style === 'autocratic') {
+                bossScore += c.СБ * 8;
+                bossScore += c.ЧВ * 6;
+            } else if (params.management_style === 'democratic') {
+                bossScore += c.СБ * 6;
+                bossScore += c.ТФ * 6;
+            } else {
+                bossScore += c.ЧВ * 8;
+                bossScore += c.ТФ * 6;
+            }
+            
+            // Надёжность (УБ)
+            bossScore += c.УБ * 5;
+            
+            return Math.min(98, Math.round(bossScore));
+            
+        case 'travel':
+            let travelScore = 60;
+            // Гибкость (ТФ) критична для попутчика
+            travelScore += c.ТФ * 8;
+            // Позитивный настрой (ЧВ)
+            travelScore += c.ЧВ * 5;
+            // Организованность (УБ)
+            if (params.travel_type === 'adventure') travelScore += c.УБ * 3;
+            else travelScore += c.УБ * 6;
+            
+            return Math.min(98, Math.round(travelScore));
+            
+        default:
+            return 50;
     }
-    if (similarity >= 90) return 'Идеальное дополнение — ваши профили созданы друг для друга.';
-    if (similarity >= 75) return 'Отличная совместимость. Все шансы на гармоничные отношения.';
-    return 'Хорошая база для взаимодействия. Стоит присмотреться.';
+}
+
+function _generateInsight(similarity, goal, params, candidate) {
+    if (similarity >= 90) {
+        if (goal === 'lover') return 'Искра 💥 Идеальная химия! У вас все шансы на яркий роман.';
+        if (goal === 'spouse') return '🏆 Идеальный партнёр для семьи. Высокая совместимость по всем параметрам.';
+        if (goal === 'employee') return '⭐ Идеальный кандидат! Рекомендуем пригласить на собеседование.';
+        if (goal === 'mentor') return '🎓 Этот ментор может стать вашим наставником на годы вперёд.';
+        return 'Идеальное совпадение! Рекомендуем начать общение.';
+    }
+    
+    if (similarity >= 75) {
+        if (goal === 'lover') return '💕 Отличная совместимость. Стоит присмотреться, потенциал высок.';
+        if (goal === 'companion') return '🤝 Хорошая бизнес-синергия. Есть смысл обсудить合作.';
+        return 'Очень хороший вариант. Рекомендуем познакомиться ближе.';
+    }
+    
+    if (similarity >= 60) {
+        return 'Неплохая база для отношений. Возможно, стоит узнать человека лучше.';
+    }
+    
+    return 'Есть некоторые различия, но иногда противоположности притягиваются.';
 }
 
 // ============================================
 // ШАБЛОНЫ HTML
 // ============================================
+
 function _ownCardHtml() {
     const v = userDoublesProfile.vectors;
     const meta = [
-        userDoublesProfile.age   ? userDoublesProfile.age + ' лет' : '',
-        userDoublesProfile.city  ? '· ' + userDoublesProfile.city  : ''
+        userDoublesProfile.age ? userDoublesProfile.age + ' лет' : '',
+        userDoublesProfile.city ? '· ' + userDoublesProfile.city : ''
     ].filter(Boolean).join(' ');
 
     return `
@@ -629,7 +1209,6 @@ function _renderIntro(container) {
                     Находит людей с максимально похожим профилем. Помогает увидеть альтернативные
                     пути развития, понять паттерны со стороны, почувствовать родство.
                 </div>
-                <div class="db-info-example">💡 «У кого такой же профиль, но другая профессия?»</div>
             </div>
 
             <div class="db-info-card">
@@ -638,10 +1217,9 @@ function _renderIntro(container) {
                     <div class="db-info-title">Режим «ПОДБОР ПО ЦЕЛИ»</div>
                 </div>
                 <div class="db-info-body">
-                    AI анализирует, какой профиль идеально подходит для вашей цели —
-                    любовник, партнёр, ментор, сотрудник — и находит таких людей в базе.
+                    AI задаст уточняющие вопросы, проанализирует ваш профиль и найдёт людей,
+                    чей психотип идеально подходит для вашей цели.
                 </div>
-                <div class="db-info-example">💡 «Кто идеально подходит мне в бизнес-партнёры?»</div>
             </div>
 
             <div class="db-privacy-card">
@@ -652,8 +1230,7 @@ function _renderIntro(container) {
                 <div class="db-privacy-body">
                     • Ваш профиль используется анонимно<br>
                     • Другие видят только имя, возраст, город и % совместимости<br>
-                    • Контакты раскрываются только при взаимном согласии<br>
-                    • Удалить профиль из базы можно в любой момент
+                    • Контакты раскрываются только при взаимном согласии
                 </div>
             </div>
 
@@ -661,7 +1238,7 @@ function _renderIntro(container) {
         </div>
     `);
 
-    document.getElementById('dbBack').onclick  = () => _goHome();
+    document.getElementById('dbBack').onclick = () => _goHome();
     document.getElementById('dbStartBtn').onclick = () => {
         localStorage.setItem('doubles_intro_seen', 'true');
         _renderModes(container);
@@ -682,7 +1259,7 @@ function _renderModes(container) {
                     <div class="db-mode-name">ДВОЙНИК</div>
                     <div class="db-mode-desc">Найти людей с похожим профилем</div>
                     <div class="db-mode-tags">
-                        📊 Альтернативные пути&nbsp; · &nbsp;🔍 Понять паттерны&nbsp; · &nbsp;🤝 Не быть одному
+                        📊 Альтернативные пути · 🔍 Понять паттерны · 🤝 Не быть одному
                     </div>
                 </div>
                 <div class="db-mode-arrow">›</div>
@@ -701,23 +1278,41 @@ function _renderModes(container) {
             </div>
 
             <div style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.08);border-radius:14px;padding:10px 14px;margin-top:8px;text-align:center;font-size:11px;color:var(--text-secondary);">
-                🔒 Анонимно&nbsp;&nbsp;·&nbsp;&nbsp;🎯 Точно&nbsp;&nbsp;·&nbsp;&nbsp;🧠 На основе психометрики
+                🔒 Анонимно · 🎯 Точно · 🧠 На основе психометрики
             </div>
         </div>
     `);
 
-    document.getElementById('dbBack').onclick    = () => _goHome();
-    document.getElementById('dbTwinBtn').onclick = () => { doublesState.searchMode = 'twin';  _renderGoals(container); };
-    document.getElementById('dbMatchBtn').onclick = () => { doublesState.searchMode = 'match'; _renderGoals(container); };
+    document.getElementById('dbBack').onclick = () => _goHome();
+    document.getElementById('dbTwinBtn').onclick = () => {
+        doublesState.searchMode = 'twin';
+        _renderGoals(container);
+    };
+    document.getElementById('dbMatchBtn').onclick = () => {
+        doublesState.searchMode = 'match';
+        _renderGoals(container);
+    };
 }
 
 // 3. ВЫБОР ЦЕЛИ
 function _renderGoals(container) {
     const isTwin = doublesState.searchMode === 'twin';
-    const goals  = isTwin ? ['twin'] : ['lover','spouse','friend','companion','employee','boss','mentor','travel'];
-
+    const goals = isTwin ? ['twin'] : ['lover', 'spouse', 'friend', 'companion', 'employee', 'boss', 'mentor', 'travel'];
+    
+    const goalNames = {
+        lover: { emoji: '💕', name: 'Любовник / Любовница', desc: 'Страсть, романтика, влечение' },
+        spouse: { emoji: '💍', name: 'Муж / Жена', desc: 'Семья, стабильность, общее будущее' },
+        friend: { emoji: '👥', name: 'Друг', desc: 'Поддержка, общение, доверие' },
+        companion: { emoji: '🤝', name: 'Бизнес-партнёр', desc: 'Проекты, капитал, синергия' },
+        employee: { emoji: '👔', name: 'Сотрудник', desc: 'Работа, команда, исполнительность' },
+        boss: { emoji: '👑', name: 'Начальник', desc: 'Карьера, лидерство, рост' },
+        mentor: { emoji: '🦉', name: 'Ментор', desc: 'Мудрость, обучение, развитие' },
+        travel: { emoji: '✈️', name: 'Попутчик', desc: 'Путешествия, приключения' },
+        twin: { emoji: '👥', name: 'Двойник', desc: 'Похожий психотип' }
+    };
+    
     const goalsHtml = goals.map(id => {
-        const g = _goalInfo(id);
+        const g = goalNames[id];
         return `
             <div class="db-goal-item" data-goal="${id}">
                 <div class="db-goal-icon">${g.emoji}</div>
@@ -728,67 +1323,119 @@ function _renderGoals(container) {
                 <div class="db-goal-arrow">›</div>
             </div>`;
     }).join('');
-
-    const filtersHtml = !isTwin ? `
-        <div class="db-filters">
-            <div class="db-filters-title">⚙️ Фильтры</div>
-            <div class="db-filters-row">
-                <select class="db-select" id="dbDistFilter">
-                    <option value="any">🌍 Любое расстояние</option>
-                    <option value="city">🏙️ Мой город</option>
-                    <option value="10">📍 До 10 км</option>
-                    <option value="50">📍 До 50 км</option>
-                    <option value="100">📍 До 100 км</option>
-                </select>
-                <select class="db-select" id="dbGenderFilter">
-                    <option value="any">👤 Любой пол</option>
-                    <option value="male">👨 Мужской</option>
-                    <option value="female">👩 Женский</option>
-                </select>
-            </div>
-        </div>` : '';
-
+    
     container.innerHTML = _pageWrap(`
         ${_backBtn()}
         ${_header(isTwin ? '👥' : '🎯',
                   isTwin ? 'Поиск двойника' : 'Кого вы ищете?',
                   isTwin ? 'Люди с похожим психотипом'
-                         : 'AI подберёт идеальный профиль под вашу цель')}
+                         : 'Выберите цель, затем ответьте на вопросы для точного подбора')}
         <div class="content-body">
-            <div style="background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.1);border-radius:14px;padding:10px 14px;margin-bottom:18px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
-                ${isTwin
-                    ? '🔍 Двойники — люди с максимально похожим психотипом. Помогут увидеть альтернативные пути и понять свои паттерны со стороны.'
-                    : '🎯 AI проанализирует ваш профиль и найдёт людей, чей психотип идеально подходит для вашей цели. Получите % совместимости и инсайты.'}
-            </div>
             ${goalsHtml}
-            ${filtersHtml}
         </div>
     `);
-
+    
     document.getElementById('dbBack').onclick = () => _renderModes(container);
-
-    if (!isTwin) {
-        document.getElementById('dbDistFilter').onchange   = e => { doublesState.filters.distance = e.target.value; };
-        document.getElementById('dbGenderFilter').onchange = e => { doublesState.filters.gender   = e.target.value; };
-    }
-
+    
     document.querySelectorAll('.db-goal-item').forEach(el => {
         el.addEventListener('click', () => {
             doublesState.searchGoal = el.dataset.goal;
-            _renderSearching(container);
-            _doSearch(container);
+            doublesState.searchParams = {};
+            _renderQuestions(container, 0);
         });
     });
 }
 
-// 4. ЛОАДЕР
-function _renderSearching(container) {
-    const isTwin = doublesState.searchMode === 'twin';
-    const g = _goalInfo(doublesState.searchGoal);
-
+// 4. УТОЧНЯЮЩИЕ ВОПРОСЫ
+function _renderQuestions(container, questionIndex) {
+    const goal = doublesState.searchGoal;
+    const questionDef = CLARIFYING_QUESTIONS[goal];
+    
+    if (!questionDef || questionIndex >= questionDef.getQuestions(userDoublesProfile, doublesState.searchParams).length) {
+        // Вопросы закончились — переходим к поиску
+        _renderSearching(container);
+        _doSearch(container);
+        return;
+    }
+    
+    const questions = questionDef.getQuestions(userDoublesProfile, doublesState.searchParams);
+    const currentQ = questions[questionIndex];
+    const progress = `${questionIndex + 1}/${questions.length}`;
+    
+    // Сохраняем выбранный ответ для текущего вопроса
+    let selectedValue = doublesState.searchParams[currentQ.id] || null;
+    
+    const optionsHtml = currentQ.options.map(opt => `
+        <button class="db-option-btn ${selectedValue === opt.value ? 'selected' : ''}" data-value="${opt.value}">
+            ${opt.text}
+        </button>
+    `).join('');
+    
     container.innerHTML = _pageWrap(`
         ${_backBtn()}
-        ${_header('🔍', isTwin ? 'Поиск двойников' : `Поиск: ${g.name}`)}
+        ${_header('❓', 'Уточняющие вопросы')}
+        <div class="content-body">
+            <div class="db-question-card">
+                <div class="db-question-text">${currentQ.text}</div>
+                <div class="db-options" id="dbOptions">
+                    ${optionsHtml}
+                </div>
+                <div class="db-question-progress">Вопрос ${progress}</div>
+            </div>
+            <div class="db-bottom-row">
+                <button class="db-bottom-btn db-bottom-btn-secondary" id="dbPrevBtn" ${questionIndex === 0 ? 'disabled style="opacity:0.5"' : ''}>◀ Назад</button>
+                <button class="db-bottom-btn db-bottom-btn-primary" id="dbNextBtn" ${!selectedValue ? 'disabled style="opacity:0.5"' : ''}>${questionIndex === questions.length - 1 ? '🔍 Найти' : 'Далее ▶'}</button>
+            </div>
+        </div>
+    `);
+    
+    document.getElementById('dbBack').onclick = () => _renderGoals(container);
+    
+    // Обработка выбора варианта
+    document.querySelectorAll('.db-option-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Убираем выделение у всех в этой группе
+            document.querySelectorAll('.db-option-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            
+            // Сохраняем ответ
+            doublesState.searchParams[currentQ.id] = btn.dataset.value;
+            selectedValue = btn.dataset.value;
+            
+            // Активируем кнопку "Далее"
+            const nextBtn = document.getElementById('dbNextBtn');
+            if (nextBtn) nextBtn.disabled = false;
+        });
+    });
+    
+    // Кнопка "Назад"
+    const prevBtn = document.getElementById('dbPrevBtn');
+    if (prevBtn && questionIndex > 0) {
+        prevBtn.onclick = () => _renderQuestions(container, questionIndex - 1);
+    }
+    
+    // Кнопка "Далее / Найти"
+    const nextBtn = document.getElementById('dbNextBtn');
+    if (nextBtn) {
+        nextBtn.onclick = () => {
+            if (!selectedValue) return;
+            _renderQuestions(container, questionIndex + 1);
+        };
+    }
+}
+
+// 5. ЛОАДЕР
+function _renderSearching(container) {
+    const goalNames = {
+        lover: 'Любовника', spouse: 'Муж/Жену', friend: 'Друга',
+        companion: 'Партнёра', employee: 'Сотрудника', boss: 'Начальника',
+        mentor: 'Ментора', travel: 'Попутчика', twin: 'Двойника'
+    };
+    const goalName = goalNames[doublesState.searchGoal] || 'кандидата';
+    
+    container.innerHTML = _pageWrap(`
+        ${_backBtn()}
+        ${_header('🔍', `Поиск: ${goalName}`)}
         <div class="content-body">
             <div class="db-loader">
                 <div class="db-loader-ring">
@@ -800,17 +1447,17 @@ function _renderSearching(container) {
             </div>
         </div>
     `);
-
-    document.getElementById('dbBack').onclick = () => _renderModes(container);
+    
+    document.getElementById('dbBack').onclick = () => _renderGoals(container);
 }
 
-// 5. ПОИСК
+// 6. ПОИСК (локальная заглушка)
 async function _doSearch(container) {
     const steps = [
         'Анализирую ваш профиль...',
-        'Рассчитываю параметры поиска...',
+        'Подбираю параметры поиска...',
         'Ищу совпадения в базе...',
-        'Сортирую по совместимости...',
+        'Рассчитываю совместимость...',
         'Генерирую инсайты...'
     ];
     let step = 0;
@@ -818,39 +1465,63 @@ async function _doSearch(container) {
         const el = document.getElementById('dbStatusText');
         if (el && step < steps.length) el.textContent = steps[step++];
     }, 700);
-
+    
     try {
-        await new Promise(r => setTimeout(r, 2500)); // Даём лоадеру "подышать"
-
-        const api = _api(), uid = _userId();
-        let url = `${api}/api/psychometric/find-doubles?user_id=${uid}&mode=${doublesState.searchMode}`;
-        if (doublesState.searchGoal)              url += `&goal=${doublesState.searchGoal}`;
-        if (doublesState.filters.distance !== 'any') url += `&distance=${doublesState.filters.distance}`;
-        if (doublesState.filters.gender !== 'any')   url += `&gender=${doublesState.filters.gender}`;
-
-        const r    = await fetch(url);
-        const data = await r.json();
+        await new Promise(r => setTimeout(r, 2000));
+        
+        // СИМУЛЯЦИЯ ПОИСКА (в реальном API будет запрос)
+        const candidates = _mockSearch();
+        
+        doublesState.foundDoubles = candidates;
         clearInterval(tick);
-        doublesState.foundDoubles = (data.success && data.results) ? data.results : [];
     } catch (e) {
         clearInterval(tick);
         console.error('Search failed:', e);
         doublesState.foundDoubles = [];
         _showToast('❌ Ошибка поиска. Попробуйте позже.', 'error');
     }
-
+    
     _renderResults(container);
 }
 
-// 6. РЕЗУЛЬТАТЫ
+// МОК-ДАННЫЕ для тестирования (в реальном API удалить)
+function _mockSearch() {
+    const mockCandidates = [
+        { user_id: '1', name: 'Анна', age: 28, city: 'Москва', gender: 'female', 
+          vectors: { СБ: 4, ТФ: 5, УБ: 4, ЧВ: 5 }, profile: 'СБ-4, ТФ-5, УБ-4, ЧВ-5', profile_type: 'ЭМПАТ' },
+        { user_id: '2', name: 'Дмитрий', age: 32, city: 'СПб', gender: 'male',
+          vectors: { СБ: 5, ТФ: 3, УБ: 4, ЧВ: 3 }, profile: 'СБ-5, ТФ-3, УБ-4, ЧВ-3', profile_type: 'СТРАТЕГ' },
+        { user_id: '3', name: 'Елена', age: 26, city: 'Москва', gender: 'female',
+          vectors: { СБ: 3, ТФ: 5, УБ: 3, ЧВ: 5 }, profile: 'СБ-3, ТФ-5, УБ-3, ЧВ-5', profile_type: 'ТАКТИК' },
+        { user_id: '4', name: 'Сергей', age: 35, city: 'Казань', gender: 'male',
+          vectors: { СБ: 5, ТФ: 4, УБ: 5, ЧВ: 4 }, profile: 'СБ-5, ТФ-4, УБ-5, ЧВ-4', profile_type: 'АНАЛИТИК' }
+    ];
+    
+    // Расчёт совместимости для каждого кандидата
+    const goal = doublesState.searchGoal;
+    const params = CLARIFYING_QUESTIONS[goal]?.buildSearchParams(doublesState.searchParams) || {};
+    
+    return mockCandidates.map(candidate => {
+        const similarity = _calculateCompatibility(userDoublesProfile, candidate, goal, params);
+        const insight = _generateInsight(similarity, goal, params, candidate);
+        return { ...candidate, similarity, insight };
+    }).sort((a, b) => b.similarity - a.similarity);
+}
+
+// 7. РЕЗУЛЬТАТЫ
 function _renderResults(container) {
-    const isTwin  = doublesState.searchMode === 'twin';
+    const isTwin = doublesState.searchMode === 'twin';
     const results = doublesState.foundDoubles;
-    const g       = _goalInfo(doublesState.searchGoal);
-    const v0      = userDoublesProfile.vectors;
-
+    const goalNames = {
+        lover: '💕 Любовник', spouse: '💍 Муж/Жена', friend: '👥 Друг',
+        companion: '🤝 Партнёр', employee: '👔 Сотрудник', boss: '👑 Начальник',
+        mentor: '🦉 Ментор', travel: '✈️ Попутчик', twin: '👥 Двойник'
+    };
+    const goalName = goalNames[doublesState.searchGoal] || 'Кандидаты';
+    const v0 = userDoublesProfile.vectors;
+    
     let cardsHtml = '';
-
+    
     if (!results.length) {
         cardsHtml = `
             <div class="db-empty">
@@ -859,19 +1530,19 @@ function _renderResults(container) {
                 <div class="db-empty-sub">
                     ${isTwin
                         ? 'Ваш профиль уникален в нашей базе.'
-                        : `Подходящих кандидатов для "${g.name}" пока нет.`}
+                        : `Подходящих кандидатов для "${goalName}" пока нет.`}
                     <br>База пополняется ежедневно — загляните позже!
                 </div>
             </div>`;
     } else {
         results.forEach(item => {
-            const sim  = item.similarity || (Math.floor(Math.random() * 30) + 65);
-            const v    = item.vectors || v0;
+            const sim = item.similarity;
+            const v = item.vectors || v0;
             const sign = (n) => n > 0 ? `<span class="db-vc-plus">+${n}</span>`
                                : n < 0 ? `<span class="db-vc-minus">${n}</span>`
-                               :         `<span class="db-vc-eq">=</span>`;
+                               : `<span class="db-vc-eq">=</span>`;
             const pctIcon = sim >= 90 ? '🔥' : sim >= 75 ? '✦' : '·';
-
+            
             cardsHtml += `
                 <div class="db-result-card">
                     <div class="db-result-top">
@@ -887,22 +1558,22 @@ function _renderResults(container) {
                             <div class="db-result-pct-label">совместимость</div>
                         </div>
                     </div>
-
+                    
                     <div class="db-result-profile">${item.profile || userDoublesProfile.profile} | ${item.profile_type || userDoublesProfile.profileType}</div>
-
+                    
                     <div class="db-vectors-compare">
-                        ${['СБ','ТФ','УБ','ЧВ'].map(k => `
+                        ${['СБ', 'ТФ', 'УБ', 'ЧВ'].map(k => `
                             <div class="db-vc-item">
                                 <div class="db-vc-label">${k}</div>
                                 <div class="db-vc-val">${v[k] || 4}/6</div>
-                                <div class="db-vc-diff">${sign((v[k]||4) - (v0[k]||4))}</div>
+                                <div class="db-vc-diff">${sign((v[k] || 4) - (v0[k] || 4))}</div>
                             </div>`).join('')}
                     </div>
-
+                    
                     <div class="db-result-insight">
-                        💡 "${item.insight || _insight(sim, isTwin)}"
+                        💡 "${item.insight || _generateInsight(sim, doublesState.searchGoal, {}, item)}"
                     </div>
-
+                    
                     <div class="db-result-actions">
                         <button class="db-action-btn db-action-btn-ghost db-chat-btn" data-id="${item.user_id}">💬 Чат</button>
                         <button class="db-action-btn db-action-btn-ghost db-view-btn" data-id="${item.user_id}">👤 Профиль</button>
@@ -911,11 +1582,11 @@ function _renderResults(container) {
                 </div>`;
         });
     }
-
+    
     container.innerHTML = _pageWrap(`
         ${_backBtn()}
-        ${_header(isTwin ? '👥' : g.emoji,
-                  isTwin ? 'Ваши двойники' : `Кандидаты: ${g.name}`,
+        ${_header(isTwin ? '👥' : '🎯',
+                  isTwin ? 'Ваши двойники' : `Результаты: ${goalName}`,
                   `Найдено ${results.length} человек`)}
         <div class="content-body">
             ${cardsHtml}
@@ -925,19 +1596,19 @@ function _renderResults(container) {
             </div>
         </div>
     `);
-
-    document.getElementById('dbBack').onclick      = () => _renderModes(container);
+    
+    document.getElementById('dbBack').onclick = () => _renderModes(container);
     document.getElementById('dbNewSearch').onclick = () => _renderModes(container);
     document.getElementById('dbChangeGoal').onclick = () => _renderGoals(container);
-
+    
     document.querySelectorAll('.db-chat-btn').forEach(b =>
         b.addEventListener('click', () => _showToast('💬 Чат будет доступен в следующей версии', 'info')));
     document.querySelectorAll('.db-view-btn').forEach(b =>
         b.addEventListener('click', () => _showToast('👤 Полный профиль — скоро', 'info')));
     document.querySelectorAll('.db-save-btn').forEach(b =>
-        b.addEventListener('click', () => {
-            b.textContent = '✅';
-            b.classList.add('saved');
+        b.addEventListener('click', function() {
+            this.textContent = '✅';
+            this.classList.add('saved');
             _showToast('Сохранено в избранное', 'success');
         }));
 }
@@ -948,21 +1619,26 @@ function _renderResults(container) {
 async function showDoublesScreen() {
     try {
         const api = _api(), uid = _userId();
+        if (!uid) {
+            _showToast('⚠️ Ошибка авторизации', 'error');
+            return;
+        }
+        
         const r = await fetch(`${api}/api/user-status?user_id=${uid}`);
         const d = await r.json();
         if (!d.has_profile) {
             _showToast('📊 Сначала пройдите психологический тест', 'info');
             return;
         }
-    } catch {
+    } catch (e) {
         _showToast('⚠️ Не удалось проверить статус теста', 'error');
         return;
     }
-
+    
     _doublesInjectStyles();
     const container = _getContainer();
     if (!container) return;
-
+    
     await _loadProfile();
     _renderIntro(container);
 }
@@ -973,4 +1649,4 @@ async function showDoublesScreen() {
 window.showDoublesScreen = showDoublesScreen;
 window.goBackToDashboard = () => _goHome();
 
-console.log('✅ doubles.js v4.0 загружен');
+console.log('✅ doubles.js v5.0 загружен — с уточняющими вопросами');
