@@ -1,15 +1,15 @@
 // ============================================
 // doubles.js — Психометрический мэтчмейкер
-// Версия 6.0 — правильный UX + реальное API
+// Версия 6.1 — универсальный (поддерживает оба API)
 // ============================================
 
 // ============================================
-// CSS — версия 4.0 (полностью сохранена)
+// CSS — инжектируем один раз
 // ============================================
 function _doublesInjectStyles() {
-    if (document.getElementById('doubles-v4-styles')) return;
+    if (document.getElementById('doubles-v6-styles')) return;
     const s = document.createElement('style');
-    s.id = 'doubles-v4-styles';
+    s.id = 'doubles-v6-styles';
     s.textContent = `
         /* ===== КАРТОЧКА ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ ===== */
         .db-own-card {
@@ -543,7 +543,6 @@ async function _loadProfile() {
 // ============================================
 
 const CLARIFYING_QUESTIONS = {
-    // 👥 ДВОЙНИК
     twin: {
         getQuestions: (userProfile, currentParams) => {
             return [
@@ -559,13 +558,10 @@ const CLARIFYING_QUESTIONS = {
             ];
         },
         buildSearchParams: (answers) => {
-            return {
-                gender: answers.gender_preference || 'any'
-            };
+            return { gender: answers.gender_preference || 'any' };
         }
     },
 
-    // 💕 ЛЮБОВНИК
     lover: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -637,7 +633,6 @@ const CLARIFYING_QUESTIONS = {
         }
     },
 
-    // 💍 МУЖ/ЖЕНА
     spouse: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -691,7 +686,6 @@ const CLARIFYING_QUESTIONS = {
         }
     },
 
-    // 👥 ДРУГ
     friend: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -727,7 +721,6 @@ const CLARIFYING_QUESTIONS = {
         }
     },
 
-    // 🤝 БИЗНЕС-ПАРТНЁР
     companion: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -776,7 +769,6 @@ const CLARIFYING_QUESTIONS = {
         }
     },
 
-    // 👔 СОТРУДНИК
     employee: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -824,7 +816,6 @@ const CLARIFYING_QUESTIONS = {
         }
     },
 
-    // 👑 НАЧАЛЬНИК
     boss: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -861,7 +852,6 @@ const CLARIFYING_QUESTIONS = {
         }
     },
 
-    // 🦉 МЕНТОР
     mentor: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -905,7 +895,6 @@ const CLARIFYING_QUESTIONS = {
         }
     },
 
-    // ✈️ ПОПУТЧИК
     travel: {
         getQuestions: (userProfile, currentParams) => {
             const questions = [];
@@ -1159,7 +1148,6 @@ function _header(emoji, title, sub = '') {
 // ЭКРАНЫ
 // ============================================
 
-// 1. ВВОДНЫЙ ЭКРАН
 function _renderIntro(container) {
     if (localStorage.getItem('doubles_intro_seen')) {
         _renderModes(container);
@@ -1229,7 +1217,6 @@ function _renderIntro(container) {
     };
 }
 
-// 2. ВЫБОР РЕЖИМА
 function _renderModes(container) {
     container.innerHTML = _pageWrap(`
         ${_backBtn()}
@@ -1278,7 +1265,6 @@ function _renderModes(container) {
     };
 }
 
-// 3. ВЫБОР ЦЕЛИ
 function _renderGoals(container) {
     const isTwin = doublesState.searchMode === 'twin';
     const goals = isTwin ? ['twin'] : ['lover', 'spouse', 'friend', 'companion', 'employee', 'boss', 'mentor', 'travel'];
@@ -1321,7 +1307,6 @@ function _renderGoals(container) {
     
     document.getElementById('dbBack').onclick = () => _renderModes(container);
     
-    // КЛИК ПО ЦЕЛИ → СРАЗУ ПЕРВЫЙ ВОПРОС (без кнопки "Далее")
     document.querySelectorAll('.db-goal-item').forEach(el => {
         el.addEventListener('click', () => {
             doublesState.searchGoal = el.dataset.goal;
@@ -1331,7 +1316,6 @@ function _renderGoals(container) {
     });
 }
 
-// 4. ЗАПУСК ВОПРОСОВ
 function _startQuestions(container) {
     const goal = doublesState.searchGoal;
     const questionDef = CLARIFYING_QUESTIONS[goal];
@@ -1391,7 +1375,6 @@ function _renderQuestion(container, questionIndex, questions) {
         }
     };
     
-    // КЛИК ПО ВАРИАНТУ → СРАЗУ СЛЕДУЮЩИЙ ВОПРОС
     document.querySelectorAll('.db-option-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             doublesState.searchParams[currentQ.id] = btn.dataset.value;
@@ -1404,7 +1387,6 @@ function _renderQuestion(container, questionIndex, questions) {
     });
 }
 
-// 5. ЛОАДЕР
 function _renderSearching(container) {
     const goalNames = {
         lover: 'Любовника', spouse: 'Муж/Жену', friend: 'Друга',
@@ -1430,20 +1412,23 @@ function _renderSearching(container) {
     document.getElementById('dbBack').onclick = () => _startQuestions(container);
 }
 
-// 6. РЕАЛЬНЫЙ ПОИСК (через API)
+// ============================================
+// УНИВЕРСАЛЬНЫЙ ПОИСК (поддерживает оба API)
+// ============================================
 async function _doSearch(container) {
     const steps = [
         'Анализирую ваш профиль...',
+        'Рассчитываю параметры поиска...',
         'Ищу совпадения в базе...',
-        'Рассчитываю совместимость...',
+        'Сортирую по совместимости...',
         'Генерирую инсайты...'
     ];
     let step = 0;
     const tick = setInterval(() => {
         const el = document.getElementById('dbStatusText');
         if (el && step < steps.length) el.textContent = steps[step++];
-    }, 800);
-    
+    }, 700);
+
     try {
         const api = _api();
         const uid = _userId();
@@ -1451,15 +1436,37 @@ async function _doSearch(container) {
         const questionDef = CLARIFYING_QUESTIONS[goal];
         const params = questionDef ? questionDef.buildSearchParams(doublesState.searchParams) : {};
         
-        // Получаем всех пользователей из базы
-        const usersResponse = await fetch(`${api}/api/users/list?limit=200`);
-        const usersData = await usersResponse.json();
-        const allUsers = usersData.users || [];
+        // Пробуем сначала использовать специализированный эндпоинт
+        let url = `${api}/api/psychometric/find-doubles?user_id=${uid}&mode=${doublesState.searchMode}`;
+        if (doublesState.searchGoal) url += `&goal=${doublesState.searchGoal}`;
+        if (doublesState.filters.distance !== 'any') url += `&distance=${doublesState.filters.distance}`;
+        if (doublesState.filters.gender !== 'any') url += `&gender=${doublesState.filters.gender}`;
         
-        // Фильтруем текущего пользователя
-        const candidates = allUsers.filter(u => u.user_id !== uid && u.vectors);
+        let response = await fetch(url);
+        let data = await response.json();
         
-        // Рассчитываем совместимость
+        let candidates = [];
+        
+        // Если специализированный эндпоинт вернул успех
+        if (data.success) {
+            // Объединяем doubles + nearby (как в патче)
+            candidates = [].concat(data.results || [], data.doubles || [], data.nearby || []);
+            
+            // Сохраняем векторы профиля из ответа
+            if (data.your_profile && data.your_profile.vectors) {
+                userDoublesProfile.vectors = data.your_profile.vectors;
+            }
+        } else {
+            // Fallback: используем общий список пользователей
+            console.log('Falling back to /api/users/list');
+            const usersResponse = await fetch(`${api}/api/users/list?limit=200`);
+            const usersData = await usersResponse.json();
+            const allUsers = usersData.users || [];
+            
+            candidates = allUsers.filter(u => u.user_id !== uid && u.vectors);
+        }
+        
+        // Рассчитываем совместимость для каждого кандидата
         const results = candidates.map(candidate => {
             const similarity = _calculateCompatibility(
                 userDoublesProfile, 
@@ -1483,7 +1490,7 @@ async function _doSearch(container) {
             };
         });
         
-        // Сортируем и берем топ
+        // Сортируем и берем топ-30
         doublesState.foundDoubles = results
             .sort((a, b) => b.similarity - a.similarity)
             .slice(0, 30);
@@ -1500,7 +1507,6 @@ async function _doSearch(container) {
     _renderResults(container);
 }
 
-// 7. РЕЗУЛЬТАТЫ
 function _renderResults(container) {
     const isTwin = doublesState.searchMode === 'twin';
     const results = doublesState.foundDoubles;
@@ -1639,4 +1645,4 @@ async function showDoublesScreen() {
 window.showDoublesScreen = showDoublesScreen;
 window.goBackToDashboard = () => _goHome();
 
-console.log('✅ doubles.js v6.0 загружен — полная версия с правильным UX');
+console.log('✅ doubles.js v6.1 загружен — универсальный (поддерживает оба API)');
