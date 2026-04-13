@@ -125,6 +125,32 @@ function _doublesInjectStyles() {
         .db-mode-tags { font-size: 10px; color: var(--text-secondary); margin-top: 8px; line-height: 1.6; }
         .db-mode-arrow { font-size: 18px; color: var(--silver-brushed); flex-shrink: 0; }
 
+        /* ===== ЦЕЛИ (GOALS) ===== */
+        .db-goal-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            margin-bottom: 10px;
+            border-radius: 16px;
+            border: 1px solid rgba(224,224,224,0.12);
+            background: rgba(224,224,224,0.04);
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s, transform 0.15s;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .db-goal-item:hover {
+            background: rgba(224,224,224,0.08);
+            border-color: rgba(224,224,224,0.25);
+            transform: translateX(4px);
+        }
+        .db-goal-item:active { transform: scale(0.98); }
+        .db-goal-icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
+        .db-goal-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+        .db-goal-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+        .db-goal-arrow { font-size: 18px; color: var(--silver-brushed); flex-shrink: 0; }
+
         /* ===== ФИЛЬТРЫ ===== */
         .db-filters {
             background: rgba(224,224,224,0.03);
