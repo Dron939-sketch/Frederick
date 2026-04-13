@@ -3470,6 +3470,29 @@ async def get_user_mirrors(user_id: int):
         return {"success": False, "mirrors": [], "stats": {}}
 
 
+@app.post("/api/mirrors/register-friend")
+async def register_mirror_friend(request: Request):
+    """Привязывает friend_user_id к зеркалу сразу при /start в боте."""
+    try:
+        data = await request.json()
+        mirror_code = data.get("mirror_code")
+        friend_user_id = data.get("friend_user_id")
+        friend_name = data.get("friend_name", "Друг")
+        if not mirror_code or not friend_user_id:
+            return {"success": False, "error": "mirror_code and friend_user_id required"}
+        async with db.get_connection() as conn:
+            result = await conn.execute(
+                "UPDATE fredi_mirrors SET friend_user_id = $1, friend_name = $2 "
+                "WHERE mirror_code = $3 AND status = 'active'",
+                int(friend_user_id), friend_name, mirror_code
+            )
+        logger.info(f"🪞 Mirror friend registered: {mirror_code} -> {friend_user_id} ({friend_name})")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Register mirror friend error: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @app.post("/api/mirrors/complete")
 async def complete_mirror(request: Request):
     try:
