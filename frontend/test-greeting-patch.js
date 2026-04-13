@@ -1,6 +1,8 @@
 // test-greeting-patch.js — Patches for Test module
 // Loaded AFTER test.js
 (function() {
+    var _patchApplied = false;
+
     function patch() {
         if (!window.Test || !window.Test.showIntroScreen) return false;
 
@@ -71,6 +73,7 @@
         };
 
         console.log('test-greeting-patch: all patches applied');
+        _patchApplied = true;
         return true;
     }
 
@@ -85,19 +88,25 @@
         var ref = new URLSearchParams(window.location.search).get('ref');
         if (ref && ref.startsWith('mirror_')) {
             localStorage.setItem('fredi_mirror_ref', ref);
-            console.log('\uD83E\uDE9E Mirror ref detected in URL:', ref, '- auto-starting test');
-            // Wait for app to initialize, then open test
-            setTimeout(function() {
-                if (typeof startTest === 'function') {
-                    startTest();
-                } else if (typeof window.startTest === 'function') {
-                    window.startTest();
+            console.log('\uD83E\uDE9E Mirror ref detected in URL:', ref, '- waiting for patches before starting test');
+
+            function waitAndStart() {
+                if (_patchApplied) {
+                    console.log('\uD83E\uDE9E Patches ready, starting test');
+                    if (typeof startTest === 'function') {
+                        startTest();
+                    } else if (typeof window.startTest === 'function') {
+                        window.startTest();
+                    } else {
+                        var testItem = document.querySelector('[data-chat="test"]');
+                        if (testItem) testItem.click();
+                    }
                 } else {
-                    // Find and click the test menu item
-                    var testItem = document.querySelector('[data-chat="test"]');
-                    if (testItem) testItem.click();
+                    setTimeout(waitAndStart, 300);
                 }
-            }, 1500);
+            }
+
+            setTimeout(waitAndStart, 300);
         }
     }
 
