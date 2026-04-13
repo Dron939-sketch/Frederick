@@ -971,9 +971,9 @@ const Test = {
     // ЭКРАНЫ ЗНАКОМСТВА
     // ============================================
     showIntroScreen() {
-        const name = this.context.name || (window.CONFIG && window.CONFIG.USER_NAME !== 'друг' ? window.CONFIG.USER_NAME : '') || '';
-        const greeting = name ? name + ', привет!' : 'Привет!';
-        this.addBotMessage(greeting + '\n\nНу, здравствуйте, дорогой человек! 👋\n\n🧠 Я — Фреди, виртуальный психолог.\nОцифрованная версия Андрея Мейстера, если хотите — его цифровой слепок.\n\n🎭 Короче, я — это он, только батарейка дольше держит и пожрать не прошу.\n\n🕒 Нам нужно познакомиться, потому что я пока не экстрасенс.\n\n🧐 Чтобы я понимал, с кем имею дело и чем могу быть полезен —\nдавайте-ка пройдём небольшой тест.\n\n📊 Всего 5 этапов:\n\n1️⃣ Конфигурация восприятия — как вы фильтруете реальность\n2️⃣ Конфигурация мышления — как ваш мозг перерабатывает информацию\n3️⃣ Конфигурация поведения — что вы делаете на автопилоте\n4️⃣ Точка роста — куда двигаться, чтобы не топтаться на месте\n5️⃣ Глубинные паттерны — что сформировало вас как личность\n\n⏱ 15 минут — и я буду знать о вас больше, чем вы думаете.\n\n🚀 Ну что, начнём наше знакомство?', true);
+        var name = (this.context && this.context.name) || (window.CONFIG && window.CONFIG.USER_NAME !== 'друг' ? window.CONFIG.USER_NAME : '') || '';
+        var greeting = name ? name + ', привет!' : 'Привет!';
+        this.addBotMessage(greeting + '\n\nНу, здравствуйте, дорогой человек! 👋\n\n🧠 Я — Фреди, виртуальный психолог.\n\n🕒 Нам нужно познакомиться, потому что я пока не экстрасенс.\n\n🧐 Чтобы я понимал, с кем имею дело и чем могу быть полезен —\nдавайте-ка пройдём небольшой тест.\n\n📊 Всего 5 этапов:\n\n1️⃣ Конфигурация восприятия — как вы фильтруете реальность\n2️⃣ Конфигурация мышления — как ваш мозг перерабатывает информацию\n3️⃣ Конфигурация поведения — что вы делаете на автопилоте\n4️⃣ Точка роста — куда двигаться, чтобы не топтаться на месте\n5️⃣ Глубинные паттерны — что сформировало вас как личность\n\n⏱ 15 минут — и я буду знать о вас больше, чем вы думаете.\n\n🚀 Ну что, начнём наше знакомство?', true);
         this.addMessageWithButtons('', [
             {text:'🚀 НАЧАТЬ ЗНАКОМСТВО',callback:()=>this.startContextCollection()},
             {text:'🤨 А ТЫ ВООБЩЕ КТО ТАКОЙ?',callback:()=>this.showBotInfo()}
@@ -981,8 +981,8 @@ const Test = {
     },
 
     showBotInfo() {
-        this.addBotMessage(`🎭 Ну, вопрос хороший. Давайте по существу.\n\nВидите ли, дорогой человек, я — экспериментальная модель.\nАндрей Мейстер однажды подумал: "А что, если я создам свою цифровую копию?\nПусть работает, пока я сплю, ем или просто ленюсь".\n\nТак я и появился. 🧠\n\n🧐 Что я умею:\n\n• Вижу паттерны там, где вы видите просто день сурка\n• Нахожу систему в ваших "случайных" решениях\n• Понимаю, почему вы выбираете одних и тех же "не тех" людей\n• Я реально беспристрастен — у меня нет плохого настроения\n\n⏱ 15 минут — и я составлю ваш профиль.\n\n👌 Погнали?`, true);
-        this.addMessageWithButtons('', [{text:'👌 ПОГНАЛИ!',callback:()=>this.startContextCollection()}]);
+        this.addBotMessage('🎭 Ну, вопрос хороший. Давайте по существу.\n\nЯ — Фреди, AI-психолог. Мой мозг обучен на тысячах психологических моделей и реальных кейсов. 🧠\n\n🧐 Что я умею:\n\n• Вижу паттерны там, где вы видите просто день сурка\n• Нахожу систему в ваших "случайных" решениях\n• Понимаю, почему вы выбираете одних и тех же "не тех" людей\n• Я реально беспристрастен — у меня нет плохого настроения\n\n⏱ 15 минут — и я составлю ваш профиль.\n\n👌 Погнали?', true);
+        this.addMessageWithButtons('', [{text:'🚀 НАЧАТЬ ЗНАКОМСТВО',callback:()=>this.startContextCollection()}]);
     },
 
     showTestBenefits() {
@@ -1503,9 +1503,8 @@ ${this.getStage5Interpretation()}
             });
             let data; try { data=await r.json(); } catch { data={success:r.ok}; }
             if (data.success) {
-                // 🪞 Если пользователь пришёл по реферальной ссылке — активируем зеркало
-                await this.completeMirrorIfReferred(profile, deep);
                 await this.fetchAIGeneratedProfile();
+                await this.completeMirrorIfReferred(profile, deep);
             } else { this.showFinalProfileButtons(); }
         } catch(error) { console.error('❌ Ошибка сети:', error); this.showFinalProfileButtons(); }
     },
@@ -1514,11 +1513,7 @@ ${this.getStage5Interpretation()}
         const mirrorCode = this.getMirrorCode();
         if (!mirrorCode) return;
         try {
-            // Считаем средние векторы
-            const vectors = {};
-            for (const [k, levels] of Object.entries(this.behavioralLevels||{})) {
-                vectors[k] = levels.length ? levels.reduce((a,b)=>a+b,0)/levels.length : 3;
-            }
+            const vectors = {'СБ': profile.sbLevel||3, 'ТФ': profile.tfLevel||3, 'УБ': profile.ubLevel||3, 'ЧВ': profile.chvLevel||3};
             await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1617,4 +1612,29 @@ ${this.getStage5Interpretation()}
 };
 
 window.Test = Test;
-console.log('✅ Модуль теста загружен (версия 5.1 - с погодой в контексте)');
+
+// Автозапуск теста при ?ref=mirror_
+(function checkMirrorRef() {
+    var ref = new URLSearchParams(window.location.search).get('ref');
+    if (ref && ref.startsWith('mirror_')) {
+        localStorage.setItem('fredi_mirror_ref', ref);
+        console.log('🪞 Mirror ref detected in URL:', ref);
+        function waitAndStart() {
+            if (typeof startTest === 'function') {
+                startTest();
+            } else if (typeof window.startTest === 'function') {
+                window.startTest();
+            } else {
+                var testItem = document.querySelector('[data-chat="test"]');
+                if (testItem) testItem.click();
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() { setTimeout(waitAndStart, 300); });
+        } else {
+            setTimeout(waitAndStart, 300);
+        }
+    }
+})();
+
+console.log('✅ Модуль теста загружен (версия 5.2 - патчи влиты)');
