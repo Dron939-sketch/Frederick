@@ -3,7 +3,7 @@
 // ============================================
 
 const CONFIG = {
-    API_BASE_URL: 'https://api.fredium.ru',
+    API_BASE_URL: 'fredi-backend-flz2.onrender.com',
 
     // USER_ID: всегда числовой (совместимо с бэкендом)
     get USER_ID() {
