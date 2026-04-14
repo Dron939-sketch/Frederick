@@ -205,7 +205,11 @@ def register_bot_webhooks(app, db):
                                 int(friend_uid), user_name or "Друг", payload
                             )
                         logger.info(f"🪞 Mirror friend saved: {payload} -> friend {friend_uid} ({user_name})")
-                    await _max_send(chat_id, MSG_START_MAX)
+                    await _max_send(chat_id,
+                        f"🪞 {user_name or 'Привет'}, тебя пригласили пройти психологический тест от Фреди!\n\n"
+                        f"⏱ 15 минут — и твой друг увидит ваше сравнение.\n\n"
+                        f"👇 Напиши /start чтобы начать!"
+                    )
 
                 else:
                     await _max_send(chat_id, MSG_START_MAX)
@@ -273,7 +277,7 @@ def register_bot_webhooks(app, db):
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
                         "https://platform-api.max.ru/subscriptions",
-                        json={"url": url, "update_types": ["message_created", "bot_started"]},
+                        json={"url": url, "update_types": ["bot_started"]},
                         headers={"Authorization": MAX_TOKEN}
                     )
                     if resp.status_code in (200, 201):
