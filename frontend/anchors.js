@@ -1,6 +1,6 @@
 // ============================================
 // МОДУЛЬ: ЯКОРЯ И ИМПРИНТЫ
-// Версия: 2.0
+// Версия: 2.1 (с полной диагностикой импринтов)
 // ============================================
 
 // ============================================
@@ -45,6 +45,172 @@ const ANCHORS_CONFIG = {
 };
 
 // ============================================
+// КОНФИГУРАЦИЯ ИМПРИНТОВ
+// ============================================
+
+const IMPRINTS_CONFIG = {
+    types: {
+        abandonment: {
+            id: 'abandonment',
+            name: 'Импринт отвержения',
+            icon: '😔',
+            color: '#ff6b6b',
+            shortDesc: 'Страх, что вас бросят',
+            description: 'Глубинное убеждение, что вы не нужны, что вас отвергнут или покинут. Часто формируется в возрасте 0-3 лет.',
+            childhood: 'В детстве вы могли чувствовать, что ваши потребности не важны. Возможно, родители были эмоционально холодны или непредсказуемы.',
+            adult_manifestations: [
+                'Страх близких отношений',
+                'Тревога при расставаниях',
+                'Потребность в постоянных подтверждениях любви',
+                'Созависимость в отношениях',
+                'Ревность без повода'
+            ],
+            healing_phrase: 'Я ценен сам по себе. Моё присутствие — уже дар.',
+            recommended_anchor: 'Безопасность в себе',
+            affirmation: 'Я достоин любви просто потому, что я есть'
+        },
+        danger: {
+            id: 'danger',
+            name: 'Импринт опасности',
+            icon: '⚠️',
+            color: '#ff9800',
+            shortDesc: 'Мир опасен',
+            description: 'Глубинное убеждение, что мир — опасное место, где нельзя расслабляться. Формируется в возрасте 0-3 лет.',
+            childhood: 'В детстве мир казался непредсказуемым и угрожающим. Возможно, были травмирующие события или гиперопека.',
+            adult_manifestations: [
+                'Генерализованная тревожность',
+                'Избегание нового и неизвестного',
+                'Гиперконтроль всего вокруг',
+                'Панические атаки',
+                'Потребность в безопасности'
+            ],
+            healing_phrase: 'Сейчас я в безопасности. Я справлюсь с любыми вызовами.',
+            recommended_anchor: 'Безопасное место',
+            affirmation: 'Мир безопасен, я под защитой'
+        },
+        perfectionism: {
+            id: 'perfectionism',
+            name: 'Импринт перфекционизма',
+            icon: '🎯',
+            color: '#4caf50',
+            shortDesc: 'Надо быть идеальным',
+            description: 'Убеждение, что нужно быть идеальным, чтобы заслужить любовь и принятие. Формируется в возрасте 3-7 лет.',
+            childhood: 'Вас хвалили только за достижения, а не за сам факт существования. Ошибки наказывались.',
+            adult_manifestations: [
+                'Прокрастинация из-за страха ошибки',
+                'Эмоциональное выгорание',
+                'Неспособность радоваться результатам',
+                'Жёсткая самокритика',
+                'Синдром самозванца'
+            ],
+            healing_phrase: 'Я достаточно хорош. Мои ошибки — это опыт, а не приговор.',
+            recommended_anchor: 'Принятие несовершенства',
+            affirmation: 'Я имею право ошибаться'
+        },
+        emotional_suppression: {
+            id: 'emotional_suppression',
+            name: 'Импринт подавления эмоций',
+            icon: '🔇',
+            color: '#9c27b0',
+            shortDesc: 'Чувства = слабость',
+            description: 'Убеждение, что эмоции — это слабость, опасность или что-то постыдное. Формируется в возрасте 3-7 лет.',
+            childhood: 'Вам говорили "не плачь", "не злись", "будь хорошим мальчиком/девочкой". Эмоции не принимались.',
+            adult_manifestations: [
+                'Сложность в выражении чувств',
+                'Психосоматические заболевания',
+                'Эмоциональное онемение',
+                'Внезапные эмоциональные взрывы',
+                'Трудности в эмпатии'
+            ],
+            healing_phrase: 'Мои чувства имеют значение. Я разрешаю себе чувствовать.',
+            recommended_anchor: 'Разрешение на эмоции',
+            affirmation: 'Мои эмоции — это моя сила'
+        },
+        helplessness: {
+            id: 'helplessness',
+            name: 'Импринт беспомощности',
+            icon: '🪶',
+            color: '#607d8b',
+            shortDesc: 'Я ничего не могу изменить',
+            description: 'Убеждение, что вы не можете влиять на свою жизнь и обстоятельства. Формируется в возрасте 0-7 лет.',
+            childhood: 'Ваши попытки что-то изменить не приводили к результату. Возможно, были травмирующие события вне вашего контроля.',
+            adult_manifestations: [
+                'Жертвенная позиция',
+                'Отсутствие инициативы',
+                'Депрессивные эпизоды',
+                'Выученная беспомощность',
+                'Прокрастинация'
+            ],
+            healing_phrase: 'Я могу влиять на свою жизнь. Мои действия имеют значение.',
+            recommended_anchor: 'Агентность и сила',
+            affirmation: 'Я создаю свою реальность'
+        },
+        unworthiness: {
+            id: 'unworthiness',
+            name: 'Импринт недостойности',
+            icon: '💔',
+            color: '#e91e63',
+            shortDesc: 'Я недостаточно хорош',
+            description: 'Убеждение, что вы недостаточно хороши, умны, красивы, успешны. Формируется в возрасте 3-7 лет.',
+            childhood: 'Вас сравнивали с другими не в вашу пользу. Критика преобладала над похвалой.',
+            adult_manifestations: [
+                'Низкая самооценка',
+                'Трудности с принятием комплиментов',
+                'Сравнение себя с другими',
+                'Заниженные ожидания от жизни',
+                'Синдром самозванца'
+            ],
+            healing_phrase: 'Я ценен независимо от достижений. Я уже достаточно хорош.',
+            recommended_anchor: 'Самоценность',
+            affirmation: 'Я ценен просто потому, что я есть'
+        },
+        control: {
+            id: 'control',
+            name: 'Импринт контроля',
+            icon: '🎮',
+            color: '#00bcd4',
+            shortDesc: 'Всё должно быть под контролем',
+            description: 'Убеждение, что нужно контролировать всё вокруг, чтобы избежать катастрофы. Формируется в возрасте 3-7 лет.',
+            childhood: 'В детстве было много хаоса или непредсказуемости. Контроль был способом выжить.',
+            adult_manifestations: [
+                'Микроменеджмент',
+                'Трудности с делегированием',
+                'Тревога при потере контроля',
+                'Ригидность мышления',
+                'Конфликты в команде'
+            ],
+            healing_phrase: 'Я отпускаю контроль. Жизнь течёт, и это безопасно.',
+            recommended_anchor: 'Доверие процессу',
+            affirmation: 'Я доверяю жизни'
+        }
+    },
+
+    // Вопросы для диагностики
+    questions: [
+        { text: "Я боюсь, что близкие люди могут меня бросить", imprint: "abandonment", weight: 2 },
+        { text: "Мне трудно доверять новым людям", imprint: "abandonment", weight: 1 },
+        { text: "Я постоянно жду подвоха от жизни", imprint: "danger", weight: 2 },
+        { text: "Мир кажется мне непредсказуемым и пугающим", imprint: "danger", weight: 2 },
+        { text: "Ошибки для меня катастрофа", imprint: "perfectionism", weight: 2 },
+        { text: "Я очень требователен к себе", imprint: "perfectionism", weight: 2 },
+        { text: "Мне трудно выражать свои чувства", imprint: "emotional_suppression", weight: 2 },
+        { text: "Я считаю, что плакать — это стыдно", imprint: "emotional_suppression", weight: 1 },
+        { text: "Я чувствую, что ничего не могу изменить", imprint: "helplessness", weight: 2 },
+        { text: "Мне трудно начинать новые дела", imprint: "helplessness", weight: 1 },
+        { text: "Я часто чувствую себя недостаточно хорошим", imprint: "unworthiness", weight: 2 },
+        { text: "Мне трудно принимать комплименты", imprint: "unworthiness", weight: 1 },
+        { text: "Мне нужно всё контролировать", imprint: "control", weight: 2 },
+        { text: "Я не могу расслабиться, пока всё не сделаю сам", imprint: "control", weight: 1 },
+        { text: "Я боюсь, что буду один", imprint: "abandonment", weight: 1 },
+        { text: "Я часто тревожусь без видимой причины", imprint: "danger", weight: 1 },
+        { text: "Мне стыдно за свои ошибки", imprint: "perfectionism", weight: 1 },
+        { text: "Я часто злюсь, но не могу это выразить", imprint: "emotional_suppression", weight: 1 },
+        { text: "Я чувствую себя жертвой обстоятельств", imprint: "helplessness", weight: 1 },
+        { text: "Я постоянно сравниваю себя с другими", imprint: "unworthiness", weight: 1 }
+    ]
+};
+
+// ============================================
 // ХРАНИЛИЩЕ
 // ============================================
 
@@ -54,6 +220,9 @@ let anchorWizardStep = 0;
 let anchorWizardData = {};
 let reimprintingStep = 0;
 let reimprintingData = {};
+let diagnosticAnswers = {};
+let diagnosticResult = null;
+let currentImprint = null;
 
 // ============================================
 // API ВЫЗОВЫ
@@ -115,12 +284,9 @@ async function getProfileBasedRecommendations() {
         const status = await getUserStatus();
         if (!status.has_profile) return [];
         
-        const profile = status.profile_code || '';
         const vectors = status.vectors || {};
-        
         const recommendations = [];
         
-        // На основе векторов
         if (vectors.SB && vectors.SB < 3) {
             recommendations.push({
                 state: 'action',
@@ -166,6 +332,443 @@ async function getProfileBasedRecommendations() {
 }
 
 // ============================================
+// ДИАГНОСТИКА ИМПРИНТОВ
+// ============================================
+
+function startImprintDiagnostic() {
+    diagnosticAnswers = {};
+    diagnosticResult = null;
+    showDiagnosticQuestion(0);
+}
+
+function showDiagnosticQuestion(index) {
+    const questions = IMPRINTS_CONFIG.questions;
+    if (index >= questions.length) {
+        finishDiagnostic();
+        return;
+    }
+    
+    const question = questions[index];
+    const progress = Math.round((index / questions.length) * 100);
+    
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div class="diagnostic-container">
+            <div class="diagnostic-header">
+                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                <h1 class="diagnostic-title">📚 Диагностика импринтов</h1>
+            </div>
+            
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progress}%"></div>
+            </div>
+            
+            <div class="diagnostic-card">
+                <div class="question-counter">Вопрос ${index + 1} из ${questions.length}</div>
+                <div class="question-text">${question.text}</div>
+                <div class="answer-options">
+                    <button class="answer-btn" data-value="0">❌ Совсем нет</button>
+                    <button class="answer-btn" data-value="1">🤔 Иногда</button>
+                    <button class="answer-btn" data-value="2">😐 Часто</button>
+                    <button class="answer-btn" data-value="3">✅ Очень точно</button>
+                </div>
+            </div>
+            
+            <div class="diagnostic-note">
+                💡 Честные ответы помогут точнее определить ваши глубинные программы
+            </div>
+        </div>
+        
+        <style>
+            .diagnostic-container { padding: 20px; max-width: 600px; margin: 0 auto; }
+            .diagnostic-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+            .diagnostic-title { font-size: 24px; font-weight: 700; margin: 0; }
+            .diagnostic-card { background: rgba(224,224,224,0.05); border-radius: 24px; padding: 32px; margin: 24px 0; text-align: center; }
+            .question-counter { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; }
+            .question-text { font-size: 20px; font-weight: 600; margin-bottom: 32px; line-height: 1.4; }
+            .answer-options { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+            .answer-btn { background: rgba(224,224,224,0.08); border: 1px solid rgba(224,224,224,0.1); border-radius: 40px; padding: 12px 24px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+            .answer-btn:hover { background: rgba(255,107,59,0.2); border-color: #ff6b3b; transform: scale(1.02); }
+            .diagnostic-note { text-align: center; font-size: 12px; color: var(--text-secondary); margin-top: 20px; }
+            .result-card { background: linear-gradient(135deg, rgba(255,107,59,0.1), rgba(255,59,59,0.05)); border-radius: 20px; padding: 24px; margin: 16px 0; border-left: 4px solid var(--imprint-color, #ff6b3b); }
+            .result-icon { font-size: 48px; margin-bottom: 12px; }
+            .result-name { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+            .result-desc { color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px; }
+            .manifestations-list { background: rgba(224,224,224,0.03); border-radius: 16px; padding: 16px; margin: 16px 0; }
+            .manifestations-list li { margin: 8px 0; margin-left: 20px; }
+            .healing-box { background: rgba(76,175,80,0.1); border-radius: 16px; padding: 16px; margin: 16px 0; }
+        </style>
+    `;
+    
+    document.getElementById('backBtn').onclick = () => {
+        if (confirm('Вы уверены? Прогресс диагностики будет потерян.')) {
+            showAnchors();
+        }
+    };
+    
+    document.querySelectorAll('.answer-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const value = parseInt(btn.dataset.value);
+            diagnosticAnswers[index] = { question: question.text, imprint: question.imprint, weight: question.weight, value: value * question.weight };
+            showDiagnosticQuestion(index + 1);
+        });
+    });
+}
+
+function finishDiagnostic() {
+    // Подсчёт баллов по типам импринтов
+    const scores = {};
+    
+    for (const [type, config] of Object.entries(IMPRINTS_CONFIG.types)) {
+        scores[type] = 0;
+    }
+    
+    for (let i = 0; i < IMPRINTS_CONFIG.questions.length; i++) {
+        const answer = diagnosticAnswers[i];
+        if (answer && answer.imprint) {
+            scores[answer.imprint] += answer.value;
+        }
+    }
+    
+    // Находим максимальный балл
+    let maxScore = 0;
+    let dominantImprint = null;
+    
+    for (const [type, score] of Object.entries(scores)) {
+        if (score > maxScore) {
+            maxScore = score;
+            dominantImprint = type;
+        }
+    }
+    
+    diagnosticResult = {
+        dominant: dominantImprint,
+        scores: scores,
+        config: IMPRINTS_CONFIG.types[dominantImprint]
+    };
+    
+    showDiagnosticResult();
+}
+
+function showDiagnosticResult() {
+    const result = diagnosticResult;
+    const imprint = result.config;
+    
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+    
+    // Сортируем импринты по убыванию баллов
+    const sortedScores = Object.entries(result.scores)
+        .map(([id, score]) => ({ id, score, config: IMPRINTS_CONFIG.types[id] }))
+        .sort((a, b) => b.score - a.score)
+        .filter(s => s.score > 0);
+    
+    container.innerHTML = `
+        <div class="diagnostic-container">
+            <div class="diagnostic-header">
+                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                <h1 class="diagnostic-title">📊 Результаты диагностики</h1>
+            </div>
+            
+            <div class="result-card" style="--imprint-color: ${imprint.color}">
+                <div class="result-icon">${imprint.icon}</div>
+                <div class="result-name">${imprint.name}</div>
+                <div class="result-desc">${imprint.description}</div>
+            </div>
+            
+            <div class="healing-box">
+                <div style="font-weight: 700; margin-bottom: 8px;">🌱 Исцеляющая фраза</div>
+                <div style="font-size: 18px; font-style: italic;">«${imprint.healing_phrase}»</div>
+                <button class="action-btn" id="saveHealingPhraseBtn" style="margin-top: 12px;">💾 Сохранить как якорь</button>
+            </div>
+            
+            <div class="manifestations-list">
+                <div style="font-weight: 700; margin-bottom: 8px;">📌 Как это проявляется во взрослой жизни:</div>
+                <ul>
+                    ${imprint.adult_manifestations.map(m => `<li>${m}</li>`).join('')}
+                </ul>
+            </div>
+            
+            <div style="background: rgba(33,150,243,0.1); border-radius: 16px; padding: 16px; margin: 16px 0;">
+                <div style="font-weight: 700; margin-bottom: 8px;">👶 Откуда это взялось:</div>
+                <div style="color: var(--text-secondary);">${imprint.childhood}</div>
+            </div>
+            
+            <div class="result-card" style="background: rgba(255,193,7,0.1);">
+                <div style="font-weight: 700; margin-bottom: 8px;">🔑 Рекомендуемый якорь</div>
+                <div>${imprint.recommended_anchor}</div>
+                <button class="action-btn" id="createRecommendedAnchorBtn" style="margin-top: 12px; background: linear-gradient(135deg, #ff6b3b, #ff3b3b);">➕ Создать этот якорь</button>
+            </div>
+            
+            <div class="result-card">
+                <div style="font-weight: 700; margin-bottom: 12px;">📈 Все импринты (по степени выраженности)</div>
+                ${sortedScores.map(s => `
+                    <div style="margin: 12px 0;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>${s.config.icon} ${s.config.name}</span>
+                            <span>${Math.round((s.score / (IMPRINTS_CONFIG.questions.length * 3)) * 100)}%</span>
+                        </div>
+                        <div class="progress-bar" style="height: 6px;">
+                            <div class="progress-fill" style="width: ${(s.score / (IMPRINTS_CONFIG.questions.length * 3)) * 100}%; background: ${s.config.color};"></div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+                <button class="action-btn" id="startReimprintingBtn">🔄 Начать реимпринтинг</button>
+                <button class="action-btn" id="saveResultsBtn">💾 Сохранить результаты</button>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('backBtn').onclick = () => showAnchors();
+    
+    document.getElementById('saveHealingPhraseBtn')?.addEventListener('click', async () => {
+        const anchorData = {
+            name: `Исцеление: ${imprint.name}`,
+            state: 'love',
+            source: 'imprint',
+            source_detail: imprint.healing_phrase,
+            modality: 'auditory',
+            trigger: imprint.healing_phrase,
+            phrase: imprint.healing_phrase,
+            icon: imprint.icon,
+            state_icon: '💖',
+            state_name: 'Исцеление'
+        };
+        const success = await saveAnchor(anchorData);
+        if (success) {
+            showToast('✅ Исцеляющая фраза сохранена как якорь!', 'success');
+            await loadUserAnchors();
+        } else {
+            showToast('❌ Ошибка сохранения', 'error');
+        }
+    });
+    
+    document.getElementById('createRecommendedAnchorBtn')?.addEventListener('click', async () => {
+        anchorWizardData = {
+            state: 'safety',
+            source: 'own',
+            source_detail: imprint.recommended_anchor,
+            modality: 'auditory',
+            trigger: imprint.healing_phrase,
+            name: imprint.recommended_anchor
+        };
+        anchorWizardStep = 3;
+        showAnchors();
+    });
+    
+    document.getElementById('startReimprintingBtn')?.addEventListener('click', () => {
+        reimprintingData = {
+            imprintType: result.dominant,
+            imprintName: imprint.name,
+            situation: imprint.childhood,
+            decision: `Я решил, что ${imprint.shortDesc.toLowerCase()}`,
+            newMessage: imprint.healing_phrase
+        };
+        startReimprinting();
+    });
+    
+    document.getElementById('saveResultsBtn')?.addEventListener('click', () => {
+        localStorage.setItem('fredi_imprint_results', JSON.stringify({
+            dominant: result.dominant,
+            scores: result.scores,
+            date: new Date().toISOString()
+        }));
+        showToast('✅ Результаты сохранены', 'success');
+    });
+}
+
+// ============================================
+// РЕИМПРИНТИНГ (ПОЛНАЯ ВЕРСИЯ)
+// ============================================
+
+function startReimprinting() {
+    reimprintingStep = 1;
+    if (!reimprintingData.situation) {
+        reimprintingData = {
+            situation: '',
+            decision: '',
+            newMessage: '',
+            newAnchor: ''
+        };
+    }
+    showReimprintingScreen();
+}
+
+function showReimprintingScreen() {
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+    
+    const steps = {
+        1: {
+            title: 'Шаг 1 из 5: Найдите ситуацию',
+            content: `
+                <div class="reimprinting-step">
+                    <div class="step-icon">🔍</div>
+                    <div class="step-question">Какая ситуация из детства до сих пор влияет на вас?</div>
+                    <textarea id="situation" placeholder="Например: «Меня наказали за ошибку, и я решил, что ошибаться нельзя»" class="reimprinting-textarea">${reimprintingData.situation || ''}</textarea>
+                    <div class="step-hint">💡 Вспомните конкретный момент. Кто был рядом? Что вы чувствовали?</div>
+                </div>
+            `
+        },
+        2: {
+            title: 'Шаг 2 из 5: Распознайте решение',
+            content: `
+                <div class="reimprinting-step">
+                    <div class="step-icon">💭</div>
+                    <div class="step-question">Какое решение вы тогда приняли? Какой импринт сформировался?</div>
+                    <textarea id="decision" placeholder="Например: «Я решил, что должен быть идеальным, чтобы меня любили»" class="reimprinting-textarea">${reimprintingData.decision || ''}</textarea>
+                    <div class="step-hint">💡 Это было лучшее решение, которое вы могли принять в той ситуации. Оно помогало вам выжить.</div>
+                </div>
+            `
+        },
+        3: {
+            title: 'Шаг 3 из 5: Войдите в ресурс',
+            content: `
+                <div class="reimprinting-step">
+                    <div class="step-icon">🧘</div>
+                    <div class="step-question">Представьте, что вы — взрослый, мудрый, ресурсный.</div>
+                    <div class="step-instruction">
+                        <p>Сделайте глубокий вдох... Почувствуйте свою силу...</p>
+                        <p>Вы прошли через многое. У вас есть опыт, знания, мудрость.</p>
+                        <p>Теперь вы можете помочь тому ребёнку.</p>
+                    </div>
+                    <button class="action-btn primary-btn" id="enterResourceBtn">✅ Я вошёл в ресурсное состояние</button>
+                </div>
+            `
+        },
+        4: {
+            title: 'Шаг 4 из 5: Перепишите импринт',
+            content: `
+                <div class="reimprinting-step">
+                    <div class="step-icon">💌</div>
+                    <div class="step-question">Что бы вы сказали тому ребёнку? Какую поддержку дали бы?</div>
+                    <textarea id="newMessage" placeholder="Напишите новое послание себе-ребёнку..." class="reimprinting-textarea">${reimprintingData.newMessage || ''}</textarea>
+                    <div class="step-hint">💡 Скажите то, что вам самому нужно было услышать в детстве.</div>
+                </div>
+            `
+        },
+        5: {
+            title: 'Шаг 5 из 5: Закрепите якорем',
+            content: `
+                <div class="reimprinting-step">
+                    <div class="step-icon">⚓</div>
+                    <div class="step-question">Закрепите новое состояние якорем.</div>
+                    <input type="text" id="newAnchor" placeholder="Придумайте триггер (жест, фразу)" class="reimprinting-input" value="${reimprintingData.newAnchor || ''}">
+                    <div class="step-hint">💡 Например: рука на сердце + «Я имею право ошибаться»</div>
+                    <button class="action-btn primary-btn" id="completeReimprintingBtn">✅ Завершить и сохранить якорь</button>
+                </div>
+            `
+        }
+    };
+    
+    const currentStep = steps[reimprintingStep];
+    const progress = (reimprintingStep / 5) * 100;
+    
+    container.innerHTML = `
+        <div class="reimprinting-container">
+            <div class="reimprinting-header">
+                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+                <h1 class="reimprinting-title">🔄 Реимпринтинг</h1>
+            </div>
+            
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progress}%"></div>
+            </div>
+            
+            <div class="reimprinting-card">
+                <div class="step-title">${currentStep.title}</div>
+                ${currentStep.content}
+            </div>
+        </div>
+        
+        <style>
+            .reimprinting-container { padding: 20px; max-width: 600px; margin: 0 auto; }
+            .reimprinting-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+            .reimprinting-title { font-size: 24px; font-weight: 700; margin: 0; }
+            .reimprinting-card { background: rgba(224,224,224,0.05); border-radius: 24px; padding: 32px; margin: 24px 0; }
+            .step-title { font-size: 18px; font-weight: 600; margin-bottom: 24px; color: #ff6b3b; }
+            .step-icon { font-size: 48px; text-align: center; margin-bottom: 16px; }
+            .step-question { font-size: 18px; font-weight: 500; margin-bottom: 20px; line-height: 1.4; }
+            .reimprinting-textarea { width: 100%; padding: 16px; border-radius: 16px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; font-family: inherit; font-size: 14px; min-height: 120px; resize: vertical; }
+            .reimprinting-input { width: 100%; padding: 16px; border-radius: 16px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; font-size: 16px; }
+            .step-instruction { background: rgba(255,107,59,0.1); border-radius: 16px; padding: 20px; margin: 20px 0; line-height: 1.6; text-align: center; }
+            .step-hint { font-size: 12px; color: var(--text-secondary); margin-top: 16px; padding: 12px; background: rgba(224,224,224,0.03); border-radius: 12px; }
+            .primary-btn { background: linear-gradient(135deg, #ff6b3b, #ff3b3b); border: none; padding: 14px 24px; border-radius: 40px; color: white; font-weight: 600; cursor: pointer; width: 100%; margin-top: 16px; }
+        </style>
+    `;
+    
+    document.getElementById('backBtn').onclick = () => {
+        if (reimprintingStep > 1) {
+            reimprintingStep--;
+            showReimprintingScreen();
+        } else {
+            showAnchors();
+        }
+    };
+    
+    if (reimprintingStep === 3) {
+        document.getElementById('enterResourceBtn')?.addEventListener('click', () => {
+            reimprintingStep++;
+            showReimprintingScreen();
+        });
+    } else if (reimprintingStep === 5) {
+        document.getElementById('completeReimprintingBtn')?.addEventListener('click', async () => {
+            const newAnchor = document.getElementById('newAnchor')?.value || '';
+            reimprintingData.newAnchor = newAnchor;
+            
+            const anchorToSave = {
+                user_id: CONFIG.USER_ID,
+                name: `Реимпринтинг: ${reimprintingData.imprintName || 'Новое решение'}`,
+                state: 'love',
+                source: 'reimprinting',
+                source_detail: JSON.stringify(reimprintingData),
+                modality: 'auditory',
+                trigger: newAnchor || reimprintingData.newMessage?.substring(0, 50) || 'Я переписал свой импринт',
+                phrase: reimprintingData.newMessage || 'Я переписал свой импринт',
+                icon: '🔄',
+                state_icon: '💖',
+                state_name: 'Реимпринтинг'
+            };
+            
+            const success = await saveAnchor(anchorToSave);
+            if (success) {
+                showToast('✅ Импринт переписан! Новый якорь создан.', 'success');
+                reimprintingStep = 0;
+                reimprintingData = {};
+                showAnchors();
+            } else {
+                showToast('❌ Ошибка сохранения', 'error');
+            }
+        });
+    } else {
+        const situation = document.getElementById('situation');
+        const decision = document.getElementById('decision');
+        const newMessage = document.getElementById('newMessage');
+        
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'primary-btn';
+        nextBtn.textContent = 'Далее →';
+        nextBtn.onclick = () => {
+            if (situation) reimprintingData.situation = situation.value;
+            if (decision) reimprintingData.decision = decision.value;
+            if (newMessage) reimprintingData.newMessage = newMessage.value;
+            reimprintingStep++;
+            showReimprintingScreen();
+        };
+        
+        const container_content = document.querySelector('.reimprinting-card');
+        if (container_content && reimprintingStep !== 3) {
+            container_content.appendChild(nextBtn);
+        }
+    }
+}
+
+// ============================================
 // ОСНОВНОЙ ЭКРАН
 // ============================================
 
@@ -207,8 +810,6 @@ async function showAnchors() {
             .anchor-card { background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px; margin-bottom: 12px; border: 1px solid rgba(224,224,224,0.1); transition: all 0.2s; }
             .anchor-card:hover { background: rgba(224,224,224,0.08); transform: translateX(4px); }
             .anchor-name { font-size: 18px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-            .anchor-state { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
-            .anchor-trigger { font-size: 14px; color: #ff6b3b; margin-bottom: 12px; font-family: monospace; }
             .anchor-actions { display: flex; gap: 12px; margin-top: 12px; }
             .anchor-btn { padding: 8px 16px; border-radius: 30px; border: none; cursor: pointer; font-size: 13px; transition: all 0.2s; }
             .fire-btn { background: linear-gradient(135deg, #ff6b3b, #ff3b3b); color: white; }
@@ -218,15 +819,10 @@ async function showAnchors() {
             .wizard-options { display: flex; flex-direction: column; gap: 12px; margin: 20px 0; }
             .wizard-option { background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.1); border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s; }
             .wizard-option:hover { background: rgba(224,224,224,0.08); border-color: #ff6b3b; }
-            .wizard-option.selected { background: rgba(255,107,59,0.15); border-color: #ff6b3b; }
-            .tech-card { background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px; margin-bottom: 12px; cursor: pointer; }
-            .tech-card:hover { background: rgba(224,224,224,0.08); }
-            .constructor-source { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
-            .source-btn { background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.1); border-radius: 40px; padding: 12px 20px; cursor: pointer; text-align: center; transition: all 0.2s; }
-            .source-btn:hover { background: rgba(255,107,59,0.2); border-color: #ff6b3b; }
-            .imprint-card { background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
             .progress-bar { height: 4px; background: rgba(224,224,224,0.1); border-radius: 2px; overflow: hidden; margin: 8px 0; }
             .progress-fill { height: 100%; background: linear-gradient(90deg, #ff6b3b, #ff3b3b); width: 0%; transition: width 0.3s; }
+            .imprint-card { background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: all 0.2s; }
+            .imprint-card:hover { background: rgba(224,224,224,0.08); transform: translateX(4px); }
         </style>
     `;
     
@@ -285,8 +881,6 @@ function renderAnchorsList(anchors) {
                     <span>${anchor.icon || '⚓'}</span>
                     <span>${anchor.name}</span>
                 </div>
-                <div class="anchor-state">${anchor.state_icon || '😌'} ${anchor.state_name || anchor.state}</div>
-                <div class="anchor-trigger">🔑 Триггер: ${anchor.trigger || anchor.phrase?.substring(0, 50) || '—'}</div>
                 <div class="anchor-actions">
                     <button class="anchor-btn fire-btn" onclick="fireAnchor('${anchor.id}', '${anchor.name.replace(/'/g, "\\'")}')">🔥 Активировать</button>
                     <button class="anchor-btn delete-btn" onclick="deleteAnchorConfirm('${anchor.id}')">🗑️ Удалить</button>
@@ -343,7 +937,8 @@ function renderAnchorWizard() {
                 </div>
                 ${data.source ? `
                     <div style="margin-top: 20px;">
-                        ${renderSourceInput(data.source, data)}
+                        <label style="display: block; margin-bottom: 8px;">Опишите источник:</label>
+                        <textarea id="sourceDetail" placeholder="Опишите ситуацию, фильм, музыку или метафору..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 80px;"></textarea>
                     </div>
                     <button class="anchor-btn fire-btn" style="margin-top: 20px; width: 100%;" onclick="anchorWizardNext()">Далее →</button>
                 ` : ''}
@@ -398,7 +993,7 @@ function renderAnchorWizard() {
                 <div style="background: rgba(255,107,59,0.1); border-radius: 12px; padding: 16px; margin: 16px 0;">
                     <p><strong>📖 Инструкция:</strong></p>
                     <ol style="margin-left: 20px; line-height: 1.8;">
-                        <li>Войдите в состояние ${ANCHORS_CONFIG.states[data.state]?.name || data.state} (используя ${ANCHORS_CONFIG.sources[data.source]?.name || data.source})</li>
+                        <li>Войдите в состояние ${ANCHORS_CONFIG.states[data.state]?.name || data.state}</li>
                         <li>В момент ПИКА состояния — сделайте триггер: <strong>«${data.trigger}»</strong></li>
                         <li>Сбросьте состояние (отвлекитесь, встаньте)</li>
                         <li>Повторите шаги 1-3 ещё 3-5 раз</li>
@@ -415,18 +1010,6 @@ function renderAnchorWizard() {
     }
     
     return '<div>Загрузка...</div>';
-}
-
-function renderSourceInput(source, data) {
-    const sources = {
-        own: `<textarea id="sourceDetail" placeholder="Опишите ситуацию из вашего опыта, когда вы чувствовали это состояние..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 80px;"></textarea>`,
-        movie: `<input type="text" id="sourceDetail" placeholder="Фильм и сцена: например, «Гладиатор — сцена перед битвой»" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white;">`,
-        music: `<input type="text" id="sourceDetail" placeholder="Трек или композиция: например, «Hans Zimmer — Time»" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white;">`,
-        metaphor: `<textarea id="sourceDetail" placeholder="Опишите метафору: например, «Я — скала, которую не может сдвинуть ветер»" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 80px;"></textarea>`,
-        body: `<textarea id="sourceDetail" placeholder="Опишите телесную практику: например, «Глубокий вдох на 4 счета, задержка, выдох на 6»" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 80px;"></textarea>`,
-        other: `<textarea id="sourceDetail" placeholder="Чей опыт вы берёте? Опишите человека и ситуацию..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 80px;"></textarea>`
-    };
-    return sources[source] || sources.own;
 }
 
 function renderRecommendations(recommendations) {
@@ -454,7 +1037,6 @@ function renderRecommendations(recommendations) {
                         <div style="font-size: 12px; color: var(--text-secondary);">${rec.reason}</div>
                     </div>
                 </div>
-                <div class="anchor-trigger" style="margin: 12px 0;">🔑 Триггер: ${rec.trigger}</div>
                 <div style="font-size: 14px; margin-bottom: 16px;">💬 Фраза: «${rec.phrase}»</div>
                 <button class="anchor-btn fire-btn" onclick="quickCreateAnchor('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}', '${rec.phrase.replace(/'/g, "\\'")}')">➕ Создать этот якорь</button>
             </div>
@@ -468,7 +1050,7 @@ function renderTechniques() {
             <p>🔧 Продвинутые техники работы с якорями</p>
         </div>
         ${Object.entries(ANCHORS_CONFIG.techniques).map(([key, tech]) => `
-            <div class="tech-card" onclick="showTechnique('${key}')">
+            <div class="imprint-card" onclick="showTechnique('${key}')">
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <span style="font-size: 32px;">${tech.icon}</span>
                     <div style="flex: 1;">
@@ -488,48 +1070,43 @@ function renderImprints() {
             <p>📚 Глубинная работа с импринтами (детскими программами)</p>
         </div>
         
-        <div class="imprint-card">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <div class="imprint-card" onclick="startImprintDiagnostic()">
+            <div style="display: flex; align-items: center; gap: 12px;">
                 <span style="font-size: 32px;">🔍</span>
                 <div>
                     <div style="font-weight: 700;">Диагностика импринтов</div>
-                    <div style="font-size: 13px; color: var(--text-secondary);">10 вопросов, 3 минуты</div>
+                    <div style="font-size: 13px; color: var(--text-secondary);">20 вопросов, 3 минуты</div>
                 </div>
             </div>
-            <button class="anchor-btn fire-btn" style="width: 100%;" onclick="startImprintDiagnostic()">Начать диагностику</button>
         </div>
         
-        <div class="imprint-card">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <div class="imprint-card" onclick="startReimprinting()">
+            <div style="display: flex; align-items: center; gap: 12px;">
                 <span style="font-size: 32px;">🔄</span>
                 <div>
                     <div style="font-weight: 700;">Реимпринтинг</div>
                     <div style="font-size: 13px; color: var(--text-secondary);">Перезапись детских программ</div>
                 </div>
             </div>
-            <button class="anchor-btn" style="width: 100%; background: rgba(224,224,224,0.1);" onclick="startReimprinting()">Начать реимпринтинг</button>
         </div>
         
-        <div class="imprint-card">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                <span style="font-size: 32px;">💡</span>
-                <div>
-                    <div style="font-weight: 700;">Что такое импринт?</div>
-                    <div style="font-size: 13px; color: var(--text-secondary);">Бессознательная программа, заложенная в детстве</div>
-                </div>
+        <details style="background: rgba(224,224,224,0.03); border-radius: 16px; padding: 16px; margin-top: 16px;">
+            <summary style="cursor: pointer; color: #ff6b3b; font-weight: 500;">📖 Что такое импринты?</summary>
+            <div style="margin-top: 12px; line-height: 1.6; font-size: 14px;">
+                <p>Импринт (запечатление) — это бессознательная программа, сформированная в критический период развития (0-7 лет).</p>
+                <p><strong>Основные типы импринтов:</strong></p>
+                <ul style="margin-left: 20px; margin-top: 8px;">
+                    <li>😔 <strong>Отвержения</strong> — «Я не нужен»</li>
+                    <li>⚠️ <strong>Опасности</strong> — «Мир опасен»</li>
+                    <li>🎯 <strong>Перфекционизма</strong> — «Надо быть идеальным»</li>
+                    <li>🔇 <strong>Подавления эмоций</strong> — «Чувства = слабость»</li>
+                    <li>🪶 <strong>Беспомощности</strong> — «Я ничего не могу изменить»</li>
+                    <li>💔 <strong>Недостойности</strong> — «Я недостаточно хорош»</li>
+                    <li>🎮 <strong>Контроля</strong> — «Всё должно быть под контролем»</li>
+                </ul>
+                <p style="margin-top: 12px;"><strong>Реимпринтинг</strong> — техника перезаписи этих программ через ресурсного свидетеля (взрослого себя).</p>
             </div>
-            <details style="margin-top: 12px;">
-                <summary style="cursor: pointer; color: #ff6b3b;">Подробнее</summary>
-                <div style="margin-top: 12px; line-height: 1.6; font-size: 14px;">
-                    Импринт (запечатление) — это автоматическая реакция, сформированная в критический период развития (0-7 лет).<br><br>
-                    <strong>Примеры импринтов:</strong><br>
-                    • «Я не нужен» → страх отвержения<br>
-                    • «Мир опасен» → тревожность<br>
-                    • «Я должен быть идеальным» → перфекционизм<br><br>
-                    <strong>Реимпринтинг</strong> — техника перезаписи этих программ через ресурсного свидетеля (взрослого себя).
-                </div>
-            </details>
-        </div>
+        </details>
     `;
 }
 
@@ -539,11 +1116,16 @@ function renderConstructor() {
             <p>🎬 Конструируем состояние, которого нет в опыте</p>
         </div>
         
-        <div class="constructor-source">
+        <div class="wizard-options">
             ${Object.entries(ANCHORS_CONFIG.sources).map(([key, source]) => `
-                <div class="source-btn" onclick="constructorSelectSource('${key}')">
-                    <div style="font-size: 28px;">${source.icon}</div>
-                    <div style="font-size: 12px; margin-top: 4px;">${source.name}</div>
+                <div class="wizard-option" onclick="constructorSelectSource('${key}')">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 24px;">${source.icon}</span>
+                        <div>
+                            <div style="font-weight: 600;">${source.name}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">${source.desc}</div>
+                        </div>
+                    </div>
                 </div>
             `).join('')}
         </div>
@@ -553,7 +1135,7 @@ function renderConstructor() {
 }
 
 // ============================================
-// ОБРАБОТЧИКИ ДЛЯ WIZARD
+// ОБРАБОТЧИКИ
 // ============================================
 
 window.anchorWizardSelectState = (state) => {
@@ -564,7 +1146,7 @@ window.anchorWizardSelectState = (state) => {
 
 window.anchorWizardSelectSource = (source) => {
     anchorWizardData.source = source;
-    anchorWizardData.sourceDetail = '';
+    anchorWizardStep = 2;
     showAnchors();
 };
 
@@ -639,8 +1221,8 @@ window.fireAnchor = async (anchorId, anchorName) => {
     const phrase = await fireAnchorAPI(anchorId, anchorName);
     if (phrase) {
         showToast(`✅ ${phrase}`, 'success');
-        if (voiceManager) {
-            await voiceManager.textToSpeech(phrase, currentMode);
+        if (window.voiceManager) {
+            await window.voiceManager.textToSpeech(phrase, window.currentMode || 'psychologist');
         }
     } else {
         showToast('❌ Не удалось активировать якорь', 'error');
@@ -688,45 +1270,52 @@ window.quickCreateAnchor = async (state, name, trigger, phrase) => {
 };
 
 window.showTechnique = (techniqueKey) => {
-    const techniques = {
+    const techniquesContent = {
         stacking: `
             <h3>🔗 Накладка якорей</h3>
             <p>Техника соединения двух ресурсных состояний в один мощный якорь.</p>
-            <ol>
+            <ol style="margin: 16px 0 16px 20px; line-height: 1.8;">
                 <li>Установите якорь на состояние А (например, спокойствие)</li>
                 <li>Установите якорь на состояние Б (например, уверенность)</li>
                 <li>Активируйте оба якоря одновременно</li>
                 <li>Создайте новый интегрированный якорь</li>
             </ol>
-            <button class="anchor-btn fire-btn" onclick="showAnchors()">◀️ Назад</button>
+            <p><strong>Когда применять:</strong> Когда нужно усилить состояние или добавить ресурс к нейтральному.</p>
         `,
         collapse: `
             <h3>💥 Коллапс якорей</h3>
             <p>Разрушение негативного якоря через накладку ресурса.</p>
-            <ol>
+            <ol style="margin: 16px 0 16px 20px; line-height: 1.8;">
                 <li>Установите якорь на негативное состояние</li>
                 <li>Установите мощный ресурсный якорь</li>
                 <li>Активируйте оба одновременно</li>
                 <li>Негатив «схлопывается» ресурсом</li>
             </ol>
-            <button class="anchor-btn fire-btn" onclick="showAnchors()">◀️ Назад</button>
+            <p><strong>Когда применять:</strong> Когда есть негативная реакция на триггер (страх, тревога, паника).</p>
         `,
         chaining: `
             <h3>⛓️ Цепочка якорей</h3>
             <p>Последовательная активация состояний для достижения сложной цели.</p>
-            <ol>
+            <ol style="margin: 16px 0 16px 20px; line-height: 1.8;">
                 <li>Состояние А → Якорь А</li>
                 <li>Переход к состоянию Б</li>
                 <li>Состояние Б → Якорь Б</li>
                 <li>И так далее по цепочке</li>
             </ol>
-            <button class="anchor-btn fire-btn" onclick="showAnchors()">◀️ Назад</button>
+            <p><strong>Когда применять:</strong> Когда нужно пройти через несколько состояний (например, страх → спокойствие → уверенность → действие).</p>
         `,
         reimprinting: `
             <h3>🔄 Реимпринтинг</h3>
             <p>Перезапись детских программ через ресурсного свидетеля.</p>
+            <p style="margin: 16px 0;">Полная 5-шаговая техника:</p>
+            <ol style="margin: 0 0 16px 20px; line-height: 1.8;">
+                <li>Найти ситуацию из детства</li>
+                <li>Распознать решение/импринт</li>
+                <li>Войти в ресурсное состояние взрослого</li>
+                <li>Дать новое послание себе-ребёнку</li>
+                <li>Закрепить новое состояние якорем</li>
+            </ol>
             <button class="anchor-btn fire-btn" onclick="startReimprinting()">Начать реимпринтинг</button>
-            <button class="anchor-btn delete-btn" onclick="showAnchors()">◀️ Назад</button>
         `
     };
     
@@ -736,117 +1325,13 @@ window.showTechnique = (techniqueKey) => {
             <div class="anchors-container">
                 <div class="anchors-header">
                     <button class="back-btn" onclick="showAnchors()">◀️ НАЗАД</button>
-                    <h1 class="anchors-title">🔧 Техника</h1>
+                    <h1 class="anchors-title">🔧 ${ANCHORS_CONFIG.techniques[techniqueKey]?.name || 'Техника'}</h1>
                 </div>
-                <div class="technique-content" style="padding: 20px; background: rgba(224,224,224,0.05); border-radius: 20px;">
-                    ${techniques[techniqueKey] || '<p>Техника загружается...</p>'}
+                <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 24px;">
+                    ${techniquesContent[techniqueKey] || '<p>Техника загружается...</p>'}
                 </div>
             </div>
         `;
-    }
-};
-
-window.startReimprinting = () => {
-    reimprintingStep = 1;
-    reimprintingData = {};
-    showReimprintingScreen();
-};
-
-function showReimprintingScreen() {
-    const container = document.getElementById('screenContainer');
-    if (!container) return;
-    
-    const steps = {
-        1: `
-            <h3>🔄 Реимпринтинг — шаг 1 из 5</h3>
-            <p>Какая ситуация из детства до сих пор влияет на вас?</p>
-            <textarea id="situation" placeholder="Опишите ситуацию... Например: «Меня наказали за ошибку, и я решил, что ошибаться нельзя»" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 100px;"></textarea>
-            <button class="anchor-btn fire-btn" style="margin-top: 20px;" onclick="reimprintingNext()">Далее →</button>
-        `,
-        2: `
-            <h3>🔄 Реимпринтинг — шаг 2 из 5</h3>
-            <p>Какое решение вы тогда приняли? Какой импринт сформировался?</p>
-            <textarea id="decision" placeholder="Например: «Я решил, что должен быть идеальным, чтобы меня любили»" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 100px;"></textarea>
-            <button class="anchor-btn fire-btn" style="margin-top: 20px;" onclick="reimprintingNext()">Далее →</button>
-        `,
-        3: `
-            <h3>🔄 Реимпринтинг — шаг 3 из 5</h3>
-            <p>Представьте, что вы — взрослый, мудрый, ресурсный. Войдите в это состояние.</p>
-            <p style="color: var(--text-secondary);">Сделайте глубокий вдох... Почувствуйте свою силу... Теперь вы можете помочь тому ребёнку.</p>
-            <button class="anchor-btn fire-btn" style="margin-top: 20px;" onclick="reimprintingNext()">Я вошёл в ресурс →</button>
-        `,
-        4: `
-            <h3>🔄 Реимпринтинг — шаг 4 из 5</h3>
-            <p>Что бы вы сказали тому ребёнку? Какую поддержку дали бы?</p>
-            <textarea id="newMessage" placeholder="Напишите новое послание себе-ребёнку..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 100px;"></textarea>
-            <button class="anchor-btn fire-btn" style="margin-top: 20px;" onclick="reimprintingNext()">Переписать импринт →</button>
-        `,
-        5: `
-            <h3>🔄 Реимпринтинг — шаг 5 из 5</h3>
-            <p>Закрепите новое состояние якорем.</p>
-            <p>Придумайте триггер (жест, фразу), который будет напоминать вам о новом решении.</p>
-            <input type="text" id="newAnchor" placeholder="Например: рука на сердце + «Я имею право ошибаться»" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; margin: 16px 0;">
-            <button class="anchor-btn fire-btn" onclick="reimprintingComplete()">✅ Завершить и сохранить якорь</button>
-        `
-    };
-    
-    container.innerHTML = `
-        <div class="anchors-container">
-            <div class="anchors-header">
-                <button class="back-btn" onclick="showAnchors()">◀️ НАЗАД</button>
-                <h1 class="anchors-title">📚 Реимпринтинг</h1>
-            </div>
-            <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 24px;">
-                ${steps[reimprintingStep]}
-            </div>
-            <div class="progress-bar" style="margin-top: 20px;">
-                <div class="progress-fill" style="width: ${(reimprintingStep / 5) * 100}%"></div>
-            </div>
-        </div>
-    `;
-}
-
-window.reimprintingNext = () => {
-    const situation = document.getElementById('situation');
-    const decision = document.getElementById('decision');
-    const newMessage = document.getElementById('newMessage');
-    
-    if (situation) reimprintingData.situation = situation.value;
-    if (decision) reimprintingData.decision = decision.value;
-    if (newMessage) reimprintingData.newMessage = newMessage.value;
-    
-    reimprintingStep++;
-    showReimprintingScreen();
-};
-
-window.reimprintingComplete = async () => {
-    const newAnchor = document.getElementById('newAnchor');
-    if (newAnchor) reimprintingData.newAnchor = newAnchor.value;
-    
-    const anchorToSave = {
-        user_id: CONFIG.USER_ID,
-        name: `Реимпринтинг: ${reimprintingData.newAnchor?.substring(0, 30) || 'Новое решение'}`,
-        state: 'love',
-        source: 'reimprinting',
-        source_detail: JSON.stringify(reimprintingData),
-        modality: 'auditory',
-        trigger: reimprintingData.newAnchor || 'Я переписал свой импринт',
-        phrase: reimprintingData.newAnchor || 'Я переписал свой импринт',
-        icon: '🔄',
-        state_icon: '💖',
-        state_name: 'Реимпринтинг'
-    };
-    
-    const success = await saveAnchor(anchorToSave);
-    if (success) {
-        showToast('✅ Импринт переписан! Новый якорь создан.', 'success');
-        reimprintingStep = 0;
-        reimprintingData = {};
-        currentAnchorView = 'list';
-        await loadUserAnchors();
-        showAnchors();
-    } else {
-        showToast('❌ Ошибка сохранения', 'error');
     }
 };
 
@@ -854,7 +1339,7 @@ window.constructorSelectSource = (source) => {
     const container = document.getElementById('constructorContent');
     if (!container) return;
     
-    const sourceContent = {
+    const sourcesContent = {
         movie: `
             <div style="margin-top: 20px;">
                 <h3>🎬 Выберите фильм или сцену</h3>
@@ -929,17 +1414,38 @@ window.constructorSelectSource = (source) => {
         `
     };
     
-    container.innerHTML = sourceContent[source] || '<p>Выберите источник</p>';
+    container.innerHTML = sourcesContent[source] || '<p>Выберите источник</p>';
+};
+
+window.constructorUseMovie = (movie) => {
+    anchorWizardData = {
+        state: 'confidence',
+        source: 'movie',
+        sourceDetail: movie === 'gladiator' ? 'Гладиатор — сцена перед битвой' : (movie === 'amelie' ? 'Амели — момент радости' : 'Матрица — «Я знаю кунг-фу»'),
+        modality: 'visual'
+    };
+    anchorWizardStep = 2;
+    showAnchors();
 };
 
 window.constructorCreateFromMovie = () => {
     const custom = document.getElementById('customMovie')?.value;
-    const source = custom || 'Гладиатор — сцена перед битвой';
     anchorWizardData = {
         state: 'confidence',
         source: 'movie',
-        sourceDetail: source,
+        sourceDetail: custom || 'Фильм по выбору пользователя',
         modality: 'visual'
+    };
+    anchorWizardStep = 2;
+    showAnchors();
+};
+
+window.constructorUseMusic = (music) => {
+    anchorWizardData = {
+        state: 'calm',
+        source: 'music',
+        sourceDetail: music === 'hans' ? 'Hans Zimmer — Time' : 'Epic orchestral music',
+        modality: 'auditory'
     };
     anchorWizardStep = 2;
     showAnchors();
@@ -947,12 +1453,22 @@ window.constructorCreateFromMovie = () => {
 
 window.constructorCreateFromMusic = () => {
     const custom = document.getElementById('customMusic')?.value;
-    const source = custom || 'Hans Zimmer — Time';
     anchorWizardData = {
         state: 'calm',
         source: 'music',
-        sourceDetail: source,
+        sourceDetail: custom || 'Музыка по выбору пользователя',
         modality: 'auditory'
+    };
+    anchorWizardStep = 2;
+    showAnchors();
+};
+
+window.constructorUseMetaphor = (metaphor) => {
+    anchorWizardData = {
+        state: 'calm',
+        source: 'metaphor',
+        sourceDetail: metaphor === 'rock' ? 'Я — скала, которую не может сдвинуть ветер' : 'Я — океан, могучий и глубокий',
+        modality: 'visual'
     };
     anchorWizardStep = 2;
     showAnchors();
@@ -960,12 +1476,22 @@ window.constructorCreateFromMusic = () => {
 
 window.constructorCreateFromMetaphor = () => {
     const custom = document.getElementById('customMetaphor')?.value;
-    const source = custom || 'Я — скала';
     anchorWizardData = {
         state: 'calm',
         source: 'metaphor',
-        sourceDetail: source,
+        sourceDetail: custom || 'Метафора пользователя',
         modality: 'visual'
+    };
+    anchorWizardStep = 2;
+    showAnchors();
+};
+
+window.constructorUseBody = (practice) => {
+    anchorWizardData = {
+        state: 'calm',
+        source: 'body',
+        sourceDetail: practice === 'breath' ? 'Дыхание: вдох 4 — задержка 4 — выдох 6' : 'Поза супермена: руки в боки, плечи назад',
+        modality: 'kinesthetic'
     };
     anchorWizardStep = 2;
     showAnchors();
@@ -973,19 +1499,14 @@ window.constructorCreateFromMetaphor = () => {
 
 window.constructorCreateFromBody = () => {
     const custom = document.getElementById('customBody')?.value;
-    const source = custom || 'Дыхание 4-4-6';
     anchorWizardData = {
         state: 'calm',
         source: 'body',
-        sourceDetail: source,
+        sourceDetail: custom || 'Телесная практика пользователя',
         modality: 'kinesthetic'
     };
     anchorWizardStep = 2;
     showAnchors();
-};
-
-window.startImprintDiagnostic = () => {
-    showToast('🔍 Диагностика импринтов — в разработке', 'info');
 };
 
 // ============================================
@@ -993,21 +1514,7 @@ window.startImprintDiagnostic = () => {
 // ============================================
 
 window.showAnchors = showAnchors;
-window.anchorWizardSelectState = anchorWizardSelectState;
-window.anchorWizardSelectSource = anchorWizardSelectSource;
-window.anchorWizardSelectModality = anchorWizardSelectModality;
-window.anchorWizardSaveTrigger = anchorWizardSaveTrigger;
-window.anchorWizardNext = anchorWizardNext;
-window.anchorWizardComplete = anchorWizardComplete;
-window.anchorWizardReset = anchorWizardReset;
-window.fireAnchor = fireAnchor;
-window.deleteAnchorConfirm = deleteAnchorConfirm;
-window.quickCreateAnchor = quickCreateAnchor;
-window.showTechnique = showTechnique;
-window.startReimprinting = startReimprinting;
-window.reimprintingNext = reimprintingNext;
-window.reimprintingComplete = reimprintingComplete;
-window.constructorSelectSource = constructorSelectSource;
 window.startImprintDiagnostic = startImprintDiagnostic;
+window.startReimprinting = startReimprinting;
 
-console.log('✅ Anchors module loaded');
+console.log('✅ Anchors module loaded with full imprint diagnostics');
