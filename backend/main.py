@@ -353,6 +353,7 @@ app.add_middleware(
         "https://www.fredium.ru",
         "https://fredi-frontend.onrender.com",
         "https://fredi-app.onrender.com",
+        "https://fredi-frontend-flz2.onrender.com",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8000",
