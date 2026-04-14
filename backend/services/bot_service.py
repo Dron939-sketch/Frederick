@@ -257,17 +257,18 @@ def register_bot_webhooks(app, db):
 
         if TELEGRAM_TOKEN:
             try:
-                url = f"{webhook_base}/api/telegram/webhook"
+                # Удаляем webhook — TG бот работает через polling
+                # mirror_code сохраняется через /api/mirrors/register-friend
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
-                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-                        json={"url": url, "allowed_updates": ["message"]}
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
+                        json={}
                     )
                     result = resp.json()
                     if result.get("ok"):
-                        logger.info(f"Telegram webhook set OK")
+                        logger.info(f"Telegram webhook deleted — TG bot uses polling")
                     else:
-                        logger.error(f"Telegram webhook failed: {result}")
+                        logger.error(f"Telegram deleteWebhook failed: {result}")
             except Exception as e:
                 logger.error(f"Telegram webhook setup error: {e}")
 
