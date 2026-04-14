@@ -204,7 +204,7 @@ class LoadingIndicator {
 // ============================================
 
 const VoiceConfig = {
-    apiBaseUrl: window.CONFIG?.API_BASE_URL || 'https://api.fredium.ru',
+    apiBaseUrl: window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com',
 
     // WebSocket включён — с автофallback на HTTP при неудаче
     useWebSocket: true,
