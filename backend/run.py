@@ -53,6 +53,8 @@ async def find_psychometric_doubles_v2(
         profile = {}
         if row and row['profile']:
             profile = row['profile'] if isinstance(row['profile'], dict) else json.loads(row['profile'])
+
+        logger.info(f"🔍 find-doubles: user={user_id}, has_profile={bool(profile)}, profile_keys={list(profile.keys())[:5] if profile else []}")
         
         behavioral_levels = profile.get('behavioral_levels', {})
 
@@ -94,6 +96,8 @@ async def find_psychometric_doubles_v2(
 
         async with db.get_connection() as conn:
             rows = await conn.fetch(sql, *params)
+
+        logger.info(f"🔍 find-doubles: user={user_id}, vectors={vectors}, found {len(rows)} candidates in DB")
 
         # Calculate similarity
         doubles = []
@@ -146,8 +150,10 @@ async def find_psychometric_doubles_v2(
             })
 
         doubles.sort(key=lambda x: x['similarity'], reverse=True)
-        exact_doubles = [d for d in doubles if d['similarity'] >= 80]
-        nearby_profiles = [d for d in doubles if 50 <= d['similarity'] < 80]
+        exact_doubles = [d for d in doubles if d['similarity'] >= 70]
+        nearby_profiles = [d for d in doubles if 30 <= d['similarity'] < 70]
+
+        logger.info(f"🔍 find-doubles: {len(doubles)} total, {len(exact_doubles)} exact(>=70%), {len(nearby_profiles)} nearby(30-70%)")
 
         return {
             'success': True,
