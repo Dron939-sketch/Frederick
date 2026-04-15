@@ -1514,7 +1514,7 @@ ${this.getStage5Interpretation()}
         if (!mirrorCode) return;
         try {
             const vectors = {'СБ': profile.sbLevel||3, 'ТФ': profile.tfLevel||3, 'УБ': profile.ubLevel||3, 'ЧВ': profile.chvLevel||3};
-            await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
+            const response = await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1529,11 +1529,16 @@ ${this.getStage5Interpretation()}
                     friend_thinking_level: this.thinkingLevel
                 })
             });
-            // Очищаем ref из localStorage после активации
-            localStorage.removeItem('fredi_mirror_ref');
-            console.log('🪞 Зеркало активировано:', mirrorCode);
+            const result = await response.json();
+            if (result.success && result.activated) {
+                try { localStorage.removeItem('fredi_mirror_ref'); } catch(e){}
+                console.log('🪞 Зеркало активировано:', mirrorCode);
+            } else {
+                console.warn('🪞 Зеркало не активировано (возможно уже использовано):', mirrorCode, result);
+            }
         } catch(e) {
             console.warn('⚠️ Ошибка активации зеркала:', e);
+            // НЕ удаляем mirror_ref — retry при следующем открытии
         }
     },
 

@@ -3873,7 +3873,7 @@ async def complete_mirror(request: Request):
         friend_vectors = data.get("friend_vectors", {})
         friend_deep_patterns = data.get("friend_deep_patterns", {})
         async with db.get_connection() as conn:
-            await conn.execute("""
+            result = await conn.execute("""
                 UPDATE fredi_mirrors SET
                     status = 'used', friend_user_id = $2, friend_name = $3,
                     friend_profile_code = $4, friend_vectors = $5, friend_deep_patterns = $6,
@@ -3891,14 +3891,20 @@ async def complete_mirror(request: Request):
                 data.get("friend_perception_type"),
                 int(data.get("friend_thinking_level")) if data.get("friend_thinking_level") else None
             )
+            rows_updated = int(result.split()[-1]) if result else 0
             owner = await conn.fetchrow("SELECT user_id FROM fredi_mirrors WHERE mirror_code = $1", mirror_code)
+
+        logger.info(f"🪞 Mirror complete: code={mirror_code}, rows_updated={rows_updated}, owner={owner['user_id'] if owner else 'N/A'}")
+
+        if rows_updated == 0:
+            return {"success": True, "activated": False, "message": "Зеркало не найдено или уже использовано"}
+
         if owner:
             await log_event(owner["user_id"], "mirror_completed", {"mirror_code": mirror_code})
-            # Отправляем push владельцу зеркала
             if push_service:
                 friend_name = data.get("friend_name", "Друг")
                 asyncio.create_task(push_service.notify_mirror_completed(owner["user_id"], friend_name))
-        return {"success": True, "message": "Зеркало активировано"}
+        return {"success": True, "activated": True, "message": "Зеркало активировано"}
     except Exception as e:
         logger.error(f"Ошибка завершения зеркала: {e}")
         return {"success": False, "error": str(e)}
