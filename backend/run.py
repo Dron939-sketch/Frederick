@@ -85,7 +85,7 @@ async def find_psychometric_doubles_v3(
             sql += " AND c.gender = $2"
             params.append(gender)
 
-        sql += " ORDER BY u.last_activity DESC NULLS LAST LIMIT 200"
+        sql += " ORDER BY RANDOM() LIMIT 300"
 
         async with db.get_connection() as conn:
             rows = await conn.fetch(sql, *params)
@@ -121,9 +121,11 @@ async def find_psychometric_doubles_v3(
                 else:
                     similarity = base
 
+            # Name: context → profile perception_type → anonymous
+            display_name = r['name'] or other_profile.get('perception_type') or 'Пользователь'
             all_candidates.append({
                 'user_id': r['user_id'],
-                'name': r['name'] or f'User_{r["user_id"]}',
+                'name': display_name,
                 'age': r['age'],
                 'city': r['city'],
                 'gender': r['gender'],
