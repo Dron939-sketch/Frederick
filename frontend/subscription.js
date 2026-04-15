@@ -71,12 +71,25 @@
     async function _createPayment() {
         const uid = _uid();
         if (!uid) return;
+
+        const emailInput = document.getElementById('subEmailInput');
+        const email = emailInput ? emailInput.value.trim() : '';
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            _toast('Введите корректный email для чека', 'error');
+            if (emailInput) emailInput.focus();
+            return;
+        }
+
         _toast('Создаю платёж...', 'info');
         try {
             const r = await fetch(`${_api()}/api/subscription/create-payment`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: uid, return_url: window.location.origin + window.location.pathname })
+                body: JSON.stringify({
+                    user_id: uid,
+                    return_url: window.location.origin + window.location.pathname,
+                    email: email,
+                })
             });
             const data = await r.json();
             if (data.success && data.confirmation_url) { window.location.href = data.confirmation_url; }
@@ -115,13 +128,18 @@
     }
 
     function _formatDate(dateStr) {
-        if (!dateStr) return '—';
+        if (!dateStr) return '\u2014';
         return new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     }
 
     function _daysLeft(dateStr) {
         if (!dateStr) return 0;
         return Math.max(0, Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24)));
+    }
+
+    function _escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
     function _cardTypeIcon(type) {
@@ -140,8 +158,8 @@
                     <div class="sub-card-item">
                         <div class="sub-card-item-check">&#x2713;</div>
                         <div class="sub-card-item-info">
-                            <div class="sub-card-item-number">${_cardTypeIcon(card.type)} **** **** **** ${card.last4}</div>
-                            <div class="sub-card-item-type">${(card.type || 'Bank card').toUpperCase()} &middot; Сохранена для автоплатежей</div>
+                            <div class="sub-card-item-number">${_cardTypeIcon(card.type)} **** **** **** ${_escapeHtml(card.last4)}</div>
+                            <div class="sub-card-item-type">${_escapeHtml((card.type || 'Bank card').toUpperCase())} &middot; Сохранена для автоплатежей</div>
                         </div>
                         <button class="sub-btn sub-btn-danger sub-btn-small" id="subDeleteCard">Удалить</button>
                     </div>
@@ -194,8 +212,14 @@
                     <li><span class="sub-feature-icon">&#x1FA9E;</span> Зеркало — анализ отношений</li>
                     <li><span class="sub-feature-icon">&#x1F3AD;</span> Транзактный анализ по Берну</li>
                 </ul>
-                <button class="sub-btn sub-btn-primary" id="subPayBtn">Оформить подписку — 690 &#8381;</button>
-                <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-secondary)">Безопасная оплата через ЮKassa. Карта сохраняется для автопродления.</div>
+                <div style="margin-bottom:14px">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">Email для чека</label>
+                    <input type="email" id="subEmailInput" placeholder="your@email.com"
+                        style="width:100%;padding:12px 14px;border:1px solid rgba(224,224,224,0.18);border-radius:12px;background:rgba(224,224,224,0.05);color:var(--text-primary);font-size:14px;font-family:inherit;box-sizing:border-box;outline:none"
+                        onfocus="this.style.borderColor='rgba(59,130,255,0.5)'" onblur="this.style.borderColor='rgba(224,224,224,0.18)'" />
+                </div>
+                <button class="sub-btn sub-btn-primary" id="subPayBtn">Оформить подписку \u2014 690 &#8381;</button>
+                <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-secondary)">Безопасная оплата через ЮKassa. Чек будет отправлен на указанный email.</div>
             </div>
             ${_renderSavedCardsSection(card)}`;
     }
