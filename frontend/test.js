@@ -1542,14 +1542,39 @@ ${this.getStage5Interpretation()}
         }
     },
 
+    _aiProfileRetries: 0,
+
     async fetchAIGeneratedProfile() {
-        if (!this.userId) return;
+        if (!this.userId) { this.showFinalProfileButtons(); return; }
+
+        // Show loading animation on first call
+        if (this._aiProfileRetries === 0) {
+            this.addBotMessage('🧠 Генерирую ваш персональный AI-профиль...\n\n⏳ Это займёт 15-30 секунд. Анализирую ответы всех 5 этапов...', true);
+        }
+
         try {
             const r = await fetch(TEST_API_BASE_URL+'/api/generated-profile/'+this.userId);
             const data = await r.json();
-            if (data.success && data.ai_profile) { this.aiGeneratedProfile=data.ai_profile; }
-            else if (data.status==='generating') { setTimeout(()=>this.fetchAIGeneratedProfile(), 3000); return; }
+            if (data.success && data.ai_profile) {
+                this.aiGeneratedProfile = data.ai_profile;
+                this._aiProfileRetries = 0;
+                this.showFinalProfileButtons();
+                return;
+            }
+            if (data.status === 'generating' && this._aiProfileRetries < 15) {
+                this._aiProfileRetries++;
+                const dots = '.'.repeat(Math.min(this._aiProfileRetries, 5));
+                const msgs = ['Анализирую ваши паттерны', 'Строю карту личности', 'Формирую инсайты', 'Почти готово'];
+                const hint = msgs[Math.min(this._aiProfileRetries - 1, msgs.length - 1)];
+                // Update last message text
+                const allMsgs = document.querySelectorAll('.message.bot .message-text');
+                const lastMsg = allMsgs[allMsgs.length - 1];
+                if (lastMsg) lastMsg.innerHTML = `🧠 ${hint}${dots}\n\n⏳ Осталось совсем немного...`;
+                setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
+                return;
+            }
         } catch(e) { console.error('Ошибка AI-профиля:', e); }
+        this._aiProfileRetries = 0;
         this.showFinalProfileButtons();
     },
 
