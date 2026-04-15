@@ -2840,12 +2840,28 @@ async def user_status(user_id: Optional[str] = None):
         profile = await user_repo.get_profile(user_id_int) or {}
         has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
 
+        # Extract vectors for frontend (anchors, dreams, doubles)
+        behavioral_levels = profile.get('behavioral_levels', {})
+        vectors = None
+        if behavioral_levels:
+            def _lv(arr):
+                if isinstance(arr, list) and arr: return arr[-1]
+                if isinstance(arr, (int, float)): return arr
+                return 4
+            vectors = {
+                'СБ': _lv(behavioral_levels.get('СБ')),
+                'ТФ': _lv(behavioral_levels.get('ТФ')),
+                'УБ': _lv(behavioral_levels.get('УБ')),
+                'ЧВ': _lv(behavioral_levels.get('ЧВ'))
+            }
+
         return {
             "success": True,
             "has_profile": has_profile,
             "test_completed": has_profile,
             "profile_code": profile.get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4') if has_profile else "не определен",
             "interpretation_ready": bool(profile.get('ai_generated_profile')),
+            "vectors": vectors,
             "user_id": user_id
         }
     except Exception as e:
@@ -3061,6 +3077,27 @@ async def get_dreams_history(request: Request, user_id: int, limit: int = 20):
     except Exception as e:
         logger.error(f"Error getting dreams history: {e}")
         return {"success": True, "dreams": []}
+
+
+@app.post("/api/dreams/save")
+@limiter.limit("20/minute")
+async def save_dream(request: Request):
+    """Save a dream to history (frontend local save backup)."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        dream = data.get("dream", {})
+        if not user_id or not dream:
+            return {"success": False, "error": "user_id and dream required"}
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO fredi_dreams (user_id, dream_text, interpretation, created_at)
+                VALUES ($1, $2, $3, NOW())
+            """, int(user_id), (dream.get("text") or "")[:2000], dream.get("interpretation") or "")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error saving dream: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @app.delete("/api/dreams/{dream_id}")

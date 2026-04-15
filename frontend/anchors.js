@@ -1128,7 +1128,6 @@ function renderImprints() {
 function renderConstructor() {
     // Если wizard уже запущен из конструктора — показываем wizard
     if (anchorWizardStep > 0 && anchorWizardData.source) {
-        currentAnchorView = 'create';
         return renderAnchorWizard();
     }
 
