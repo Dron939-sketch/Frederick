@@ -96,13 +96,15 @@ def format_psychologist_text(text: str, user_name: str = "") -> str:
             text = f"{user_name}, " + text[0].lower() + text[1:] if text else text
     
     header_map = [
-        (r'КЛЮЧЕВОЙ\s*ЭЛЕМЕНТ', '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ'),
-        (r'ПЕТЛЯ', '🔄 ПЕТЛЯ'),
-        (r'ТОЧКА\s*ВХОДА', '🚪 ТОЧКА ВХОДА'),
-        (r'ПРОГНОЗ', '📊 ПРОГНОЗ'),
+        (r'🔐\s*', r'КЛЮЧЕВОЙ\s*ЭЛЕМЕНТ', '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ'),
+        (r'🔄\s*', r'ПЕТЛЯ', '🔄 ПЕТЛЯ'),
+        (r'🚪\s*', r'ТОЧКА\s*ВХОДА', '🚪 ТОЧКА ВХОДА'),
+        (r'📊\s*', r'ПРОГНОЗ', '📊 ПРОГНОЗ'),
     ]
-    
-    for pattern, replacement in header_map:
+
+    for emoji_prefix, pattern, replacement in header_map:
+        # First strip any existing emoji before the header to avoid doubling
+        text = re.sub(rf'{emoji_prefix}({pattern})', rf'\1', text, flags=re.IGNORECASE)
         text = re.sub(rf'({pattern})', rf'{bold(replacement)}', text, flags=re.IGNORECASE)
     
     text = re.sub(r'И вот:\s*$', '', text)
