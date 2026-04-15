@@ -430,6 +430,7 @@ function navigateTo(screen, params = {}) {
         case 'hypnosis': if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; s.onerror=()=>{showToast('Не удалось загрузить модуль','error');}; document.head.appendChild(s); } break;
         case 'anchors': if (typeof showAnchorsScreen==='function') showAnchorsScreen(); else { const s=document.createElement('script');s.src='anchors.js';s.onload=()=>{if(typeof showAnchorsScreen==='function')showAnchorsScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
+        case 'dreams': if (typeof showDreamsScreen==='function') showDreamsScreen(); else { const s=document.createElement('script');s.src='dreams.js';s.onload=()=>{if(typeof showDreamsScreen==='function')showDreamsScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'statistics': showStatistics(); break;
         case 'analysis':
             if (typeof openAnalysisScreen === 'function') {
@@ -631,7 +632,7 @@ function showFullContentScreen(title, content, contentType) {
     const emojiMap = {
         profile: '🧠', thoughts: '💭', goals: '🎯', questions: '❓',
         challenges: '🏆', doubles: '👥', weekend: '🎨', confinement: '🔐',
-        practices: '🧘', hypnosis: '🌙', tales: '🧿', anchors: '⚓', confinement: '🔐'
+        practices: '🧘', hypnosis: '🌙', tales: '🧿', anchors: '⚓', dreams: '🌙', confinement: '🔐'
     };
     // Если content — уже HTML (содержит теги) — не прогоняем через форматтер
     const isHTML = typeof content === 'string' && /<[a-z][\s\S]*>/i.test(content);
@@ -1644,6 +1645,7 @@ async function init() {
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => { if (typeof showAnchorsScreen==='function') showAnchorsScreen(); else { const s=document.createElement('script');s.src='anchors.js';s.onload=()=>{if(typeof showAnchorsScreen==='function')showAnchorsScreen();};document.head.appendChild(s); } },
+                dreams: () => { if (typeof showDreamsScreen==='function') showDreamsScreen(); else { const s=document.createElement('script');s.src='dreams.js';s.onload=()=>{if(typeof showDreamsScreen==='function')showDreamsScreen();};document.head.appendChild(s); } },
                 statistics: () => showStatistics(),
                 mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); },
                 settings: () => {

@@ -351,6 +351,7 @@ app.add_middleware(
         "https://fredium.ru",
         "http://fredium.ru",
         "https://www.fredium.ru",
+        "https://dron939-sketch.github.io",
         "https://fredi-frontend.onrender.com",
         "https://fredi-app.onrender.com",
         "https://fredi-frontend-flz2.onrender.com",
@@ -913,6 +914,37 @@ async def init_database_tables():
                 await conn.execute(f"ALTER TABLE fredi_mirrors ADD COLUMN IF NOT EXISTS {col} {coltype}")
             except Exception:
                 pass
+        # Anchors table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_anchors (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'calm',
+                source TEXT DEFAULT 'own',
+                source_detail TEXT,
+                modality TEXT DEFAULT 'auditory',
+                trigger_text TEXT,
+                phrase TEXT,
+                icon TEXT DEFAULT '⚓',
+                state_icon TEXT,
+                state_name TEXT,
+                uses INTEGER DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_anchors_user_id ON fredi_anchors(user_id, created_at DESC)")
+        # Dreams table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_dreams (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                dream_text TEXT NOT NULL,
+                interpretation TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_dreams_user_id ON fredi_dreams(user_id, created_at DESC)")
         # New table: fredi_user_data (shared with bots)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_user_data (
@@ -2589,6 +2621,154 @@ async def get_anchor_state(state: str):
         return {"success": False, "error": str(e)}
 
 
+# ---------- ЯКОРЯ v2 (fredi_anchors) ----------
+
+@app.get("/api/anchors/user/{user_id}")
+@limiter.limit("30/minute")
+async def get_user_anchors_v2(request: Request, user_id: int):
+    """Получить якоря пользователя из fredi_anchors"""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT id, name, state, source, source_detail, modality,
+                       trigger_text, phrase, icon, state_icon, state_name, uses, created_at
+                FROM fredi_anchors
+                WHERE user_id = $1
+                ORDER BY created_at DESC LIMIT 50
+            """, user_id)
+
+        anchors = []
+        for r in rows:
+            anchors.append({
+                "id": r["id"],
+                "name": r["name"],
+                "state": r["state"],
+                "source": r["source"],
+                "source_detail": r["source_detail"],
+                "modality": r["modality"],
+                "trigger": r["trigger_text"],
+                "phrase": r["phrase"],
+                "icon": r["icon"] or "⚓",
+                "state_icon": r["state_icon"],
+                "state_name": r["state_name"],
+                "uses": r["uses"] or 0,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None
+            })
+
+        return {"success": True, "anchors": anchors}
+    except Exception as e:
+        logger.error(f"Error in get_user_anchors_v2: {e}")
+        return {"success": True, "anchors": []}
+
+
+@app.post("/api/anchors/save")
+@limiter.limit("20/minute")
+async def save_anchor_v2(request: Request):
+    """Сохранить новый якорь"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        name = data.get("name", "").strip()
+        if not user_id or not name:
+            return {"success": False, "error": "user_id and name required"}
+
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow("""
+                INSERT INTO fredi_anchors (user_id, name, state, source, source_detail,
+                    modality, trigger_text, phrase, icon, state_icon, state_name)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                RETURNING id
+            """,
+                user_id,
+                name,
+                data.get("state", "calm"),
+                data.get("source", "own"),
+                data.get("source_detail"),
+                data.get("modality", "auditory"),
+                data.get("trigger", data.get("trigger_text")),
+                data.get("phrase"),
+                data.get("icon", "⚓"),
+                data.get("state_icon"),
+                data.get("state_name")
+            )
+
+        await log_event(user_id, "anchor_saved", {"name": name})
+        return {"success": True, "id": row["id"]}
+    except Exception as e:
+        logger.error(f"Error in save_anchor_v2: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/anchors/delete")
+@limiter.limit("20/minute")
+async def delete_anchor_v2(request: Request):
+    """Удалить якорь"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        anchor_id = data.get("anchor_id")
+        if not user_id or not anchor_id:
+            return {"success": False, "error": "user_id and anchor_id required"}
+
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                DELETE FROM fredi_anchors WHERE id = $1 AND user_id = $2
+            """, int(anchor_id), user_id)
+
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error in delete_anchor_v2: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/anchors/fire")
+@limiter.limit("30/minute")
+async def fire_anchor_v2(request: Request):
+    """Активировать якорь — увеличить счётчик и вернуть фразу"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        anchor_id = data.get("anchor_id")
+        anchor_name = data.get("anchor_name", "")
+
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+
+        phrase = None
+
+        if anchor_id:
+            async with db.get_connection() as conn:
+                row = await conn.fetchrow("""
+                    UPDATE fredi_anchors SET uses = uses + 1
+                    WHERE id = $1 AND user_id = $2
+                    RETURNING phrase, name
+                """, int(anchor_id), user_id)
+            if row:
+                phrase = row["phrase"]
+                anchor_name = row["name"]
+
+        if not phrase:
+            defaults = {
+                "calm": "Я спокоен. Я дышу ровно. Всё хорошо.",
+                "confidence": "Я знаю, что делаю. У меня всё получится.",
+                "action": "Пора действовать. Я готов.",
+                "focus": "Мой ум ясен. Я сосредоточен.",
+                "energy": "Энергия наполняет меня. Я готов действовать.",
+                "love": "Я открыт любви. Я принимаю себя.",
+                "gratitude": "Я благодарен за этот момент.",
+                "safety": "Я в безопасности. Всё под контролем.",
+                "joy": "Радость наполняет меня. Жизнь прекрасна.",
+                "grounding": "Я здесь. Моё тело — моя опора."
+            }
+            phrase = defaults.get(anchor_name, f"Якорь «{anchor_name}» активирован.")
+
+        await log_event(user_id, "anchor_fired", {"name": anchor_name})
+        return {"success": True, "phrase": phrase}
+    except Exception as e:
+        logger.error(f"Error in fire_anchor_v2: {e}")
+        return {"success": False, "error": str(e)}
+
+
 # ---------- USER STATUS ----------
 @app.get("/api/user-status")
 async def user_status(user_id: Optional[str] = None):
@@ -2662,6 +2842,194 @@ async def generate_thought(request: Request):
         return {"success": True, "thought": thought}
     except Exception as e:
         logger.error(f"Error in generate thought: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# ИНТЕРПРЕТАЦИЯ СНОВ
+# ============================================
+
+dream_service = None
+
+@app.post("/api/dreams/interpret")
+@limiter.limit("10/minute")
+async def interpret_dream(request: Request):
+    """Интерпретация сна с учётом профиля пользователя"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        dream_text = data.get("dream_text", "").strip()
+
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        if not dream_text:
+            return {"success": False, "error": "dream_text required"}
+
+        profile = await user_repo.get_profile(user_id) or {}
+        context = await context_repo.get(user_id) or {}
+
+        profile_code = profile.get('display_name')
+        perception_type = profile.get('perception_type')
+        thinking_level = profile.get('thinking_level')
+        vectors = profile.get('behavioral_levels', {})
+
+        if vectors:
+            vectors = {
+                'СБ': vectors.get('СБ', [3])[-1] if vectors.get('СБ') else 3,
+                'ТФ': vectors.get('ТФ', [3])[-1] if vectors.get('ТФ') else 3,
+                'УБ': vectors.get('УБ', [3])[-1] if vectors.get('УБ') else 3,
+                'ЧВ': vectors.get('ЧВ', [3])[-1] if vectors.get('ЧВ') else 3,
+            }
+
+        ai_profile = profile.get('ai_generated_profile', '')
+        key_characteristic = None
+        main_trap = None
+
+        if ai_profile:
+            lines = ai_profile.split('\n')
+            for i, line in enumerate(lines):
+                if 'КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА:' in line or '🔑' in line:
+                    if i + 1 < len(lines):
+                        key_characteristic = lines[i + 1].strip()
+                if 'ГЛАВНАЯ ЛОВУШКА:' in line or '⚠️' in line:
+                    if i + 1 < len(lines):
+                        main_trap = lines[i + 1].strip()
+
+        global dream_service
+        if dream_service is None:
+            from services.dream_service import create_dream_service
+            dream_service = create_dream_service(ai_service)
+
+        result = await dream_service.interpret_dream(
+            user_id=user_id,
+            dream_text=dream_text,
+            user_name=context.get('name', 'друг'),
+            profile_code=profile_code,
+            perception_type=perception_type,
+            thinking_level=thinking_level,
+            vectors=vectors,
+            key_characteristic=key_characteristic,
+            main_trap=main_trap
+        )
+
+        if not result.get("needs_clarification"):
+            async with db.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO fredi_dreams (user_id, dream_text, interpretation, created_at)
+                    VALUES ($1, $2, $3, NOW())
+                """, user_id, dream_text[:2000], result["interpretation"])
+
+        return {"success": True, **result}
+
+    except Exception as e:
+        logger.error(f"Error in dream interpretation: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/dreams/clarify")
+@limiter.limit("10/minute")
+async def clarify_dream(request: Request):
+    """Уточнение сна после дополнительных вопросов"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        session_id = data.get("session_id")
+        answer = data.get("answer", "").strip()
+        dream_text = data.get("dream_text", "")
+
+        if not user_id or not session_id:
+            return {"success": False, "error": "user_id and session_id required"}
+        if not dream_text:
+            return {"success": False, "error": "dream_text required for clarification"}
+
+        profile = await user_repo.get_profile(user_id) or {}
+        context = await context_repo.get(user_id) or {}
+
+        vectors = profile.get('behavioral_levels', {})
+        if vectors:
+            vectors = {
+                'СБ': vectors.get('СБ', [3])[-1] if vectors.get('СБ') else 3,
+                'ТФ': vectors.get('ТФ', [3])[-1] if vectors.get('ТФ') else 3,
+                'УБ': vectors.get('УБ', [3])[-1] if vectors.get('УБ') else 3,
+                'ЧВ': vectors.get('ЧВ', [3])[-1] if vectors.get('ЧВ') else 3,
+            }
+
+        global dream_service
+        if dream_service is None:
+            from services.dream_service import create_dream_service
+            dream_service = create_dream_service(ai_service)
+
+        result = await dream_service.interpret_dream(
+            user_id=user_id,
+            dream_text=dream_text,
+            user_name=context.get('name', 'друг'),
+            profile_code=profile.get('display_name'),
+            perception_type=profile.get('perception_type'),
+            thinking_level=profile.get('thinking_level'),
+            vectors=vectors,
+            clarification_answer=answer
+        )
+
+        if not result.get("needs_clarification"):
+            async with db.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO fredi_dreams (user_id, dream_text, interpretation, created_at)
+                    VALUES ($1, $2, $3, NOW())
+                """, user_id, dream_text[:2000], result["interpretation"])
+
+        return {"success": True, **result}
+
+    except Exception as e:
+        logger.error(f"Error in dream clarification: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/dreams/history/{user_id}")
+@limiter.limit("30/minute")
+async def get_dreams_history(request: Request, user_id: int, limit: int = 20):
+    """Получить историю снов пользователя"""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT id, dream_text, interpretation, created_at
+                FROM fredi_dreams
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+            """, user_id, limit)
+
+        dreams = []
+        for row in rows:
+            dreams.append({
+                "id": row["id"],
+                "text": row["dream_text"],
+                "interpretation": row["interpretation"],
+                "date": row["created_at"].strftime("%d.%m.%Y"),
+                "datetime": row["created_at"].isoformat()
+            })
+
+        return {"success": True, "dreams": dreams}
+
+    except Exception as e:
+        logger.error(f"Error getting dreams history: {e}")
+        return {"success": True, "dreams": []}
+
+
+@app.delete("/api/dreams/{dream_id}")
+@limiter.limit("10/minute")
+async def delete_dream(request: Request, dream_id: int, user_id: int):
+    """Удалить сон из истории"""
+    try:
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                DELETE FROM fredi_dreams
+                WHERE id = $1 AND user_id = $2
+            """, dream_id, user_id)
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"Error deleting dream: {e}")
         return {"success": False, "error": str(e)}
 
 
