@@ -945,6 +945,32 @@ async def init_database_tables():
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_dreams_user_id ON fredi_dreams(user_id, created_at DESC)")
+        # Chats table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_chats (
+                id BIGSERIAL PRIMARY KEY,
+                user_id_1 BIGINT NOT NULL,
+                user_id_2 BIGINT NOT NULL,
+                last_message_text TEXT,
+                last_message_at TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                UNIQUE(user_id_1, user_id_2)
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_chats_user1 ON fredi_chats(user_id_1, last_message_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_chats_user2 ON fredi_chats(user_id_2, last_message_at DESC)")
+        # Chat messages table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_chat_messages (
+                id BIGSERIAL PRIMARY KEY,
+                chat_id BIGINT REFERENCES fredi_chats(id) ON DELETE CASCADE,
+                sender_id BIGINT NOT NULL,
+                text TEXT NOT NULL,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_chat_messages_chat ON fredi_chat_messages(chat_id, created_at)")
         # New table: fredi_user_data (shared with bots)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_user_data (
@@ -2767,6 +2793,219 @@ async def fire_anchor_v2(request: Request):
     except Exception as e:
         logger.error(f"Error in fire_anchor_v2: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ---------- ЧАТЫ И СООБЩЕНИЯ ----------
+
+@app.post("/api/chats/create")
+@limiter.limit("20/minute")
+async def create_chat(request: Request):
+    """Create or get existing chat between two users."""
+    try:
+        data = await request.json()
+        user_id_1 = int(data.get("user_id_1"))
+        user_id_2 = int(data.get("user_id_2"))
+        if not user_id_1 or not user_id_2 or user_id_1 == user_id_2:
+            return {"success": False, "error": "Two different user_ids required"}
+
+        # Normalize order so (A,B) and (B,A) map to the same chat
+        low, high = min(user_id_1, user_id_2), max(user_id_1, user_id_2)
+
+        async with db.get_connection() as conn:
+            # Try to find existing
+            row = await conn.fetchrow(
+                "SELECT id FROM fredi_chats WHERE user_id_1 = $1 AND user_id_2 = $2",
+                low, high
+            )
+            if row:
+                return {"success": True, "chat_id": row["id"], "created": False}
+
+            # Create new
+            row = await conn.fetchrow("""
+                INSERT INTO fredi_chats (user_id_1, user_id_2, created_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET user_id_1 = EXCLUDED.user_id_1
+                RETURNING id
+            """, low, high)
+            return {"success": True, "chat_id": row["id"], "created": True}
+    except Exception as e:
+        logger.error(f"Error creating chat: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/chats")
+@limiter.limit("30/minute")
+async def get_chats(request: Request, user_id: int):
+    """Get all chats for a user."""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT ch.id, ch.user_id_1, ch.user_id_2,
+                       ch.last_message_text, ch.last_message_at, ch.created_at,
+                       c1.name as name_1, c1.age as age_1, c1.gender as gender_1,
+                       c2.name as name_2, c2.age as age_2, c2.gender as gender_2,
+                       (SELECT COUNT(*) FROM fredi_chat_messages m
+                        WHERE m.chat_id = ch.id AND m.sender_id != $1 AND m.is_read = FALSE) as unread
+                FROM fredi_chats ch
+                LEFT JOIN fredi_user_contexts c1 ON c1.user_id = ch.user_id_1
+                LEFT JOIN fredi_user_contexts c2 ON c2.user_id = ch.user_id_2
+                WHERE ch.user_id_1 = $1 OR ch.user_id_2 = $1
+                ORDER BY COALESCE(ch.last_message_at, ch.created_at) DESC
+                LIMIT 50
+            """, user_id)
+
+        chats = []
+        for r in rows:
+            # Determine partner
+            is_user1 = (r["user_id_1"] == user_id)
+            partner_id = r["user_id_2"] if is_user1 else r["user_id_1"]
+            partner_name = (r["name_2"] if is_user1 else r["name_1"]) or "Пользователь"
+            partner_age = r["age_2"] if is_user1 else r["age_1"]
+            partner_gender = r["gender_2"] if is_user1 else r["gender_1"]
+
+            chats.append({
+                "id": r["id"],
+                "partnerId": partner_id,
+                "partnerName": partner_name,
+                "partnerAge": partner_age,
+                "partnerGender": partner_gender,
+                "lastMessage": {"text": r["last_message_text"] or ""} if r["last_message_text"] else None,
+                "lastMessageAt": r["last_message_at"].isoformat() if r["last_message_at"] else None,
+                "unreadCount": r["unread"] or 0,
+                "createdAt": r["created_at"].isoformat()
+            })
+
+        return {"success": True, "chats": chats}
+    except Exception as e:
+        logger.error(f"Error getting chats: {e}")
+        return {"success": True, "chats": []}
+
+
+@app.get("/api/chats/{chat_id}/messages")
+@limiter.limit("30/minute")
+async def get_chat_messages(request: Request, chat_id: int, user_id: int, limit: int = 50, offset: int = 0):
+    """Get messages in a chat."""
+    try:
+        async with db.get_connection() as conn:
+            # Verify user is participant
+            chat = await conn.fetchrow(
+                "SELECT id FROM fredi_chats WHERE id = $1 AND (user_id_1 = $2 OR user_id_2 = $2)",
+                chat_id, user_id
+            )
+            if not chat:
+                return {"success": False, "error": "Chat not found"}
+
+            rows = await conn.fetch("""
+                SELECT id, sender_id as "fromUserId", text, is_read as "isRead", created_at as "createdAt"
+                FROM fredi_chat_messages
+                WHERE chat_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2 OFFSET $3
+            """, chat_id, limit, offset)
+
+            # Mark messages as read
+            await conn.execute("""
+                UPDATE fredi_chat_messages SET is_read = TRUE
+                WHERE chat_id = $1 AND sender_id != $2 AND is_read = FALSE
+            """, chat_id, user_id)
+
+        messages = []
+        for r in rows:
+            messages.append({
+                "id": r["id"],
+                "fromUserId": r["fromUserId"],
+                "text": r["text"],
+                "isRead": r["isRead"],
+                "createdAt": r["createdAt"].isoformat(),
+                "type": "text"
+            })
+
+        return {"success": True, "messages": list(reversed(messages))}
+    except Exception as e:
+        logger.error(f"Error getting messages: {e}")
+        return {"success": True, "messages": []}
+
+
+@app.post("/api/chats/{chat_id}/messages")
+@limiter.limit("30/minute")
+async def send_message(request: Request, chat_id: int):
+    """Send a message in a chat."""
+    try:
+        data = await request.json()
+        sender_id = int(data.get("user_id"))
+        text = (data.get("text") or "").strip()
+        if not text:
+            return {"success": False, "error": "Message text required"}
+
+        async with db.get_connection() as conn:
+            # Verify user is participant
+            chat = await conn.fetchrow(
+                "SELECT id FROM fredi_chats WHERE id = $1 AND (user_id_1 = $2 OR user_id_2 = $2)",
+                chat_id, sender_id
+            )
+            if not chat:
+                return {"success": False, "error": "Chat not found"}
+
+            row = await conn.fetchrow("""
+                INSERT INTO fredi_chat_messages (chat_id, sender_id, text, created_at)
+                VALUES ($1, $2, $3, NOW())
+                RETURNING id, created_at
+            """, chat_id, sender_id, text[:2000])
+
+            # Update chat last message
+            await conn.execute("""
+                UPDATE fredi_chats SET last_message_text = $2, last_message_at = NOW()
+                WHERE id = $1
+            """, chat_id, text[:100])
+
+        return {
+            "success": True,
+            "message": {
+                "id": row["id"],
+                "fromUserId": sender_id,
+                "text": text,
+                "isRead": False,
+                "createdAt": row["created_at"].isoformat(),
+                "type": "text"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error sending message: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.put("/api/chats/{chat_id}/read")
+@limiter.limit("30/minute")
+async def mark_chat_read(request: Request, chat_id: int):
+    """Mark all messages in a chat as read."""
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id"))
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                UPDATE fredi_chat_messages SET is_read = TRUE
+                WHERE chat_id = $1 AND sender_id != $2 AND is_read = FALSE
+            """, chat_id, user_id)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/notifications")
+@limiter.limit("30/minute")
+async def get_notifications(request: Request, user_id: int):
+    """Get notifications (new chats, unread messages)."""
+    try:
+        async with db.get_connection() as conn:
+            unread = await conn.fetchval("""
+                SELECT COUNT(*) FROM fredi_chat_messages m
+                JOIN fredi_chats ch ON ch.id = m.chat_id
+                WHERE (ch.user_id_1 = $1 OR ch.user_id_2 = $1)
+                  AND m.sender_id != $1 AND m.is_read = FALSE
+            """, user_id) or 0
+        return {"success": True, "notifications": [], "unread_total": unread}
+    except Exception as e:
+        return {"success": True, "notifications": [], "unread_total": 0}
 
 
 # ---------- USERS LIST (fallback for doubles) ----------
