@@ -2769,6 +2769,54 @@ async def fire_anchor_v2(request: Request):
         return {"success": False, "error": str(e)}
 
 
+# ---------- USERS LIST (fallback for doubles) ----------
+@app.get("/api/users/list")
+@limiter.limit("10/minute")
+async def users_list(request: Request, limit: int = 200):
+    """List users with profiles for doubles fallback."""
+    try:
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT u.user_id, u.profile, c.name, c.age, c.city, c.gender
+                FROM fredi_users u
+                LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
+                WHERE u.profile IS NOT NULL
+                  AND u.profile != '{}'::jsonb
+                  AND u.profile -> 'behavioral_levels' IS NOT NULL
+                ORDER BY u.last_activity DESC NULLS LAST
+                LIMIT $1
+            """, limit)
+
+        def last_val(arr, default=4):
+            if isinstance(arr, list) and arr: return arr[-1]
+            if isinstance(arr, (int, float)): return arr
+            return default
+
+        users = []
+        for r in rows:
+            p = r['profile'] if isinstance(r['profile'], dict) else json.loads(r['profile'])
+            bl = p.get('behavioral_levels', {})
+            users.append({
+                'user_id': r['user_id'],
+                'name': r['name'] or f'User_{r["user_id"]}',
+                'age': r['age'],
+                'city': r['city'],
+                'gender': r['gender'],
+                'profile_code': p.get('display_name', ''),
+                'profile_type': p.get('perception_type', ''),
+                'vectors': {
+                    'СБ': last_val(bl.get('СБ')),
+                    'ТФ': last_val(bl.get('ТФ')),
+                    'УБ': last_val(bl.get('УБ')),
+                    'ЧВ': last_val(bl.get('ЧВ'))
+                }
+            })
+        return {"success": True, "users": users}
+    except Exception as e:
+        logger.error(f"Error in users list: {e}")
+        return {"success": True, "users": []}
+
+
 # ---------- USER STATUS ----------
 @app.get("/api/user-status")
 async def user_status(user_id: Optional[str] = None):
