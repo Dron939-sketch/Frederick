@@ -1585,7 +1585,7 @@ function _renderResults(container) {
                     <div class="db-card-insight">💡 ${item.insight}</div>
 
                     <div class="db-card-actions">
-                        <button class="db-card-action db-save-btn" data-id="${item.user_id}">❤️ В избранное</button>
+                        <button class="db-card-action db-msg-btn" data-id="${item.user_id}" data-name="${(item.name || 'Пользователь').replace(/"/g, '&quot;')}">💬 Написать</button>
                         <button class="db-card-action db-view-btn" data-id="${item.user_id}">👤 Профиль</button>
                     </div>
                 </div>`;
@@ -1612,11 +1612,39 @@ function _renderResults(container) {
     
     document.querySelectorAll('.db-view-btn').forEach(b =>
         b.addEventListener('click', () => _showToast('👤 Полный профиль — скоро', 'info')));
-    document.querySelectorAll('.db-save-btn').forEach(b =>
-        b.addEventListener('click', function() {
-            this.innerHTML = '✅ Сохра��ено';
-            this.classList.add('saved');
-            _showToast('❤️ Сохранено в избранное', 'success');
+    document.querySelectorAll('.db-msg-btn').forEach(b =>
+        b.addEventListener('click', async function() {
+            const partnerId = parseInt(this.dataset.id);
+            const partnerName = this.dataset.name;
+            const uid = _userId();
+            this.innerHTML = '⏳...';
+            this.disabled = true;
+            try {
+                const api = _api();
+                const res = await fetch(`${api}/api/chats/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id_1: uid, user_id_2: partnerId })
+                });
+                const data = await res.json();
+                if (data.success && data.chat_id) {
+                    if (typeof window.openChat === 'function') {
+                        window.openChat(data.chat_id);
+                    } else if (typeof window.showMessagesScreen === 'function') {
+                        window.showMessagesScreen();
+                    }
+                    _showToast(`💬 Чат с ${partnerName} открыт`, 'success');
+                } else {
+                    _showToast('❌ Не удалось создать чат', 'error');
+                    this.innerHTML = '💬 Написать';
+                    this.disabled = false;
+                }
+            } catch(e) {
+                console.error('Chat create error:', e);
+                _showToast('❌ Ошибка создания чата', 'error');
+                this.innerHTML = '💬 Написать';
+                this.disabled = false;
+            }
         }));
 }
 
