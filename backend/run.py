@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # ============================================
 # PATCHED: /api/psychometric/find-doubles
-# Fixes: extracts mode/goal/gender params, applies gender filter
+# v3: single JOIN query, no similarity threshold, returns ALL candidates
 # ============================================
 
 # Remove old route
@@ -26,18 +26,16 @@ for i, route in enumerate(app.routes):
 
 @app.get('/api/psychometric/find-doubles')
 @limiter.limit('10/minute')
-async def find_psychometric_doubles_v2(
+async def find_psychometric_doubles_v3(
     request: Request,
     user_id: str,
     mode: str = 'twin',
     goal: str = None,
     gender: str = None,
     distance: str = None,
-    limit: int = 10
+    limit: int = 30
 ):
     try:
-        from repositories.user_repo import UserRepository
-
         try:
             user_id_for_db = int(user_id)
         except (ValueError, TypeError):
@@ -49,13 +47,11 @@ async def find_psychometric_doubles_v2(
                 "SELECT profile FROM fredi_users WHERE user_id::text = $1",
                 str(user_id_for_db)
             )
-        
+
         profile = {}
         if row and row['profile']:
             profile = row['profile'] if isinstance(row['profile'], dict) else json.loads(row['profile'])
 
-        logger.info(f"🔍 find-doubles: user={user_id}, has_profile={bool(profile)}, profile_keys={list(profile.keys())[:5] if profile else []}")
-        
         behavioral_levels = profile.get('behavioral_levels', {})
 
         def last_val(arr, default=4):
@@ -72,38 +68,39 @@ async def find_psychometric_doubles_v2(
             'ЧВ': last_val(behavioral_levels.get('ЧВ'))
         }
 
-        # Build query with optional gender filter
+        # Single JOIN query — no N+1
         sql = """
-            SELECT DISTINCT u.user_id, u.profile
+            SELECT u.user_id, u.profile,
+                   c.name, c.age, c.city, c.gender
             FROM fredi_users u
+            LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
             WHERE u.user_id::text != $1
-            AND u.profile IS NOT NULL
-            AND u.profile != '{}'::jsonb
+              AND u.profile IS NOT NULL
+              AND u.profile != '{}'::jsonb
+              AND u.profile -> 'behavioral_levels' IS NOT NULL
         """
         params = [str(user_id_for_db)]
 
         if gender and gender != 'any':
-            # Filter by gender from user context
-            sql += """
-                AND EXISTS (
-                    SELECT 1 FROM fredi_user_contexts c
-                    WHERE c.user_id = u.user_id AND c.gender = $2
-                )
-            """
+            sql += " AND c.gender = $2"
             params.append(gender)
 
-        sql += f" LIMIT {limit * 3}"
+        sql += " ORDER BY u.last_activity DESC NULLS LAST LIMIT 200"
 
         async with db.get_connection() as conn:
             rows = await conn.fetch(sql, *params)
 
-        logger.info(f"🔍 find-doubles: user={user_id}, vectors={vectors}, found {len(rows)} candidates in DB")
+        logger.info(f"🔍 find-doubles: user={user_id}, vectors={vectors}, candidates={len(rows)}")
 
-        # Calculate similarity
-        doubles = []
-        for row in rows:
-            other_profile = row['profile'] if isinstance(row['profile'], dict) else json.loads(row['profile'])
+        # Calculate similarity for all candidates
+        all_candidates = []
+        for r in rows:
+            other_profile = r['profile'] if isinstance(r['profile'], dict) else json.loads(r['profile'])
             other_behavioral = other_profile.get('behavioral_levels', {})
+
+            # Skip if no real vectors
+            if not other_behavioral:
+                continue
 
             other_vectors = {
                 'СБ': last_val(other_behavioral.get('СБ')),
@@ -115,52 +112,46 @@ async def find_psychometric_doubles_v2(
             total_diff = sum(abs(vectors.get(k, 4) - other_vectors.get(k, 4)) for k in ['СБ', 'ТФ', 'УБ', 'ЧВ'])
 
             if mode == 'twin':
-                # Twin: minimize difference
                 similarity = max(0, min(100, int((1 - total_diff / 24) * 100)))
             else:
-                # Match: complementary profiles score higher for some goals
                 base = max(0, min(100, int((1 - total_diff / 24) * 100)))
                 if goal in ('lover', 'spouse'):
-                    # For romantic goals: moderate difference is attractive
                     complement = min(100, int((total_diff / 12) * 100))
                     similarity = int(base * 0.4 + complement * 0.6)
-                elif goal in ('companion', 'employee', 'boss'):
-                    # For business: similar thinking + complementary skills
-                    similarity = base
                 else:
                     similarity = base
 
-            # Get context for display
-            async with db.get_connection() as conn:
-                ctx = await conn.fetchrow(
-                    "SELECT name, age, city, gender FROM fredi_user_contexts WHERE user_id = $1",
-                    row['user_id']
-                )
-
-            doubles.append({
-                'user_id': row['user_id'],
-                'name': (ctx['name'] if ctx and ctx['name'] else f'User_{row["user_id"]}'),
-                'age': ctx['age'] if ctx else None,
-                'city': ctx['city'] if ctx else None,
-                'gender': ctx['gender'] if ctx else None,
+            all_candidates.append({
+                'user_id': r['user_id'],
+                'name': r['name'] or f'User_{r["user_id"]}',
+                'age': r['age'],
+                'city': r['city'],
+                'gender': r['gender'],
                 'profile_code': other_profile.get('display_name', ''),
                 'profile_type': other_profile.get('perception_type', ''),
                 'vectors': other_vectors,
                 'similarity': similarity,
             })
 
-        doubles.sort(key=lambda x: x['similarity'], reverse=True)
-        exact_doubles = [d for d in doubles if d['similarity'] >= 70]
-        nearby_profiles = [d for d in doubles if 30 <= d['similarity'] < 70]
+        # Sort by similarity descending
+        all_candidates.sort(key=lambda x: x['similarity'], reverse=True)
 
-        logger.info(f"🔍 find-doubles: {len(doubles)} total, {len(exact_doubles)} exact(>=70%), {len(nearby_profiles)} nearby(30-70%)")
+        # Split into categories but return ALL — let frontend decide
+        exact = [c for c in all_candidates if c['similarity'] >= 70]
+        nearby = [c for c in all_candidates if 30 <= c['similarity'] < 70]
+        rest = [c for c in all_candidates if c['similarity'] < 30]
+
+        # Results = all candidates sorted, limited
+        results = all_candidates[:limit]
+
+        logger.info(f"🔍 find-doubles: total={len(all_candidates)}, exact={len(exact)}, nearby={len(nearby)}, rest={len(rest)}, returning={len(results)}")
 
         return {
             'success': True,
-            'doubles': exact_doubles[:limit],
-            'nearby': nearby_profiles[:limit],
-            'results': (exact_doubles + nearby_profiles)[:limit],
-            'total_found': len(doubles),
+            'doubles': exact[:limit],
+            'nearby': nearby[:limit],
+            'results': results,
+            'total_found': len(all_candidates),
             'your_profile': {
                 'profile_code': profile.get('display_name'),
                 'vectors': vectors,
@@ -168,11 +159,11 @@ async def find_psychometric_doubles_v2(
             }
         }
     except Exception as e:
-        logger.error(f'Error finding doubles for user {user_id}: {e}')
+        logger.error(f'Error finding doubles for user {user_id}: {e}', exc_info=True)
         return {'success': False, 'error': str(e), 'doubles': [], 'results': []}
 
 
-logger.info('run.py: find-doubles endpoint patched with filters support')
+logger.info('run.py: find-doubles endpoint patched v3 (JOIN, no threshold, limit 200)')
 
 if __name__ == '__main__':
     import uvicorn
