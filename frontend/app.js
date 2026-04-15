@@ -5,14 +5,21 @@
 const CONFIG = {
     API_BASE_URL: 'https://fredi-backend-flz2.onrender.com',
 
-    // USER_ID: всегда числовой (совместимо с бэкендом)
+    // USER_ID: всегда числовой (localStorage + cookie fallback)
     get USER_ID() {
-        let id = localStorage.getItem('fredi_user_id');
+        let id = null;
+        try { id = localStorage.getItem('fredi_user_id'); } catch(e){}
         if (!id || isNaN(parseInt(id))) {
-            id = Date.now();
-            localStorage.setItem('fredi_user_id', id);
+            const m = document.cookie.match(/(?:^|; )fredi_uid=([^;]*)/);
+            if (m) id = decodeURIComponent(m[1]);
         }
-        return parseInt(id);
+        if (!id || isNaN(parseInt(id))) {
+            id = window.USER_ID || Date.now();
+        }
+        id = parseInt(id);
+        try { localStorage.setItem('fredi_user_id', id); } catch(e){}
+        document.cookie = 'fredi_uid=' + id + ';path=/;max-age=315360000;SameSite=Lax';
+        return id;
     },
 
     get USER_NAME() {

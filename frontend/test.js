@@ -1569,10 +1569,12 @@ ${this.getStage5Interpretation()}
         ]);
 
         if (this.userId) {
-            localStorage.setItem('test_results_'+this.userId, JSON.stringify({
-                profile, deepPatterns:deep, perceptionType:this.perceptionType,
-                thinkingLevel:this.thinkingLevel, context:this.context, aiProfile:this.aiGeneratedProfile
-            }));
+            try {
+                localStorage.setItem('test_results_'+this.userId, JSON.stringify({
+                    profile: p, deepPatterns:deep, perceptionType:this.perceptionType,
+                    thinkingLevel:this.thinkingLevel, context:this.context, aiProfile:this.aiGeneratedProfile
+                }));
+            } catch(e) { console.warn('Failed to save test results to localStorage:', e); }
         }
     },
 

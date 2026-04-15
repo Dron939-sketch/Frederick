@@ -74,10 +74,20 @@
     <script>
         (function(){
             window.API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
-            
-            var s = localStorage.getItem('fredi_user_id');
-            var u = s && !isNaN(parseInt(s)) ? parseInt(s) : Date.now();
-            localStorage.setItem('fredi_user_id', u);
+
+            function _getCookie(n){var m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));return m?decodeURIComponent(m[1]):null;}
+            function _setCookie(n,v){document.cookie=n+'='+encodeURIComponent(v)+';path=/;max-age=315360000;SameSite=Lax';}
+
+            var u = null;
+            // 1. localStorage
+            try { var s = localStorage.getItem('fredi_user_id'); if(s && !isNaN(parseInt(s))) u = parseInt(s); } catch(e){}
+            // 2. cookie fallback
+            if(!u){ var c = _getCookie('fredi_uid'); if(c && !isNaN(parseInt(c))) u = parseInt(c); }
+            // 3. generate new
+            if(!u) u = Date.now();
+            // persist to both
+            try { localStorage.setItem('fredi_user_id', u); } catch(e){}
+            _setCookie('fredi_uid', u);
             window.USER_ID = u;
         })();
         window.addEventListener('load',function(){if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.init(window.USER_ID);var _p=false;document.getElementById('chatsList')?.addEventListener('click',function(){if(_p)return;_p=true;if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.request(window.USER_ID);},{once:true});var btn=document.getElementById('secretRoomBtn');if(btn)btn.addEventListener('click',function(){if(typeof openSecretRoom==='function')openSecretRoom();document.getElementById('chatsPanel')?.classList.remove('open');});});
