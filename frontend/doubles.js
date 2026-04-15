@@ -252,117 +252,96 @@ function _doublesInjectStyles() {
             100% { width: 100%; }
         }
 
-        /* ===== КАРТОЧКА РЕЗУЛЬТАТА ===== */
+        /* ===== КАРТОЧКА РЕЗУЛЬТАТА v2 ===== */
         .db-result-card {
             background: rgba(224,224,224,0.04);
-            border: 1px solid rgba(224,224,224,0.12);
+            border: 1px solid rgba(224,224,224,0.10);
             border-radius: 20px;
-            padding: 16px;
+            padding: 0;
             margin-bottom: 14px;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
         }
-        .db-result-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 10px;
-            margin-bottom: 12px;
-        }
-        .db-result-user {
+        .db-result-card:hover { border-color: rgba(224,224,224,0.2); }
+        .db-card-header {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            padding: 16px 16px 0;
         }
-        .db-result-avatar {
-            font-size: 36px;
-            line-height: 1;
+        .db-card-avatar {
+            width: 48px; height: 48px; border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; flex-shrink: 0;
+            background: linear-gradient(135deg, rgba(224,224,224,0.1), rgba(192,192,192,0.05));
+            border: 1px solid rgba(224,224,224,0.15);
         }
-        .db-result-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-        .db-result-city { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
-        .db-result-score { text-align: right; }
-        .db-result-pct {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--chrome);
-            line-height: 1;
+        .db-card-info { flex: 1; min-width: 0; }
+        .db-card-name { font-size: 15px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .db-card-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+        .db-card-score {
+            width: 52px; height: 52px; border-radius: 50%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            background: rgba(224,224,224,0.06);
+            border: 2px solid rgba(224,224,224,0.15);
         }
-        .db-result-pct-label { font-size: 10px; color: var(--text-secondary); margin-top: 2px; }
+        .db-card-score-val { font-size: 16px; font-weight: 800; color: var(--text-primary); line-height: 1; }
+        .db-card-score-pct { font-size: 8px; color: var(--text-secondary); }
+        .db-card-score.high { border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.08); }
+        .db-card-score.mid  { border-color: rgba(224,224,224,0.25); }
 
-        .db-vectors-compare {
-            background: rgba(224,224,224,0.03);
-            border: 1px solid rgba(224,224,224,0.08);
-            border-radius: 12px;
-            padding: 10px;
-            display: flex;
-            gap: 4px;
-            margin-bottom: 10px;
+        .db-card-tags {
+            display: flex; gap: 5px; flex-wrap: wrap;
+            padding: 10px 16px;
         }
-        .db-vc-item {
-            flex: 1;
-            text-align: center;
-        }
-        .db-vc-label { font-size: 9px; color: var(--text-secondary); margin-bottom: 2px; }
-        .db-vc-val { font-size: 14px; font-weight: 700; color: var(--text-primary); }
-        .db-vc-diff { font-size: 9px; margin-top: 1px; }
-        .db-vc-plus  { color: var(--success); }
-        .db-vc-minus { color: var(--error); }
-        .db-vc-eq    { color: var(--text-secondary); }
-
-        .db-result-profile {
-            font-family: 'Courier New', monospace;
+        .db-card-tag {
+            background: rgba(224,224,224,0.06);
+            border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 20px;
+            padding: 3px 10px;
             font-size: 10px;
-            text-align: center;
             color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .db-card-vectors {
+            display: flex; gap: 0;
+            padding: 0 16px;
             margin-bottom: 10px;
         }
+        .db-card-vec {
+            flex: 1; text-align: center;
+            padding: 8px 0;
+            border-right: 1px solid rgba(224,224,224,0.06);
+        }
+        .db-card-vec:last-child { border-right: none; }
+        .db-card-vec-label { font-size: 9px; color: var(--text-secondary); letter-spacing: 0.5px; }
+        .db-card-vec-val { font-size: 15px; font-weight: 700; color: var(--text-primary); margin: 2px 0; }
+        .db-card-vec-bar { height: 3px; background: rgba(224,224,224,0.08); border-radius: 2px; margin: 0 8px; overflow: hidden; }
+        .db-card-vec-fill { height: 100%; border-radius: 2px; background: rgba(224,224,224,0.3); transition: width 0.4s; }
 
-        .db-result-insight {
-            background: rgba(224,224,224,0.04);
-            border-left: 2px solid rgba(224,224,224,0.2);
-            border-radius: 0 10px 10px 0;
-            padding: 8px 12px;
-            font-size: 12px;
-            font-style: italic;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-            line-height: 1.5;
+        .db-card-insight {
+            padding: 10px 16px;
+            font-size: 12px; font-style: italic; color: var(--text-secondary);
+            line-height: 1.5; border-top: 1px solid rgba(224,224,224,0.06);
         }
 
-        .db-result-actions {
-            display: flex;
-            gap: 8px;
+        .db-card-actions {
+            display: flex; gap: 0;
+            border-top: 1px solid rgba(224,224,224,0.06);
         }
-        .db-action-btn {
-            flex: 1;
-            padding: 9px 12px;
-            border-radius: 30px;
-            font-size: 12px;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            transition: background 0.2s, transform 0.15s;
-            min-height: 40px;
-            touch-action: manipulation;
-            outline: none;
+        .db-card-action {
+            flex: 1; padding: 12px;
+            background: none; border: none; border-right: 1px solid rgba(224,224,224,0.06);
+            color: var(--text-secondary); font-size: 12px; font-weight: 500;
+            font-family: inherit; cursor: pointer; transition: background 0.15s;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
         }
-        .db-action-btn:active { transform: scale(0.97); }
-        .db-action-btn-ghost {
-            background: rgba(224,224,224,0.07);
-            border: 1px solid rgba(224,224,224,0.18);
-            color: var(--text-secondary);
-        }
-        .db-action-btn-ghost:hover {
-            background: rgba(224,224,224,0.13);
-            color: var(--text-primary);
-        }
-        .db-action-icon-btn {
-            width: 40px;
-            flex: none;
-            background: rgba(224,224,224,0.07);
-            border: 1px solid rgba(224,224,224,0.18);
-            color: var(--text-secondary);
-        }
-        .db-action-icon-btn:hover { background: rgba(224,224,224,0.13); }
-        .db-action-icon-btn.saved { color: var(--chrome); border-color: rgba(224,224,224,0.3); }
+        .db-card-action:last-child { border-right: none; }
+        .db-card-action:hover { background: rgba(224,224,224,0.06); color: var(--text-primary); }
+        .db-card-action:active { transform: scale(0.97); }
+        .db-card-action.saved { color: var(--chrome); }
 
         /* ===== ПУСТОЕ СОСТОЯНИЕ ===== */
         .db-empty {
@@ -1559,47 +1538,55 @@ function _renderResults(container) {
                 </div>
             </div>`;
     } else {
-        results.forEach(item => {
+        results.forEach((item, idx) => {
             const sim = item.similarity;
             const v = item.vectors || v0;
-            const sign = (n) => n > 0 ? `<span class="db-vc-plus">+${n}</span>`
-                               : n < 0 ? `<span class="db-vc-minus">${n}</span>`
-                               : `<span class="db-vc-eq">=</span>`;
-            const pctIcon = sim >= 90 ? '🔥' : sim >= 75 ? '✦' : '·';
-            
+            const scoreClass = sim >= 75 ? 'high' : sim >= 40 ? 'mid' : '';
+            const avatarEmoji = item.gender === 'female' ? '👩' : (item.gender === 'male' ? '👨' : '👤');
+            const initial = (item.name && item.name !== 'Пользователь') ? item.name.charAt(0).toUpperCase() : avatarEmoji;
+            const age = item.age ? `${item.age} лет` : '';
+            const city = item.city || '';
+            const metaParts = [age, city].filter(Boolean).join(' · ');
+
+            // Tags: profile type, thinking level, attachment
+            const tags = [];
+            if (item.profile_type) tags.push(item.profile_type);
+            if (item.thinking_level) tags.push(`Мышление ${item.thinking_level}/9`);
+            if (item.attachment) tags.push(item.attachment);
+            if (item.profile_code) tags.push(item.profile_code);
+
             cardsHtml += `
-                <div class="db-result-card">
-                    <div class="db-result-top">
-                        <div class="db-result-user">
-                            <div class="db-result-avatar">${item.gender === 'female' ? '👩' : '👨'}</div>
-                            <div>
-                                <div class="db-result-name">${item.name}, ${item.age || '?'}</div>
-                                <div class="db-result-city">📍 ${item.city || 'Город не указан'}</div>
-                            </div>
+                <div class="db-result-card" style="animation:mirrorFadeIn ${0.2 + idx * 0.05}s ease">
+                    <div class="db-card-header">
+                        <div class="db-card-avatar">${initial}</div>
+                        <div class="db-card-info">
+                            <div class="db-card-name">${item.name || 'Пользователь'}</div>
+                            ${metaParts ? `<div class="db-card-meta"><span>📍 ${metaParts}</span></div>` : ''}
                         </div>
-                        <div class="db-result-score">
-                            <div class="db-result-pct">${pctIcon} ${sim}%</div>
-                            <div class="db-result-pct-label">совместимость</div>
+                        <div class="db-card-score ${scoreClass}">
+                            <div class="db-card-score-val">${sim}</div>
+                            <div class="db-card-score-pct">%</div>
                         </div>
                     </div>
-                    
-                    <div class="db-result-profile">${item.profile} | ${item.profile_type || userDoublesProfile.profileType}</div>
-                    
-                    <div class="db-vectors-compare">
-                        ${['СБ', 'ТФ', 'УБ', 'ЧВ'].map(k => `
-                            <div class="db-vc-item">
-                                <div class="db-vc-label">${k}</div>
-                                <div class="db-vc-val">${v[k] || 4}/6</div>
-                                <div class="db-vc-diff">${sign((v[k] || 4) - (v0[k] || 4))}</div>
-                            </div>`).join('')}
+
+                    ${tags.length ? `<div class="db-card-tags">${tags.map(t => `<span class="db-card-tag">${t}</span>`).join('')}</div>` : ''}
+
+                    <div class="db-card-vectors">
+                        ${['СБ', 'ТФ', 'УБ', 'ЧВ'].map(k => {
+                            const val = v[k] || 4;
+                            return `<div class="db-card-vec">
+                                <div class="db-card-vec-label">${k}</div>
+                                <div class="db-card-vec-val">${val}</div>
+                                <div class="db-card-vec-bar"><div class="db-card-vec-fill" style="width:${(val / 6) * 100}%"></div></div>
+                            </div>`;
+                        }).join('')}
                     </div>
-                    
-                    <div class="db-result-insight">💡 "${item.insight}"</div>
-                    
-                    <div class="db-result-actions">
-                        <button class="db-action-btn db-action-btn-ghost db-chat-btn" data-id="${item.user_id}">💬 Чат</button>
-                        <button class="db-action-btn db-action-btn-ghost db-view-btn" data-id="${item.user_id}">👤 Профиль</button>
-                        <button class="db-action-btn db-action-icon-btn db-save-btn" data-id="${item.user_id}">❤️</button>
+
+                    <div class="db-card-insight">💡 ${item.insight}</div>
+
+                    <div class="db-card-actions">
+                        <button class="db-card-action db-save-btn" data-id="${item.user_id}">❤️ В избранное</button>
+                        <button class="db-card-action db-view-btn" data-id="${item.user_id}">👤 Профиль</button>
                     </div>
                 </div>`;
         });
@@ -1623,13 +1610,11 @@ function _renderResults(container) {
     document.getElementById('dbNewSearch').onclick = () => _renderModes(container);
     document.getElementById('dbChangeGoal').onclick = () => _renderGoals(container);
     
-    document.querySelectorAll('.db-chat-btn').forEach(b =>
-        b.addEventListener('click', () => _showToast('💬 Чат будет доступен в следующей версии', 'info')));
     document.querySelectorAll('.db-view-btn').forEach(b =>
         b.addEventListener('click', () => _showToast('👤 Полный профиль — скоро', 'info')));
     document.querySelectorAll('.db-save-btn').forEach(b =>
         b.addEventListener('click', function() {
-            this.textContent = '✅';
+            this.innerHTML = '✅ Сохра��ено';
             this.classList.add('saved');
             _showToast('❤️ Сохранено в избранное', 'success');
         }));
