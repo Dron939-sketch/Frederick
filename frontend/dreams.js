@@ -211,13 +211,23 @@ function _drRenderHistoryTab() {
 
 function _drInitVoiceButton() {
     const voiceBtn = document.getElementById('dreamVoiceBtn');
-    if (!voiceBtn) return;
+    if (!voiceBtn || !window.voiceManager) {
+        if (voiceBtn) {
+            voiceBtn.style.opacity = '0.4';
+            voiceBtn.onclick = () => showToast('🎤 Голосовой ввод недоступен', 'info');
+        }
+        return;
+    }
     if (voiceBtn._dreamVoiceInited) return;
     voiceBtn._dreamVoiceInited = true;
 
     let pressTimer = null;
     let isRecording = false;
     let activeTouchId = null;
+    let watchdog = null;
+    let savedOnTranscript = null;
+    const DELAY = 400;
+    const MAX_RECORD = 65000;
 
     const getIcon = () => voiceBtn.querySelector('.dr-voice-icon');
 
@@ -227,6 +237,22 @@ function _drInitVoiceButton() {
         voiceBtn.classList.remove('recording');
         const icon = getIcon();
         if (icon) icon.textContent = '🎤';
+    };
+
+    const forceStop = (reason) => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        if (watchdog) { clearTimeout(watchdog); watchdog = null; }
+        resetBtn();
+        activeTouchId = null;
+        if (isRecording && window.voiceManager) {
+            try { window.voiceManager.stopRecording(); } catch(e) {}
+        }
+        isRecording = false;
+        // Restore original transcript handler
+        if (savedOnTranscript !== null && window.voiceManager) {
+            window.voiceManager.onTranscript = savedOnTranscript;
+            savedOnTranscript = null;
+        }
     };
 
     const onPressStart = (e) => {
@@ -239,35 +265,34 @@ function _drInitVoiceButton() {
         pressTimer = setTimeout(async () => {
             pressTimer = null;
             resetBtn();
+            if (navigator.vibrate) navigator.vibrate(60);
+
             voiceBtn.classList.add('recording');
             const icon = getIcon();
             if (icon) icon.textContent = '⏹️';
             isRecording = true;
 
-            if (window.voiceManager) {
-                const oldOnTranscript = window.voiceManager.onTranscript;
-                window.voiceManager.onTranscript = (text) => {
-                    const input = document.getElementById('dreamTextInput');
-                    if (input) {
-                        const current = input.value;
-                        input.value = current ? current + '\n' + text : text;
-                        _drCurrentText = input.value;
-                    }
-                    if (oldOnTranscript) oldOnTranscript(text);
-                };
+            // Override transcript handler to pipe text into textarea
+            savedOnTranscript = window.voiceManager.onTranscript;
+            window.voiceManager.onTranscript = (text) => {
+                const input = document.getElementById('dreamTextInput');
+                if (input) {
+                    input.value = input.value ? input.value + '\n' + text : text;
+                    _drCurrentText = input.value;
+                }
+            };
 
-                await window.voiceManager.startRecording();
-
-                setTimeout(() => {
-                    if (window.voiceManager) {
-                        window.voiceManager.onTranscript = oldOnTranscript;
-                    }
-                }, 1000);
+            watchdog = setTimeout(() => forceStop('watchdog'), MAX_RECORD);
+            const started = await window.voiceManager.startRecording();
+            if (!started) {
+                forceStop('mic denied');
+                showToast('🎤 Нет доступа к микрофону', 'error');
             }
-        }, 400);
+        }, DELAY);
     };
 
     const onPressEnd = (e) => {
+        if (e.type === 'touchcancel') { forceStop('touchcancel'); return; }
         if (e.changedTouches) {
             const ours = Array.from(e.changedTouches).find(t => t.identifier === activeTouchId);
             if (!ours && activeTouchId !== -1) return;
@@ -281,8 +306,16 @@ function _drInitVoiceButton() {
             return;
         }
 
+        if (watchdog) { clearTimeout(watchdog); watchdog = null; }
         if (isRecording && window.voiceManager) {
             window.voiceManager.stopRecording();
+            // Restore transcript handler after a short delay (let last transcript arrive)
+            setTimeout(() => {
+                if (savedOnTranscript !== null && window.voiceManager) {
+                    window.voiceManager.onTranscript = savedOnTranscript;
+                    savedOnTranscript = null;
+                }
+            }, 2000);
         }
         isRecording = false;
         resetBtn();
