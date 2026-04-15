@@ -27,11 +27,9 @@ class PaymentService:
         self.shop_id = os.environ.get("YOOKASSA_SHOP_ID", "")
         self.secret_key = os.environ.get("YOOKASSA_SECRET_KEY", "")
         
-        # Логируем наличие ключей (без показа самих ключей)
         logger.info(f"PaymentService initialized: shop_id={'yes' if self.shop_id else 'no'}, secret_key={'yes' if self.secret_key else 'no'}")
 
     def _get_auth_header(self) -> str:
-        """Формирует Basic Auth заголовок для YooKassa API"""
         auth_string = f"{self.shop_id}:{self.secret_key}"
         auth_b64 = base64.b64encode(auth_string.encode()).decode()
         return f"Basic {auth_b64}"
@@ -43,19 +41,47 @@ class PaymentService:
         self,
         user_id: int,
         return_url: str,
+        customer_email: Optional[str] = None,
+        customer_phone: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Создает первый платеж с сохранением способа оплаты"""
         if not self.shop_id or not self.secret_key:
             logger.error("YooKassa credentials not configured!")
             return {"success": False, "error": "Payment system not configured. Please contact support."}
+
+        customer = {}
+        if customer_email:
+            customer["email"] = customer_email
+        if customer_phone:
+            customer["phone"] = customer_phone
+        if not customer:
+            logger.error(f"No customer email or phone for user {user_id}")
+            return {"success": False, "error": "Для оплаты необходимо указать email или телефон"}
+
+        description = f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес"
 
         payment_data = {
             "amount": {"value": SUBSCRIPTION_AMOUNT, "currency": SUBSCRIPTION_CURRENCY},
             "capture": True,
             "confirmation": {"type": "redirect", "return_url": return_url},
-            "save_payment_method": True,  # ← КЛЮЧЕВОЙ ПАРАМЕТР для сохранения карты
-            "description": f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес",
+            "save_payment_method": True,
+            "description": description,
             "metadata": {"user_id": str(user_id), "type": "subscription_first"},
+            "receipt": {
+                "customer": customer,
+                "items": [
+                    {
+                        "description": description,
+                        "quantity": "1.00",
+                        "amount": {
+                            "value": SUBSCRIPTION_AMOUNT,
+                            "currency": SUBSCRIPTION_CURRENCY,
+                        },
+                        "vat_code": 1,
+                        "payment_mode": "full_payment",
+                        "payment_subject": "service",
+                    }
+                ],
+            },
         }
 
         try:
@@ -107,30 +133,62 @@ class PaymentService:
             return {"success": False, "error": f"Ошибка платежной системы: {e.response.status_code}"}
         except Exception as e:
             logger.error(f"Payment creation error: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": "Внутренняя ошибка платежной системы. Попробуйте позже."}
 
     async def charge_recurring(
         self,
         user_id: int,
         payment_method_id: str,
     ) -> Dict[str, Any]:
-        """Автоматическое списание по сохраненной карте"""
         if not self.shop_id or not self.secret_key:
             logger.error("YooKassa credentials missing!")
             return {"success": False, "error": "Payment system not configured"}
-        
+
         if not payment_method_id:
             logger.error(f"No payment_method_id for user {user_id}")
             return {"success": False, "error": "No saved payment method"}
 
         logger.info(f"Creating recurring payment for user {user_id} with payment_method_id: {payment_method_id[:12]}...")
 
+        description = "Автопродление подписки Фреди"
+
+        customer = {}
+        async with self.db.get_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT email, phone FROM fredi_users WHERE user_id = $1
+            """, user_id)
+            if row:
+                if row.get("email"):
+                    customer["email"] = row["email"]
+                if row.get("phone"):
+                    customer["phone"] = row["phone"]
+
+        if not customer:
+            logger.warning(f"No email/phone for recurring receipt, user {user_id}")
+            customer = {"email": "noreply@meysternlp.ru"}
+
         payment_data = {
             "amount": {"value": SUBSCRIPTION_AMOUNT, "currency": SUBSCRIPTION_CURRENCY},
             "capture": True,
-            "payment_method_id": payment_method_id,  # ← КЛЮЧЕВОЙ ПАРАМЕТР для автоплатежа
-            "description": "Автопродление подписки Фреди",
+            "payment_method_id": payment_method_id,
+            "description": description,
             "metadata": {"user_id": str(user_id), "type": "subscription_recurring"},
+            "receipt": {
+                "customer": customer,
+                "items": [
+                    {
+                        "description": description,
+                        "quantity": "1.00",
+                        "amount": {
+                            "value": SUBSCRIPTION_AMOUNT,
+                            "currency": SUBSCRIPTION_CURRENCY,
+                        },
+                        "vat_code": 1,
+                        "payment_mode": "full_payment",
+                        "payment_subject": "service",
+                    }
+                ],
+            },
         }
 
         try:
@@ -145,7 +203,6 @@ class PaymentService:
                     },
                 )
                 
-                # Логируем ошибку подробно
                 if resp.status_code != 200:
                     logger.error(f"YooKassa API error: {resp.status_code}")
                     logger.error(f"Response body: {resp.text}")
@@ -179,7 +236,6 @@ class PaymentService:
             yookassa_id = result["id"]
             status = result["status"]
 
-            # Сохраняем платеж в БД
             async with self.db.get_connection() as conn:
                 await conn.execute("""
                     INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)
@@ -190,7 +246,6 @@ class PaymentService:
 
             logger.info(f"Recurring payment {yookassa_id}: {status} for user {user_id}")
 
-            # Если платеж успешен, обновляем подписку
             if status == "succeeded":
                 await self._extend_subscription(user_id)
                 return {"success": True, "payment_id": yookassa_id, "status": status}
@@ -205,10 +260,9 @@ class PaymentService:
             return {"success": False, "error": f"Ошибка платежной системы: {e.response.status_code}"}
         except Exception as e:
             logger.error(f"Recurring payment error for user {user_id}: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": "Ошибка автоплатежа. Попробуйте позже."}
 
     async def _extend_subscription(self, user_id: int):
-        """Продление подписки после успешного платежа"""
         async with self.db.get_connection() as conn:
             now = datetime.utcnow()
             row = await conn.fetchrow("""
@@ -234,13 +288,11 @@ class PaymentService:
             """, user_id, now, new_expires)
 
     async def process_webhook(self, event: str, payment_obj: Dict) -> Dict[str, Any]:
-        """Обработка входящих вебхуков от ЮKassa"""
         yookassa_id = payment_obj.get("id", "")
         status = payment_obj.get("status", "")
         metadata = payment_obj.get("metadata", {})
         user_id_str = metadata.get("user_id")
         
-        # Обработка события привязки способа оплаты
         if event == "payment_method.active":
             payment_method = payment_obj
             payment_method_id = payment_method.get("id")
@@ -263,7 +315,6 @@ class PaymentService:
                 logger.info(f"Payment method {payment_method_id} saved for user {user_id}")
                 return {"success": True, "event": "payment_method.active"}
         
-        # Обработка успешного платежа
         if event == "payment.succeeded" and status == "succeeded":
             if not user_id_str:
                 logger.warning(f"Webhook without user_id: {yookassa_id}")
@@ -273,13 +324,11 @@ class PaymentService:
             payment_type = metadata.get("type", "subscription_first")
             
             async with self.db.get_connection() as conn:
-                # Обновляем статус платежа
                 await conn.execute("""
                     UPDATE fredi_payments SET status = $1, updated_at = NOW() 
                     WHERE yookassa_id = $2
                 """, status, yookassa_id)
                 
-                # Сохраняем способ оплаты для первого платежа
                 if payment_type == "subscription_first":
                     payment_method = payment_obj.get("payment_method", {})
                     payment_method_id = payment_method.get("id")
@@ -299,7 +348,6 @@ class PaymentService:
                         
                         logger.info(f"Saved payment_method_id {payment_method_id} for user {user_id}")
                 
-                # Обновляем или создаем подписку
                 now = datetime.utcnow()
                 row = await conn.fetchrow("""
                     SELECT expires_at FROM fredi_subscriptions
@@ -325,7 +373,6 @@ class PaymentService:
                 logger.info(f"Subscription activated for user {user_id} until {new_expires}")
                 return {"success": True, "user_id": user_id, "expires_at": str(new_expires)}
         
-        # Обработка отмены платежа
         if event == "payment.canceled":
             logger.info(f"Payment canceled: {yookassa_id}")
             async with self.db.get_connection() as conn:
@@ -338,7 +385,6 @@ class PaymentService:
         return {"success": True, "event": event, "status": "ignored"}
 
     async def get_subscription_status(self, user_id: int) -> Dict[str, Any]:
-        """Получить статус подписки пользователя"""
         async with self.db.get_connection() as conn:
             sub = await conn.fetchrow("""
                 SELECT status, started_at, expires_at, auto_renew
@@ -369,7 +415,6 @@ class PaymentService:
         }
 
     async def toggle_auto_renew(self, user_id: int, enabled: bool) -> Dict[str, Any]:
-        """Включить/выключить автопродление"""
         async with self.db.get_connection() as conn:
             await conn.execute("""
                 UPDATE fredi_subscriptions SET auto_renew = $1, updated_at = NOW() 
@@ -379,12 +424,10 @@ class PaymentService:
         return {"success": True, "auto_renew": enabled}
 
     async def process_renewals(self) -> Dict[str, Any]:
-        """Ежедневная задача для обработки автопродлений"""
         renewed = 0
         failed = 0
         
         async with self.db.get_connection() as conn:
-            # Находим подписки, которые истекают в ближайшие 24 часа
             rows = await conn.fetch("""
                 SELECT s.user_id, pm.payment_method_id
                 FROM fredi_subscriptions s
@@ -403,13 +446,12 @@ class PaymentService:
             
             if result.get("success"):
                 renewed += 1
-                logger.info(f"✅ Renewal successful for user {row['user_id']}")
+                logger.info(f"Renewal successful for user {row['user_id']}")
             else:
                 failed += 1
                 error = result.get("error", "Unknown error")
-                logger.error(f"❌ Renewal failed for user {row['user_id']}: {error}")
+                logger.error(f"Renewal failed for user {row['user_id']}: {error}")
                 
-                # Если ошибка связана с картой — отключаем автоплатежи
                 if any(keyword in error.lower() for keyword in ["недостаточно средств", "истек", "заблокирована"]):
                     async with self.db.get_connection() as conn:
                         await conn.execute("""
