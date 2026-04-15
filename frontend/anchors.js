@@ -1126,11 +1126,17 @@ function renderImprints() {
 }
 
 function renderConstructor() {
+    // Если wizard уже запущен из конструктора — показываем wizard
+    if (anchorWizardStep > 0 && anchorWizardData.source) {
+        currentAnchorView = 'create';
+        return renderAnchorWizard();
+    }
+
     return `
         <div style="margin-bottom: 20px;">
             <p>🎬 Конструируем состояние, которого нет в опыте</p>
         </div>
-        
+
         <div class="wizard-options">
             ${Object.entries(ANCHORS_CONFIG.sources).map(([key, source]) => `
                 <div class="wizard-option" onclick="constructorSelectSource('${key}')">
@@ -1144,7 +1150,7 @@ function renderConstructor() {
                 </div>
             `).join('')}
         </div>
-        
+
         <div id="constructorContent"></div>
     `;
 }
