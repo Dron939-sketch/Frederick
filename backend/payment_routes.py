@@ -4,6 +4,7 @@ Usage: register_payment_routes(app, db, limiter)
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import hashlib
@@ -17,19 +18,20 @@ logger = logging.getLogger(__name__)
 
 payment_service = None
 
-# Webhook secret for YooKassa signature verification (optional)
 YOOKASSA_WEBHOOK_SECRET = os.environ.get("YOOKASSA_WEBHOOK_SECRET", "").strip()
 
-# Valid user_id range
 MIN_USER_ID = 1
-MAX_USER_ID = 10**15  # timestamp-based IDs can be large
-
-# Max return_url length
+MAX_USER_ID = 10**15
 MAX_URL_LENGTH = 500
+
+YOOKASSA_IPS = {
+    "185.71.76.0/27", "185.71.77.0/27", "77.75.153.0/25",
+    "77.75.156.11", "77.75.156.35", "77.75.154.128/25",
+    "2a02:5180::/32",
+}
 
 
 def _validate_user_id(user_id):
-    """Validate and sanitize user_id. Returns int or None."""
     if user_id is None:
         return None
     try:
@@ -42,7 +44,6 @@ def _validate_user_id(user_id):
 
 
 def _validate_return_url(url):
-    """Validate return URL — must be http(s) and reasonable length."""
     if not url or not isinstance(url, str):
         return "https://fredi-frontend.onrender.com"
     url = url.strip()[:MAX_URL_LENGTH]
@@ -51,8 +52,22 @@ def _validate_return_url(url):
     return url
 
 
+def _check_ip_trusted(client_ip):
+    try:
+        client_addr = ipaddress.ip_address(client_ip)
+        for cidr in YOOKASSA_IPS:
+            try:
+                if client_addr in ipaddress.ip_network(cidr, strict=False):
+                    return True
+            except ValueError:
+                if client_ip == cidr:
+                    return True
+    except ValueError:
+        pass
+    return False
+
+
 def register_payment_routes(app, db, limiter):
-    """Register payment endpoints on FastAPI app."""
     global payment_service
     payment_service = PaymentService(db)
     logger.info("PaymentService initialized")
@@ -100,6 +115,9 @@ def register_payment_routes(app, db, limiter):
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_payments_yookassa ON fredi_payments(yookassa_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_user ON fredi_subscriptions(user_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_subscriptions_expires ON fredi_subscriptions(expires_at) WHERE status = 'active' AND auto_renew = TRUE")
+            # Add email/phone columns for receipts (54-FZ)
+            await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email TEXT")
+            await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS phone TEXT")
         logger.info("Payment tables ready")
 
     @app.post("/api/subscription/create-payment")
@@ -111,13 +129,33 @@ def register_payment_routes(app, db, limiter):
             if not user_id:
                 return {"success": False, "error": "invalid user_id"}
             return_url = _validate_return_url(data.get("return_url"))
+
+            customer_email = data.get("email", "").strip()[:100] if data.get("email") else None
+            customer_phone = data.get("phone", "").strip()[:20] if data.get("phone") else None
+            if not customer_email and not customer_phone:
+                return {"success": False, "error": "Необходимо указать email или телефон для чека"}
+
             async with db.get_connection() as conn:
                 await conn.execute(
                     "INSERT INTO fredi_users (user_id, created_at, updated_at) "
                     "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
                     user_id
                 )
-            result = await payment_service.create_subscription_payment(user_id, return_url)
+                if customer_email:
+                    await conn.execute(
+                        "UPDATE fredi_users SET email = $2, updated_at = NOW() WHERE user_id = $1",
+                        user_id, customer_email
+                    )
+                if customer_phone:
+                    await conn.execute(
+                        "UPDATE fredi_users SET phone = $2, updated_at = NOW() WHERE user_id = $1",
+                        user_id, customer_phone
+                    )
+            result = await payment_service.create_subscription_payment(
+                user_id, return_url,
+                customer_email=customer_email,
+                customer_phone=customer_phone,
+            )
             if result["success"]:
                 async with db.get_connection() as conn:
                     await conn.execute(
@@ -169,7 +207,6 @@ def register_payment_routes(app, db, limiter):
     @app.post("/api/subscription/delete-card")
     @limiter.limit("3/minute")
     async def delete_saved_card(request: Request):
-        """Delete saved payment method (unlink card)."""
         try:
             data = await request.json()
             user_id = _validate_user_id(data.get("user_id"))
@@ -203,12 +240,21 @@ def register_payment_routes(app, db, limiter):
             body_bytes = await request.body()
             if len(body_bytes) > 50000:
                 return {"success": False, "error": "payload too large"}
+
+            client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+            ip_trusted = _check_ip_trusted(client_ip)
+
+            if not ip_trusted:
+                logger.warning(f"Webhook from untrusted IP: {client_ip}")
+                # In production, uncomment to block untrusted IPs:
+                # return {"success": False, "error": "forbidden"}
+
             body = json.loads(body_bytes)
             event = body.get("event", "")
             payment_obj = body.get("object", {})
             if not event or not isinstance(payment_obj, dict):
                 return {"success": False, "error": "invalid webhook format"}
-            logger.info(f"YooKassa webhook: event={event}, id={payment_obj.get('id')}")
+            logger.info(f"YooKassa webhook: event={event}, id={payment_obj.get('id')}, ip={client_ip}, trusted={ip_trusted}")
             await payment_service.process_webhook(event, payment_obj)
             return {"success": True}
         except json.JSONDecodeError:
