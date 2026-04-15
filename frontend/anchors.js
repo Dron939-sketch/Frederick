@@ -225,6 +225,74 @@ let diagnosticResult = null;
 let currentImprint = null;
 
 // ============================================
+// СТИЛИ
+// ============================================
+
+function _anInjectStyles() {
+    if (document.getElementById('an-v2-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'an-v2-styles';
+    style.textContent = `
+        .an-tabs {
+            display:flex;flex-wrap:wrap;gap:4px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);
+            border-radius:40px;padding:4px;margin-bottom:20px;overflow-x:auto;scrollbar-width:none;
+        }
+        .an-tabs::-webkit-scrollbar{display:none}
+        .an-tab {
+            flex-shrink:0;padding:8px 12px;border-radius:30px;border:none;
+            background:transparent;color:var(--text-secondary);font-size:11px;font-weight:600;
+            font-family:inherit;cursor:pointer;transition:background 0.2s;min-height:36px;white-space:nowrap;
+        }
+        .an-tab.active{background:rgba(224,224,224,0.14);color:var(--text-primary)}
+
+        .anchor-card{background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;margin-bottom:12px;border:1px solid rgba(224,224,224,0.1);transition:all 0.2s}
+        .anchor-card:hover{background:rgba(224,224,224,0.08);transform:translateX(4px)}
+        .anchor-name{font-size:18px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+        .anchor-actions{display:flex;gap:12px;margin-top:12px}
+        .anchor-btn{padding:8px 16px;border-radius:30px;border:none;cursor:pointer;font-size:13px;transition:all 0.2s;font-family:inherit}
+        .fire-btn{background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);color:var(--text-primary)}
+        .delete-btn{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.14);color:var(--text-secondary)}
+        .recommend-card{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:16px;padding:16px;margin-bottom:12px;border-left:3px solid rgba(224,224,224,0.3)}
+        .wizard-step{background:rgba(224,224,224,0.05);border-radius:20px;padding:24px;margin-top:20px}
+        .wizard-options{display:flex;flex-direction:column;gap:12px;margin:20px 0}
+        .wizard-option{background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;cursor:pointer;transition:all 0.2s}
+        .wizard-option:hover{background:rgba(224,224,224,0.08);border-color:rgba(224,224,224,0.3)}
+        .an-progress-bar{height:4px;background:rgba(224,224,224,0.1);border-radius:2px;overflow:hidden;margin:8px 0}
+        .an-progress-fill{height:100%;background:linear-gradient(90deg,rgba(224,224,224,0.4),rgba(192,192,192,0.3));width:0%;transition:width 0.3s}
+        .imprint-card{background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;margin-bottom:12px;cursor:pointer;transition:all 0.2s}
+        .imprint-card:hover{background:rgba(224,224,224,0.08);transform:translateX(4px)}
+
+        .diagnostic-card{background:rgba(224,224,224,0.05);border-radius:24px;padding:32px;margin:24px 0;text-align:center}
+        .question-counter{font-size:12px;color:var(--text-secondary);margin-bottom:16px}
+        .question-text{font-size:20px;font-weight:600;margin-bottom:32px;line-height:1.4}
+        .answer-options{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+        .answer-btn{background:rgba(224,224,224,0.08);border:1px solid rgba(224,224,224,0.1);border-radius:40px;padding:12px 24px;cursor:pointer;font-size:14px;transition:all 0.2s;font-family:inherit;color:var(--text-primary)}
+        .answer-btn:hover{background:rgba(224,224,224,0.16);border-color:rgba(224,224,224,0.3);transform:scale(1.02)}
+        .diagnostic-note{text-align:center;font-size:12px;color:var(--text-secondary);margin-top:20px}
+        .result-card{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:20px;padding:24px;margin:16px 0;border-left:4px solid var(--imprint-color,rgba(224,224,224,0.3))}
+        .result-icon{font-size:48px;margin-bottom:12px}
+        .result-name{font-size:24px;font-weight:700;margin-bottom:8px}
+        .result-desc{color:var(--text-secondary);line-height:1.6;margin-bottom:20px}
+        .manifestations-list{background:rgba(224,224,224,0.03);border-radius:16px;padding:16px;margin:16px 0}
+        .manifestations-list li{margin:8px 0;margin-left:20px}
+        .healing-box{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:16px;padding:16px;margin:16px 0}
+
+        .reimprinting-card{background:rgba(224,224,224,0.05);border-radius:24px;padding:32px;margin:24px 0}
+        .step-title{font-size:18px;font-weight:600;margin-bottom:24px;color:var(--text-primary)}
+        .step-icon{font-size:48px;text-align:center;margin-bottom:16px}
+        .step-question{font-size:18px;font-weight:500;margin-bottom:20px;line-height:1.4}
+        .reimprinting-textarea{width:100%;padding:16px;border-radius:16px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:var(--text-primary);font-family:inherit;font-size:14px;min-height:120px;resize:vertical;box-sizing:border-box}
+        .reimprinting-textarea:focus{outline:none;border-color:rgba(224,224,224,0.35)}
+        .reimprinting-input{width:100%;padding:16px;border-radius:16px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:var(--text-primary);font-size:16px;box-sizing:border-box;font-family:inherit}
+        .reimprinting-input:focus{outline:none;border-color:rgba(224,224,224,0.35)}
+        .step-instruction{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:16px;padding:20px;margin:20px 0;line-height:1.6;text-align:center}
+        .step-hint{font-size:12px;color:var(--text-secondary);margin-top:16px;padding:12px;background:rgba(224,224,224,0.03);border-radius:12px}
+        .an-btn-primary{background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);padding:14px 24px;border-radius:40px;color:var(--text-primary);font-weight:600;cursor:pointer;width:100%;margin-top:16px;font-family:inherit;font-size:13px}
+    `;
+    document.head.appendChild(style);
+}
+
+// ============================================
 // API ВЫЗОВЫ
 // ============================================
 
@@ -354,17 +422,19 @@ function showDiagnosticQuestion(index) {
     const container = document.getElementById('screenContainer');
     if (!container) return;
     
+    _anInjectStyles();
     container.innerHTML = `
-        <div class="diagnostic-container">
-            <div class="diagnostic-header">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <h1 class="diagnostic-title">📚 Диагностика импринтов</h1>
+        <div class="full-content-page">
+            <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">📚</div>
+                <h1 class="content-title">Диагностика импринтов</h1>
             </div>
-            
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: ${progress}%"></div>
+
+            <div class="an-progress-bar">
+                <div class="an-progress-fill" style="width: ${progress}%"></div>
             </div>
-            
+
             <div class="diagnostic-card">
                 <div class="question-counter">Вопрос ${index + 1} из ${questions.length}</div>
                 <div class="question-text">${question.text}</div>
@@ -375,36 +445,16 @@ function showDiagnosticQuestion(index) {
                     <button class="answer-btn" data-value="3">✅ Очень точно</button>
                 </div>
             </div>
-            
+
             <div class="diagnostic-note">
                 💡 Честные ответы помогут точнее определить ваши глубинные программы
             </div>
         </div>
-        
-        <style>
-            .diagnostic-container { padding: 20px; max-width: 600px; margin: 0 auto; }
-            .diagnostic-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
-            .diagnostic-title { font-size: 24px; font-weight: 700; margin: 0; }
-            .diagnostic-card { background: rgba(224,224,224,0.05); border-radius: 24px; padding: 32px; margin: 24px 0; text-align: center; }
-            .question-counter { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; }
-            .question-text { font-size: 20px; font-weight: 600; margin-bottom: 32px; line-height: 1.4; }
-            .answer-options { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
-            .answer-btn { background: rgba(224,224,224,0.08); border: 1px solid rgba(224,224,224,0.1); border-radius: 40px; padding: 12px 24px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
-            .answer-btn:hover { background: rgba(255,107,59,0.2); border-color: #ff6b3b; transform: scale(1.02); }
-            .diagnostic-note { text-align: center; font-size: 12px; color: var(--text-secondary); margin-top: 20px; }
-            .result-card { background: linear-gradient(135deg, rgba(255,107,59,0.1), rgba(255,59,59,0.05)); border-radius: 20px; padding: 24px; margin: 16px 0; border-left: 4px solid var(--imprint-color, #ff6b3b); }
-            .result-icon { font-size: 48px; margin-bottom: 12px; }
-            .result-name { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
-            .result-desc { color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px; }
-            .manifestations-list { background: rgba(224,224,224,0.03); border-radius: 16px; padding: 16px; margin: 16px 0; }
-            .manifestations-list li { margin: 8px 0; margin-left: 20px; }
-            .healing-box { background: rgba(76,175,80,0.1); border-radius: 16px; padding: 16px; margin: 16px 0; }
-        </style>
     `;
     
     document.getElementById('backBtn').onclick = () => {
         if (confirm('Вы уверены? Прогресс диагностики будет потерян.')) {
-            showAnchors();
+            showAnchorsScreen();
         }
     };
     
@@ -465,11 +515,13 @@ function showDiagnosticResult() {
         .sort((a, b) => b.score - a.score)
         .filter(s => s.score > 0);
     
+    _anInjectStyles();
     container.innerHTML = `
-        <div class="diagnostic-container">
-            <div class="diagnostic-header">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <h1 class="diagnostic-title">📊 Результаты диагностики</h1>
+        <div class="full-content-page">
+            <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">📊</div>
+                <h1 class="content-title">Результаты диагностики</h1>
             </div>
             
             <div class="result-card" style="--imprint-color: ${imprint.color}">
@@ -499,7 +551,7 @@ function showDiagnosticResult() {
             <div class="result-card" style="background: rgba(255,193,7,0.1);">
                 <div style="font-weight: 700; margin-bottom: 8px;">🔑 Рекомендуемый якорь</div>
                 <div>${imprint.recommended_anchor}</div>
-                <button class="action-btn" id="createRecommendedAnchorBtn" style="margin-top: 12px; background: linear-gradient(135deg, #ff6b3b, #ff3b3b);">➕ Создать этот якорь</button>
+                <button class="action-btn" id="createRecommendedAnchorBtn" style="margin-top: 12px;">➕ Создать этот якорь</button>
             </div>
             
             <div class="result-card">
@@ -510,8 +562,8 @@ function showDiagnosticResult() {
                             <span>${s.config.icon} ${s.config.name}</span>
                             <span>${Math.round((s.score / (IMPRINTS_CONFIG.questions.length * 3)) * 100)}%</span>
                         </div>
-                        <div class="progress-bar" style="height: 6px;">
-                            <div class="progress-fill" style="width: ${(s.score / (IMPRINTS_CONFIG.questions.length * 3)) * 100}%; background: ${s.config.color};"></div>
+                        <div class="an-progress-bar" style="height: 6px;">
+                            <div class="an-progress-fill" style="width: ${(s.score / (IMPRINTS_CONFIG.questions.length * 3)) * 100}%; background: ${s.config.color};"></div>
                         </div>
                     </div>
                 `).join('')}
@@ -524,7 +576,7 @@ function showDiagnosticResult() {
         </div>
     `;
     
-    document.getElementById('backBtn').onclick = () => showAnchors();
+    document.getElementById('backBtn').onclick = () => showAnchorsScreen();
     
     document.getElementById('saveHealingPhraseBtn')?.addEventListener('click', async () => {
         const anchorData = {
@@ -558,7 +610,7 @@ function showDiagnosticResult() {
             name: imprint.recommended_anchor
         };
         anchorWizardStep = 3;
-        showAnchors();
+        showAnchorsScreen();
     });
     
     document.getElementById('startReimprintingBtn')?.addEventListener('click', () => {
@@ -637,7 +689,7 @@ function showReimprintingScreen() {
                         <p>Вы прошли через многое. У вас есть опыт, знания, мудрость.</p>
                         <p>Теперь вы можете помочь тому ребёнку.</p>
                     </div>
-                    <button class="action-btn primary-btn" id="enterResourceBtn">✅ Я вошёл в ресурсное состояние</button>
+                    <button class="an-btn-primary" id="enterResourceBtn">✅ Я вошёл в ресурсное состояние</button>
                 </div>
             `
         },
@@ -660,7 +712,7 @@ function showReimprintingScreen() {
                     <div class="step-question">Закрепите новое состояние якорем.</div>
                     <input type="text" id="newAnchor" placeholder="Придумайте триггер (жест, фразу)" class="reimprinting-input" value="${reimprintingData.newAnchor || ''}">
                     <div class="step-hint">💡 Например: рука на сердце + «Я имею право ошибаться»</div>
-                    <button class="action-btn primary-btn" id="completeReimprintingBtn">✅ Завершить и сохранить якорь</button>
+                    <button class="an-btn-primary" id="completeReimprintingBtn">✅ Завершить и сохранить якорь</button>
                 </div>
             `
         }
@@ -669,37 +721,24 @@ function showReimprintingScreen() {
     const currentStep = steps[reimprintingStep];
     const progress = (reimprintingStep / 5) * 100;
     
+    _anInjectStyles();
     container.innerHTML = `
-        <div class="reimprinting-container">
-            <div class="reimprinting-header">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <h1 class="reimprinting-title">🔄 Реимпринтинг</h1>
+        <div class="full-content-page">
+            <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">🔄</div>
+                <h1 class="content-title">Реимпринтинг</h1>
             </div>
-            
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: ${progress}%"></div>
+
+            <div class="an-progress-bar">
+                <div class="an-progress-fill" style="width: ${progress}%"></div>
             </div>
-            
+
             <div class="reimprinting-card">
                 <div class="step-title">${currentStep.title}</div>
                 ${currentStep.content}
             </div>
         </div>
-        
-        <style>
-            .reimprinting-container { padding: 20px; max-width: 600px; margin: 0 auto; }
-            .reimprinting-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
-            .reimprinting-title { font-size: 24px; font-weight: 700; margin: 0; }
-            .reimprinting-card { background: rgba(224,224,224,0.05); border-radius: 24px; padding: 32px; margin: 24px 0; }
-            .step-title { font-size: 18px; font-weight: 600; margin-bottom: 24px; color: #ff6b3b; }
-            .step-icon { font-size: 48px; text-align: center; margin-bottom: 16px; }
-            .step-question { font-size: 18px; font-weight: 500; margin-bottom: 20px; line-height: 1.4; }
-            .reimprinting-textarea { width: 100%; padding: 16px; border-radius: 16px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; font-family: inherit; font-size: 14px; min-height: 120px; resize: vertical; }
-            .reimprinting-input { width: 100%; padding: 16px; border-radius: 16px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; font-size: 16px; }
-            .step-instruction { background: rgba(255,107,59,0.1); border-radius: 16px; padding: 20px; margin: 20px 0; line-height: 1.6; text-align: center; }
-            .step-hint { font-size: 12px; color: var(--text-secondary); margin-top: 16px; padding: 12px; background: rgba(224,224,224,0.03); border-radius: 12px; }
-            .primary-btn { background: linear-gradient(135deg, #ff6b3b, #ff3b3b); border: none; padding: 14px 24px; border-radius: 40px; color: white; font-weight: 600; cursor: pointer; width: 100%; margin-top: 16px; }
-        </style>
     `;
     
     document.getElementById('backBtn').onclick = () => {
@@ -707,7 +746,7 @@ function showReimprintingScreen() {
             reimprintingStep--;
             showReimprintingScreen();
         } else {
-            showAnchors();
+            showAnchorsScreen();
         }
     };
     
@@ -740,7 +779,7 @@ function showReimprintingScreen() {
                 showToast('✅ Импринт переписан! Новый якорь создан.', 'success');
                 reimprintingStep = 0;
                 reimprintingData = {};
-                showAnchors();
+                showAnchorsScreen();
             } else {
                 showToast('❌ Ошибка сохранения', 'error');
             }
@@ -751,7 +790,7 @@ function showReimprintingScreen() {
         const newMessage = document.getElementById('newMessage');
         
         const nextBtn = document.createElement('button');
-        nextBtn.className = 'primary-btn';
+        nextBtn.className = 'an-btn-primary';
         nextBtn.textContent = 'Далее →';
         nextBtn.onclick = () => {
             if (situation) reimprintingData.situation = situation.value;
@@ -772,7 +811,8 @@ function showReimprintingScreen() {
 // ОСНОВНОЙ ЭКРАН
 // ============================================
 
-async function showAnchors() {
+async function showAnchorsScreen() {
+    _anInjectStyles();
     await loadUserAnchors();
     const recommendations = await getProfileBasedRecommendations();
     
@@ -780,58 +820,33 @@ async function showAnchors() {
     if (!container) return;
     
     container.innerHTML = `
-        <div class="anchors-container">
-            <div class="anchors-header">
-                <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-                <h1 class="anchors-title">⚓ Якоря</h1>
+        <div class="full-content-page">
+            <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">⚓</div>
+                <h1 class="content-title">Якоря</h1>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Ресурсные состояния и импринты</p>
             </div>
-            
-            <div class="anchors-tabs">
-                <button class="anchor-tab ${currentAnchorView === 'list' ? 'active' : ''}" data-view="list">🎯 Мои якоря</button>
-                <button class="anchor-tab ${currentAnchorView === 'create' ? 'active' : ''}" data-view="create">➕ Создать</button>
-                <button class="anchor-tab ${currentAnchorView === 'recommend' ? 'active' : ''}" data-view="recommend">🎲 Подбор</button>
-                <button class="anchor-tab ${currentAnchorView === 'techniques' ? 'active' : ''}" data-view="techniques">🔧 Техники</button>
-                <button class="anchor-tab ${currentAnchorView === 'imprints' ? 'active' : ''}" data-view="imprints">📚 Импринты</button>
-                <button class="anchor-tab ${currentAnchorView === 'constructor' ? 'active' : ''}" data-view="constructor">🎬 Конструктор</button>
+            <div class="an-tabs">
+                <button class="an-tab ${currentAnchorView === 'list' ? 'active' : ''}" data-view="list">🎯 Мои якоря</button>
+                <button class="an-tab ${currentAnchorView === 'create' ? 'active' : ''}" data-view="create">➕ Создать</button>
+                <button class="an-tab ${currentAnchorView === 'recommend' ? 'active' : ''}" data-view="recommend">🎲 Подбор</button>
+                <button class="an-tab ${currentAnchorView === 'techniques' ? 'active' : ''}" data-view="techniques">🔧 Техники</button>
+                <button class="an-tab ${currentAnchorView === 'imprints' ? 'active' : ''}" data-view="imprints">📚 Импринты</button>
+                <button class="an-tab ${currentAnchorView === 'constructor' ? 'active' : ''}" data-view="constructor">🎬 Конструктор</button>
             </div>
-            
-            <div class="anchors-content">
+            <div id="anBody">
                 ${renderCurrentView(currentAnchorView, { recommendations, userAnchors })}
             </div>
         </div>
-        
-        <style>
-            .anchors-container { padding: 20px; max-width: 800px; margin: 0 auto; }
-            .anchors-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
-            .anchors-title { font-size: 28px; font-weight: 700; margin: 0; }
-            .anchors-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid rgba(224,224,224,0.1); padding-bottom: 12px; }
-            .anchor-tab { background: transparent; border: none; padding: 8px 16px; border-radius: 30px; color: var(--text-secondary); cursor: pointer; font-size: 14px; transition: all 0.2s; }
-            .anchor-tab.active { background: linear-gradient(135deg, #ff6b3b, #ff3b3b); color: white; }
-            .anchor-card { background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px; margin-bottom: 12px; border: 1px solid rgba(224,224,224,0.1); transition: all 0.2s; }
-            .anchor-card:hover { background: rgba(224,224,224,0.08); transform: translateX(4px); }
-            .anchor-name { font-size: 18px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-            .anchor-actions { display: flex; gap: 12px; margin-top: 12px; }
-            .anchor-btn { padding: 8px 16px; border-radius: 30px; border: none; cursor: pointer; font-size: 13px; transition: all 0.2s; }
-            .fire-btn { background: linear-gradient(135deg, #ff6b3b, #ff3b3b); color: white; }
-            .delete-btn { background: rgba(224,224,224,0.1); color: var(--text-secondary); }
-            .recommend-card { background: linear-gradient(135deg, rgba(255,107,59,0.1), rgba(255,59,59,0.05)); border-radius: 16px; padding: 16px; margin-bottom: 12px; border-left: 3px solid #ff6b3b; }
-            .wizard-step { background: rgba(224,224,224,0.05); border-radius: 20px; padding: 24px; margin-top: 20px; }
-            .wizard-options { display: flex; flex-direction: column; gap: 12px; margin: 20px 0; }
-            .wizard-option { background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.1); border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s; }
-            .wizard-option:hover { background: rgba(224,224,224,0.08); border-color: #ff6b3b; }
-            .progress-bar { height: 4px; background: rgba(224,224,224,0.1); border-radius: 2px; overflow: hidden; margin: 8px 0; }
-            .progress-fill { height: 100%; background: linear-gradient(90deg, #ff6b3b, #ff3b3b); width: 0%; transition: width 0.3s; }
-            .imprint-card { background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: all 0.2s; }
-            .imprint-card:hover { background: rgba(224,224,224,0.08); transform: translateX(4px); }
-        </style>
     `;
-    
+
     document.getElementById('backBtn').onclick = () => renderDashboard();
-    
-    document.querySelectorAll('.anchor-tab').forEach(tab => {
+
+    document.querySelectorAll('.an-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             currentAnchorView = tab.dataset.view;
-            showAnchors();
+            showAnchorsScreen();
         });
     });
 }
@@ -859,7 +874,7 @@ function renderAnchorsList(anchors) {
                 <div style="font-size: 64px; margin-bottom: 16px;">⚓</div>
                 <h3>У вас пока нет якорей</h3>
                 <p style="color: var(--text-secondary); margin-bottom: 20px;">Создайте первый якорь — и вы сможете вызывать нужное состояние в любой момент</p>
-                <button class="anchor-tab active" data-view="create" style="padding: 12px 24px;">➕ Создать первый якорь</button>
+                <button class="an-tab active" data-view="create" style="padding: 12px 24px;">➕ Создать первый якорь</button>
             </div>
         `;
     }
@@ -1019,7 +1034,7 @@ function renderRecommendations(recommendations) {
                 <div style="font-size: 64px; margin-bottom: 16px;">🎲</div>
                 <h3>Нет персональных рекомендаций</h3>
                 <p style="color: var(--text-secondary);">Пройдите психологический тест, чтобы получить якоря под ваш профиль</p>
-                <button class="anchor-tab active" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px;">📊 Пройти тест</button>
+                <button class="an-tab active" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px;">📊 Пройти тест</button>
             </div>
         `;
     }
@@ -1141,18 +1156,18 @@ function renderConstructor() {
 window.anchorWizardSelectState = (state) => {
     anchorWizardData.state = state;
     anchorWizardStep = 1;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.anchorWizardSelectSource = (source) => {
     anchorWizardData.source = source;
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.anchorWizardSelectModality = (modality) => {
     anchorWizardData.modality = modality;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.anchorWizardSaveTrigger = () => {
@@ -1161,7 +1176,7 @@ window.anchorWizardSaveTrigger = () => {
         anchorWizardData.trigger = triggerInput.value.trim();
     }
     anchorWizardStep = 3;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.anchorWizardNext = () => {
@@ -1170,7 +1185,7 @@ window.anchorWizardNext = () => {
         anchorWizardData.sourceDetail = sourceDetail.value.trim();
     }
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.anchorWizardComplete = async () => {
@@ -1204,7 +1219,7 @@ window.anchorWizardComplete = async () => {
         anchorWizardData = {};
         currentAnchorView = 'list';
         await loadUserAnchors();
-        showAnchors();
+        showAnchorsScreen();
     } else {
         showToast('❌ Не удалось сохранить якорь', 'error');
     }
@@ -1213,7 +1228,7 @@ window.anchorWizardComplete = async () => {
 window.anchorWizardReset = () => {
     anchorWizardStep = 0;
     anchorWizardData = {};
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.fireAnchor = async (anchorId, anchorName) => {
@@ -1228,7 +1243,7 @@ window.fireAnchor = async (anchorId, anchorName) => {
         showToast('❌ Не удалось активировать якорь', 'error');
     }
     await loadUserAnchors();
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.deleteAnchorConfirm = async (anchorId) => {
@@ -1237,7 +1252,7 @@ window.deleteAnchorConfirm = async (anchorId) => {
         if (success) {
             showToast('🗑️ Якорь удалён', 'success');
             await loadUserAnchors();
-            showAnchors();
+            showAnchorsScreen();
         } else {
             showToast('❌ Не удалось удалить', 'error');
         }
@@ -1263,7 +1278,7 @@ window.quickCreateAnchor = async (state, name, trigger, phrase) => {
         showToast('✅ Якорь создан!', 'success');
         await loadUserAnchors();
         currentAnchorView = 'list';
-        showAnchors();
+        showAnchorsScreen();
     } else {
         showToast('❌ Ошибка создания', 'error');
     }
@@ -1321,11 +1336,13 @@ window.showTechnique = (techniqueKey) => {
     
     const container = document.getElementById('screenContainer');
     if (container) {
+        _anInjectStyles();
         container.innerHTML = `
-            <div class="anchors-container">
-                <div class="anchors-header">
-                    <button class="back-btn" onclick="showAnchors()">◀️ НАЗАД</button>
-                    <h1 class="anchors-title">🔧 ${ANCHORS_CONFIG.techniques[techniqueKey]?.name || 'Техника'}</h1>
+            <div class="full-content-page">
+                <button class="back-btn" onclick="showAnchorsScreen()">◀️ НАЗАД</button>
+                <div class="content-header">
+                    <div class="content-emoji">🔧</div>
+                    <h1 class="content-title">${ANCHORS_CONFIG.techniques[techniqueKey]?.name || 'Техника'}</h1>
                 </div>
                 <div style="background: rgba(224,224,224,0.05); border-radius: 20px; padding: 24px;">
                     ${techniquesContent[techniqueKey] || '<p>Техника загружается...</p>'}
@@ -1425,7 +1442,7 @@ window.constructorUseMovie = (movie) => {
         modality: 'visual'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.constructorCreateFromMovie = () => {
@@ -1437,7 +1454,7 @@ window.constructorCreateFromMovie = () => {
         modality: 'visual'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.constructorUseMusic = (music) => {
@@ -1448,7 +1465,7 @@ window.constructorUseMusic = (music) => {
         modality: 'auditory'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.constructorCreateFromMusic = () => {
@@ -1460,7 +1477,7 @@ window.constructorCreateFromMusic = () => {
         modality: 'auditory'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.constructorUseMetaphor = (metaphor) => {
@@ -1471,7 +1488,7 @@ window.constructorUseMetaphor = (metaphor) => {
         modality: 'visual'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.constructorCreateFromMetaphor = () => {
@@ -1483,7 +1500,7 @@ window.constructorCreateFromMetaphor = () => {
         modality: 'visual'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.constructorUseBody = (practice) => {
@@ -1494,7 +1511,7 @@ window.constructorUseBody = (practice) => {
         modality: 'kinesthetic'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 window.constructorCreateFromBody = () => {
@@ -1506,15 +1523,15 @@ window.constructorCreateFromBody = () => {
         modality: 'kinesthetic'
     };
     anchorWizardStep = 2;
-    showAnchors();
+    showAnchorsScreen();
 };
 
 // ============================================
 // ЭКСПОРТ
 // ============================================
 
-window.showAnchors = showAnchors;
+window.showAnchorsScreen = showAnchorsScreen;
 window.startImprintDiagnostic = startImprintDiagnostic;
 window.startReimprinting = startReimprinting;
 
-console.log('✅ Anchors module loaded with full imprint diagnostics');
+console.log('✅ Модуль "Якоря" загружен (anchors.js v2.1)');

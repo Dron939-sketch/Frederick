@@ -305,25 +305,6 @@ async function getTaleById(taleId) {
     catch { return null; }
 }
 
-async function getUserAnchors() {
-    try { return (await apiCall(`/api/anchor/user/${CONFIG.USER_ID}`)).anchors; }
-    catch { return []; }
-}
-
-async function setAnchor(anchorName, state, phrase) {
-    try { return await apiCall('/api/anchor/set', { method: 'POST', body: JSON.stringify({ user_id: CONFIG.USER_ID, anchor_name: anchorName, state, phrase }) }); }
-    catch { return null; }
-}
-
-async function fireAnchor(anchorName) {
-    try { return (await apiCall('/api/anchor/fire', { method: 'POST', body: JSON.stringify({ user_id: CONFIG.USER_ID, anchor_name: anchorName }) })).phrase; }
-    catch { return null; }
-}
-
-async function getAnchor(state) {
-    try { return (await apiCall(`/api/anchor/${state}`)).phrase; }
-    catch { return 'Я спокоен. Я дышу. Я здесь и сейчас.'; }
-}
 
 async function getConfinementStatistics() {
     try { return (await apiCall(`/api/confinement/statistics/${CONFIG.USER_ID}`)).statistics; }
@@ -448,7 +429,7 @@ function navigateTo(screen, params = {}) {
         case 'practices': if (typeof showPracticesScreen==='function') showPracticesScreen(); else { const s=document.createElement('script');s.src='practices.js';s.onload=()=>{if(typeof showPracticesScreen==='function')showPracticesScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'hypnosis': if (typeof showHypnosisScreen==='function') showHypnosisScreen(); else { const s=document.createElement('script');s.src='hypnosis.js';s.onload=()=>{if(typeof showHypnosisScreen==='function')showHypnosisScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; s.onerror=()=>{showToast('Не удалось загрузить модуль','error');}; document.head.appendChild(s); } break;
-        case 'anchors': showAnchors(); break;
+        case 'anchors': if (typeof showAnchorsScreen==='function') showAnchorsScreen(); else { const s=document.createElement('script');s.src='anchors.js';s.onload=()=>{if(typeof showAnchorsScreen==='function')showAnchorsScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'statistics': showStatistics(); break;
         case 'analysis':
             if (typeof openAnalysisScreen === 'function') {
@@ -1131,69 +1112,6 @@ async function showTales_screen() {
     });
 }
 
-async function showAnchors() {
-    const container = document.getElementById('screenContainer');
-    showToast('Загружаю якоря...', 'info');
-    const anchors = await getUserAnchors();
-
-    const anchorsHtml = anchors?.length
-        ? anchors.map(anchor => `
-            <div class="anchor-card">
-                <div><div class="loop-type">${anchor.name}</div><div class="anchor-phrase">${anchor.phrase}</div><div class="loop-strength">Состояние: ${anchor.state}</div></div>
-                <button class="action-btn fire-anchor" data-name="${anchor.name}" style="padding:6px 12px">🔥 Активировать</button>
-            </div>`).join('')
-        : '<p>У вас пока нет якорей. Создайте свой первый якорь.</p>';
-
-    container.innerHTML = `
-        <div class="full-content-page">
-            <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-            <div class="content-header"><div class="content-emoji">⚓</div><h1 class="content-title">Мои якоря</h1></div>
-            <div class="content-body">
-                <h3>📋 АКТИВНЫЕ ЯКОРЯ</h3>
-                <div id="anchorsList">${anchorsHtml}</div>
-                <div class="practice-card" style="margin-top:20px">
-                    <h3>➕ СОЗДАТЬ НОВЫЙ ЯКОРЬ</h3>
-                    <input type="text" id="anchorName" placeholder="Название якоря" style="width:100%;padding:10px;margin:8px 0;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);border-radius:30px;color:white">
-                    <input type="text" id="anchorState" placeholder="Состояние (например: спокойствие)" style="width:100%;padding:10px;margin:8px 0;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);border-radius:30px;color:white">
-                    <textarea id="anchorPhrase" placeholder="Фраза-якорь" rows="2" style="width:100%;padding:10px;margin:8px 0;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);border-radius:20px;color:white"></textarea>
-                    <button class="action-btn primary-btn" id="createAnchorBtn">✨ СОЗДАТЬ</button>
-                </div>
-                <div class="practice-card" style="margin-top:20px">
-                    <h3>💡 ПРЕДЛОЖЕННЫЕ ЯКОРЯ</h3>
-                    <button class="action-btn anchor-preset" data-state="calm" style="margin:5px">😌 Спокойствие</button>
-                    <button class="action-btn anchor-preset" data-state="confidence" style="margin:5px">💪 Уверенность</button>
-                    <button class="action-btn anchor-preset" data-state="here" style="margin:5px">🧘 Здесь и сейчас</button>
-                </div>
-            </div>
-        </div>`;
-
-    document.getElementById('backBtn').onclick = () => renderDashboard();
-
-    document.querySelectorAll('.fire-anchor').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const phrase = await fireAnchor(btn.dataset.name);
-            if (phrase) { showToast(`Активирован якорь: ${phrase}`, 'success'); if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode); }
-        });
-    });
-
-    document.getElementById('createAnchorBtn')?.addEventListener('click', async () => {
-        const name = document.getElementById('anchorName').value;
-        const state = document.getElementById('anchorState').value;
-        const phrase = document.getElementById('anchorPhrase').value;
-        if (!name || !state || !phrase) { showToast('Заполните все поля', 'error'); return; }
-        const result = await setAnchor(name, state, phrase);
-        if (result?.success) { showToast('Якорь создан!', 'success'); showAnchors(); }
-        else showToast('Не удалось создать якорь', 'error');
-    });
-
-    document.querySelectorAll('.anchor-preset').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const phrase = await getAnchor(btn.dataset.state);
-            showToast(`Якорь: ${phrase}`, 'success');
-            if (voiceManager) await voiceManager.textToSpeech(phrase, currentMode);
-        });
-    });
-}
 
 async function showStatistics() {
     const container = document.getElementById('screenContainer');
@@ -1725,7 +1643,7 @@ async function init() {
                 diary: () => { if (typeof showDiaryScreen==='function') showDiaryScreen(); else { const s=document.createElement('script');s.src='diary.js';s.onload=()=>{if(typeof showDiaryScreen==='function')showDiaryScreen();};document.head.appendChild(s); } },
                 berne: () => { if (typeof showBerneScreen==='function') showBerneScreen(); else { const s=document.createElement('script');s.src='berne.js';s.onload=()=>{if(typeof showBerneScreen==='function')showBerneScreen();};document.head.appendChild(s); } },
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
-                anchors: () => showAnchors(),
+                anchors: () => { if (typeof showAnchorsScreen==='function') showAnchorsScreen(); else { const s=document.createElement('script');s.src='anchors.js';s.onload=()=>{if(typeof showAnchorsScreen==='function')showAnchorsScreen();};document.head.appendChild(s); } },
                 statistics: () => showStatistics(),
                 mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); },
                 settings: () => {
