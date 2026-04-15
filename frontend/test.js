@@ -1092,7 +1092,7 @@ const Test = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     user_id: parseInt(this.userId),
-                    context: { city:this.context.city, gender:this.context.gender, age:this.context.age }
+                    context: { name:this.context.name, city:this.context.city, gender:this.context.gender, age:this.context.age }
                 })
             });
             // Ждём погоду ВНУТРИ этого метода

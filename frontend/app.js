@@ -1593,7 +1593,7 @@ function showNamePrompt() {
     const input = document.getElementById('nameInput');
     const btn = document.getElementById('saveNameBtn');
 
-    const save = () => {
+    const save = async () => {
         const name = input.value.trim();
         if (!name) { showToast('Введите имя', 'error'); return; }
         localStorage.setItem('fredi_user_name', name);
@@ -1601,6 +1601,13 @@ function showNamePrompt() {
         const avatarEl = document.getElementById('userMiniAvatar');
         if (userNameEl) userNameEl.textContent = name;
         if (avatarEl) avatarEl.textContent = name.charAt(0).toUpperCase();
+        // Сохраняем имя на бэкенд для двойников и зеркал
+        try {
+            await apiCall('/api/save-context', {
+                method: 'POST',
+                body: JSON.stringify({ user_id: CONFIG.USER_ID, context: { name } })
+            });
+        } catch(e) { console.warn('Failed to save name to backend:', e); }
         renderDashboard();
     };
 
