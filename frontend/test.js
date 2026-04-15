@@ -1520,7 +1520,7 @@ ${this.getStage5Interpretation()}
                 body: JSON.stringify({
                     mirror_code: mirrorCode,
                     friend_user_id: this.userId,
-                    friend_name: this.context?.name || 'Друг',
+                    friend_name: this.context?.name || (typeof CONFIG !== 'undefined' && CONFIG.USER_NAME !== 'друг' ? CONFIG.USER_NAME : null) || localStorage.getItem('fredi_user_name') || 'Друг',
                     friend_profile_code: profile?.displayName || null,
                     friend_vectors: vectors,
                     friend_deep_patterns: deep || {},
