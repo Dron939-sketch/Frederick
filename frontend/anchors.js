@@ -385,6 +385,48 @@ let userAnchors = [];
 let currentAnchorView = 'list';
 let anchorWizardStep = 0;
 let anchorWizardData = {};
+
+const TRIGGER_SUGGESTIONS = {
+    auditory: {
+        _default: ['Я спокоен', 'Я силён', 'Я готов', 'Я в потоке'],
+        calm: ['Я спокоен', 'Дыши медленно', 'Всё хорошо', 'Тишина'],
+        confidence: ['Я силён', 'Я уверен', 'Я готов', 'Всё получится'],
+        focus: ['Фокус', 'Только сейчас', 'Ясность', 'Я здесь'],
+        energy: ['Вперёд!', 'Энергия', 'Поехали', 'Огонь'],
+        love: ['Я люблю', 'Я открыт', 'Тепло', 'Сердце'],
+        gratitude: ['Спасибо', 'Я благодарен', 'Ценю это', 'Дар'],
+        safety: ['Я в безопасности', 'Я защищён', 'Спокойно', 'Дом'],
+        joy: ['Радость', 'Лёгкость', 'Улыбаюсь', 'Счастье'],
+        grounding: ['Здесь и сейчас', 'Я в теле', 'Корни', 'Земля'],
+        action: ['Делаю!', 'Сейчас', 'Начинаю', 'Первый шаг']
+    },
+    kinesthetic: {
+        _default: ['Сжать кулак', 'Ладонь на грудь', 'Глубокий вдох', 'Скрестить пальцы'],
+        calm: ['Ладонь на грудь', 'Глубокий выдох', 'Расслабить плечи', 'Мягкий вдох'],
+        confidence: ['Сжать кулак', 'Развернуть плечи', 'Поднять подбородок', 'Поза супермена'],
+        focus: ['Сжать пальцы в замок', 'Прижать большой палец', 'Вдох-выдох', 'Щелчок пальцами'],
+        energy: ['Хлопок в ладоши', 'Прыжок', 'Потрясти руками', 'Активная поза'],
+        love: ['Рука к сердцу', 'Обнять себя', 'Улыбка', 'Тёплое касание'],
+        gratitude: ['Ладони вместе', 'Поклон', 'Касание сердца', 'Прижать к груди'],
+        safety: ['Скрестить руки', 'Обнять колени', 'Спина к стене', 'Закрыть глаза'],
+        joy: ['Улыбнуться широко', 'Взмах руками', 'Потянуться', 'Танцевальный жест'],
+        grounding: ['Ступни в пол', 'Ладони на колени', 'Медленный шаг', 'Потрогать предмет'],
+        action: ['Хлопок', 'Щелчок пальцами', 'Старт-поза', 'Удар кулаком в ладонь']
+    },
+    visual: {
+        _default: ['Представить щит света', 'Образ огня', 'Любимое место', 'Символ силы'],
+        calm: ['Океан на закате', 'Тихий свет', 'Спокойное небо', 'Снежный лес'],
+        confidence: ['Щит света', 'Образ героя', 'Золотой столб', 'Лев'],
+        focus: ['Луч света', 'Лазерная точка', 'Туннель', 'Цель в прицеле'],
+        energy: ['Пламя', 'Молния', 'Восход солнца', 'Волна'],
+        love: ['Сердце-свет', 'Объятие', 'Тёплый огонь', 'Цветы'],
+        gratitude: ['Свет в груди', 'Букет', 'Улыбка близкого', 'Солнечный луч'],
+        safety: ['Дом', 'Кокон света', 'Купол', 'Ангел-хранитель'],
+        joy: ['Солнце', 'Радуга', 'Детский смех', 'Фейерверк'],
+        grounding: ['Дерево с корнями', 'Горы', 'Якорь', 'Камень'],
+        action: ['Стрела', 'Ракета взлетает', 'Дверь открывается', 'Финишная лента']
+    }
+};
 let reimprintingStep = 0;
 let reimprintingData = {};
 let diagnosticAnswers = {};
@@ -1289,6 +1331,21 @@ async function showAnchorsScreen() {
             tab.classList.add('active');
         });
     });
+
+    const suggestionsBox = document.getElementById('triggerSuggestions');
+    if (suggestionsBox) {
+        suggestionsBox.addEventListener('click', (e) => {
+            const chip = e.target.closest('.trigger-chip');
+            if (!chip) return;
+            window.anchorWizardPickTrigger(chip.dataset.trigger);
+            suggestionsBox.querySelectorAll('.trigger-chip').forEach(c => {
+                c.style.background = 'rgba(255,107,59,0.1)';
+                c.style.fontWeight = 'normal';
+            });
+            chip.style.background = 'rgba(255,107,59,0.3)';
+            chip.style.fontWeight = '600';
+        });
+    }
 }
 
 // ============================================
@@ -1588,6 +1645,14 @@ function renderAnchorWizard() {
     
     // Шаг 2: выбор триггера (ИСПРАВЛЕНО - сохраняем в data)
     if (step === 2) {
+        const modality = data.modality || 'auditory';
+        const state = data.state;
+        const modalitySuggestions = TRIGGER_SUGGESTIONS[modality] || {};
+        const suggestions = modalitySuggestions[state] || modalitySuggestions._default || [];
+        const suggestionsHtml = suggestions.map(s => {
+            const safe = _anEscapeHtml(s);
+            return `<button type="button" class="trigger-chip" data-trigger="${safe}" style="background:rgba(255,107,59,0.1);border:1px solid rgba(255,107,59,0.3);border-radius:20px;padding:8px 14px;color:#ff6b3b;cursor:pointer;font-size:13px;">${safe}</button>`;
+        }).join('');
         return `
             <div class="wizard-step" style="background:rgba(224,224,224,0.05);border-radius:20px;padding:24px;margin-top:20px;">
                 <h3>➕ Создание инструкции</h3>
@@ -1612,8 +1677,14 @@ function renderAnchorWizard() {
                         </div>
                     </div>
                 </div>
+                ${suggestions.length ? `
+                <div style="margin-top: 16px;">
+                    <label style="display: block; margin-bottom: 8px; font-size:13px; color: var(--text-secondary);">Предложенные варианты (нажмите, чтобы выбрать):</label>
+                    <div id="triggerSuggestions" style="display:flex;flex-wrap:wrap;gap:8px;">${suggestionsHtml}</div>
+                </div>
+                ` : ''}
                 <div style="margin-top: 20px;">
-                    <label style="display: block; margin-bottom: 8px;">Введите ваш триггер:</label>
+                    <label style="display: block; margin-bottom: 8px;">Или введите свой триггер:</label>
                     <input type="text" id="triggerInput" placeholder="Например: «Я спокоен» или сжать кулак" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; box-sizing:border-box;" value="${_anEscapeHtml(data.trigger || '')}">
                 </div>
                 <button class="anchor-btn fire-btn" style="margin-top: 20px; width: 100%; padding:12px; background:#ff6b3b; border:none; border-radius:30px; color:white; cursor:pointer;" onclick="anchorWizardSaveTrigger()">Далее →</button>
@@ -1716,6 +1787,14 @@ window.anchorWizardSelectSource = (source) => {
 window.anchorWizardSelectModality = (modality) => {
     anchorWizardData.modality = modality;
     showAnchorsScreen();
+};
+
+window.anchorWizardPickTrigger = (text) => {
+    if (!text) return;
+    anchorWizardData.trigger = text;
+    const input = document.getElementById('triggerInput');
+    if (input) input.value = text;
+    console.log('✅ Триггер выбран из предложенных:', text);
 };
 
 window.anchorWizardNext = () => {
@@ -2132,4 +2211,4 @@ window.exportInstructionToPDF = exportInstructionToPDF;
 window.startGuidedActivationFromAnchor = startGuidedActivationFromAnchor;
 window.showInstructionDetail = showInstructionDetail;
 
-console.log('✅ Модуль "Библиотека состояний" загружен (anchors.js v4.0)');
+console.log('✅ Модуль "Библиотека состояний" загружен (anchors.js v4.1)');
