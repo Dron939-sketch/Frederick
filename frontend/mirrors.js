@@ -1,6 +1,6 @@
 // ============================================
 // 🪞 ЗЕРКАЛА / ОТРАЖЕНИЯ
-// Версия 3.0 — с улучшенными карточками (город, возраст, пол)
+// Версия 3.1 — компактные карточки, краткий профиль от ИИ
 // ============================================
 
 const API_BASE = window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -162,223 +162,6 @@ function _clearReflectionsCache() {
 }
 
 // ============================================
-// СТИЛИ
-// ============================================
-function injectMirrorStyles() {
-    if (document.getElementById('mirror-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'mirror-styles';
-    style.textContent = `
-        @keyframes mirrorFadeIn {
-            from { opacity:0; transform:translateY(16px); }
-            to   { opacity:1; transform:translateY(0); }
-        }
-        @keyframes mirrorPulse {
-            0%,100% { box-shadow: 0 0 0 0 rgba(0,212,255,0); }
-            50%      { box-shadow: 0 0 0 6px rgba(0,212,255,0.08); }
-        }
-        @keyframes shimmer {
-            0%   { background-position: -200% 0; }
-            100% { background-position:  200% 0; }
-        }
-        .mirror-card {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 20px;
-            padding: 20px;
-            margin-bottom: 12px;
-            transition: border-color 0.2s, background 0.2s, transform 0.15s;
-            animation: mirrorFadeIn 0.35s ease both;
-            cursor: pointer;
-        }
-        .mirror-card:hover {
-            border-color: rgba(255,107,59,0.35);
-            background: rgba(255,107,59,0.04);
-            transform: translateY(-2px);
-        }
-        .mirror-tab-btn {
-            flex: 1;
-            padding: 11px 8px;
-            border: none;
-            border-radius: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.25s;
-            font-family: inherit;
-            letter-spacing: 0.2px;
-        }
-        .mirror-tab-btn.active {
-            background: linear-gradient(135deg, #00d4ff, #0099cc);
-            color: #fff;
-            box-shadow: 0 4px 14px rgba(0,212,255,0.18), 0 0 6px rgba(0,212,255,0.1);
-        }
-        .mirror-tab-btn.inactive {
-            background: transparent;
-            color: rgba(255,255,255,0.4);
-        }
-        .mirror-tab-btn.inactive:hover {
-            color: rgba(255,255,255,0.7);
-            background: rgba(255,255,255,0.05);
-        }
-        .mirror-stat-card {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 16px;
-            padding: 18px;
-            text-align: center;
-            flex: 1;
-        }
-        .mirror-action-btn {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            width: 100%;
-            padding: 18px 20px;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 16px;
-            background: rgba(255,255,255,0.03);
-            color: #fff;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: inherit;
-            text-align: left;
-            margin-bottom: 10px;
-        }
-        .mirror-action-btn:hover {
-            background: rgba(255,255,255,0.07);
-            border-color: rgba(255,255,255,0.2);
-            transform: translateX(4px);
-        }
-        .mirror-vector-bar-track {
-            background: rgba(255,255,255,0.06);
-            border-radius: 4px;
-            height: 5px;
-            overflow: hidden;
-            margin-top: 5px;
-        }
-        .mirror-vector-bar-fill {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.6s ease;
-        }
-        .mirror-info-block {
-            background: rgba(255,255,255,0.025);
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 14px;
-            padding: 16px;
-            margin-bottom: 10px;
-        }
-        .mirror-info-block-left {
-            border-left: 2px solid rgba(255,107,59,0.6);
-            padding-left: 14px;
-        }
-        .mirror-link-box {
-            background: #000;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 10px;
-            padding: 12px 14px;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 11px;
-            color: rgba(255,255,255,0.5);
-            word-break: break-all;
-            letter-spacing: 0.3px;
-            margin-bottom: 12px;
-        }
-        .mirror-copy-btn {
-            flex: 1;
-            padding: 13px;
-            border: none;
-            border-radius: 12px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            font-family: inherit;
-            transition: all 0.2s;
-        }
-        .mirror-copy-btn:hover { opacity: 0.85; transform: scale(0.98); }
-        .mirror-section-label {
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1.2px;
-            text-transform: uppercase;
-            color: rgba(255,255,255,0.3);
-            margin-bottom: 10px;
-        }
-        .mirror-4f-card {
-            border-radius: 16px;
-            padding: 18px;
-            margin-bottom: 10px;
-            border-left: 3px solid;
-            background: rgba(255,255,255,0.025);
-            animation: mirrorFadeIn 0.3s ease both;
-        }
-        .mirror-wrap {
-            padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 80px));
-        }
-        @supports not (padding: max(0px)) {
-            .mirror-wrap { padding-bottom: 80px; }
-        }
-        .mirror-skeleton {
-            background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 8px;
-            height: 14px;
-            margin-bottom: 8px;
-        }
-        .mirror-loading-spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255,255,255,0.2);
-            border-top-color: #ff6b3b;
-            border-radius: 50%;
-            animation: mirrorSpin 0.8s linear infinite;
-        }
-        @keyframes mirrorSpin {
-            to { transform: rotate(360deg); }
-        }
-        
-        /* Новые стили для карточек */
-        .mirror-vector-badge {
-            flex: 1;
-            text-align: center;
-            background: rgba(255,255,255,0.04);
-            border-radius: 12px;
-            padding: 8px 4px;
-            transition: all 0.2s;
-        }
-        .mirror-vector-badge:hover {
-            background: rgba(255,255,255,0.08);
-        }
-        .mirror-vector-value {
-            font-size: 16px;
-            font-weight: 700;
-        }
-        .mirror-vector-label {
-            font-size: 9px;
-            color: rgba(255,255,255,0.4);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .mirror-city-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            background: rgba(255,255,255,0.06);
-            border-radius: 20px;
-            padding: 3px 10px;
-            font-size: 11px;
-            color: rgba(255,255,255,0.6);
-        }
-    `;
-    document.head.appendChild(style);
-    log.info('Mirrors', 'Styles injected');
-}
-injectMirrorStyles();
-
-// ============================================
 // API
 // ============================================
 async function apiCreateMirror(userId, mirrorType) {
@@ -423,18 +206,202 @@ async function apiGetReflections(userId) {
     }
 }
 
-async function apiCheckMirrorStatus(mirrorCode) {
-    log.info('API', 'apiCheckMirrorStatus called', { mirrorCode });
+async function loadBriefProfile(mirrorCode) {
+    log.info('Mirrors', 'loadBriefProfile called', { mirrorCode });
     try {
-        const res = await fetch(`${API_BASE}/api/mirrors/${mirrorCode}/status`);
+        const res = await fetch(`${API_BASE}/api/mirrors/${mirrorCode}/brief-profile`);
         const data = await res.json();
-        log.info('API', 'apiCheckMirrorStatus response', { activated: data.activated, completed_at: data.completed_at });
-        return data;
-    } catch (error) {
-        log.error('API', 'apiCheckMirrorStatus failed', { error: error.message });
-        return { activated: false, error: error.message };
+        if (data.success && data.brief_profile) {
+            return data.brief_profile;
+        }
+        return null;
+    } catch(e) {
+        log.error('Mirrors', 'Failed to load brief profile', { error: e.message });
+        return null;
     }
 }
+
+// ============================================
+// СТИЛИ
+// ============================================
+function injectMirrorStyles() {
+    if (document.getElementById('mirror-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'mirror-styles';
+    style.textContent = `
+        @keyframes mirrorFadeIn {
+            from { opacity:0; transform:translateY(10px); }
+            to   { opacity:1; transform:translateY(0); }
+        }
+        @keyframes mirrorSpin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .mirror-card {
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 14px 12px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            animation: mirrorFadeIn 0.3s ease both;
+        }
+        .mirror-card:hover {
+            background: rgba(255,255,255,0.04);
+        }
+        
+        .mirror-tab-btn {
+            flex: 1;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: inherit;
+            background: transparent;
+            color: rgba(255,255,255,0.5);
+        }
+        .mirror-tab-btn.active {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        .mirror-tab-btn.inactive:hover {
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.8);
+        }
+        
+        .mirror-stat-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 14px;
+            text-align: center;
+            flex: 1;
+        }
+        
+        .mirror-action-btn {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            width: 100%;
+            padding: 16px 20px;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            background: rgba(255,255,255,0.03);
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            text-align: left;
+            margin-bottom: 10px;
+        }
+        .mirror-action-btn:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(255,255,255,0.15);
+            transform: translateX(4px);
+        }
+        
+        .mirror-link-box {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            color: rgba(255,255,255,0.6);
+            word-break: break-all;
+            margin-bottom: 12px;
+        }
+        
+        .mirror-copy-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: opacity 0.2s;
+        }
+        .mirror-copy-btn:hover { opacity: 0.85; }
+        
+        .mirror-section-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.35);
+            margin-bottom: 12px;
+        }
+        
+        .mirror-4f-card {
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 10px;
+            border-left: 3px solid;
+            background: rgba(255,255,255,0.02);
+            animation: mirrorFadeIn 0.3s ease both;
+        }
+        
+        .mirror-skeleton {
+            background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 12px;
+            height: 14px;
+            margin-bottom: 8px;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        
+        .mirror-loading-spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-top-color: #ff6b3b;
+            border-radius: 50%;
+            animation: mirrorSpin 0.8s linear infinite;
+        }
+        
+        .mirror-profile-section {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        
+        .mirror-vector-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .mirror-vector-item:last-child { border-bottom: none; }
+        
+        .mirror-vector-bar {
+            width: 120px;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .mirror-vector-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+    `;
+    document.head.appendChild(style);
+    log.info('Mirrors', 'Styles injected');
+}
+injectMirrorStyles();
 
 // ============================================
 // ГЛАВНЫЙ ЭКРАН
@@ -502,7 +469,7 @@ function switchMirrorTab(tab) {
 }
 
 // ============================================
-// ТАБ: ОТРАЖЕНИЯ (УЛУЧШЕННАЯ ВЕРСИЯ)
+// ТАБ: ОТРАЖЕНИЯ (КОМПАКТНЫЕ КАРТОЧКИ)
 // ============================================
 async function showReflectionsTab(container) {
     log.info('Mirrors', 'showReflectionsTab called');
@@ -567,17 +534,14 @@ async function showReflectionsTab(container) {
         let html = `
             <div style="display:flex;gap:10px;margin-bottom:20px;animation:mirrorFadeIn 0.3s ease;">
                 <div class="mirror-stat-card">
-                    <div style="font-size:30px;font-weight:700;color:#fff;">${stats.total_mirrors || 0}</div>
-                    <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:4px;letter-spacing:0.3px;">Создано зеркал</div>
+                    <div style="font-size:28px;font-weight:700;color:#fff;">${stats.total_mirrors || 0}</div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.4);">создано зеркал</div>
                 </div>
-                <div class="mirror-stat-card" style="border-color:rgba(255,107,59,0.2);">
-                    <div style="font-size:30px;font-weight:700;background:linear-gradient(135deg,#00d4ff,#0099cc);
-                                -webkit-background-clip:text;-webkit-text-fill-color:transparent;">${reflections.length}</div>
-                    <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:4px;letter-spacing:0.3px;">Отражений</div>
+                <div class="mirror-stat-card">
+                    <div style="font-size:28px;font-weight:700;color:#ff6b3b;">${reflections.length}</div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.4);">отражений</div>
                 </div>
-                <button onclick="forceRefreshReflections()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:0 16px;cursor:pointer;">
-                    🔄
-                </button>
+                <button onclick="forceRefreshReflections()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:0 16px;cursor:pointer;font-size:18px;">🔄</button>
             </div>
             <div class="mirror-section-label">ОТРАЖЕНИЯ</div>`;
 
@@ -587,26 +551,21 @@ async function showReflectionsTab(container) {
             const date = ref.completed_at ? new Date(ref.completed_at).toLocaleDateString('ru') : '';
             const vectors = ref.friend_vectors || {};
             
-            // Получаем контекст друга (город, возраст, пол)
             const friendContext = ref.friend_context || {};
             const city = friendContext.city ? _escapeHtml(friendContext.city) : null;
             const age = friendContext.age ? friendContext.age : null;
             const gender = friendContext.gender === 'male' ? '♂️' : friendContext.gender === 'female' ? '♀️' : null;
             
-            // Город + возраст + пол в одну строку
             const locationParts = [];
             if (city) locationParts.push(city);
             if (age) locationParts.push(`${age} лет`);
             if (gender) locationParts.push(gender);
             const locationString = locationParts.join(' • ');
             
-            // Значения векторов
             const sb = Math.round(vectors.СБ || 4);
             const tf = Math.round(vectors.ТФ || 4);
             const ub = Math.round(vectors.УБ || 4);
             const chv = Math.round(vectors.ЧВ || 4);
-            
-            const getColor = (v) => v <= 2 ? '#3b82ff' : v <= 4 ? '#f39c12' : '#ff6b3b';
             
             log.debug('Mirrors', `Rendering reflection ${i}`, { name, profile, city, age, gender, vectors: { sb, tf, ub, chv } });
 
@@ -615,14 +574,14 @@ async function showReflectionsTab(container) {
                      onclick="showFriendProfile(${JSON.stringify(ref).replace(/"/g,'&quot;')})">
                     
                     <!-- ШАПКА: аватар + имя + профиль -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, #ff6b3b, #ff3b3b); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: white;">
+                            <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #ff6b3b, #ff3b3b); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: white;">
                                 ${name.charAt(0).toUpperCase()}
                             </div>
                             <div>
                                 <div style="font-size: 16px; font-weight: 600; color: white;">${name}</div>
-                                ${locationString ? `<div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px;">📍 ${locationString}</div>` : ''}
+                                ${locationString ? `<div style="font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px;">📍 ${locationString}</div>` : ''}
                             </div>
                         </div>
                         <div style="background: rgba(255,255,255,0.08); border-radius: 20px; padding: 4px 10px; font-size: 10px; color: #ff6b3b; font-family: monospace;">
@@ -630,30 +589,17 @@ async function showReflectionsTab(container) {
                         </div>
                     </div>
                     
-                    <!-- ВЕКТОРЫ (4 компактные плитки) -->
-                    <div style="display: flex; gap: 8px; margin: 12px 0;">
-                        <div class="mirror-vector-badge">
-                            <div class="mirror-vector-value" style="color: ${getColor(sb)};">${sb}/6</div>
-                            <div class="mirror-vector-label">САМООБОРОНА</div>
-                        </div>
-                        <div class="mirror-vector-badge">
-                            <div class="mirror-vector-value" style="color: ${getColor(tf)};">${tf}/6</div>
-                            <div class="mirror-vector-label">ФИНАНСЫ</div>
-                        </div>
-                        <div class="mirror-vector-badge">
-                            <div class="mirror-vector-value" style="color: ${getColor(ub)};">${ub}/6</div>
-                            <div class="mirror-vector-label">МЫШЛЕНИЕ</div>
-                        </div>
-                        <div class="mirror-vector-badge">
-                            <div class="mirror-vector-value" style="color: ${getColor(chv)};">${chv}/6</div>
-                            <div class="mirror-vector-label">ОТНОШЕНИЯ</div>
-                        </div>
+                    <!-- ВЕКТОРЫ (компактная строка) -->
+                    <div style="font-size: 11px; color: rgba(255,255,255,0.5); display: flex; gap: 12px; margin: 6px 0;">
+                        <span>⚡ ${sb}/6</span>
+                        <span>💰 ${tf}/6</span>
+                        <span>🧠 ${ub}/6</span>
+                        <span>❤️ ${chv}/6</span>
                     </div>
                     
-                    <!-- ФУТЕР: дата + кнопка -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05);">
+                    <!-- ФУТЕР: дата -->
+                    <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
                         <div style="font-size: 10px; color: rgba(255,255,255,0.3);">📅 ${date}</div>
-                        <div style="font-size: 11px; color: rgba(255,107,59,0.7);">Открыть профиль →</div>
                     </div>
                 </div>`;
         });
@@ -858,7 +804,7 @@ function shareMirrorLink(link, text) {
 }
 
 // ============================================
-// ПРОФИЛЬ ДРУГА (остаётся без изменений)
+// ПРОФИЛЬ ДРУГА (С КРАТКИМ ОПИСАНИЕМ ОТ ИИ)
 // ============================================
 async function showFriendProfile(ref) {
     log.info('Mirrors', 'showFriendProfile called', { hasRef: !!ref });
@@ -880,10 +826,15 @@ async function showFriendProfile(ref) {
     const profile = _escapeHtml(ref.friend_profile_code) || '—';
     const vectors = ref.friend_vectors || {};
     const patterns = ref.friend_deep_patterns || {};
-    const aiProfile = ref.friend_ai_profile || '';
     const date = ref.completed_at ? new Date(ref.completed_at).toLocaleDateString('ru') : '';
     const mirrorCode = ref.mirror_code || '';
-
+    
+    // Загружаем краткий профиль от ИИ
+    let briefProfile = null;
+    if (mirrorCode) {
+        briefProfile = await loadBriefProfile(mirrorCode);
+    }
+    
     const vNames = {'СБ':'Самооборона','ТФ':'Финансы','УБ':'Убеждения','ЧВ':'Чувства'};
     const vColor = v => v<=2?'#3b82ff':v<=4?'#f39c12':'#ff6b3b';
 
@@ -897,96 +848,90 @@ async function showFriendProfile(ref) {
                     style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,0.06);
                            border:1px solid rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:16px;
                            display:flex;align-items:center;justify-content:center;flex-shrink:0;
-                           transition:all 0.2s;font-family:inherit;
-                           onmouseover="this.style.background='rgba(255,255,255,0.1)'"
-                           onmouseout="this.style.background='rgba(255,255,255,0.06)'">←</button>
+                           transition:all 0.2s;font-family:inherit;"
+                    onmouseover="this.style.background='rgba(255,255,255,0.1)'"
+                    onmouseout="this.style.background='rgba(255,255,255,0.06)'">←</button>
                 <div style="font-size:17px;font-weight:600;color:#fff;">🪞 Профиль отражения</div>
             </div>
 
+            <!-- HERO блок -->
             <div style="background:linear-gradient(135deg,rgba(255,107,59,0.1),rgba(255,59,59,0.05));
                         border:1px solid rgba(255,107,59,0.2);border-radius:24px;
-                        padding:28px;margin-bottom:16px;text-align:center;">
-                <div style="width:68px;height:68px;border-radius:50%;margin:0 auto 14px;
-                            background:linear-gradient(135deg,rgba(255,107,59,0.4),rgba(255,59,59,0.2));
-                            border:2px solid rgba(255,107,59,0.4);
+                        padding:24px;margin-bottom:20px;text-align:center;">
+                <div style="width:68px;height:68px;border-radius:50%;margin:0 auto 12px;
+                            background:linear-gradient(135deg,#ff6b3b,#ff3b3b);
                             display:flex;align-items:center;justify-content:center;
                             font-size:28px;font-weight:700;color:#fff;
                             box-shadow:0 8px 24px rgba(255,59,59,0.2);">
                     ${name.charAt(0).toUpperCase()}
                 </div>
                 <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px;">${name}</div>
-                <div style="font-size:12px;color:rgba(255,255,255,0.4);font-family:'SF Mono',monospace;
-                            letter-spacing:1px;margin-bottom:4px;">${profile}</div>
-                <div style="font-size:11px;color:rgba(255,255,255,0.25);">Тест пройден: ${date}</div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);font-family:monospace;">${profile}</div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:6px;">📅 Тест пройден: ${date}</div>
             </div>
-
+            
+            <!-- КРАТКИЙ ПРОФИЛЬ (от ИИ) -->
+            ${briefProfile ? `
+            <div class="mirror-profile-section">
+                <div class="mirror-section-label">📋 О ПЕРСОНЕ</div>
+                <div style="font-size:14px;color:rgba(255,255,255,0.7);line-height:1.6;">
+                    ${_escapeHtml(briefProfile)}
+                </div>
+            </div>
+            ` : ''}
+            
+            <!-- ВЕКТОРЫ ПОВЕДЕНИЯ -->
             ${Object.keys(vectors).length ? `
-            <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
-                        border-radius:20px;padding:20px;margin-bottom:12px;">
-                <div class="mirror-section-label">ВЕКТОРЫ ПОВЕДЕНИЯ</div>
+            <div class="mirror-profile-section">
+                <div class="mirror-section-label">📊 ВЕКТОРЫ ПОВЕДЕНИЯ</div>
                 ${Object.entries(vectors).map(([k,v]) => {
                     const val = typeof v === 'number' ? v : 4;
+                    const pct = Math.round(val/6*100);
                     return `
-                    <div style="margin-bottom:14px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                            <span style="font-size:13px;color:rgba(255,255,255,0.6);">${_escapeHtml(vNames[k] || k)}</span>
-                            <span style="font-size:13px;font-weight:700;color:${vColor(val)};">${val.toFixed(1)}/6</span>
-                        </div>
-                        <div class="mirror-vector-bar-track">
-                            <div class="mirror-vector-bar-fill" style="width:${Math.round(val/6*100)}%;background:${vColor(val)};"></div>
+                    <div class="mirror-vector-item">
+                        <span style="font-size:13px;">${vNames[k] || k}</span>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <div class="mirror-vector-bar">
+                                <div class="mirror-vector-fill" style="width:${pct}%;background:${vColor(val)};"></div>
+                            </div>
+                            <span style="font-size:13px;font-weight:600;color:${vColor(val)};">${val.toFixed(1)}/6</span>
                         </div>
                     </div>`;
                 }).join('')}
-            </div>` : '<div class="mirror-info-block" style="text-align:center;color:rgba(255,255,255,0.4);">Нет данных о векторах</div>'}
+            </div>` : '<div class="mirror-profile-section" style="text-align:center;color:rgba(255,255,255,0.4);">Нет данных о векторах</div>'}
 
+            <!-- ГЛУБИННЫЕ ПАТТЕРНЫ -->
             ${Object.keys(patterns).length ? `
-            <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
-                        border-radius:20px;padding:20px;margin-bottom:12px;">
-                <div class="mirror-section-label">ГЛУБИННЫЕ ПАТТЕРНЫ</div>
+            <div class="mirror-profile-section">
+                <div class="mirror-section-label">🧬 ГЛУБИННЫЕ ПАТТЕРНЫ</div>
                 ${patterns.attachment ? `
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <span style="font-size:12px;color:rgba(255,255,255,0.3);">Привязанность</span>
+                <div class="mirror-vector-item">
+                    <span style="font-size:12px;color:rgba(255,255,255,0.4);">Привязанность</span>
                     <span style="font-size:13px;font-weight:600;color:#fff;">${_escapeHtml(patterns.attachment)}</span>
                 </div>` : ''}
                 ${patterns.core_fears ? `
-                <div style="display:flex;justify-content:space-between;padding:10px 0;align-items:flex-start;gap:12px;">
-                    <span style="font-size:12px;color:rgba(255,255,255,0.3);flex-shrink:0;">Страхи</span>
-                    <span style="font-size:12px;color:rgba(255,255,255,0.6);text-align:right;">${Array.isArray(patterns.core_fears) ? patterns.core_fears.map(f => _escapeHtml(f)).join(', ') : _escapeHtml(patterns.core_fears)}</span>
+                <div class="mirror-vector-item">
+                    <span style="font-size:12px;color:rgba(255,255,255,0.4);">Страхи</span>
+                    <span style="font-size:12px;color:rgba(255,255,255,0.6);">${Array.isArray(patterns.core_fears) ? patterns.core_fears.map(f => _escapeHtml(f)).join(', ') : _escapeHtml(patterns.core_fears)}</span>
                 </div>` : ''}
             </div>` : ''}
-
-            ${aiProfile ? `
-            <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
-                        border-radius:20px;padding:20px;margin-bottom:12px;">
-                <div class="mirror-section-label">AI ПРОФИЛЬ</div>
-                <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.7;">
-                    ${_escapeHtml(aiProfile.substring(0,500))}${aiProfile.length>500?'…':''}
-                </div>
-            </div>` : ''}
-
-            <div style="display:flex;gap:10px;margin-bottom:12px;">
+            
+            <!-- КНОПКИ -->
+            <div style="display:flex;gap:10px;margin-bottom:16px;">
                 <button onclick="loadIntimateProfile('${mirrorCode}')"
-                    style="flex:1;background:rgba(59,130,246,0.08);color:#3b82ff;
-                           border:1px solid rgba(59,130,246,0.25);border-radius:14px;
-                           padding:14px;font-size:13px;font-weight:600;cursor:pointer;
-                           font-family:inherit;transition:all 0.2s;">
+                    style="flex:1;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:40px;padding:14px;color:#3b82ff;font-weight:600;cursor:pointer;">
                     🔞 Интимный профиль
                 </button>
                 <button onclick="load4FKeys('${mirrorCode}')"
-                    style="flex:1;background:rgba(243,156,18,0.08);color:#f39c12;
-                           border:1px solid rgba(243,156,18,0.25);border-radius:14px;
-                           padding:14px;font-size:13px;font-weight:600;cursor:pointer;
-                           font-family:inherit;transition:all 0.2s;">
+                    style="flex:1;background:rgba(243,156,18,0.1);border:1px solid rgba(243,156,18,0.3);border-radius:40px;padding:14px;color:#f39c12;font-weight:600;cursor:pointer;">
                     🔑 4F ключи
                 </button>
             </div>
-
+            
             <div id="friendExtraContent"></div>
-
+            
             <button onclick="showMirrorsScreen()"
-                style="width:100%;background:transparent;border:1px solid rgba(255,255,255,0.08);
-                       border-radius:14px;padding:14px;color:rgba(255,255,255,0.3);font-size:13px;
-                       cursor:pointer;font-family:inherit;margin-top:8px;transition:all 0.2s;">
+                style="width:100%;background:transparent;border:1px solid rgba(255,255,255,0.08);border-radius:40px;padding:14px;color:rgba(255,255,255,0.4);font-size:13px;cursor:pointer;">
                 ← Назад к отражениям
             </button>
         </div>`;
@@ -998,9 +943,9 @@ async function loadIntimateProfile(mirrorCode) {
     if (!mirrorCode || !block) return;
     
     block.innerHTML = `
-        <div style="background:rgba(255,255,255,0.02);border-radius:16px;padding:20px;margin-bottom:12px;text-align:center;">
+        <div class="mirror-profile-section" style="text-align:center;">
             <div class="mirror-loading-spinner"></div>
-            <div style="margin-top:12px;color:var(--text-secondary);">Загрузка интимного профиля...</div>
+            <div style="margin-top:12px;color:rgba(255,255,255,0.5);">Загрузка интимного профиля...</div>
         </div>`;
     
     try {
@@ -1012,50 +957,45 @@ async function loadIntimateProfile(mirrorCode) {
         const i = data.intimate;
 
         let html = `
-            <div style="background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.2);
-                        border-radius:20px;padding:20px;margin-bottom:12px;animation:mirrorFadeIn 0.3s ease;">
-                <div style="font-size:12px;font-weight:700;color:#3b82ff;letter-spacing:0.8px;
-                            text-transform:uppercase;margin-bottom:16px;">🔞 Интимный профиль</div>`;
+            <div class="mirror-profile-section" style="border-color:rgba(59,130,246,0.3);">
+                <div class="mirror-section-label" style="color:#3b82ff;">🔞 Интимный профиль</div>`;
 
-        const sections = [
-            ['💋 Что возбуждает', i.sexual_triggers || []],
-            ['❄️ Что гасит желание', i.sexual_blockers || []],
-        ];
-        sections.forEach(([label, items]) => {
-            if (items && items.length) {
-                html += `<div style="margin-bottom:14px;">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">${label}</div>
-                    ${items.map(t => `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:6px 0;
-                        border-bottom:1px solid rgba(255,255,255,0.04);">• ${_escapeHtml(t)}</div>`).join('')}
-                </div>`;
-            }
-        });
-
-        if (i.intimacy_pattern) html += `
-            <div style="margin-bottom:12px;">
-                <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:6px;">🧬 Паттерн близости</div>
-                <div style="font-size:13px;color:rgba(255,255,255,0.65);line-height:1.7;">${_escapeHtml(i.intimacy_pattern)}</div>
+        if (i.sexual_triggers?.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px;">💋 Что возбуждает</div>
+                ${i.sexual_triggers.map(t => `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;">• ${_escapeHtml(t)}</div>`).join('')}
             </div>`;
-
-        if (i.key_need) html += `
-            <div style="background:rgba(59,130,246,0.08);border-radius:12px;padding:14px;margin-bottom:12px;">
-                <div style="font-size:11px;color:#3b82ff;letter-spacing:0.5px;margin-bottom:4px;">💡 Главная потребность</div>
+        }
+        if (i.sexual_blockers?.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px;">❄️ Что гасит желание</div>
+                ${i.sexual_blockers.map(t => `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;">• ${_escapeHtml(t)}</div>`).join('')}
+            </div>`;
+        }
+        if (i.intimacy_pattern) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px;">🧬 Паттерн близости</div>
+                <div style="font-size:13px;color:rgba(255,255,255,0.7);">${_escapeHtml(i.intimacy_pattern)}</div>
+            </div>`;
+        }
+        if (i.key_need) {
+            html += `<div style="background:rgba(59,130,246,0.08);border-radius:12px;padding:12px;margin-bottom:12px;">
+                <div style="font-size:11px;color:#3b82ff;">💡 Главная потребность</div>
                 <div style="font-size:14px;font-weight:600;color:#fff;">${_escapeHtml(i.key_need)}</div>
             </div>`;
-
-        if (i.approach_tip) html += `
-            <div style="background:rgba(255,107,59,0.08);border-radius:12px;padding:14px;">
-                <div style="font-size:11px;color:#ff6b3b;letter-spacing:0.5px;margin-bottom:4px;">🎯 Как подойти</div>
+        }
+        if (i.approach_tip) {
+            html += `<div style="background:rgba(255,107,59,0.08);border-radius:12px;padding:12px;">
+                <div style="font-size:11px;color:#ff6b3b;">🎯 Как подойти</div>
                 <div style="font-size:13px;color:rgba(255,255,255,0.7);">${_escapeHtml(i.approach_tip)}</div>
             </div>`;
-
-        html += '</div>';
+        }
+        html += `</div>`;
         block.innerHTML = html;
         log.info('Mirrors', 'Intimate profile loaded successfully');
     } catch(e) {
         log.error('Mirrors', 'loadIntimateProfile failed', { error: e.message });
-        block.innerHTML = `<div style="background:rgba(59,130,246,0.08);border-radius:14px;padding:16px;
-            text-align:center;color:rgba(59,130,246,0.7);font-size:13px;margin-bottom:12px;">❌ ${_escapeHtml(e.message)}</div>`;
+        block.innerHTML = `<div class="mirror-profile-section" style="text-align:center;color:#ff6b6b;">❌ ${_escapeHtml(e.message)}</div>`;
     }
 }
 
@@ -1065,9 +1005,9 @@ async function load4FKeys(mirrorCode) {
     if (!mirrorCode || !block) return;
     
     block.innerHTML = `
-        <div style="background:rgba(255,255,255,0.02);border-radius:16px;padding:20px;margin-bottom:12px;text-align:center;">
+        <div class="mirror-profile-section" style="text-align:center;">
             <div class="mirror-loading-spinner"></div>
-            <div style="margin-top:12px;color:var(--text-secondary);">Загрузка 4F ключей...</div>
+            <div style="margin-top:12px;color:rgba(255,255,255,0.5);">Загрузка 4F ключей...</div>
         </div>`;
     
     try {
@@ -1090,29 +1030,26 @@ async function load4FKeys(mirrorCode) {
                             <div style="font-size:14px;font-weight:700;color:#fff;">${_escapeHtml(code)} — ${_escapeHtml(k.title || '')}</div>
                         </div>
                     </div>
-                    <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">🎯 ТРИГГЕРЫ</div>
-                    ${(k.triggers || []).map(t => `
-                        <div style="font-size:13px;color:rgba(255,255,255,0.65);padding:5px 0;
-                                    border-bottom:1px solid rgba(255,255,255,0.04);">• ${_escapeHtml(t)}</div>`).join('')}
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px;">🎯 ТРИГГЕРЫ</div>
+                    ${(k.triggers || []).map(t => `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);">• ${_escapeHtml(t)}</div>`).join('')}
                     <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;margin-top:12px;">
-                        <div style="font-size:11px;color:${col};letter-spacing:0.5px;margin-bottom:4px;">🔑 КЛЮЧ</div>
+                        <div style="font-size:11px;color:${col};">🔑 КЛЮЧ</div>
                         <div style="font-size:13px;font-weight:600;color:#fff;">${_escapeHtml(k.key_phrase || '')}</div>
                     </div>
-                    ${k.technique ? `<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:10px;line-height:1.5;">⚡ ${_escapeHtml(k.technique)}</div>` : ''}
-                    ${k.insight ? `<div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:6px;font-style:italic;">${_escapeHtml(k.insight)}</div>` : ''}
+                    ${k.technique ? `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:10px;">⚡ ${_escapeHtml(k.technique)}</div>` : ''}
+                    ${k.insight ? `<div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:6px;font-style:italic;">${_escapeHtml(k.insight)}</div>` : ''}
                 </div>`;
         });
         block.innerHTML = html;
         log.info('Mirrors', '4F keys loaded successfully');
     } catch(e) {
         log.error('Mirrors', 'load4FKeys failed', { error: e.message });
-        block.innerHTML = `<div style="background:rgba(243,156,18,0.08);border-radius:14px;padding:16px;
-            text-align:center;color:rgba(243,156,18,0.7);font-size:13px;margin-bottom:12px;">❌ ${_escapeHtml(e.message)}</div>`;
+        block.innerHTML = `<div class="mirror-profile-section" style="text-align:center;color:#ff6b6b;">❌ ${_escapeHtml(e.message)}</div>`;
     }
 }
 
 // ============================================
-// ПРИМЕР ПРОФИЛЯ (остаётся без изменений)
+// ПРИМЕР ПРОФИЛЯ
 // ============================================
 function showProfileExample() {
     log.info('Mirrors', 'showProfileExample called');
@@ -1163,111 +1100,40 @@ function switchExampleTab(tab) {
 }
 
 function showExampleBasic(c) {
-    const data = [['СБ','Самооборона',4,'#3b82ff'],['ТФ','Финансы',2,'#f39c12'],['УБ','Убеждения',5,'#ff6b3b'],['ЧВ','Чувства',3,'#a855f7']];
     c.innerHTML = `
-        <div style="background:linear-gradient(135deg,rgba(255,107,59,0.1),rgba(255,59,59,0.05));
-                    border:1px solid rgba(255,107,59,0.2);border-radius:24px;padding:24px;text-align:center;margin-bottom:12px;">
-            <div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,rgba(255,107,59,0.4),rgba(255,59,59,0.2));
-                        border:2px solid rgba(255,107,59,0.4);margin:0 auto 12px;display:flex;align-items:center;
-                        justify-content:center;font-size:26px;font-weight:700;color:#fff;">А</div>
-            <div style="font-size:19px;font-weight:700;color:#fff;">Алексей</div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.35);font-family:'SF Mono',monospace;margin-top:4px;letter-spacing:1px;">
-                ПРАКТИКО-ОРИЕНТИРОВАННЫЙ · УР. 5
-            </div>
+        <div class="mirror-profile-section" style="text-align:center;">
+            <div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;">А</div>
+            <div style="font-size:18px;font-weight:700;color:#fff;">Алексей</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;">ПРАКТИКО-ОРИЕНТИРОВАННЫЙ · УР. 5</div>
         </div>
-
-        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:20px;margin-bottom:12px;">
-            <div class="mirror-section-label">ВЕКТОРЫ ПОВЕДЕНИЯ</div>
-            ${data.map(([k,name,v,col]) => `
-                <div style="margin-bottom:14px;">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-                        <span style="font-size:13px;color:rgba(255,255,255,0.6);">${name} (${k})</span>
-                        <span style="font-size:13px;font-weight:700;color:${col};">${v}/6</span>
-                    </div>
-                    <div class="mirror-vector-bar-track">
-                        <div class="mirror-vector-bar-fill" style="width:${Math.round(v/6*100)}%;background:${col};"></div>
-                    </div>
-                </div>`).join('')}
+        <div class="mirror-profile-section">
+            <div class="mirror-section-label">📊 ВЕКТОРЫ ПОВЕДЕНИЯ</div>
+            <div class="mirror-vector-item"><span>⚡ Самооборона</span><span>4/6</span></div>
+            <div class="mirror-vector-item"><span>💰 Финансы</span><span>2/6</span></div>
+            <div class="mirror-vector-item"><span>🧠 Мышление</span><span>5/6</span></div>
+            <div class="mirror-vector-item"><span>❤️ Отношения</span><span>3/6</span></div>
         </div>
-
-        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:20px;">
-            <div class="mirror-section-label">ГЛУБИННЫЕ ПАТТЕРНЫ</div>
-            ${[['Привязанность','Избегающий'],['Страхи','потеря контроля, зависимость'],['Убеждение','«Я должен справляться сам»']].map(([l,v])=>`
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <span style="font-size:12px;color:rgba(255,255,255,0.3);">${l}</span>
-                    <span style="font-size:12px;color:rgba(255,255,255,0.7);font-weight:500;text-align:right;max-width:60%;">${v}</span>
-                </div>`).join('')}
+        <div class="mirror-profile-section">
+            <div class="mirror-section-label">🧬 ГЛУБИННЫЕ ПАТТЕРНЫ</div>
+            <div class="mirror-vector-item"><span>Привязанность</span><span>Избегающий</span></div>
+            <div class="mirror-vector-item"><span>Страхи</span><span>потеря контроля, зависимость</span></div>
         </div>`;
 }
 
 function showExampleIntimate(c) {
     c.innerHTML = `
-        <div style="background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.2);
-                    border-radius:20px;padding:20px;">
-            <div style="font-size:12px;font-weight:700;color:#3b82ff;letter-spacing:0.8px;
-                        text-transform:uppercase;margin-bottom:16px;">🔞 Интимный профиль — пример</div>
-
-            <div style="margin-bottom:16px;">
-                <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">💋 ЧТО ВОЗБУЖДАЕТ</div>
-                ${['Когда не торопят и дают время','Визуальные стимулы — важнее тактильных','Ощущение контроля в близости'].map(t=>
-                    `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">• ${t}</div>`
-                ).join('')}
-            </div>
-
-            <div style="margin-bottom:16px;">
-                <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">❄️ ЧТО ГАСИТ ЖЕЛАНИЕ</div>
-                ${['Давление и требования','Эмоциональные сцены перед близостью','Ощущение что его оценивают'].map(t=>
-                    `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">• ${t}</div>`
-                ).join('')}
-            </div>
-
-            <div style="background:rgba(59,130,246,0.08);border-radius:12px;padding:14px;margin-bottom:12px;">
-                <div style="font-size:11px;color:#3b82ff;letter-spacing:0.5px;margin-bottom:4px;">💡 Главная потребность</div>
-                <div style="font-size:14px;font-weight:600;color:#fff;">Ощущение свободы даже в близости</div>
-            </div>
-
-            <div style="background:rgba(255,107,59,0.08);border-radius:12px;padding:14px;">
-                <div style="font-size:11px;color:#ff6b3b;letter-spacing:0.5px;margin-bottom:4px;">🎯 Как подойти</div>
-                <div style="font-size:13px;color:rgba(255,255,255,0.7);">Близость через общие задачи и проекты. Прикосновения как якорь — без давления.</div>
-            </div>
+        <div class="mirror-profile-section" style="border-color:rgba(59,130,246,0.3);">
+            <div class="mirror-section-label" style="color:#3b82ff;">🔞 Интимный профиль — пример</div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:rgba(255,255,255,0.4);">💋 Что возбуждает</div><div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;">• Когда не торопят и дают время</div><div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;">• Визуальные стимулы</div><div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;">• Ощущение контроля</div></div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:rgba(255,255,255,0.4);">❄️ Что гасит желание</div><div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;">• Давление и требования</div><div style="font-size:13px;color:rgba(255,255,255,0.7);padding:5px 0;">• Эмоциональные сцены</div></div>
+            <div style="background:rgba(59,130,246,0.08);border-radius:12px;padding:12px;"><div style="font-size:11px;color:#3b82ff;">💡 Главная потребность</div><div style="font-size:14px;font-weight:600;color:#fff;">Ощущение свободы даже в близости</div></div>
         </div>`;
 }
 
 function showExample4F(c) {
-    const keys = [
-        ['🔥','1F','Ярость / Нападение','#ff6b3b',
-            ['Критика при свидетелях','Обесценивание усилий','Игнорирование границ'],
-            '«Я вижу как много ты сделал» — снижает напряжение',
-            'Пауза 3 сек + имя'],
-        ['🏃','2F','Страх / Бегство','#3b82ff',
-            ['Вопросы о будущем','Требования и давление','Повышение голоса'],
-            '«Я никуда не ухожу, просто поговорим»',
-            'Без дедлайнов — безопасная среда'],
-        ['🧬','3F','Желание / Секс','#a855f7',
-            ['Особая интонация','Зрительный контакт 4+ сек','Неожиданные касания'],
-            'Слова: «только мы», «никуда не торопимся»',
-            'Плечо → запястье → основание шеи'],
-        ['🍽','4F','Деньги / Поглощение','#f39c12',
-            ['Упоминание конкурентов','Идеи заработка','Вызов'],
-            '«Как думаешь, можно это монетизировать?»',
-            'Задача с измеримым результатом'],
-    ];
-    c.innerHTML = keys.map(([emoji,code,title,col,triggers,key,tech],idx) => `
-        <div class="mirror-4f-card" style="border-color:${col};animation-delay:${idx*0.08}s">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                <span style="font-size:20px;">${emoji}</span>
-                <div>
-                    <div style="font-size:14px;font-weight:700;color:#fff;">${code} — ${title}</div>
-                </div>
-            </div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">🎯 ТРИГГЕРЫ</div>
-            ${triggers.map(t=>`<div style="font-size:13px;color:rgba(255,255,255,0.65);padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);">• ${t}</div>`).join('')}
-            <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;margin-top:12px;">
-                <div style="font-size:11px;color:${col};letter-spacing:0.5px;margin-bottom:4px;">🔑 КЛЮЧ</div>
-                <div style="font-size:13px;font-weight:600;color:#fff;">${key}</div>
-            </div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:10px;">⚡ ${tech}</div>
-        </div>`).join('');
+    c.innerHTML = `
+        <div class="mirror-4f-card" style="border-color:#ff6b3b;"><div style="font-weight:700;">🔥 1F — Ярость / Нападение</div><div style="margin-top:8px;">• Критика при свидетелях</div><div>• Обесценивание усилий</div><div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:8px;margin-top:8px;"><span style="color:#ff6b3b;">🔑 КЛЮЧ</span><br>«Я вижу как много ты сделал»</div></div>
+        <div class="mirror-4f-card" style="border-color:#3b82ff;"><div style="font-weight:700;">🏃 2F — Страх / Бегство</div><div style="margin-top:8px;">• Вопросы о будущем</div><div>• Требования и давление</div><div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:8px;margin-top:8px;"><span style="color:#3b82ff;">🔑 КЛЮЧ</span><br>«Я никуда не ухожу»</div></div>`;
 }
 
 // ============================================
@@ -1308,4 +1174,4 @@ window.showMirrorDebugLogs = function() {
     }
 };
 
-console.log('✅ mirrors.js v3.0 загружен (улучшенные карточки с городом, возрастом, полом)');
+console.log('✅ mirrors.js v3.1 загружен (компактные карточки, краткий профиль от ИИ)');
