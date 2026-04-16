@@ -629,7 +629,7 @@ async function showFriendProfile(ref) {
     ref = _fixMirrorRef(ref);
     
     const container = document.getElementById('screenContainer');
-    const name = ref.friend_name || 'Друг';
+    const name = (ref.friend_name && ref.friend_name !== 'Друг' && ref.friend_name !== 'друг') ? ref.friend_name : 'Пользователь';
     const profile = ref.friend_profile_code || '—';
     const vectors = ref.friend_vectors || {};
     const patterns = ref.friend_deep_patterns || {};

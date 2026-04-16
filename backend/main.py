@@ -4127,16 +4127,25 @@ async def get_user_reflections(user_id: int):
     try:
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
-                SELECT mirror_code, mirror_type, friend_user_id, friend_name,
-                       friend_profile_code, friend_vectors, friend_deep_patterns,
-                       friend_ai_profile, friend_perception_type, friend_thinking_level,
-                       completed_at, created_at
-                FROM fredi_mirrors WHERE user_id = $1 AND status = 'used'
-                ORDER BY completed_at DESC
+                SELECT m.mirror_code, m.mirror_type, m.friend_user_id, m.friend_name,
+                       m.friend_profile_code, m.friend_vectors, m.friend_deep_patterns,
+                       m.friend_ai_profile, m.friend_perception_type, m.friend_thinking_level,
+                       m.completed_at, m.created_at,
+                       c.name as context_name
+                FROM fredi_mirrors m
+                LEFT JOIN fredi_user_contexts c ON c.user_id = m.friend_user_id
+                WHERE m.user_id = $1 AND m.status = 'used'
+                ORDER BY m.completed_at DESC
             """, user_id)
             reflections = []
             for row in rows:
                 r = dict(row)
+                # Используем настоящее имя: context > mirror > fallback
+                real_name = r.pop("context_name", None)
+                if real_name and real_name not in ('друг', 'Друг', None, ''):
+                    r["friend_name"] = real_name
+                elif not r.get("friend_name") or r["friend_name"] in ('Друг', 'друг'):
+                    r["friend_name"] = f'Пользователь'
                 if r.get("completed_at"): r["completed_at"] = r["completed_at"].isoformat()
                 if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
                 reflections.append(r)
