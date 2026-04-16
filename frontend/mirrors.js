@@ -485,7 +485,8 @@ async function showReflectionsTab(container) {
         
         if (!data) {
             log.debug('Mirrors', 'Fetching reflections from API');
-            data = await apiGetReflections(window.USER_ID);
+            const userId = window.CONFIG?.USER_ID || window.USER_ID || localStorage.getItem('fredi_user_id');
+            data = await apiGetReflections(userId);
             _setCachedReflections(data);
         } else {
             log.debug('Mirrors', 'Using cached reflections');
@@ -718,7 +719,8 @@ async function generateMirrorLink(mirrorType) {
         </div>`;
 
     try {
-        const data = await apiCreateMirror(window.USER_ID, mirrorType);
+        const userId = window.CONFIG?.USER_ID || window.USER_ID || localStorage.getItem('fredi_user_id');
+        const data = await apiCreateMirror(userId, mirrorType);
         if (!data.success) throw new Error(data.error || 'Ошибка создания зеркала');
 
         const link = data.link;
