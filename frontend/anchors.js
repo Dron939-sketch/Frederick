@@ -386,6 +386,44 @@ let currentAnchorView = 'list';
 let anchorWizardStep = 0;
 let anchorWizardData = {};
 
+const AN_REC_CACHE_KEY = 'anchors_rec_cache_v1';
+const AN_REC_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 дней
+
+function _anHashVectors(vectors) {
+    if (!vectors) return '0';
+    return ['СБ', 'ТФ', 'УБ', 'ЧВ'].map(k => `${k}${vectors[k] ?? '-'}`).join('_');
+}
+
+function _anGetCachedRecommendations(vectors) {
+    try {
+        const raw = localStorage.getItem(AN_REC_CACHE_KEY);
+        if (!raw) return null;
+        const cache = JSON.parse(raw);
+        const hash = _anHashVectors(vectors);
+        if (cache.hash !== hash) return null;
+        if (!cache.ts || (Date.now() - cache.ts) > AN_REC_CACHE_TTL_MS) return null;
+        return cache.data;
+    } catch (e) {
+        return null;
+    }
+}
+
+function _anSetCachedRecommendations(vectors, data) {
+    try {
+        localStorage.setItem(AN_REC_CACHE_KEY, JSON.stringify({
+            hash: _anHashVectors(vectors),
+            ts: Date.now(),
+            data
+        }));
+    } catch (e) {
+        console.warn('Не удалось сохранить кеш рекомендаций:', e);
+    }
+}
+
+function _anClearRecommendationsCache() {
+    try { localStorage.removeItem(AN_REC_CACHE_KEY); } catch (e) {}
+}
+
 const TRIGGER_SUGGESTIONS = {
     auditory: {
         _default: ['Я спокоен', 'Я силён', 'Я готов', 'Я в потоке'],
@@ -734,7 +772,7 @@ function getFallbackRecommendations() {
 // ПОЛУЧЕНИЕ РЕКОМЕНДАЦИЙ НА ОСНОВЕ ПРОФИЛЯ
 // ============================================
 
-async function getProfileBasedRecommendations() {
+async function getProfileBasedRecommendations({ forceRefresh = false } = {}) {
     try {
         const status = await getUserStatus();
         if (!status.has_profile) {
@@ -743,6 +781,15 @@ async function getProfileBasedRecommendations() {
         }
 
         const vectors = status.vectors || {};
+
+        if (!forceRefresh) {
+            const cached = _anGetCachedRecommendations(vectors);
+            if (cached && cached.length) {
+                console.log(`✅ Рекомендации из кеша (${cached.length} шт.)`);
+                return cached;
+            }
+        }
+
         const combinations = analyzeVectorCombinations(vectors);
 
         console.log('Найдены комбинации векторов:', combinations.map(c => c.name));
@@ -750,7 +797,10 @@ async function getProfileBasedRecommendations() {
         if (combinations.length === 0) {
             console.log('Нет проблемных комбинаций, проверяем сильные стороны');
             const strengthening = getStrengtheningRecommendations(vectors);
-            if (strengthening.length > 0) return strengthening;
+            if (strengthening.length > 0) {
+                _anSetCachedRecommendations(vectors, strengthening);
+                return strengthening;
+            }
             return getFallbackRecommendations();
         }
 
@@ -779,6 +829,7 @@ async function getProfileBasedRecommendations() {
         }
 
         console.log(`Сгенерировано ${recommendations.length} рекомендаций`);
+        if (recommendations.length) _anSetCachedRecommendations(vectors, recommendations);
         return recommendations;
 
     } catch (e) {
@@ -1602,80 +1653,139 @@ function startGuidedActivationFromAnchor(anchorId) {
 // РЕНДЕР ПОДБОРА (ВАУ-ЭФФЕКТ!)
 // ============================================
 
-async function renderAdvancedRecommendations() {
-    const recommendations = await getProfileBasedRecommendations();
-    
+function _anRenderRecsLoader() {
+    return `
+        <div class="an-rec-loader">
+            <div class="an-spinner"></div>
+            <div class="an-rec-loader-title">🧠 AI анализирует ваш профиль…</div>
+            <div class="an-rec-loader-sub">Подбираем персональные рекомендации под ваши векторы. Это может занять до 30 секунд.</div>
+            <div class="an-rec-skeleton">
+                <div class="an-skel-card"></div>
+                <div class="an-skel-card"></div>
+                <div class="an-skel-card"></div>
+            </div>
+        </div>
+    `;
+}
+
+function _anRenderRecsCards(recommendations, { fromCache = false } = {}) {
     if (!recommendations.length) {
         return `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 64px; margin-bottom: 16px;">🎲</div>
-                <h3>Нет персональных рекомендаций</h3>
+                <h3 style="color:var(--text-primary);">Нет персональных рекомендаций</h3>
                 <p style="color: var(--text-secondary);">Пройдите психологический тест, чтобы получить инструкции под ваш профиль</p>
-                <button class="action-btn" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px; background: #ff6b3b; border: none; border-radius: 30px; color: white; cursor: pointer;">📊 Пройти тест</button>
+                <button class="action-btn" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px; background: #ff6b3b; border: none; border-radius: 30px; color: #fff; cursor: pointer;">📊 Пройти тест</button>
             </div>
         `;
     }
-    
+
     let html = `
-        <div class="recommendations-header" style="text-align:center;margin-bottom:24px;">
-            <div style="display:inline-block;font-size:10px;background:rgba(255,107,59,0.2);padding:4px 12px;border-radius:20px;color:#ff6b3b;margin-bottom:12px;">🧠 AI-АНАЛИЗ</div>
-            <div style="font-size:22px;font-weight:700;color:white;margin-bottom:8px;">Ваш персональный план развития</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.4);">На основе анализа ваших психологических векторов</div>
+        <div class="an-recs-header">
+            <div class="an-recs-badge">🧠 AI-АНАЛИЗ${fromCache ? ' · ИЗ КЕША' : ''}</div>
+            <div class="an-recs-title">Ваш персональный план развития</div>
+            <div class="an-recs-sub">На основе анализа ваших психологических векторов</div>
         </div>
     `;
-    
+
     for (const rec of recommendations) {
-        const severityColor = rec.severity === 'critical' ? '#ff4444' : rec.severity === 'moderate' ? '#ffaa44' : rec.severity === 'strength' ? '#44aa44' : '#44aa44';
+        const severityColor = rec.severity === 'critical' ? '#ff4444' : rec.severity === 'moderate' ? '#ffaa44' : '#44aa44';
         const severityText = rec.severity === 'critical' ? '🔴 КРИТИЧЕСКИ ВАЖНО' : rec.severity === 'moderate' ? '🟡 РЕКОМЕНДУЕТСЯ' : rec.severity === 'strength' ? '🟢 ВАША СИЛА' : '🟢 ДЛЯ РОСТА';
-        
+
         html += `
-            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-left:4px solid ${severityColor};border-radius:20px;padding:20px;margin-bottom:16px;transition:all0.3s ease;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div class="an-rec-card" style="border-left-color:${severityColor};">
+                <div class="an-rec-row">
                     <div style="font-size:32px;">${rec.icon || '🎯'}</div>
-                    <div style="font-size:10px;padding:4px 10px;border-radius:20px;font-weight:600;background:${severityColor}20;color:${severityColor};">${severityText}</div>
+                    <div class="an-rec-severity" style="background:${severityColor}20;color:${severityColor};">${severityText}</div>
                 </div>
-                <div style="font-size:18px;font-weight:700;color:white;margin-bottom:8px;">${rec.name}</div>
-                <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:16px;line-height:1.5;">${rec.description}</div>
-                
-                <div style="display:flex;gap:12px;margin-bottom:16px;padding:12px;background:rgba(255,255,255,0.02);border-radius:12px;">
+                <div class="an-rec-name">${_anEscapeHtml(rec.name)}</div>
+                <div class="an-rec-desc">${_anEscapeHtml(rec.description)}</div>
+
+                <div class="an-rec-block">
                     <div style="font-size:20px;flex-shrink:0;">🎯</div>
                     <div style="flex:1;">
-                        <div style="font-size:10px;color:#ff6b3b;text-transform:uppercase;margin-bottom:6px;">Конкретное действие на завтра</div>
-                        <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.5;margin-bottom:6px;">${rec.action || rec.description}</div>
-                        <div style="font-size:11px;color:rgba(255,255,255,0.4);">⚡ Триггер: ${rec.trigger}</div>
+                        <div class="an-rec-block-label">Конкретное действие на завтра</div>
+                        <div class="an-rec-block-text">${_anEscapeHtml(rec.action || rec.description)}</div>
+                        <div class="an-rec-block-hint">⚡ Триггер: ${_anEscapeHtml(rec.trigger)}</div>
                     </div>
                 </div>
-                
-                <div style="display:flex;gap:12px;margin-bottom:16px;padding:12px;background:rgba(255,255,255,0.02);border-radius:12px;">
+
+                <div class="an-rec-block">
                     <div style="font-size:20px;flex-shrink:0;">💭</div>
                     <div style="flex:1;">
-                        <div style="font-size:10px;color:#ff6b3b;text-transform:uppercase;margin-bottom:6px;">Персональная аффирмация</div>
-                        <div style="font-size:14px;color:#ff6b3b;font-style:italic;line-height:1.5;">«${rec.affirmation || rec.phrase}»</div>
+                        <div class="an-rec-block-label">Персональная аффирмация</div>
+                        <div class="an-rec-affirm">«${_anEscapeHtml(rec.affirmation || rec.phrase)}»</div>
                     </div>
                 </div>
-                
+
                 <div style="display:flex;gap:10px;margin-top:16px;">
-                    <button class="create-btn" onclick="quickCreateAnchorFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}', '${(rec.phrase || rec.affirmation || '').replace(/'/g, "\\'")}')" style="flex:1;padding:10px;border-radius:30px;font-size:12px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);border:none;color:white;">✨ Создать инструкцию</button>
-                    <button class="guide-btn" onclick="startGuidedFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}')" style="flex:1;padding:10px;border-radius:30px;font-size:12px;font-weight:600;cursor:pointer;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.8);">🎧 Guided-медитация</button>
+                    <button class="an-btn-cta" onclick="quickCreateAnchorFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}', '${(rec.phrase || rec.affirmation || '').replace(/'/g, "\\'")}')">✨ Создать инструкцию</button>
+                    <button class="an-btn-ghost" onclick="startGuidedFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}')">🎧 Guided-медитация</button>
                 </div>
             </div>
         `;
     }
 
     html += `
-        <div style="margin-top: 24px; text-align: center;">
-            <button onclick="createAllRecommendations()"
-                style="width: 100%; padding: 14px; background: linear-gradient(135deg, rgba(255,107,59,0.2), rgba(255,59,59,0.1));
-                       border: 1px solid rgba(255,107,59,0.3); border-radius: 40px; color: #ff6b3b;
-                       font-weight: 600; cursor: pointer; font-family: inherit; font-size: 14px;
-                       transition: all 0.2s;">
+        <div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;">
+            <button class="an-btn-primary-wide" onclick="createAllRecommendations()">
                 ⚡ Создать все инструкции сразу (${recommendations.length})
+            </button>
+            <button class="an-btn-refresh" onclick="refreshRecommendations()" title="Пересоздать рекомендации через AI">
+                🔄 Обновить
             </button>
         </div>
     `;
 
     return html;
 }
+
+async function renderAdvancedRecommendations({ forceRefresh = false } = {}) {
+    try {
+        const status = await getUserStatus();
+        if (status?.has_profile && status.vectors && !forceRefresh) {
+            const cached = _anGetCachedRecommendations(status.vectors);
+            if (cached && cached.length) {
+                return _anRenderRecsCards(cached, { fromCache: true });
+            }
+        }
+    } catch (e) { /* noop */ }
+
+    setTimeout(async () => {
+        try {
+            const recommendations = await getProfileBasedRecommendations({ forceRefresh });
+            const body = document.getElementById('anBody');
+            if (!body) return;
+            if (currentAnchorView !== 'recommend') return;
+            body.innerHTML = _anRenderRecsCards(recommendations, { fromCache: false });
+        } catch (err) {
+            console.error('renderAdvancedRecommendations async error:', err);
+            const body = document.getElementById('anBody');
+            if (body && currentAnchorView === 'recommend') {
+                body.innerHTML = _anRenderRecsCards(getFallbackRecommendations(), { fromCache: false });
+            }
+        }
+    }, 0);
+
+    return _anRenderRecsLoader();
+}
+
+window.refreshRecommendations = async () => {
+    _anClearRecommendationsCache();
+    const body = document.getElementById('anBody');
+    if (body) body.innerHTML = _anRenderRecsLoader();
+    try {
+        const recommendations = await getProfileBasedRecommendations({ forceRefresh: true });
+        if (body && currentAnchorView === 'recommend') {
+            body.innerHTML = _anRenderRecsCards(recommendations, { fromCache: false });
+        }
+    } catch (err) {
+        console.error('refreshRecommendations error:', err);
+        if (body && currentAnchorView === 'recommend') {
+            body.innerHTML = _anRenderRecsCards(getFallbackRecommendations(), { fromCache: false });
+        }
+    }
+};
 
 async function createAllRecommendations() {
     console.log('📦 Создание всех рекомендаций...');
@@ -2547,6 +2657,99 @@ function _anInjectStyles() {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.2); }
         }
+
+        /* ===== ПОДБОР: лоадер и карточки (theme-aware) ===== */
+        @keyframes an-spin { to { transform: rotate(360deg); } }
+        @keyframes an-skel-shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .an-rec-loader {
+            display: flex; flex-direction: column; align-items: center; padding: 40px 20px;
+            text-align: center;
+        }
+        .an-spinner {
+            width: 56px; height: 56px;
+            border: 4px solid rgba(127,127,127,0.18);
+            border-top-color: #ff6b3b;
+            border-radius: 50%;
+            animation: an-spin 0.9s linear infinite;
+            margin-bottom: 18px;
+        }
+        .an-rec-loader-title {
+            font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;
+        }
+        .an-rec-loader-sub {
+            font-size: 13px; color: var(--text-secondary); max-width: 360px; line-height: 1.5; margin-bottom: 24px;
+        }
+        .an-rec-skeleton { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 12px; }
+        .an-skel-card {
+            height: 96px; border-radius: 18px;
+            background: linear-gradient(90deg,
+                rgba(127,127,127,0.08) 0%,
+                rgba(127,127,127,0.18) 50%,
+                rgba(127,127,127,0.08) 100%);
+            background-size: 200% 100%;
+            animation: an-skel-shimmer 1.4s ease-in-out infinite;
+            border: 1px solid rgba(127,127,127,0.08);
+        }
+
+        .an-recs-header { text-align:center; margin-bottom:24px; }
+        .an-recs-badge {
+            display:inline-block; font-size:10px;
+            background:rgba(255,107,59,0.18); color:#ff6b3b;
+            padding:4px 12px; border-radius:20px; margin-bottom:12px; font-weight: 600;
+        }
+        .an-recs-title { font-size:22px; font-weight:700; color: var(--text-primary); margin-bottom:8px; }
+        .an-recs-sub { font-size:12px; color: var(--text-secondary); }
+
+        .an-rec-card {
+            background: rgba(127,127,127,0.06);
+            border: 1px solid rgba(127,127,127,0.14);
+            border-left: 4px solid #44aa44;
+            border-radius: 20px; padding: 20px; margin-bottom: 16px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .an-rec-card:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+        .an-rec-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+        .an-rec-severity { font-size:10px; padding:4px 10px; border-radius:20px; font-weight:600; }
+        .an-rec-name { font-size:18px; font-weight:700; color: var(--text-primary); margin-bottom:8px; }
+        .an-rec-desc { font-size:13px; color: var(--text-secondary); margin-bottom:16px; line-height:1.5; }
+        .an-rec-block {
+            display:flex; gap:12px; margin-bottom:12px; padding:12px;
+            background: rgba(127,127,127,0.05); border-radius: 12px;
+        }
+        .an-rec-block-label { font-size:10px; color:#ff6b3b; text-transform:uppercase; margin-bottom:6px; font-weight: 600; letter-spacing: 0.4px; }
+        .an-rec-block-text { font-size:13px; color: var(--text-primary); line-height:1.5; margin-bottom:6px; }
+        .an-rec-block-hint { font-size:11px; color: var(--text-secondary); }
+        .an-rec-affirm { font-size:14px; color:#ff6b3b; font-style:italic; line-height:1.5; }
+
+        .an-btn-cta {
+            flex:1; padding:10px; border-radius:30px; font-size:12px; font-weight:600;
+            cursor:pointer; background:linear-gradient(135deg,#ff6b3b,#ff3b3b);
+            border:none; color:#fff;
+        }
+        .an-btn-ghost {
+            flex:1; padding:10px; border-radius:30px; font-size:12px; font-weight:600;
+            cursor:pointer; background: rgba(127,127,127,0.08);
+            border: 1px solid rgba(127,127,127,0.18); color: var(--text-primary);
+        }
+        .an-btn-primary-wide {
+            flex: 1 1 240px; padding: 14px;
+            background: linear-gradient(135deg, rgba(255,107,59,0.22), rgba(255,59,59,0.10));
+            border: 1px solid rgba(255,107,59,0.35); border-radius: 40px; color: #ff6b3b;
+            font-weight: 600; cursor: pointer; font-family: inherit; font-size: 14px;
+        }
+        .an-btn-refresh {
+            padding: 14px 20px; background: rgba(127,127,127,0.08);
+            border: 1px solid rgba(127,127,127,0.20); border-radius: 40px;
+            color: var(--text-primary); font-weight: 600; cursor: pointer;
+            font-family: inherit; font-size: 14px;
+        }
+        .an-btn-refresh:hover { background: rgba(127,127,127,0.14); }
+
+        [data-theme="light"] .an-rec-card { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        [data-theme="light"] .an-rec-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.10); }
     `;
     document.head.appendChild(style);
 }
