@@ -1,69 +1,171 @@
 // ============================================
 // 🪞 ЗЕРКАЛА / ОТРАЖЕНИЯ
-// Версия 2.1 — с фиксом JSONB и навигацией
+// Версия 2.2 — с полным логированием и исправлениями
 // ============================================
 
 const API_BASE = window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
 
 // ============================================
+// ЛОГГЕР
+// ============================================
+const LOG_LEVELS = {
+    DEBUG: 0,
+    INFO: 1,
+    WARN: 2,
+    ERROR: 3
+};
+
+let CURRENT_LOG_LEVEL = LOG_LEVELS.DEBUG;
+
+function _log(level, module, message, data = null) {
+    if (level < CURRENT_LOG_LEVEL) return;
+    
+    const timestamp = new Date().toISOString();
+    const levelName = Object.keys(LOG_LEVELS).find(k => LOG_LEVELS[k] === level) || 'UNKNOWN';
+    const prefix = `[${timestamp}] [${levelName}] [${module}]`;
+    
+    if (data) {
+        console.log(prefix, message, data);
+    } else {
+        console.log(prefix, message);
+    }
+    
+    // Сохраняем последние 50 логов в localStorage для отладки
+    try {
+        const logs = JSON.parse(localStorage.getItem('mirror_debug_logs') || '[]');
+        logs.push({ timestamp, level: levelName, module, message, data: data ? JSON.stringify(data) : null });
+        while (logs.length > 50) logs.shift();
+        localStorage.setItem('mirror_debug_logs', JSON.stringify(logs));
+    } catch(e) {}
+}
+
+const log = {
+    debug: (module, msg, data) => _log(LOG_LEVELS.DEBUG, module, msg, data),
+    info: (module, msg, data) => _log(LOG_LEVELS.INFO, module, msg, data),
+    warn: (module, msg, data) => _log(LOG_LEVELS.WARN, module, msg, data),
+    error: (module, msg, data) => _log(LOG_LEVELS.ERROR, module, msg, data)
+};
+
+// ============================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ============================================
 
+// Экранирование HTML для предотвращения XSS
+function _escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/`/g, '&#96;');
+}
+
 // Фикс двойной сериализации JSONB
 function _fixMirrorRef(ref) {
+    log.debug('Mirrors', '_fixMirrorRef called', { hasRef: !!ref });
     if (!ref) return ref;
     
+    // Создаем копию, чтобы не мутировать оригинал
+    const copy = JSON.parse(JSON.stringify(ref));
+    
     ['friend_vectors', 'friend_deep_patterns'].forEach(function(key) {
-        if (typeof ref[key] === 'string') {
+        if (typeof copy[key] === 'string') {
             try { 
-                ref[key] = JSON.parse(ref[key]); 
+                copy[key] = JSON.parse(copy[key]); 
+                log.debug('Mirrors', `Parsed ${key}`, copy[key]);
             } catch(e) { 
-                ref[key] = {}; 
+                log.warn('Mirrors', `Failed to parse ${key}`, { error: e.message });
+                copy[key] = {}; 
             }
         }
-        if (!ref[key]) ref[key] = {};
+        if (!copy[key]) copy[key] = {};
     });
     
-    var v = ref.friend_vectors;
+    var v = copy.friend_vectors;
     if (v && typeof v === 'object') {
         Object.keys(v).forEach(function(k) { 
             v[k] = Number(v[k]) || 0; 
         });
     }
     
-    return ref;
+    return copy;
 }
 
-// Функция возврата на главный экран (без двойников!)
+// Функция возврата на главный экран
 function _mirrorsGoBack() {
+    log.info('Mirrors', 'Going back to dashboard');
     if (typeof renderDashboard === 'function') {
         renderDashboard();
     } else if (window.renderDashboard) {
         window.renderDashboard();
     } else {
-        // Если ничего нет, просто перезагружаем зеркала
         showMirrorsScreen();
     }
 }
 
-// Копирование в буфер
-function _copyToClipboard(text) {
+// Копирование в буфер с fallback
+async function _copyToClipboard(text) {
+    log.debug('Mirrors', 'Copying to clipboard', { textLength: text?.length });
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        return navigator.clipboard.writeText(text);
+        try {
+            await navigator.clipboard.writeText(text);
+            log.info('Mirrors', 'Clipboard copy successful (modern API)');
+            return true;
+        } catch(e) {
+            log.warn('Mirrors', 'Clipboard API failed, using fallback', { error: e.message });
+        }
     }
-    return new Promise(function(resolve, reject) {
+    
+    // Fallback для старых браузеров и Safari
+    return new Promise((resolve) => {
         const el = document.createElement('textarea');
         el.value = text;
+        el.style.cssText = 'position:fixed;opacity:0;left:-9999px';
         document.body.appendChild(el);
         el.select();
         try {
             document.execCommand('copy');
-            resolve();
+            log.info('Mirrors', 'Clipboard copy successful (fallback)');
+            resolve(true);
         } catch(e) {
-            reject(e);
+            log.error('Mirrors', 'Clipboard copy failed', { error: e.message });
+            resolve(false);
         }
         document.body.removeChild(el);
     });
+}
+
+// ============================================
+// КЭШ ОТРАЖЕНИЙ
+// ============================================
+let reflectionsCache = {
+    data: null,
+    timestamp: null,
+    ttl: 30000 // 30 секунд
+};
+
+function _getCachedReflections() {
+    const now = Date.now();
+    if (reflectionsCache.data && (now - reflectionsCache.timestamp) < reflectionsCache.ttl) {
+        log.debug('Mirrors', 'Using cached reflections', { age: now - reflectionsCache.timestamp });
+        return reflectionsCache.data;
+    }
+    log.debug('Mirrors', 'Cache miss or expired');
+    return null;
+}
+
+function _setCachedReflections(data) {
+    reflectionsCache.data = data;
+    reflectionsCache.timestamp = Date.now();
+    log.debug('Mirrors', 'Cached reflections', { totalReflections: data?.reflections?.length });
+}
+
+function _clearReflectionsCache() {
+    reflectionsCache.data = null;
+    reflectionsCache.timestamp = null;
+    log.info('Mirrors', 'Reflections cache cleared');
 }
 
 // ============================================
@@ -232,8 +334,21 @@ function injectMirrorStyles() {
             height: 14px;
             margin-bottom: 8px;
         }
+        .mirror-loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-top-color: #ff6b3b;
+            border-radius: 50%;
+            animation: mirrorSpin 0.8s linear infinite;
+        }
+        @keyframes mirrorSpin {
+            to { transform: rotate(360deg); }
+        }
     `;
     document.head.appendChild(style);
+    log.info('Mirrors', 'Styles injected');
 }
 injectMirrorStyles();
 
@@ -241,31 +356,71 @@ injectMirrorStyles();
 // API
 // ============================================
 async function apiCreateMirror(userId, mirrorType) {
-    const res = await fetch(`${API_BASE}/api/mirrors/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, mirror_type: mirrorType })
-    });
-    return res.json();
+    log.info('API', 'apiCreateMirror called', { userId, mirrorType });
+    try {
+        const res = await fetch(`${API_BASE}/api/mirrors/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, mirror_type: mirrorType })
+        });
+        const data = await res.json();
+        log.info('API', 'apiCreateMirror response', { success: data.success, mirrorCode: data.mirror_code });
+        return data;
+    } catch (error) {
+        log.error('API', 'apiCreateMirror failed', { error: error.message });
+        throw error;
+    }
 }
 
 async function apiGetReflections(userId) {
-    const res = await fetch(`${API_BASE}/api/mirrors/${userId}/reflections`);
-    const data = await res.json();
-    
-    // ПРИМЕНЯЕМ ФИКС JSONB СРАЗУ ПРИ ПОЛУЧЕНИИ
-    if (data && data.reflections) {
-        data.reflections.forEach(_fixMirrorRef);
+    log.info('API', 'apiGetReflections called', { userId });
+    try {
+        const res = await fetch(`${API_BASE}/api/mirrors/${userId}/reflections`);
+        const data = await res.json();
+        log.info('API', 'apiGetReflections response', { 
+            success: !!data, 
+            reflectionsCount: data?.reflections?.length,
+            hasStats: !!data?.stats
+        });
+        
+        if (data && data.reflections) {
+            log.debug('API', 'Applying JSONB fix to reflections');
+            data.reflections.forEach((ref, i) => {
+                log.debug('API', `Processing reflection ${i}`, { name: ref.friend_name });
+                _fixMirrorRef(ref);
+            });
+        }
+        return data;
+    } catch (error) {
+        log.error('API', 'apiGetReflections failed', { error: error.message });
+        throw error;
     }
-    return data;
+}
+
+async function apiCheckMirrorStatus(mirrorCode) {
+    log.info('API', 'apiCheckMirrorStatus called', { mirrorCode });
+    try {
+        const res = await fetch(`${API_BASE}/api/mirrors/${mirrorCode}/status`);
+        const data = await res.json();
+        log.info('API', 'apiCheckMirrorStatus response', { activated: data.activated, completed_at: data.completed_at });
+        return data;
+    } catch (error) {
+        log.error('API', 'apiCheckMirrorStatus failed', { error: error.message });
+        return { activated: false, error: error.message };
+    }
 }
 
 // ============================================
 // ГЛАВНЫЙ ЭКРАН
 // ============================================
 async function showMirrorsScreen() {
+    log.info('Mirrors', 'showMirrorsScreen called');
     injectMirrorStyles();
     const container = document.getElementById('screenContainer');
+    if (!container) {
+        log.error('Mirrors', 'screenContainer not found');
+        return;
+    }
 
     container.innerHTML = `
         <div style="max-width:600px; margin:0 auto; padding:20px 16px; padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 80px));">
@@ -297,18 +452,22 @@ async function showMirrorsScreen() {
             <div id="mirrorTabContent"></div>
         </div>
     `;
+    log.debug('Mirrors', 'Main screen rendered');
 
     switchMirrorTab('reflections');
 }
 
 function switchMirrorTab(tab) {
+    log.info('Mirrors', 'switchMirrorTab called', { tab });
     ['reflections','create'].forEach(t => {
         const btn = document.getElementById(`tab-${t}`);
         if (!btn) return;
         if (t === tab) {
-            btn.classList.add('active'); btn.classList.remove('inactive');
+            btn.classList.add('active'); 
+            btn.classList.remove('inactive');
         } else {
-            btn.classList.remove('active'); btn.classList.add('inactive');
+            btn.classList.remove('active'); 
+            btn.classList.add('inactive');
         }
     });
     const content = document.getElementById('mirrorTabContent');
@@ -320,6 +479,9 @@ function switchMirrorTab(tab) {
 // ТАБ: ОТРАЖЕНИЯ
 // ============================================
 async function showReflectionsTab(container) {
+    log.info('Mirrors', 'showReflectionsTab called');
+    
+    // Показываем скелетон
     container.innerHTML = `
         <div style="padding:32px;text-align:center;color:rgba(255,255,255,0.3);">
             <div class="mirror-skeleton" style="width:60%;margin:0 auto 8px;height:12px;"></div>
@@ -327,14 +489,26 @@ async function showReflectionsTab(container) {
         </div>`;
 
     try {
-        const data = await apiGetReflections(window.USER_ID);
+        // Пытаемся получить из кэша
+        let data = _getCachedReflections();
+        
+        if (!data) {
+            log.debug('Mirrors', 'Fetching reflections from API');
+            data = await apiGetReflections(window.USER_ID);
+            _setCachedReflections(data);
+        } else {
+            log.debug('Mirrors', 'Using cached reflections');
+        }
+        
         const reflections = data.reflections || [];
         const stats = data.stats || {};
+        
+        log.info('Mirrors', 'Reflections loaded', { count: reflections.length, stats });
 
         if (!reflections.length) {
+            log.debug('Mirrors', 'No reflections found, showing empty state');
             container.innerHTML = `
                 <div style="animation:mirrorFadeIn 0.4s ease;">
-                    <!-- ПУСТО -->
                     <div style="text-align:center;padding:40px 20px;background:rgba(255,255,255,0.02);
                                 border:1px dashed rgba(255,255,255,0.1);border-radius:24px;margin-bottom:16px;">
                         <div style="font-size:52px;margin-bottom:16px;opacity:0.6;">🌑</div>
@@ -349,8 +523,6 @@ async function showReflectionsTab(container) {
                             Создать первую ссылку →
                         </button>
                     </div>
-
-                    <!-- КАК РАБОТАЕТ -->
                     <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);
                                 border-radius:20px;padding:20px;">
                         <div class="mirror-section-label">КАК ЭТО РАБОТАЕТ</div>
@@ -371,7 +543,7 @@ async function showReflectionsTab(container) {
         let html = `
             <div style="display:flex;gap:10px;margin-bottom:20px;animation:mirrorFadeIn 0.3s ease;">
                 <div class="mirror-stat-card">
-                    <div style="font-size:30px;font-weight:700;color:#fff;">${stats.total_mirrors||0}</div>
+                    <div style="font-size:30px;font-weight:700;color:#fff;">${stats.total_mirrors || 0}</div>
                     <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:4px;letter-spacing:0.3px;">Создано зеркал</div>
                 </div>
                 <div class="mirror-stat-card" style="border-color:rgba(255,107,59,0.2);">
@@ -379,15 +551,19 @@ async function showReflectionsTab(container) {
                                 -webkit-background-clip:text;-webkit-text-fill-color:transparent;">${reflections.length}</div>
                     <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:4px;letter-spacing:0.3px;">Отражений</div>
                 </div>
+                <button onclick="forceRefreshReflections()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:0 16px;cursor:pointer;">
+                    🔄
+                </button>
             </div>
             <div class="mirror-section-label">ОТРАЖЕНИЯ</div>`;
 
         reflections.forEach((ref, i) => {
-            const name = ref.friend_name || `Пользователь ${i+1}`;
-            const profile = ref.friend_profile_code || '—';
+            const name = _escapeHtml(ref.friend_name) || `Пользователь ${i+1}`;
+            const profile = _escapeHtml(ref.friend_profile_code) || '—';
             const date = ref.completed_at ? new Date(ref.completed_at).toLocaleDateString('ru') : '';
             const vectors = ref.friend_vectors || {};
-            const vKeys = Object.keys(vectors);
+            
+            log.debug('Mirrors', `Rendering reflection ${i}`, { name, profile, hasVectors: !!Object.keys(vectors).length });
 
             html += `
                 <div class="mirror-card" style="animation-delay:${i*0.06}s"
@@ -411,14 +587,15 @@ async function showReflectionsTab(container) {
                                     font-weight:600;letter-spacing:0.3px;">${profile}</div>
                     </div>
 
-                    ${vKeys.length ? `
+                    ${Object.keys(vectors).length ? `
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
                         ${Object.entries(vectors).map(([k,v]) => {
-                            const pct = Math.round((v/6)*100);
-                            const col = v<=2?'#3b82ff':v<=4?'#f39c12':'#ff6b3b';
+                            const val = typeof v === 'number' ? v : 4;
+                            const pct = Math.round((val/6)*100);
+                            const col = val<=2?'#3b82ff':val<=4?'#f39c12':'#ff6b3b';
                             return `<div style="text-align:center;">
-                                <div style="font-size:15px;font-weight:700;color:${col};">${Math.round(v)}</div>
-                                <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:4px;">${k}</div>
+                                <div style="font-size:15px;font-weight:700;color:${col};">${Math.round(val)}</div>
+                                <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:4px;">${_escapeHtml(k)}</div>
                                 <div class="mirror-vector-bar-track">
                                     <div class="mirror-vector-bar-fill" style="width:${pct}%;background:${col};"></div>
                                 </div>
@@ -433,13 +610,14 @@ async function showReflectionsTab(container) {
         });
 
         container.innerHTML = html;
+        log.info('Mirrors', 'Reflections tab rendered successfully');
     } catch(e) {
-        console.error('Mirrors error:', e);
+        log.error('Mirrors', 'Error in showReflectionsTab', { error: e.message, stack: e.stack });
         container.innerHTML = `
             <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);
                         border-radius:16px;padding:24px;text-align:center;color:rgba(59,130,246,0.8);">
                 <div style="font-size:24px;margin-bottom:8px;">⚠️</div>
-                <div style="font-size:13px;">Ошибка загрузки</div>
+                <div style="font-size:13px;">Ошибка загрузки: ${e.message}</div>
                 <button onclick="switchMirrorTab('reflections')"
                     style="margin-top:12px;background:rgba(255,255,255,0.08);color:#fff;border:none;
                            border-radius:8px;padding:8px 16px;cursor:pointer;font-family:inherit;font-size:12px;">
@@ -453,6 +631,7 @@ async function showReflectionsTab(container) {
 // ТАБ: СОЗДАТЬ ССЫЛКУ
 // ============================================
 async function showCreateLinkTab(container) {
+    log.info('Mirrors', 'showCreateLinkTab called');
     container.innerHTML = `
         <div style="animation:mirrorFadeIn 0.35s ease;">
 
@@ -532,8 +711,10 @@ async function showCreateLinkTab(container) {
 }
 
 async function generateMirrorLink(mirrorType) {
+    log.info('Mirrors', 'generateMirrorLink called', { mirrorType });
     const block = document.getElementById('generatedLinkBlock');
     if (!block) return;
+    
     block.innerHTML = `
         <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
                     border-radius:16px;padding:20px;margin-bottom:16px;text-align:center;">
@@ -543,94 +724,114 @@ async function generateMirrorLink(mirrorType) {
 
     try {
         const data = await apiCreateMirror(window.USER_ID, mirrorType);
-        if (!data.success) throw new Error(data.error || 'Ошибка');
+        if (!data.success) throw new Error(data.error || 'Ошибка создания зеркала');
 
         const link = data.link;
         const text = data.invite_text;
         const icons = {telegram:'✈️', max:'⚡', web:'🌐'};
 
+        log.info('Mirrors', 'Mirror created successfully', { mirrorCode: data.mirror_code, link });
+
         block.innerHTML = `
             <div style="background:rgba(255,107,59,0.06);border:1px solid rgba(255,107,59,0.25);
                         border-radius:20px;padding:20px;margin-bottom:16px;animation:mirrorFadeIn 0.3s ease;">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-                    <span style="font-size:20px;">${icons[mirrorType]||'🔗'}</span>
+                    <span style="font-size:20px;">${icons[mirrorType] || '🔗'}</span>
                     <span style="font-size:14px;font-weight:700;color:#ff6b3b;">Ссылка создана!</span>
                 </div>
 
-                <div class="mirror-link-box">${link}</div>
+                <div class="mirror-link-box">${_escapeHtml(link)}</div>
 
                 <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;
                             font-size:12px;color:rgba(255,255,255,0.45);line-height:1.7;
                             font-style:italic;margin-bottom:14px;border:1px solid rgba(255,255,255,0.06);">
-                    «${text}»
+                    «${_escapeHtml(text)}»
                 </div>
 
                 <div style="display:flex;gap:8px;margin-bottom:8px;">
                     <button class="mirror-copy-btn"
                         style="background:linear-gradient(135deg,#ff6b3b,#ff3b3b);color:#fff;"
-                        onclick="copyMirrorLink('${link}')">
+                        onclick="copyMirrorLink('${_escapeHtml(link)}')">
                         🔗 Ссылку
                     </button>
                     <button class="mirror-copy-btn"
                         style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.1);"
-                        onclick="shareMirrorLink('${link}','${text.replace(/'/g,"\\'")}')">
+                        onclick="shareMirrorLink('${_escapeHtml(link)}','${_escapeHtml(text).replace(/'/g,"\\'")}')">
                         📤 Поделиться
                     </button>
                 </div>
                 <button class="mirror-copy-btn"
                     style="width:100%;background:linear-gradient(135deg,#00d4ff,#0099cc);color:#fff;"
-                    onclick="copyMirrorWithText('${link}','${text.replace(/'/g,"\\'")}')">
+                    onclick="copyMirrorWithText('${_escapeHtml(link)}','${_escapeHtml(text).replace(/'/g,"\\'")}')">
                     📋 Скопировать текст + ссылку
                 </button>
             </div>`;
+            
+        // Очищаем кэш отражений, так как появилось новое зеркало
+        _clearReflectionsCache();
+        
     } catch(e) {
+        log.error('Mirrors', 'generateMirrorLink failed', { error: e.message });
         block.innerHTML = `
             <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);
                         border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;
                         color:rgba(59,130,246,0.8);font-size:13px;">
-                ❌ ${e.message}
+                ❌ ${_escapeHtml(e.message)}
             </div>`;
     }
 }
 
 function copyMirrorLink(link) {
-    _copyToClipboard(link).then(() => {
-        if (typeof showToast === 'function') showToast('✅ Ссылка скопирована!');
-    }).catch(() => {
-        const el = document.createElement('textarea');
-        el.value = link; document.body.appendChild(el); el.select();
-        document.execCommand('copy'); document.body.removeChild(el);
-        if (typeof showToast === 'function') showToast('✅ Ссылка скопирована!');
+    log.info('Mirrors', 'copyMirrorLink called');
+    _copyToClipboard(link).then(success => {
+        if (success && typeof showToast === 'function') showToast('✅ Ссылка скопирована!');
+        else if (typeof showToast === 'function') showToast('❌ Не удалось скопировать', 'error');
     });
 }
 
 function copyMirrorWithText(link, text) {
+    log.info('Mirrors', 'copyMirrorWithText called');
     const full = text + '\n\n' + link;
-    _copyToClipboard(full).then(() => {
-        if (typeof showToast === 'function') showToast('✅ Текст и ссылка скопированы!');
-    }).catch(() => {
-        const el = document.createElement('textarea');
-        el.value = full; document.body.appendChild(el); el.select();
-        document.execCommand('copy'); document.body.removeChild(el);
-        if (typeof showToast === 'function') showToast('✅ Текст и ссылка скопированы!');
+    _copyToClipboard(full).then(success => {
+        if (success && typeof showToast === 'function') showToast('✅ Текст и ссылка скопированы!');
+        else if (typeof showToast === 'function') showToast('❌ Не удалось скопировать', 'error');
     });
 }
 
 function shareMirrorLink(link, text) {
-    if (navigator.share) navigator.share({ title: 'Фреди — психологический профиль', text, url: link });
-    else copyMirrorLink(link);
+    log.info('Mirrors', 'shareMirrorLink called');
+    if (navigator.share) {
+        navigator.share({ title: 'Фреди — психологический профиль', text, url: link })
+            .then(() => log.info('Mirrors', 'Share successful'))
+            .catch(e => log.warn('Mirrors', 'Share cancelled or failed', { error: e.message }));
+    } else {
+        copyMirrorLink(link);
+    }
 }
 
 // ============================================
 // ПРОФИЛЬ ДРУГА (с фиксом JSONB)
 // ============================================
 async function showFriendProfile(ref) {
+    log.info('Mirrors', 'showFriendProfile called', { hasRef: !!ref });
+    
+    // Показываем индикатор загрузки
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div style="max-width:600px;margin:0 auto;padding:20px 16px;text-align:center;">
+            <div class="mirror-loading-spinner"></div>
+            <div style="margin-top:12px;color:var(--text-secondary);">Загрузка профиля...</div>
+        </div>`;
+    
     // Применяем фикс на всякий случай
     ref = _fixMirrorRef(ref);
     
-    const container = document.getElementById('screenContainer');
-    const name = (ref.friend_name && ref.friend_name !== 'Друг' && ref.friend_name !== 'друг') ? ref.friend_name : 'Пользователь';
-    const profile = ref.friend_profile_code || '—';
+    const name = (ref.friend_name && ref.friend_name !== 'Друг' && ref.friend_name !== 'друг') 
+        ? _escapeHtml(ref.friend_name) 
+        : 'Пользователь';
+    const profile = _escapeHtml(ref.friend_profile_code) || '—';
     const vectors = ref.friend_vectors || {};
     const patterns = ref.friend_deep_patterns || {};
     const aiProfile = ref.friend_ai_profile || '';
@@ -639,6 +840,8 @@ async function showFriendProfile(ref) {
 
     const vNames = {'СБ':'Самооборона','ТФ':'Финансы','УБ':'Убеждения','ЧВ':'Чувства'};
     const vColor = v => v<=2?'#3b82ff':v<=4?'#f39c12':'#ff6b3b';
+
+    log.debug('Mirrors', 'Rendering friend profile', { name, profile, hasVectors: !!Object.keys(vectors).length });
 
     container.innerHTML = `
         <div style="max-width:600px;margin:0 auto;padding:20px 16px;padding-bottom:max(80px,calc(env(safe-area-inset-bottom,0px) + 80px));animation:mirrorFadeIn 0.35s ease;">
@@ -678,17 +881,20 @@ async function showFriendProfile(ref) {
             <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
                         border-radius:20px;padding:20px;margin-bottom:12px;">
                 <div class="mirror-section-label">ВЕКТОРЫ ПОВЕДЕНИЯ</div>
-                ${Object.entries(vectors).map(([k,v]) => `
+                ${Object.entries(vectors).map(([k,v]) => {
+                    const val = typeof v === 'number' ? v : 4;
+                    return `
                     <div style="margin-bottom:14px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                            <span style="font-size:13px;color:rgba(255,255,255,0.6);">${vNames[k]||k}</span>
-                            <span style="font-size:13px;font-weight:700;color:${vColor(v)};">${typeof v === 'number' ? v.toFixed(1) : v}/6</span>
+                            <span style="font-size:13px;color:rgba(255,255,255,0.6);">${_escapeHtml(vNames[k] || k)}</span>
+                            <span style="font-size:13px;font-weight:700;color:${vColor(val)};">${val.toFixed(1)}/6</span>
                         </div>
                         <div class="mirror-vector-bar-track">
-                            <div class="mirror-vector-bar-fill" style="width:${Math.round((typeof v === 'number' ? v : 0)/6*100)}%;background:${vColor(v)};"></div>
+                            <div class="mirror-vector-bar-fill" style="width:${Math.round(val/6*100)}%;background:${vColor(val)};"></div>
                         </div>
-                    </div>`).join('')}
-            </div>` : ''}
+                    </div>`;
+                }).join('')}
+            </div>` : '<div class="mirror-info-block" style="text-align:center;color:rgba(255,255,255,0.4);">Нет данных о векторах</div>'}
 
             <!-- ПАТТЕРНЫ -->
             ${Object.keys(patterns).length ? `
@@ -698,12 +904,12 @@ async function showFriendProfile(ref) {
                 ${patterns.attachment ? `
                 <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
                     <span style="font-size:12px;color:rgba(255,255,255,0.3);">Привязанность</span>
-                    <span style="font-size:13px;font-weight:600;color:#fff;">${patterns.attachment}</span>
+                    <span style="font-size:13px;font-weight:600;color:#fff;">${_escapeHtml(patterns.attachment)}</span>
                 </div>` : ''}
                 ${patterns.core_fears ? `
                 <div style="display:flex;justify-content:space-between;padding:10px 0;align-items:flex-start;gap:12px;">
                     <span style="font-size:12px;color:rgba(255,255,255,0.3);flex-shrink:0;">Страхи</span>
-                    <span style="font-size:12px;color:rgba(255,255,255,0.6);text-align:right;">${Array.isArray(patterns.core_fears)?patterns.core_fears.join(', '):patterns.core_fears}</span>
+                    <span style="font-size:12px;color:rgba(255,255,255,0.6);text-align:right;">${Array.isArray(patterns.core_fears) ? patterns.core_fears.map(f => _escapeHtml(f)).join(', ') : _escapeHtml(patterns.core_fears)}</span>
                 </div>` : ''}
             </div>` : ''}
 
@@ -713,7 +919,7 @@ async function showFriendProfile(ref) {
                         border-radius:20px;padding:20px;margin-bottom:12px;">
                 <div class="mirror-section-label">AI ПРОФИЛЬ</div>
                 <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.7;">
-                    ${aiProfile.substring(0,500)}${aiProfile.length>500?'…':''}
+                    ${_escapeHtml(aiProfile.substring(0,500))}${aiProfile.length>500?'…':''}
                 </div>
             </div>` : ''}
 
@@ -723,18 +929,14 @@ async function showFriendProfile(ref) {
                     style="flex:1;background:rgba(59,130,246,0.08);color:#3b82ff;
                            border:1px solid rgba(59,130,246,0.25);border-radius:14px;
                            padding:14px;font-size:13px;font-weight:600;cursor:pointer;
-                           font-family:inherit;transition:all 0.2s;"
-                    onmouseover="this.style.background='rgba(59,130,246,0.15)'"
-                    onmouseout="this.style.background='rgba(59,130,246,0.08)'">
+                           font-family:inherit;transition:all 0.2s;">
                     🔞 Интимный профиль
                 </button>
                 <button onclick="load4FKeys('${mirrorCode}')"
                     style="flex:1;background:rgba(243,156,18,0.08);color:#f39c12;
                            border:1px solid rgba(243,156,18,0.25);border-radius:14px;
                            padding:14px;font-size:13px;font-weight:600;cursor:pointer;
-                           font-family:inherit;transition:all 0.2s;"
-                    onmouseover="this.style.background='rgba(243,156,18,0.15)'"
-                    onmouseout="this.style.background='rgba(243,156,18,0.08)'">
+                           font-family:inherit;transition:all 0.2s;">
                     🔑 4F ключи
                 </button>
             </div>
@@ -744,25 +946,28 @@ async function showFriendProfile(ref) {
             <button onclick="showMirrorsScreen()"
                 style="width:100%;background:transparent;border:1px solid rgba(255,255,255,0.08);
                        border-radius:14px;padding:14px;color:rgba(255,255,255,0.3);font-size:13px;
-                       cursor:pointer;font-family:inherit;margin-top:8px;transition:all 0.2s;"
-                onmouseover="this.style.borderColor='rgba(255,255,255,0.15)';this.style.color='rgba(255,255,255,0.6)'"
-                onmouseout="this.style.borderColor='rgba(255,255,255,0.08)';this.style.color='rgba(255,255,255,0.3)'">
+                       cursor:pointer;font-family:inherit;margin-top:8px;transition:all 0.2s;">
                 ← Назад к отражениям
             </button>
         </div>`;
 }
 
 async function loadIntimateProfile(mirrorCode) {
+    log.info('Mirrors', 'loadIntimateProfile called', { mirrorCode });
     const block = document.getElementById('friendExtraContent');
     if (!mirrorCode || !block) return;
+    
     block.innerHTML = `
-        <div style="background:rgba(255,255,255,0.02);border-radius:16px;padding:20px;margin-bottom:12px;">
-            <div class="mirror-skeleton" style="width:50%;margin-bottom:10px;"></div>
-            <div class="mirror-skeleton"></div><div class="mirror-skeleton" style="width:80%;"></div>
+        <div style="background:rgba(255,255,255,0.02);border-radius:16px;padding:20px;margin-bottom:12px;text-align:center;">
+            <div class="mirror-loading-spinner"></div>
+            <div style="margin-top:12px;color:var(--text-secondary);">Загрузка интимного профиля...</div>
         </div>`;
+    
     try {
         const res = await fetch(API_BASE + '/api/mirrors/' + mirrorCode + '/intimate');
         const data = await res.json();
+        log.debug('Mirrors', 'Intimate profile response', { success: data.success });
+        
         if (!data.success) throw new Error(data.error);
         const i = data.intimate;
 
@@ -773,54 +978,63 @@ async function loadIntimateProfile(mirrorCode) {
                             text-transform:uppercase;margin-bottom:16px;">🔞 Интимный профиль</div>`;
 
         const sections = [
-            ['💋 Что возбуждает', i.sexual_triggers||[]],
-            ['❄️ Что гасит желание', i.sexual_blockers||[]],
+            ['💋 Что возбуждает', i.sexual_triggers || []],
+            ['❄️ Что гасит желание', i.sexual_blockers || []],
         ];
         sections.forEach(([label, items]) => {
-            html += `<div style="margin-bottom:14px;">
-                <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">${label}</div>
-                ${items.map(t => `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:6px 0;
-                    border-bottom:1px solid rgba(255,255,255,0.04);">• ${t}</div>`).join('')}
-            </div>`;
+            if (items && items.length) {
+                html += `<div style="margin-bottom:14px;">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">${label}</div>
+                    ${items.map(t => `<div style="font-size:13px;color:rgba(255,255,255,0.7);padding:6px 0;
+                        border-bottom:1px solid rgba(255,255,255,0.04);">• ${_escapeHtml(t)}</div>`).join('')}
+                </div>`;
+            }
         });
 
         if (i.intimacy_pattern) html += `
             <div style="margin-bottom:12px;">
                 <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:6px;">🧬 Паттерн близости</div>
-                <div style="font-size:13px;color:rgba(255,255,255,0.65);line-height:1.7;">${i.intimacy_pattern}</div>
+                <div style="font-size:13px;color:rgba(255,255,255,0.65);line-height:1.7;">${_escapeHtml(i.intimacy_pattern)}</div>
             </div>`;
 
         if (i.key_need) html += `
             <div style="background:rgba(59,130,246,0.08);border-radius:12px;padding:14px;margin-bottom:12px;">
                 <div style="font-size:11px;color:#3b82ff;letter-spacing:0.5px;margin-bottom:4px;">💡 Главная потребность</div>
-                <div style="font-size:14px;font-weight:600;color:#fff;">${i.key_need}</div>
+                <div style="font-size:14px;font-weight:600;color:#fff;">${_escapeHtml(i.key_need)}</div>
             </div>`;
 
         if (i.approach_tip) html += `
             <div style="background:rgba(255,107,59,0.08);border-radius:12px;padding:14px;">
                 <div style="font-size:11px;color:#ff6b3b;letter-spacing:0.5px;margin-bottom:4px;">🎯 Как подойти</div>
-                <div style="font-size:13px;color:rgba(255,255,255,0.7);">${i.approach_tip}</div>
+                <div style="font-size:13px;color:rgba(255,255,255,0.7);">${_escapeHtml(i.approach_tip)}</div>
             </div>`;
 
         html += '</div>';
         block.innerHTML = html;
+        log.info('Mirrors', 'Intimate profile loaded successfully');
     } catch(e) {
+        log.error('Mirrors', 'loadIntimateProfile failed', { error: e.message });
         block.innerHTML = `<div style="background:rgba(59,130,246,0.08);border-radius:14px;padding:16px;
-            text-align:center;color:rgba(59,130,246,0.7);font-size:13px;margin-bottom:12px;">❌ ${e.message}</div>`;
+            text-align:center;color:rgba(59,130,246,0.7);font-size:13px;margin-bottom:12px;">❌ ${_escapeHtml(e.message)}</div>`;
     }
 }
 
 async function load4FKeys(mirrorCode) {
+    log.info('Mirrors', 'load4FKeys called', { mirrorCode });
     const block = document.getElementById('friendExtraContent');
     if (!mirrorCode || !block) return;
+    
     block.innerHTML = `
-        <div style="background:rgba(255,255,255,0.02);border-radius:16px;padding:20px;margin-bottom:12px;">
-            <div class="mirror-skeleton" style="width:40%;margin-bottom:10px;"></div>
-            <div class="mirror-skeleton"></div><div class="mirror-skeleton" style="width:70%;"></div>
+        <div style="background:rgba(255,255,255,0.02);border-radius:16px;padding:20px;margin-bottom:12px;text-align:center;">
+            <div class="mirror-loading-spinner"></div>
+            <div style="margin-top:12px;color:var(--text-secondary);">Загрузка 4F ключей...</div>
         </div>`;
+    
     try {
         const res = await fetch(API_BASE + '/api/mirrors/' + mirrorCode + '/4f-keys');
         const data = await res.json();
+        log.debug('Mirrors', '4F keys response', { success: data.success });
+        
         if (!data.success) throw new Error(data.error);
         const keys = data.keys;
         const palette = {'1F':'#ff6b3b','2F':'#3b82ff','3F':'#a855f7','4F':'#f39c12'};
@@ -831,27 +1045,29 @@ async function load4FKeys(mirrorCode) {
             html += `
                 <div class="mirror-4f-card" style="border-color:${col};animation-delay:${idx*0.08}s">
                     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                        <span style="font-size:20px;">${k.emoji||''}</span>
+                        <span style="font-size:20px;">${k.emoji || ''}</span>
                         <div>
-                            <div style="font-size:14px;font-weight:700;color:#fff;">${code} — ${k.title||''}</div>
+                            <div style="font-size:14px;font-weight:700;color:#fff;">${_escapeHtml(code)} — ${_escapeHtml(k.title || '')}</div>
                         </div>
                     </div>
                     <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.5px;margin-bottom:8px;">🎯 ТРИГГЕРЫ</div>
-                    ${(k.triggers||[]).map(t => `
+                    ${(k.triggers || []).map(t => `
                         <div style="font-size:13px;color:rgba(255,255,255,0.65);padding:5px 0;
-                                    border-bottom:1px solid rgba(255,255,255,0.04);">• ${t}</div>`).join('')}
+                                    border-bottom:1px solid rgba(255,255,255,0.04);">• ${_escapeHtml(t)}</div>`).join('')}
                     <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;margin-top:12px;">
                         <div style="font-size:11px;color:${col};letter-spacing:0.5px;margin-bottom:4px;">🔑 КЛЮЧ</div>
-                        <div style="font-size:13px;font-weight:600;color:#fff;">${k.key_phrase||''}</div>
+                        <div style="font-size:13px;font-weight:600;color:#fff;">${_escapeHtml(k.key_phrase || '')}</div>
                     </div>
-                    ${k.technique ? `<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:10px;line-height:1.5;">⚡ ${k.technique}</div>` : ''}
-                    ${k.insight ? `<div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:6px;font-style:italic;">${k.insight}</div>` : ''}
+                    ${k.technique ? `<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:10px;line-height:1.5;">⚡ ${_escapeHtml(k.technique)}</div>` : ''}
+                    ${k.insight ? `<div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:6px;font-style:italic;">${_escapeHtml(k.insight)}</div>` : ''}
                 </div>`;
         });
         block.innerHTML = html;
+        log.info('Mirrors', '4F keys loaded successfully');
     } catch(e) {
+        log.error('Mirrors', 'load4FKeys failed', { error: e.message });
         block.innerHTML = `<div style="background:rgba(243,156,18,0.08);border-radius:14px;padding:16px;
-            text-align:center;color:rgba(243,156,18,0.7);font-size:13px;margin-bottom:12px;">❌ ${e.message}</div>`;
+            text-align:center;color:rgba(243,156,18,0.7);font-size:13px;margin-bottom:12px;">❌ ${_escapeHtml(e.message)}</div>`;
     }
 }
 
@@ -859,6 +1075,7 @@ async function load4FKeys(mirrorCode) {
 // ПРИМЕР ПРОФИЛЯ
 // ============================================
 function showProfileExample() {
+    log.info('Mirrors', 'showProfileExample called');
     const container = document.getElementById('screenContainer');
     container.innerHTML = `
         <div style="max-width:600px;margin:0 auto;padding:20px 16px;padding-bottom:max(80px,calc(env(safe-area-inset-bottom,0px) + 80px));animation:mirrorFadeIn 0.35s ease;">
@@ -892,6 +1109,7 @@ function showProfileExample() {
 }
 
 function switchExampleTab(tab) {
+    log.debug('Mirrors', 'switchExampleTab called', { tab });
     ['basic','intimate','4f'].forEach(t => {
         const btn = document.getElementById('ex-tab-'+t);
         if (!btn) return;
@@ -1014,7 +1232,20 @@ function showExample4F(c) {
 }
 
 // ============================================
-// ЭКСПОРТ (НЕТ ДВОЙНИКОВ!)
+// ФОРСИРОВАННОЕ ОБНОВЛЕНИЕ
+// ============================================
+async function forceRefreshReflections() {
+    log.info('Mirrors', 'forceRefreshReflections called');
+    _clearReflectionsCache();
+    const container = document.getElementById('mirrorTabContent');
+    if (container) {
+        await showReflectionsTab(container);
+        if (typeof showToast === 'function') showToast('✅ Список обновлён', 'success');
+    }
+}
+
+// ============================================
+// ЭКСПОРТ
 // ============================================
 window.showMirrorsScreen = showMirrorsScreen;
 window.switchMirrorTab = switchMirrorTab;
@@ -1027,5 +1258,16 @@ window.loadIntimateProfile = loadIntimateProfile;
 window.load4FKeys = load4FKeys;
 window.showProfileExample = showProfileExample;
 window.switchExampleTab = switchExampleTab;
+window.forceRefreshReflections = forceRefreshReflections;
 
-console.log('✅ mirrors.js v2.1 загружен (JSONB фикс встроен, двойников нет)');
+// Функция для просмотра логов в консоли (для отладки)
+window.showMirrorDebugLogs = function() {
+    const logs = localStorage.getItem('mirror_debug_logs');
+    if (logs) {
+        console.table(JSON.parse(logs));
+    } else {
+        console.log('No debug logs found');
+    }
+};
+
+console.log('✅ mirrors.js v2.2 загружен (с полным логированием и исправлениями)');
