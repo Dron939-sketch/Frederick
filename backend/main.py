@@ -365,7 +365,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
         "Accept", "Accept-Language", "Content-Language", "Content-Type",
-        "Authorization", "Origin", "X-Requested-With",
+        "Authorization", "Origin", "X-Requested-With", "X-User-Id",
         "Access-Control-Request-Method", "Access-Control-Request-Headers",
         "Upgrade", "Connection",
     ],
