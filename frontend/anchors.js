@@ -749,43 +749,44 @@ async function getProfileBasedRecommendations() {
         const vectors = status.vectors || {};
         const recommendations = [];
         
-        if (vectors.SB && vectors.SB < 3) {
+        // Используем русские буквы: СБ, ТФ, УБ, ЧВ
+        if (vectors.СБ !== undefined && vectors.СБ < 3) {
             recommendations.push({
                 state: 'action',
                 name: 'Импульс действия',
                 trigger: 'хлопок в ладоши',
                 phrase: 'Раз! И я начинаю.',
-                reason: 'Ваш вектор действия нуждается в поддержке',
+                reason: `Ваш вектор СБ = ${vectors.СБ}/6 — нуждается в поддержке`,
                 stimuli: ['pen', 'keychain']
             });
         }
-        if (vectors.TF && vectors.TF < 3) {
+        if (vectors.ТФ !== undefined && vectors.ТФ < 3) {
             recommendations.push({
                 state: 'grounding',
                 name: 'Заземление',
                 trigger: 'стопы в пол',
                 phrase: 'Я здесь. Моё тело — моя опора.',
-                reason: 'Ваш телесный вектор нуждается в заземлении',
+                reason: `Ваш вектор ТФ = ${vectors.ТФ}/6 — нуждается в заземлении`,
                 stimuli: ['crystal', 'teaCup']
             });
         }
-        if (vectors.UB && vectors.UB < 3) {
+        if (vectors.УБ !== undefined && vectors.УБ < 3) {
             recommendations.push({
                 state: 'calm',
                 name: 'Гибкость',
                 trigger: 'пожать плечами',
                 phrase: 'Можно и так.',
-                reason: 'Ваш вектор гибкости нуждается в расслаблении',
+                reason: `Ваш вектор УБ = ${vectors.УБ}/6 — нуждается в расслаблении`,
                 stimuli: ['stressBall', 'teaCup']
             });
         }
-        if (vectors.CV && vectors.CV < 3) {
+        if (vectors.ЧВ !== undefined && vectors.ЧВ < 3) {
             recommendations.push({
                 state: 'joy',
                 name: 'Тепло',
                 trigger: 'рука на сердце',
                 phrase: 'Я чувствую. Я живу.',
-                reason: 'Ваш эмоциональный вектор нуждается в тепле',
+                reason: `Ваш вектор ЧВ = ${vectors.ЧВ}/6 — нуждается в тепле`,
                 stimuli: ['perfume', 'ring']
             });
         }
@@ -796,7 +797,6 @@ async function getProfileBasedRecommendations() {
         return [];
     }
 }
-
 // ============================================
 // ДИАГНОСТИКА ИМПРИНТОВ (ИСПРАВЛЕНА)
 // ============================================
