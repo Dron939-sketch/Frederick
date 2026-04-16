@@ -1566,10 +1566,10 @@ ${this.getStage5Interpretation()}
                 const dots = '.'.repeat(Math.min(this._aiProfileRetries, 5));
                 const msgs = ['Анализирую ваши паттерны', 'Строю карту личности', 'Формирую инсайты', 'Почти готово'];
                 const hint = msgs[Math.min(this._aiProfileRetries - 1, msgs.length - 1)];
-                // Update last message text
-                const allMsgs = document.querySelectorAll('.message.bot .message-text');
+                // Update last bot message text
+                const allMsgs = document.querySelectorAll('.test-message-bot .test-message-text');
                 const lastMsg = allMsgs[allMsgs.length - 1];
-                if (lastMsg) lastMsg.innerHTML = `🧠 ${hint}${dots}\n\n⏳ Осталось совсем немного...`;
+                if (lastMsg) lastMsg.innerHTML = `🧠 ${hint}${dots}<br><br>⏳ Осталось совсем немного...`;
                 setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
                 return;
             }
