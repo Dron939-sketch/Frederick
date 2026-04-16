@@ -489,7 +489,7 @@ async function showCreateLinkTab(container) {
                                 justify-content:center;font-size:22px;flex-shrink:0;">🌐</div>
                     <div style="flex:1;">
                         <div style="font-size:14px;font-weight:600;color:#fff;">Веб-ссылка</div>
-                        <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">fredi-frontend.onrender.com/?ref=...</div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">meysternlp.ru/fredi/?ref=...</div>
                     </div>
                     <div style="color:rgba(255,255,255,0.2);font-size:18px;">›</div>
                 </button>
