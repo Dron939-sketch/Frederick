@@ -536,11 +536,120 @@ function getRecommendedState(combinationKey) {
 // ============================================
 
 async function generatePersonalizedRecommendation(combo, vectors, situationType = 'self') {
-    const situation = ANCHORS_CONFIG.situations[situationType]?.scenarios || {};
-    const actionTemplate = combo.actions?.[situationType] || combo.actions?.self;
-    
-    if (!actionTemplate) return null;
-    
+    const situationName = ANCHORS_CONFIG.situations[situationType]?.name || 'повседневной жизни';
+    const stateName = ANCHORS_CONFIG.states[getRecommendedState(combo.key)]?.name || 'спокойствие';
+
+    try {
+        const prompt = `Ты — психолог-эксперт по НЛП и ресурсным состояниям.
+
+У пользователя диагностирована проблема: "${combo.name}"
+Описание: ${combo.description}
+
+Его психологические векторы (по шкале 1-6, где 1-2 низкий, 3-4 средний, 5-6 высокий):
+- СБ (Самооценка/Безопасность): ${vectors.СБ}/6
+- ТФ (Тревожность/Финансы): ${vectors.ТФ}/6
+- УБ (Убеждения/Мышление): ${vectors.УБ}/6
+- ЧВ (Чувствительность/Отношения): ${vectors.ЧВ}/6
+
+Актуальная ситуация: ${situationName}
+
+Создай ПЕРСОНАЛЬНУЮ рекомендацию для этого пользователя.
+
+Требования:
+1. Конкретное действие на ЗАВТРА (выполнимое за 5-10 минут, без специальных условий)
+2. Триггер-фраза (короткая фраза от первого лица, 3-7 слов)
+3. Аффирмация (вдохновляющая фраза от первого лица, 10-15 слов)
+4. Рекомендуемое состояние (ОДНО из: calm, confidence, safety, grounding, action, love)
+
+Учитывай значения векторов:
+- Если СБ низкий (1-2) — добавь поддержку самооценки
+- Если ТФ низкий (1-2) — добавь про деньги и контроль
+- Если УБ высокий (5-6) — используй логические аргументы
+- Если ЧВ низкий (1-2) — добавь про эмоции и чувства
+
+Верни ТОЛЬКО JSON без пояснений:
+{
+    "action": "...",
+    "trigger": "...",
+    "affirmation": "...",
+    "state": "..."
+}`;
+
+        const response = await apiCall('/api/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: CONFIG.USER_ID,
+                prompt: prompt,
+                max_tokens: 500,
+                temperature: 0.8
+            })
+        });
+
+        if (response.success && response.content) {
+            const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const aiData = JSON.parse(jsonMatch[0]);
+                console.log('🤖 AI-рекомендация сгенерирована:', aiData);
+
+                return {
+                    id: combo.key,
+                    name: combo.name,
+                    icon: combo.icon,
+                    description: combo.description,
+                    severity: getSeverityLevel(vectors),
+                    situation: situationType,
+                    state: aiData.state || getRecommendedState(combo.key),
+                    trigger: aiData.trigger,
+                    affirmation: aiData.affirmation,
+                    action: aiData.action,
+                    phrase: aiData.affirmation
+                };
+            }
+        }
+        throw new Error('AI не вернул JSON');
+
+    } catch (error) {
+        console.warn('AI-генерация не удалась, используем fallback:', error);
+        return getFallbackRecommendation(combo, vectors, situationType);
+    }
+}
+
+function getFallbackRecommendation(combo, vectors, situationType = 'self') {
+    const fallbacks = {
+        'conflict_avoidance': {
+            action: 'Завтра в конфликтной ситуации сделай паузу на 3 секунды, глубоко вдохни и скажи: «Мне нужно 10 секунд, чтобы подумать»',
+            trigger: 'Я выбираю свою реакцию',
+            affirmation: 'Мои чувства имеют значение, я могу их выражать, не разрушая отношения',
+            state: 'safety'
+        },
+        'financial_chaos': {
+            action: 'Завтра запиши ВСЕ свои траты в блокнот или телефон. Просто записывай, без осуждения',
+            trigger: 'Я вижу свои деньги',
+            affirmation: 'Каждая записанная копейка — это шаг к финансовой свободе',
+            state: 'grounding'
+        },
+        'analytical_coldness': {
+            action: 'Завтра в разговоре задай собеседнику 3 вопроса о чувствах: «Как ты? Что чувствуешь? Что для тебя важно?»',
+            trigger: 'Я замечаю эмоции',
+            affirmation: 'Я учусь чувствовать — это делает меня сильнее, а не слабее',
+            state: 'love'
+        },
+        'burnout': {
+            action: 'Завтра сделай самое нелюбимое дело ровно 5 минут. Поставь таймер и остановись, когда прозвенит',
+            trigger: 'Всего 5 минут',
+            affirmation: 'Я могу сделать что угодно, если это всего на 5 минут',
+            state: 'calm'
+        },
+        'leader_empath': {
+            action: 'Завтра перед важным решением спроси команду: «А как вы видите эту ситуацию?»',
+            trigger: 'Я слышу и веду',
+            affirmation: 'Моя сила — в умении слушать и вдохновлять',
+            state: 'action'
+        }
+    };
+
+    const fb = fallbacks[combo.key] || fallbacks['conflict_avoidance'];
+
     return {
         id: combo.key,
         name: combo.name,
@@ -548,15 +657,11 @@ async function generatePersonalizedRecommendation(combo, vectors, situationType 
         description: combo.description,
         severity: getSeverityLevel(vectors),
         situation: situationType,
-        action: {
-            title: actionTemplate.title,
-            description: actionTemplate.description,
-            trigger: actionTemplate.trigger
-        },
-        affirmation: actionTemplate.phrase,
-        phrase: actionTemplate.phrase,
-        state: getRecommendedState(combo.key),
-        trigger: actionTemplate.trigger
+        state: fb.state,
+        trigger: fb.trigger,
+        affirmation: fb.affirmation,
+        action: fb.action,
+        phrase: fb.affirmation
     };
 }
 
@@ -632,23 +737,31 @@ function getFallbackRecommendations() {
 async function getProfileBasedRecommendations() {
     try {
         const status = await getUserStatus();
-        if (!status.has_profile) return getFallbackRecommendations();
-        
+        if (!status.has_profile) {
+            console.log('Нет профиля, возвращаем fallback-рекомендации');
+            return getFallbackRecommendations();
+        }
+
         const vectors = status.vectors || {};
         const combinations = analyzeVectorCombinations(vectors);
-        
+
+        console.log('Найдены комбинации векторов:', combinations.map(c => c.name));
+
         if (combinations.length === 0) {
+            console.log('Нет проблемных комбинаций, проверяем сильные стороны');
             const strengthening = getStrengtheningRecommendations(vectors);
             if (strengthening.length > 0) return strengthening;
             return getFallbackRecommendations();
         }
-        
+
         const recommendations = [];
-        
+
         for (const combo of combinations) {
             const situationType = detectSituationType(vectors, combo);
+            console.log(`Генерируем рекомендацию для ${combo.name} (ситуация: ${situationType})`);
+
             const rec = await generatePersonalizedRecommendation(combo, vectors, situationType);
-            
+
             if (rec) {
                 recommendations.push({
                     id: rec.id,
@@ -656,19 +769,20 @@ async function getProfileBasedRecommendations() {
                     description: rec.description,
                     icon: rec.icon,
                     state: rec.state,
-                    trigger: rec.action.trigger,
+                    trigger: rec.trigger,
                     phrase: rec.phrase,
                     affirmation: rec.affirmation,
-                    action: rec.action.description,
+                    action: rec.action,
                     severity: rec.severity
                 });
             }
         }
-        
+
+        console.log(`Сгенерировано ${recommendations.length} рекомендаций`);
         return recommendations;
-        
+
     } catch (e) {
-        console.warn('Failed to get recommendations:', e);
+        console.error('Ошибка в getProfileBasedRecommendations:', e);
         return getFallbackRecommendations();
     }
 }
@@ -1547,8 +1661,83 @@ async function renderAdvancedRecommendations() {
             </div>
         `;
     }
-    
+
+    html += `
+        <div style="margin-top: 24px; text-align: center;">
+            <button onclick="createAllRecommendations()"
+                style="width: 100%; padding: 14px; background: linear-gradient(135deg, rgba(255,107,59,0.2), rgba(255,59,59,0.1));
+                       border: 1px solid rgba(255,107,59,0.3); border-radius: 40px; color: #ff6b3b;
+                       font-weight: 600; cursor: pointer; font-family: inherit; font-size: 14px;
+                       transition: all 0.2s;">
+                ⚡ Создать все инструкции сразу (${recommendations.length})
+            </button>
+        </div>
+    `;
+
     return html;
+}
+
+async function createAllRecommendations() {
+    console.log('📦 Создание всех рекомендаций...');
+    _anShowToast('🔄 Создаю инструкции...', 'info');
+
+    const recommendations = await getProfileBasedRecommendations();
+
+    if (!recommendations.length) {
+        _anShowToast('❌ Нет рекомендаций для создания', 'error');
+        return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const rec of recommendations) {
+        const steps = [
+            `Найдите спокойное место, где вас никто не побеспокоит`,
+            `Сделайте 3 глубоких вдоха и выдоха`,
+            rec.action || `Сделайте: ${rec.trigger}`,
+            `В момент, когда почувствуете нужное состояние, активируйте триггер: "${rec.trigger}"`,
+            `Скажите про себя аффирмацию: «${rec.affirmation || rec.phrase}»`,
+            `Сбросьте состояние (встаньте, отвлекитесь)`,
+            `Повторите 3-5 раз для закрепления`,
+            `Проверьте: активируйте триггер — должно приходить состояние`
+        ];
+
+        const anchorToSave = {
+            user_id: CONFIG.USER_ID,
+            name: rec.name,
+            state: rec.state,
+            source: 'ai_recommendation',
+            source_detail: rec.id,
+            modality: 'auditory',
+            trigger: rec.trigger,
+            phrase: rec.affirmation || rec.phrase,
+            icon: rec.icon || '🎯',
+            state_icon: ANCHORS_CONFIG.states[rec.state]?.icon || '😌',
+            state_name: ANCHORS_CONFIG.states[rec.state]?.name || rec.state,
+            instruction_steps: JSON.stringify(steps)
+        };
+
+        const success = await saveAnchor(anchorToSave);
+        if (success) {
+            successCount++;
+            console.log(`✅ Создана инструкция: ${rec.name}`);
+        } else {
+            failCount++;
+            console.error(`❌ Ошибка создания: ${rec.name}`);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    if (successCount > 0) {
+        _anShowToast(`✅ Создано ${successCount} инструкций${failCount > 0 ? `, ${failCount} ошибок` : ''}`, successCount === recommendations.length ? 'success' : 'info');
+        await loadUserAnchors();
+        currentAnchorView = 'list';
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Не удалось создать инструкции', 'error');
+    }
 }
 
 // ============================================
@@ -2182,6 +2371,8 @@ window.quickCreateAnchor = async (state, name, trigger, phrase) => {
         _anShowToast('❌ Ошибка создания', 'error');
     }
 };
+
+window.createAllRecommendations = createAllRecommendations;
 
 window.quickCreateAnchorFromRecommendation = async (state, name, trigger, phrase) => {
     await window.quickCreateAnchor(state, name, trigger, phrase);
