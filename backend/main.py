@@ -909,6 +909,7 @@ async def init_database_tables():
             ("intimate_generated_at","TIMESTAMP WITH TIME ZONE"),
             ("four_f_cache","JSONB"),
             ("four_f_generated_at","TIMESTAMP WITH TIME ZONE"),
+            ("brief_profile_cache","TEXT"),
         ]:
             try:
                 await conn.execute(f"ALTER TABLE fredi_mirrors ADD COLUMN IF NOT EXISTS {col} {coltype}")
