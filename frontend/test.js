@@ -859,15 +859,19 @@ const Test = {
     },
 
     getMirrorCode() {
-        // Читаем реферальный код из URL: ?ref=mirror_xxx
-        const ref = new URLSearchParams(window.location.search).get('ref');
-        if (ref && ref.startsWith('mirror_')) {
-            localStorage.setItem('fredi_mirror_ref', ref);
-            return ref;
-        }
-        // Или из localStorage (если был переход)
-        return localStorage.getItem('fredi_mirror_ref') || null;
-    },
+    const ref = new URLSearchParams(window.location.search).get('ref');
+    if (ref && ref.startsWith('mirror_')) {
+        // ✅ Сохраняем БЕЗ префикса
+        const cleanCode = ref.replace(/^mirror_/, '');
+        localStorage.setItem('fredi_mirror_ref', cleanCode);
+        return cleanCode;
+    }
+    const stored = localStorage.getItem('fredi_mirror_ref');
+    if (stored) {
+        return stored.replace(/^mirror_/, '');
+    }
+    return null;
+}
 
     // ============================================
     // ИНИЦИАЛИЗАЦИЯ
@@ -1510,39 +1514,50 @@ ${this.getStage5Interpretation()}
     },
 
     async completeMirrorIfReferred(profile, deep) {
-        const mirrorCode = this.getMirrorCode();
-        if (!mirrorCode) return;
-        try {
-            const vectors = {'СБ': profile.sbLevel||3, 'ТФ': profile.tfLevel||3, 'УБ': profile.ubLevel||3, 'ЧВ': profile.chvLevel||3};
-            const response = await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    mirror_code: mirrorCode,
-                    friend_user_id: this.userId,
-                    friend_name: this.context?.name || (typeof CONFIG !== 'undefined' && CONFIG.USER_NAME !== 'друг' ? CONFIG.USER_NAME : null) || localStorage.getItem('fredi_user_name') || 'Друг',
-                    friend_profile_code: profile?.displayName || null,
-                    friend_vectors: vectors,
-                    friend_deep_patterns: deep || {},
-                    friend_ai_profile: this.aiGeneratedProfile || '',
-                    friend_perception_type: this.perceptionType,
-                    friend_thinking_level: this.thinkingLevel
-                })
-            });
-            const result = await response.json();
-            if (result.success && result.activated) {
-                try { localStorage.removeItem('fredi_mirror_ref'); } catch(e){}
-                console.log('🪞 Зеркало активировано:', mirrorCode);
-            } else {
-                console.warn('🪞 Зеркало не активировано (возможно уже использовано):', mirrorCode, result);
-            }
-        } catch(e) {
-            console.warn('⚠️ Ошибка активации зеркала:', e);
-            // НЕ удаляем mirror_ref — retry при следующем открытии
+    const mirrorCode = this.getMirrorCode();
+    if (!mirrorCode) return;
+    
+    // ✅ Убираем префикс 'mirror_' если есть
+    const cleanCode = mirrorCode.replace(/^mirror_/, '');
+    
+    try {
+        const vectors = {
+            'СБ': profile.sbLevel || 3,
+            'ТФ': profile.tfLevel || 3,
+            'УБ': profile.ubLevel || 3,
+            'ЧВ': profile.chvLevel || 3
+        };
+        
+        // ✅ Отправляем cleanCode (БЕЗ префикса mirror_)
+        const response = await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mirror_code: cleanCode,  // ← БЕЗ mirror_!
+                friend_user_id: this.userId,
+                friend_name: this.context?.name || localStorage.getItem('fredi_user_name') || 'Друг',
+                friend_profile_code: profile?.displayName || null,
+                friend_vectors: vectors,
+                friend_deep_patterns: deep || {},
+                friend_ai_profile: this.aiGeneratedProfile || '',
+                friend_perception_type: this.perceptionType,
+                friend_thinking_level: this.thinkingLevel
+            })
+        });
+        
+        const result = await response.json();
+        console.log('🪞 Mirror complete response:', result);
+        
+        if (result.success && result.activated) {
+            localStorage.removeItem('fredi_mirror_ref');
+            console.log('🪞 Зеркало активировано:', cleanCode);
+        } else {
+            console.warn('🪞 Зеркало не активировано:', result);
         }
-    },
-
-    _aiProfileRetries: 0,
+    } catch(e) {
+        console.error('⚠️ Ошибка активации зеркала:', e);
+    }
+}
 
     async fetchAIGeneratedProfile() {
         if (!this.userId) { this.showFinalProfileButtons(); return; }
