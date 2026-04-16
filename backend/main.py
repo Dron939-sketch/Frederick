@@ -4490,6 +4490,87 @@ async def generate_4f_keys(mirror_code: str):
         logger.error(f"Ошибка генерации 4F ключей: {e}")
         return {"success": False, "error": str(e)}
 
+@app.get("/api/mirrors/{mirror_code}/brief-profile")
+async def generate_brief_profile(mirror_code: str):
+    """Генерирует краткое описание профиля друга от третьего лица"""
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT friend_name, friend_vectors, friend_deep_patterns,
+                       friend_profile_code, friend_perception_type, 
+                       friend_thinking_level, brief_profile_cache
+                FROM fredi_mirrors WHERE mirror_code = $1 AND status = 'used'
+            """, mirror_code)
+        
+        if not row:
+            return {"success": False, "error": "Зеркало не найдено или ещё не активировано"}
+        
+        # Проверяем кэш
+        if row.get('brief_profile_cache'):
+            return {"success": True, "brief_profile": row['brief_profile_cache'], "cached": True}
+        
+        friend_data = dict(row)
+        if isinstance(friend_data.get('friend_vectors'), str):
+            friend_data['friend_vectors'] = json.loads(friend_data['friend_vectors'])
+        if isinstance(friend_data.get('friend_deep_patterns'), str):
+            friend_data['friend_deep_patterns'] = json.loads(friend_data['friend_deep_patterns'])
+        
+        name = friend_data.get('friend_name', 'Пользователь')
+        vectors = friend_data.get('friend_vectors', {})
+        sb = round(vectors.get('СБ', 4))
+        tf = round(vectors.get('ТФ', 4))
+        ub = round(vectors.get('УБ', 4))
+        chv = round(vectors.get('ЧВ', 4))
+        
+        # Определяем пол (если есть в контексте, иначе по имени)
+        gender = "Он"
+        if name.endswith('а') or name.endswith('я'):
+            gender = "Она"
+        
+        prompt = f"""Ты — психолог Фреди. Напиши КРАТКИЙ портрет человека (3-4 предложения) от третьего лица.
+
+Данные:
+- Имя: {name}
+- Пол: {gender}
+- Векторы: СБ={sb}/6, ТФ={tf}/6, УБ={ub}/6, ЧВ={chv}/6
+- Тип восприятия: {friend_data.get('friend_perception_type', 'не определён')}
+- Уровень мышления: {friend_data.get('friend_thinking_level', 5)}/9
+
+ПРАВИЛА:
+- Пиши от третьего лица ({gender})
+- Только 3-4 предложения
+- Без приветствий и подписей
+- Без эмодзи
+- Просто факты о личности
+
+Пример для мужчины:
+«Андрей — человек действия. Он ценит конкретные результаты и четкие инструкции. Его сильная сторона — уверенность в конфликтах и аналитическое мышление.»
+
+Пример для женщины:
+«Екатерина — человек отношений. Она тонко чувствует эмоции других и умеет создавать гармонию. Её сильная сторона — эмпатия и умение договариваться.»"""
+
+        response = await ai_service._call_deepseek(
+            system_prompt="Ты психолог. Пиши кратко, по делу, от третьего лица. Без лишних слов.",
+            user_prompt=prompt,
+            max_tokens=300,
+            temperature=0.7
+        )
+        
+        brief_profile = response.strip()
+        
+        # Сохраняем в кэш
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                UPDATE fredi_mirrors SET brief_profile_cache = $1
+                WHERE mirror_code = $2
+            """, brief_profile, mirror_code)
+        
+        return {"success": True, "brief_profile": brief_profile, "cached": False}
+        
+    except Exception as e:
+        logger.error(f"Ошибка генерации краткого профиля: {e}")
+        return {"success": False, "error": str(e)}
+
 
 async def _force_lifespan():
     global _lifespan_started
