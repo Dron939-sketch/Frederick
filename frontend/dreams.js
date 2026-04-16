@@ -248,10 +248,13 @@ function _drInitVoiceButton() {
             try { window.voiceManager.stopRecording(); } catch(e) {}
         }
         isRecording = false;
-        // Restore original transcript handler
-        if (savedOnTranscript !== null && window.voiceManager) {
-            window.voiceManager.onTranscript = savedOnTranscript;
-            savedOnTranscript = null;
+        // Restore original transcript handler and sttOnly mode
+        if (window.voiceManager) {
+            window.voiceManager.sttOnly = false;
+            if (savedOnTranscript !== null) {
+                window.voiceManager.onTranscript = savedOnTranscript;
+                savedOnTranscript = null;
+            }
         }
     };
 
@@ -272,7 +275,8 @@ function _drInitVoiceButton() {
             if (icon) icon.textContent = '⏹️';
             isRecording = true;
 
-            // Override transcript handler to pipe text into textarea
+            // STT-only mode: только распознавание речи, без AI ответа
+            window.voiceManager.sttOnly = true;
             savedOnTranscript = window.voiceManager.onTranscript;
             window.voiceManager.onTranscript = (text) => {
                 const input = document.getElementById('dreamTextInput');
@@ -309,11 +313,14 @@ function _drInitVoiceButton() {
         if (watchdog) { clearTimeout(watchdog); watchdog = null; }
         if (isRecording && window.voiceManager) {
             window.voiceManager.stopRecording();
-            // Restore transcript handler after a short delay (let last transcript arrive)
+            // Restore transcript handler + sttOnly after a short delay
             setTimeout(() => {
-                if (savedOnTranscript !== null && window.voiceManager) {
-                    window.voiceManager.onTranscript = savedOnTranscript;
-                    savedOnTranscript = null;
+                if (window.voiceManager) {
+                    window.voiceManager.sttOnly = false;
+                    if (savedOnTranscript !== null) {
+                        window.voiceManager.onTranscript = savedOnTranscript;
+                        savedOnTranscript = null;
+                    }
                 }
             }, 2000);
         }
