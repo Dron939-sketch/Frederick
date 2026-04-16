@@ -2974,7 +2974,7 @@ async def send_message(request: Request, chat_id: int):
         return {"success": False, "error": str(e)}
 
 
-@app.put("/api/chats/{chat_id}/read")
+@app.post("/api/chats/{chat_id}/read")
 @limiter.limit("30/minute")
 async def mark_chat_read(request: Request, chat_id: int):
     """Mark all messages in a chat as read."""
