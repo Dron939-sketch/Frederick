@@ -872,37 +872,58 @@ function renderAnchorsList(anchors) {
         return `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 64px; margin-bottom: 16px;">⚓</div>
-                <h3>У вас пока нет якорей</h3>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Создайте первый якорь — и вы сможете вызывать нужное состояние в любой момент</p>
-                <button class="an-tab active" data-view="create" style="padding: 12px 24px;">➕ Создать первый якорь</button>
+                <h3>У вас пока нет ресурсов</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Создайте инструкцию, программу или закажите медиа-якорь</p>
+                <button class="an-tab active" data-view="create" style="padding: 12px 24px;">➕ Создать</button>
             </div>
         `;
     }
-    
-    return `
-        <div class="anchors-stats" style="margin-bottom: 20px; display: flex; gap: 16px;">
-            <div style="background: rgba(224,224,224,0.05); border-radius: 12px; padding: 12px 20px;">
-                <div style="font-size: 28px; font-weight: 700;">${anchors.length}</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">всего якорей</div>
-            </div>
-            <div style="background: rgba(224,224,224,0.05); border-radius: 12px; padding: 12px 20px;">
-                <div style="font-size: 28px; font-weight: 700;">${anchors.filter(a => a.uses > 0).length}</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">использованных</div>
-            </div>
-        </div>
-        ${anchors.map(anchor => `
+
+    // Группировка по типам
+    const instructions = anchors.filter(a => a.type === 'instruction');
+    const programs = anchors.filter(a => a.type === 'program');
+    const mediaOrders = anchors.filter(a => a.type === 'media_order');
+    const regularAnchors = anchors.filter(a => !a.type || a.type === 'anchor');
+
+    const stats = [
+        { count: anchors.length, label: 'всего' },
+        { count: instructions.length, label: 'инструкций' },
+        { count: anchors.filter(a => a.uses > 0).length, label: 'использовано' }
+    ];
+
+    function renderCard(anchor) {
+        const typeBadge = anchor.type && ANCHORS_CONFIG.saveable_types[anchor.type]
+            ? `<span style="font-size:9px;padding:2px 8px;border-radius:20px;background:rgba(224,224,224,0.08);border:1px solid rgba(224,224,224,0.1);color:var(--text-secondary);margin-left:8px;">${ANCHORS_CONFIG.saveable_types[anchor.type].icon} ${ANCHORS_CONFIG.saveable_types[anchor.type].name.replace(/^.+\s/, '')}</span>`
+            : '';
+        const stimuli = anchor.recommended_stimuli ? (() => { try { return JSON.parse(anchor.recommended_stimuli); } catch { return []; } })() : [];
+        const stimuliText = stimuli.length ? `<div style="font-size:10px;color:var(--text-secondary);margin-top:6px;">🔧 Стимулы: ${stimuli.join(', ')}</div>` : '';
+
+        return `
             <div class="anchor-card" data-id="${anchor.id}">
                 <div class="anchor-name">
                     <span>${anchor.icon || '⚓'}</span>
                     <span>${anchor.name}</span>
+                    ${typeBadge}
                 </div>
+                <div style="font-size:12px;color:var(--text-secondary);margin:4px 0;">${ANCHORS_CONFIG.states[anchor.state]?.name || anchor.state} · ${ANCHORS_CONFIG.modalities[anchor.modality]?.name || anchor.modality}</div>
+                ${stimuliText}
                 <div class="anchor-actions">
-                    <button class="anchor-btn fire-btn" onclick="fireAnchor('${anchor.id}', '${anchor.name.replace(/'/g, "\\'")}')">🔥 Активировать</button>
-                    <button class="anchor-btn delete-btn" onclick="deleteAnchorConfirm('${anchor.id}')">🗑️ Удалить</button>
+                    <button class="anchor-btn fire-btn" onclick="fireAnchor('${anchor.id}', '${(anchor.name||'').replace(/'/g, "\\'")}')">🔥 Активировать</button>
+                    ${anchor.instruction_steps ? `<button class="anchor-btn delete-btn" onclick="showInstructionDetail('${anchor.id}')">📝 Инструкция</button>` : ''}
+                    <button class="anchor-btn delete-btn" onclick="deleteAnchorConfirm('${anchor.id}')">🗑️</button>
                 </div>
-                ${anchor.uses ? `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">✅ использовано ${anchor.uses} раз</div>` : ''}
-            </div>
-        `).join('')}
+                ${anchor.uses ? `<div style="font-size:10px;color:var(--text-secondary);margin-top:6px;">✅ использовано ${anchor.uses} раз</div>` : ''}
+            </div>`;
+    }
+
+    return `
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+            ${stats.map(s => `<div style="background:rgba(224,224,224,0.05);border-radius:12px;padding:10px 16px;flex:1;min-width:80px;text-align:center;">
+                <div style="font-size:22px;font-weight:700;">${s.count}</div>
+                <div style="font-size:10px;color:var(--text-secondary);">${s.label}</div>
+            </div>`).join('')}
+        </div>
+        ${anchors.map(renderCard).join('')}
     `;
 }
 
@@ -1131,14 +1152,21 @@ function renderConstructor() {
         return renderAnchorWizard();
     }
 
+    // Конструктор — для создания якоря из ВНЕШНИХ источников
+    // (когда у пользователя нет собственного опыта этого состояния)
+    const externalSources = ['movie', 'music', 'metaphor', 'body', 'other'];
+
     return `
-        <div style="margin-bottom: 20px;">
-            <p>🎬 Конструируем состояние, которого нет в опыте</p>
+        <div style="margin-bottom: 16px;">
+            <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
+                🎬 <strong>Конструктор</strong> — создайте якорь из внешнего источника, когда у вас нет собственного опыта нужного состояния.
+            </p>
         </div>
 
         <div class="wizard-options">
-            ${Object.entries(ANCHORS_CONFIG.sources).map(([key, source]) => `
-                <div class="wizard-option" onclick="constructorSelectSource('${key}')">
+            ${externalSources.map(key => {
+                const source = ANCHORS_CONFIG.sources[key];
+                return `<div class="wizard-option" onclick="constructorSelectSource('${key}')">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <span style="font-size: 24px;">${source.icon}</span>
                         <div>
@@ -1146,11 +1174,17 @@ function renderConstructor() {
                             <div style="font-size: 12px; color: var(--text-secondary);">${source.desc}</div>
                         </div>
                     </div>
-                </div>
-            `).join('')}
+                </div>`;
+            }).join('')}
         </div>
 
         <div id="constructorContent"></div>
+
+        <div style="margin-top:20px;padding:12px;background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.06);border-radius:12px;">
+            <p style="font-size:11px;color:var(--text-secondary);line-height:1.6;">
+                💡 <strong>Совет:</strong> Если у вас есть собственный опыт нужного состояния — используйте вкладку «Создать» для создания якоря из вашей памяти.
+            </p>
+        </div>
     `;
 }
 
@@ -1249,6 +1283,59 @@ window.fireAnchor = async (anchorId, anchorName) => {
     }
     await loadUserAnchors();
     showAnchorsScreen();
+};
+
+window.showInstructionDetail = (anchorId) => {
+    const anchor = userAnchors.find(a => String(a.id) === String(anchorId));
+    if (!anchor) return;
+    let steps = [];
+    try { steps = JSON.parse(anchor.instruction_steps || '[]'); } catch {}
+    let stimuli = [];
+    try { stimuli = JSON.parse(anchor.recommended_stimuli || '[]'); } catch {}
+    let program = null;
+    try { program = JSON.parse(anchor.program_json || 'null'); } catch {}
+
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+    _anInjectStyles();
+    container.innerHTML = `
+        <div class="full-content-page">
+            <button class="back-btn" id="instrBack">◀️ НАЗАД</button>
+            <div class="content-header">
+                <div class="content-emoji">${anchor.icon || '📝'}</div>
+                <h1 class="content-title">${anchor.name}</h1>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">${ANCHORS_CONFIG.states[anchor.state]?.name || anchor.state} · ${anchor.trigger || ''}</p>
+            </div>
+
+            ${steps.length ? `
+            <div style="background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.08);border-radius:16px;padding:16px;margin-bottom:16px;">
+                <h4 style="margin-bottom:8px;">📝 Инструкция</h4>
+                <ol style="margin-left:20px;line-height:1.8;font-size:13px;">
+                    ${steps.map(s => `<li>${s.replace(/^\d+\.\s*/, '')}</li>`).join('')}
+                </ol>
+            </div>` : ''}
+
+            ${stimuli.length ? `
+            <div style="background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.08);border-radius:16px;padding:16px;margin-bottom:16px;">
+                <h4 style="margin-bottom:8px;">🔧 Рекомендуемые стимулы</h4>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    ${stimuli.map(s => {
+                        const info = Object.values(ANCHORS_CONFIG.physical_stimuli).find(p => p.name === s);
+                        return `<span style="background:rgba(224,224,224,0.06);border:1px solid rgba(224,224,224,0.1);border-radius:20px;padding:4px 12px;font-size:11px;">${info?.icon || '🔧'} ${s}</span>`;
+                    }).join('')}
+                </div>
+            </div>` : ''}
+
+            ${program ? `
+            <div style="background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.08);border-radius:16px;padding:16px;margin-bottom:16px;">
+                <h4 style="margin-bottom:8px;">⚙️ Программа</h4>
+                <div style="font-family:monospace;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;">${JSON.stringify(program.steps, null, 2)}</div>
+            </div>` : ''}
+
+            <button class="anchor-btn fire-btn" style="width:100%;margin-top:12px;" onclick="fireAnchor('${anchor.id}', '${(anchor.name||'').replace(/'/g, "\\'")}')">🔥 Активировать якорь</button>
+        </div>
+    `;
+    document.getElementById('instrBack').onclick = () => showAnchorsScreen();
 };
 
 window.deleteAnchorConfirm = async (anchorId) => {
