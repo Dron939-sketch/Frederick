@@ -4331,6 +4331,22 @@ async def complete_mirror(request: Request):
         return {"success": False, "error": str(e)}
 
 
+# ============================================
+# 🪞 ЗЕРКАЛА — ДОПОЛНИТЕЛЬНЫЙ ЭНДПОИНТ
+# ============================================
+
+@app.post("/api/mirrors/{mirror_code}/complete")
+async def complete_mirror_by_url(mirror_code: str, request: Request):
+    """Альтернативный эндпоинт с mirror_code в URL (для совместимости с test.js)"""
+    try:
+        data = await request.json()
+        data["mirror_code"] = mirror_code
+        # Вызываем существующую функцию complete_mirror
+        return await complete_mirror(request)
+    except Exception as e:
+        logger.error(f"Ошибка в complete_mirror_by_url: {e}")
+        return {"success": False, "error": str(e)}
+
 def _build_profile_context(friend_data: dict) -> str:
     vectors = friend_data.get('friend_vectors') or {}
     deep = friend_data.get('friend_deep_patterns') or {}
