@@ -1,6 +1,6 @@
 // ============================================
 // МОДУЛЬ: БИБЛИОТЕКА СОСТОЯНИЙ
-// Версия: 4.0 — с AI-персонализацией, комбинациями векторов и вау-эффектом
+// Версия: 4.1 — с AI-персонализацией, комбинациями векторов и вау-эффектом
 // ============================================
 
 // ============================================
@@ -1274,6 +1274,11 @@ async function showAnchorsScreen() {
     
     document.querySelectorAll('.an-tab').forEach(tab => {
         tab.addEventListener('click', async () => {
+            if (anchorWizardStep > 0 && tab.dataset.view !== currentAnchorView) {
+                if (!confirm('Вы не завершили создание инструкции. Данные будут потеряны. Продолжить?')) {
+                    return;
+                }
+            }
             currentAnchorView = tab.dataset.view;
             anchorWizardStep = 0;
             anchorWizardData = {};
@@ -1724,8 +1729,11 @@ window.anchorWizardNext = () => {
 
 window.anchorWizardSaveTrigger = () => {
     const triggerInput = document.getElementById('triggerInput');
+    console.log('🔍 Сохраняем триггер:', triggerInput?.value);
+
     if (triggerInput && triggerInput.value.trim()) {
         anchorWizardData.trigger = triggerInput.value.trim();
+        console.log('✅ Триггер сохранён:', anchorWizardData.trigger);
         anchorWizardStep = 3;
         showAnchorsScreen();
     } else {
@@ -1744,7 +1752,9 @@ window.anchorWizardComplete = async () => {
     }
     
     if (!anchorWizardData.trigger?.trim()) {
-        _anShowToast('❌ Не указан триггер', 'error');
+        _anShowToast('❌ Не указан триггер. Вернитесь на шаг 2', 'error');
+        anchorWizardStep = 2;
+        showAnchorsScreen();
         return;
     }
     
@@ -1818,7 +1828,7 @@ window.constructorSelectSource = (source) => {
 };
 
 window.constructorUseMovie = (movie) => {
-    anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: movie === 'gladiator' ? 'Гладиатор — сцена перед битвой' : (movie === 'amelie' ? 'Амели — момент радости' : 'Матрица — «Я знаю кунг-фу»'), modality: 'visual' };
+    anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: movie === 'gladiator' ? 'Гладиатор — сцена перед битвой' : (movie === 'amelie' ? 'Амели — момент радости' : 'Матрица — «Я знаю кунг-фу»'), modality: 'visual', trigger: null, name: null };
     anchorWizardStep = 2;
     showAnchorsScreen();
 };
@@ -1826,7 +1836,7 @@ window.constructorUseMovie = (movie) => {
 window.constructorCreateFromMovie = () => {
     const custom = document.getElementById('customMovie')?.value;
     if (custom) {
-        anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: custom, modality: 'visual' };
+        anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: custom, modality: 'visual', trigger: null, name: null };
         anchorWizardStep = 2;
         showAnchorsScreen();
     } else {
@@ -1835,7 +1845,7 @@ window.constructorCreateFromMovie = () => {
 };
 
 window.constructorUseMusic = (music) => {
-    anchorWizardData = { state: 'calm', source: 'music', sourceDetail: music === 'hans' ? 'Hans Zimmer — Time' : 'Epic orchestral music', modality: 'auditory' };
+    anchorWizardData = { state: 'calm', source: 'music', sourceDetail: music === 'hans' ? 'Hans Zimmer — Time' : 'Epic orchestral music', modality: 'auditory', trigger: null, name: null };
     anchorWizardStep = 2;
     showAnchorsScreen();
 };
@@ -1843,7 +1853,7 @@ window.constructorUseMusic = (music) => {
 window.constructorCreateFromMusic = () => {
     const custom = document.getElementById('customMusic')?.value;
     if (custom) {
-        anchorWizardData = { state: 'calm', source: 'music', sourceDetail: custom, modality: 'auditory' };
+        anchorWizardData = { state: 'calm', source: 'music', sourceDetail: custom, modality: 'auditory', trigger: null, name: null };
         anchorWizardStep = 2;
         showAnchorsScreen();
     } else {
@@ -1852,7 +1862,7 @@ window.constructorCreateFromMusic = () => {
 };
 
 window.constructorUseMetaphor = (metaphor) => {
-    anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: metaphor === 'rock' ? 'Я — скала, которую не может сдвинуть ветер' : 'Я — океан, могучий и глубокий', modality: 'visual' };
+    anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: metaphor === 'rock' ? 'Я — скала, которую не может сдвинуть ветер' : 'Я — океан, могучий и глубокий', modality: 'visual', trigger: null, name: null };
     anchorWizardStep = 2;
     showAnchorsScreen();
 };
@@ -1860,7 +1870,7 @@ window.constructorUseMetaphor = (metaphor) => {
 window.constructorCreateFromMetaphor = () => {
     const custom = document.getElementById('customMetaphor')?.value;
     if (custom) {
-        anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: custom, modality: 'visual' };
+        anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: custom, modality: 'visual', trigger: null, name: null };
         anchorWizardStep = 2;
         showAnchorsScreen();
     } else {
@@ -1869,7 +1879,7 @@ window.constructorCreateFromMetaphor = () => {
 };
 
 window.constructorUseBody = (practice) => {
-    anchorWizardData = { state: 'calm', source: 'body', sourceDetail: practice === 'breath' ? 'Дыхание: вдох 4 — задержка 4 — выдох 6' : 'Поза супермена: руки в боки, плечи назад', modality: 'kinesthetic' };
+    anchorWizardData = { state: 'calm', source: 'body', sourceDetail: practice === 'breath' ? 'Дыхание: вдох 4 — задержка 4 — выдох 6' : 'Поза супермена: руки в боки, плечи назад', modality: 'kinesthetic', trigger: null, name: null };
     anchorWizardStep = 2;
     showAnchorsScreen();
 };
@@ -1877,7 +1887,7 @@ window.constructorUseBody = (practice) => {
 window.constructorCreateFromBody = () => {
     const custom = document.getElementById('customBody')?.value;
     if (custom) {
-        anchorWizardData = { state: 'calm', source: 'body', sourceDetail: custom, modality: 'kinesthetic' };
+        anchorWizardData = { state: 'calm', source: 'body', sourceDetail: custom, modality: 'kinesthetic', trigger: null, name: null };
         anchorWizardStep = 2;
         showAnchorsScreen();
     } else {
@@ -1888,7 +1898,7 @@ window.constructorCreateFromBody = () => {
 window.constructorCreateFromOther = () => {
     const custom = document.getElementById('otherSource')?.value;
     if (custom) {
-        anchorWizardData = { state: 'confidence', source: 'other', sourceDetail: custom, modality: 'auditory' };
+        anchorWizardData = { state: 'confidence', source: 'other', sourceDetail: custom, modality: 'auditory', trigger: null, name: null };
         anchorWizardStep = 2;
         showAnchorsScreen();
     } else {
