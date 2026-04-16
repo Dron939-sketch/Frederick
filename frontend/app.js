@@ -1353,6 +1353,7 @@ async function initVoice() {
     };
 
     voiceManager.setMode(currentMode);
+    window.voiceManager = voiceManager;
     console.log('✅ VoiceManager инициализирован');
     return true;
 }
