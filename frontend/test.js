@@ -858,20 +858,19 @@ const Test = {
         return null;
     },
 
-    getMirrorCode() {
-    const ref = new URLSearchParams(window.location.search).get('ref');
-    if (ref && ref.startsWith('mirror_')) {
-        // ✅ Сохраняем БЕЗ префикса
-        const cleanCode = ref.replace(/^mirror_/, '');
-        localStorage.setItem('fredi_mirror_ref', cleanCode);
-        return cleanCode;
+        getMirrorCode() {
+        const ref = new URLSearchParams(window.location.search).get('ref');
+        if (ref && ref.startsWith('mirror_')) {
+            const cleanCode = ref.replace(/^mirror_/, '');
+            localStorage.setItem('fredi_mirror_ref', cleanCode);
+            return cleanCode;
+        }
+        const stored = localStorage.getItem('fredi_mirror_ref');
+        if (stored) {
+            return stored.replace(/^mirror_/, '');
+        }
+        return null;
     },
-    const stored = localStorage.getItem('fredi_mirror_ref');
-    if (stored) {
-        return stored.replace(/^mirror_/, '');
-    }
-    return null;
-}
 
     // ============================================
     // ИНИЦИАЛИЗАЦИЯ
