@@ -4586,6 +4586,19 @@ async def _force_lifespan():
     except Exception as e:
         logger.error(f"❌ Ошибка при запуске lifespan: {e}")
 
+
+@app.post("/api/ai/generate")
+async def ai_generate(request: Request):
+    data = await request.json()
+    prompt = data.get("prompt")
+    user_id = data.get("user_id")
+    max_tokens = data.get("max_tokens", 200)
+    temperature = data.get("temperature", 0.7)
+    
+    # Вызов AI сервиса
+    response = await ai_service.generate(prompt, max_tokens, temperature)
+    return {"success": True, "content": response}
+
 if __name__ != "__main__":
     try:
         loop = asyncio.get_event_loop()
