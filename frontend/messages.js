@@ -512,9 +512,12 @@ function _msEsc(text) {
 async function _msFetch(endpoint, opts = {}) {
     const url = endpoint.startsWith('http') ? endpoint : _msApi() + endpoint;
     const uid = _msUserId();
-    const r = await fetch(url, {
+    // Добавляем user_id в query string вместо кастомного заголовка (CORS preflight)
+    const sep = url.includes('?') ? '&' : '?';
+    const urlWithUid = url + sep + 'user_id=' + uid;
+    const r = await fetch(urlWithUid, {
         ...opts,
-        headers: { 'Content-Type': 'application/json', 'X-User-Id': String(uid), ...opts.headers }
+        headers: { 'Content-Type': 'application/json', ...opts.headers }
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
