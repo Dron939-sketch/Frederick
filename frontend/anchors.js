@@ -1825,34 +1825,194 @@ window.anchorWizardComplete = async () => {
     if (nameInput && nameInput.value.trim()) {
         anchorWizardData.name = nameInput.value.trim();
     }
-    
+
     if (!anchorWizardData.name) {
         anchorWizardData.name = `${ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state} (${ANCHORS_CONFIG.sources[anchorWizardData.source]?.name || anchorWizardData.source})`;
     }
-    
+
     if (!anchorWizardData.trigger?.trim()) {
         _anShowToast('❌ Не указан триггер. Вернитесь на шаг 2', 'error');
         anchorWizardStep = 2;
         showAnchorsScreen();
         return;
     }
-    
+
     const customStimulus = document.getElementById('customStimulus')?.value.trim();
     if (customStimulus) {
         selectedStimuli.push(customStimulus);
     }
-    
-    const steps = [
-        `Найдите спокойное место, где вас никто не побеспокоит`,
-        `Сделайте 3 глубоких вдоха и выдоха`,
-        `Вспомните ситуацию, когда вы чувствовали ${ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state}`,
-        `Доведите это ощущение до пика (30-60 секунд)`,
-        `В момент пика сделайте триггер: "${anchorWizardData.trigger}"`,
-        `Сбросьте состояние (встаньте, отвлекитесь)`,
-        `Повторите шаги 3-6 ещё 4-5 раз для закрепления`,
-        `Проверьте: активируйте триггер — должно приходить состояние`
-    ];
-    
+
+    // ========== AI-ГЕНЕРАЦИЯ ИНСТРУКЦИИ ==========
+    let steps = [];
+    let instructionDescription = '';
+
+    try {
+        let prompt = '';
+        const userName = localStorage.getItem('fredi_user_name') || 'Пользователь';
+        const stateName = ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state;
+
+        switch (anchorWizardData.source) {
+            case 'movie':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе фильма.
+
+ИНФОРМАЦИЯ:
+- Фильм/сцена: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Каждый шаг — одно предложение
+3. Укажи конкретный момент в фильме (временную метку или описание сцены)
+4. Объясни, как войти в состояние
+5. Объясни, когда именно активировать триггер (в момент пика)
+6. Добавь шаг на сброс состояния
+7. Добавь шаг на проверку якоря
+8. Пиши на русском, обращайся на "ты"
+9. Не используй эмодзи, только текст
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            case 'music':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе музыки.
+
+ИНФОРМАЦИЯ:
+- Трек: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Укажи, что лучше использовать наушники
+3. Укажи момент трека, где наступает пик эмоций
+4. Объясни, когда именно активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            case 'metaphor':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе метафоры.
+
+ИНФОРМАЦИЯ:
+- Метафора: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Опиши, как визуализировать метафору
+3. Добавь работу с телом (ощущения)
+4. Объясни, когда активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            case 'body':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе телесной практики.
+
+ИНФОРМАЦИЯ:
+- Практика: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Опиши конкретные движения или позы
+3. Объясни, какие ощущения должны возникнуть
+4. Объясни, когда активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            default:
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе личного воспоминания.
+
+ИНФОРМАЦИЯ:
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Объясни, как найти подходящее воспоминание
+3. Объясни, как усилить ощущение до пика
+4. Объясни, когда активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+        }
+
+        const response = await apiCall('/api/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: CONFIG.USER_ID,
+                prompt: prompt,
+                max_tokens: 800,
+                temperature: 0.8
+            })
+        });
+
+        if (response.success && response.content) {
+            const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const data = JSON.parse(jsonMatch[0]);
+                steps = data.steps;
+                instructionDescription = data.description || '';
+                console.log('✅ AI-инструкция сгенерирована', steps);
+            } else {
+                throw new Error('No JSON in response');
+            }
+        } else {
+            throw new Error('AI generation failed');
+        }
+
+    } catch (error) {
+        console.warn('AI generation failed, using fallback:', error);
+        const stateName = ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state;
+        steps = [
+            `Найдите спокойное место, где вас никто не побеспокоит`,
+            `Сделайте 3 глубоких вдоха и выдоха`,
+            `Вспомните ситуацию, когда вы чувствовали ${stateName}`,
+            `Доведите это ощущение до пика (30-60 секунд)`,
+            `В момент пика сделайте триггер: "${anchorWizardData.trigger}"`,
+            `Сбросьте состояние (встаньте, отвлекитесь)`,
+            `Повторите шаги 3-6 ещё 4-5 раз для закрепления`,
+            `Проверьте: активируйте триггер — должно приходить состояние`
+        ];
+    }
+
     const anchorToSave = {
         user_id: CONFIG.USER_ID,
         name: anchorWizardData.name,
@@ -1868,7 +2028,7 @@ window.anchorWizardComplete = async () => {
         instruction_steps: JSON.stringify(steps),
         recommended_stimuli: JSON.stringify(selectedStimuli)
     };
-    
+
     const success = await saveAnchor(anchorToSave);
     if (success) {
         _anShowToast('✅ Инструкция успешно создана!', 'success');
