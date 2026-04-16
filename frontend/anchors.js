@@ -1,6 +1,6 @@
 // ============================================
 // МОДУЛЬ: БИБЛИОТЕКА СОСТОЯНИЙ
-// Версия: 3.0 — с guided-активацией, PDF и физическими стимулами
+// Версия: 4.0 — с AI-персонализацией, комбинациями векторов и вау-эффектом
 // ============================================
 
 // ============================================
@@ -8,6 +8,8 @@
 // ============================================
 
 const ANCHORS_CONFIG = {
+    VECTORS: ['СБ', 'ТФ', 'УБ', 'ЧВ'],
+    
     modalities: {
         visual: { name: 'Визуальный', icon: '👁️', desc: 'Жест, символ, образ' },
         auditory: { name: 'Аудиальный', icon: '🔊', desc: 'Слово, звук, фраза' },
@@ -43,43 +45,179 @@ const ANCHORS_CONFIG = {
         other: { name: 'Опыт другого', icon: '👥', desc: 'Эмпатия к герою', requiresFile: false }
     },
 
-    // НОВОЕ: Физические стимулы для вау-эффекта
+    // НОВОЕ: Ситуации и триггеры для персонализации
+    situations: {
+        work: {
+            name: 'Работа',
+            icon: '💼',
+            scenarios: {
+                meeting: 'Перед важным совещанием',
+                presentation: 'Перед публичным выступлением',
+                conflict: 'В конфликте с коллегой',
+                deadline: 'В режиме аврала и дедлайнов'
+            }
+        },
+        relationships: {
+            name: 'Отношения',
+            icon: '💕',
+            scenarios: {
+                date: 'Перед свиданием',
+                family: 'В разговоре с родителями',
+                partner: 'В ссоре с партнёром',
+                friends: 'В компании друзей'
+            }
+        },
+        self: {
+            name: 'Личное состояние',
+            icon: '🧘',
+            scenarios: {
+                morning: 'Утром после пробуждения',
+                evening: 'Вечером перед сном',
+                anxiety: 'В моменте тревоги',
+                decision: 'Перед важным решением'
+            }
+        }
+    },
+
+    // НОВОЕ: Комбинации векторов и их интерпретации
+    vector_combinations: {
+        conflict_avoidance: {
+            condition: (v) => v.СБ <= 2 && v.ЧВ <= 2,
+            name: 'Страх конфликтов',
+            icon: '🛡️',
+            description: 'Вы избегаете конфликтов, потому что боитесь испортить отношения',
+            actions: {
+                work: {
+                    title: 'Техника "Пауза перед ответом"',
+                    description: 'Когда чувствуешь давление, сделай паузу на 3 секунды. За это время ты перестаёшь реагировать автоматически',
+                    trigger: 'сделать паузу и глубокий вдох',
+                    phrase: 'Я выбираю свою реакцию, а не реагирую автоматически'
+                },
+                relationships: {
+                    title: 'Правило "Я-сообщений"',
+                    description: 'Вместо "Ты меня бесишь", скажи "Я чувствую раздражение, когда ты...". Это снижает напряжение',
+                    trigger: 'начать фразу с "Я чувствую"',
+                    phrase: 'Мои чувства имеют значение, я могу их выражать'
+                },
+                self: {
+                    title: 'Ежедневный контейнер для эмоций',
+                    description: 'Каждый вечер записывай 3 вещи, которые вызвали эмоции. Просто выгружай, не анализируй',
+                    trigger: 'открыть дневник',
+                    phrase: 'Я разрешаю себе чувствовать всё, что приходит'
+                }
+            }
+        },
+        
+        financial_chaos: {
+            condition: (v) => v.ТФ <= 2 && v.УБ <= 2,
+            name: 'Финансовый хаос',
+            icon: '💰',
+            description: 'Деньги приходят и уходят, вы не понимаете, куда и почему',
+            actions: {
+                work: {
+                    title: 'Правило "Одного процента"',
+                    description: 'Откладывай 1% любого дохода. Неважно сколько — 10 рублей или 1000. Важен ритуал',
+                    trigger: 'получить доход → отложить 1%',
+                    phrase: 'Каждая копейка — это шаг к свободе'
+                },
+                self: {
+                    title: 'Трекер "Слепой зоны"',
+                    description: '3 дня записывай ВСЕ траты. Просто записывай, без осуждения. На четвёртый день увидишь паттерны',
+                    trigger: 'совершить покупку → записать',
+                    phrase: 'Я вижу, куда уходят мои деньги. Это первый шаг к контролю'
+                }
+            }
+        },
+        
+        analytical_coldness: {
+            condition: (v) => v.УБ >= 5 && v.ЧВ <= 2,
+            name: 'Холодный аналитик',
+            icon: '🧊',
+            description: 'Вы всё анализируете, но людям с вами может быть неуютно',
+            actions: {
+                relationships: {
+                    title: 'Правило "Трёх вопросов"',
+                    description: 'В разговоре задай 3 вопроса о чувствах собеседника: "Как ты? Что чувствуешь? Что для тебя важно?"',
+                    trigger: 'начать разговор',
+                    phrase: 'Я учусь замечать эмоции других'
+                },
+                self: {
+                    title: 'Дневник "Одно чувство в день"',
+                    description: 'Каждый день записывай ОДНО чувство, которое испытал. Не анализируй почему — просто назови',
+                    trigger: 'вечером перед сном',
+                    phrase: 'Мои чувства — это тоже данные, важные и ценные'
+                }
+            }
+        },
+        
+        burnout: {
+            condition: (v) => v.СБ <= 2 && v.ТФ <= 2 && v.УБ <= 2 && v.ЧВ <= 2,
+            name: 'Эмоциональное выгорание',
+            icon: '🔥',
+            description: 'Вы истощены, вам ничего не хочется, силы на исходе',
+            actions: {
+                self: {
+                    title: 'Правило "5 Минут"',
+                    description: 'Делай что угодно, но только 5 минут. Хочешь лежать — лежи ровно 5 минут. Потом вставай',
+                    trigger: 'чувствуешь апатию',
+                    phrase: 'Я могу сделать что угодно, если это всего на 5 минут'
+                }
+            }
+        },
+        
+        leader_empath: {
+            condition: (v) => v.СБ >= 5 && v.ЧВ >= 5,
+            name: 'Лидер-эмпат',
+            icon: '👑',
+            description: 'Вы сильны и чувствительны одновременно. Это редкое сочетание',
+            actions: {
+                work: {
+                    title: 'Техника "Мягкая сила"',
+                    description: 'Перед тем как продавить решение, спроси: "А как ты видишь эту ситуацию?"',
+                    trigger: 'перед важным решением',
+                    phrase: 'Моя сила — в умении слышать и вести'
+                }
+            }
+        }
+    },
+
+    // Физические стимулы
     physical_stimuli: {
         zippo: {
             name: 'Зажигалка Zippo',
             icon: '🔥',
             description: 'Звук открытия крышки + чирканье колесиком',
-            howToUse: 'Достаньте Zippo, откройте крышку — услышьте металлический *клик*. Чиркните колёсиком — почувствуйте искру. Этот звук — якорь мгновенной уверенности.',
+            howToUse: 'Достаньте Zippo, откройте крышку — услышьте металлический *клик*. Чиркните колёсиком — почувствуйте искру.',
             anchorPower: 10,
             bestFor: ['confidence', 'action'],
             price: '≈1000₽',
-            whereToBuy: 'Wildberries, Ozon, табачные магазины'
+            whereToBuy: 'Wildberries, Ozon'
         },
         crystal: {
             name: 'Кристалл (кварц/аметист)',
             icon: '💎',
             description: 'Гладкая прохладная поверхность, вес в руке',
-            howToUse: 'Возьмите кристалл в руку. Почувствуйте его прохладу, гладкость, вес. Это физический якорь спокойствия — пока вы держите кристалл, вы в безопасности.',
+            howToUse: 'Возьмите кристалл в руку. Почувствуйте его прохладу, гладкость, вес.',
             anchorPower: 8,
             bestFor: ['calm', 'grounding', 'focus'],
             price: '300-1500₽',
-            whereToBuy: 'Магазины камней, сувенирные лавки'
+            whereToBuy: 'Магазины камней'
         },
         stressBall: {
-            name: 'Антистресс-игрушка (спиннер/куб/мяч)',
+            name: 'Антистресс-игрушка',
             icon: '🎾',
-            description: 'Мягкое сжатие, упругость, тактильная стимуляция',
-            howToUse: 'Сожмите мяч — почувствуйте сопротивление. Отпустите — расслабьтесь. Это ритм: напряжение → расслабление. Ваше тело запоминает этот паттерн.',
+            description: 'Мягкое сжатие, упругость',
+            howToUse: 'Сожмите мяч — почувствуйте сопротивление. Отпустите — расслабьтесь.',
             anchorPower: 9,
             bestFor: ['calm', 'focus', 'grounding'],
             price: '300-800₽',
-            whereToBuy: 'Магазины канцтоваров, Ozon'
+            whereToBuy: 'Магазины канцтоваров'
         },
         teaCup: {
-            name: 'Чашка с чаем (ритуал)',
+            name: 'Чашка с чаем',
             icon: '🍵',
             description: 'Тепло в руках + аромат + ритуал',
-            howToUse: 'Налейте тёплый чай. Обхватите чашку ладонями. Вдохните аромат. Сделайте маленький глоток. Тепло, идущее в руки, — якорь безопасности.',
+            howToUse: 'Налейте тёплый чай. Обхватите чашку ладонями. Вдохните аромат.',
             anchorPower: 9,
             bestFor: ['calm', 'safety', 'grounding'],
             price: '0-500₽',
@@ -89,17 +227,17 @@ const ANCHORS_CONFIG = {
             name: 'Ручка с кнопкой',
             icon: '✒️',
             description: 'Щелчок кнопки, вращение в пальцах',
-            howToUse: 'Возьмите ручку. Нажмите на кнопку — *щелчок*. Этот звук переключает внимание. Сделайте это перед важной задачей — и войдёте в фокус.',
+            howToUse: 'Возьмите ручку. Нажмите на кнопку — *щелчок*. Этот звук переключает внимание.',
             anchorPower: 7,
             bestFor: ['focus', 'action'],
             price: '50-300₽',
             whereToBuy: 'Любой магазин канцтоваров'
         },
         perfume: {
-            name: 'Парфюм (сигнальный аромат)',
+            name: 'Парфюм',
             icon: '🌸',
             description: 'Запах, который ассоциируется с вашим состоянием',
-            howToUse: 'Выберите аромат для уверенности. Наносите его перед важными встречами. Через неделю запах начнёт автоматически вызывать нужное состояние.',
+            howToUse: 'Выберите аромат для уверенности. Наносите его перед важными встречами.',
             anchorPower: 8,
             bestFor: ['confidence', 'calm', 'love'],
             price: '1000-5000₽',
@@ -109,25 +247,14 @@ const ANCHORS_CONFIG = {
             name: 'Кольцо/браслет',
             icon: '💍',
             description: 'Вращение на пальце, тактильный контакт',
-            howToUse: 'Наденьте кольцо на палец. В моменты тревоги покрутите его. Это движение — якорь спокойствия. Вы носите свою уверенность с собой.',
+            howToUse: 'Наденьте кольцо на палец. В моменты тревоги покрутите его.',
             anchorPower: 8,
             bestFor: ['calm', 'confidence', 'grounding'],
             price: '500-3000₽',
-            whereToBuy: 'Ювелирные магазины, украшения ручной работы'
-        },
-        keychain: {
-            name: 'Брелок (тактильный)',
-            icon: '🔑',
-            description: 'Звон металла, шершавая поверхность',
-            howToUse: 'Повесьте брелок на ключи. В нужный момент позвените им. Этот звук — якорь переключения состояния.',
-            anchorPower: 6,
-            bestFor: ['action', 'focus'],
-            price: '100-500₽',
-            whereToBuy: 'Сувенирные магазины'
+            whereToBuy: 'Ювелирные магазины'
         }
     },
 
-    // НОВОЕ: Типы сохраняемых сущностей
     saveable_types: {
         instruction: {
             id: 'instruction',
@@ -144,14 +271,6 @@ const ANCHORS_CONFIG = {
             icon: '🎧',
             color: '#2196f3',
             badge: 'С голосовым сопровождением'
-        },
-        media_order: {
-            id: 'media_order',
-            name: '🎬 Заказ якоря',
-            description: 'Персональная запись под ваш профиль',
-            icon: '🎬',
-            color: '#ff9800',
-            badge: 'Обработка 1-3 дня'
         }
     }
 };
@@ -273,6 +392,7 @@ let diagnosticResult = null;
 let currentImprint = null;
 let isGuidedMode = false;
 let guidedAudio = null;
+let selectedStimuli = [];
 
 // ============================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -305,133 +425,214 @@ function _anPlayBeep() {
 }
 
 // ============================================
-// ГЕНЕРАЦИЯ PDF ИНСТРУКЦИИ
+// АНАЛИЗ КОМБИНАЦИЙ ВЕКТОРОВ (ДЛЯ ПОДБОРА)
 // ============================================
 
-async function generateInstructionPDF(anchor) {
-    const state = ANCHORS_CONFIG.states[anchor.state];
-    const userName = localStorage.getItem('fredi_user_name') || 'Пользователь';
-    const today = new Date().toLocaleDateString('ru-RU');
+function analyzeVectorCombinations(vectors) {
+    const combinations = [];
     
-    // Получаем рекомендации по стимулам
-    let stimuliHtml = '';
-    if (anchor.recommended_stimuli) {
-        try {
-            const stimuli = JSON.parse(anchor.recommended_stimuli);
-            stimuliHtml = stimuli.map(s => {
-                const stimulus = Object.values(ANCHORS_CONFIG.physical_stimuli).find(p => p.name === s);
-                if (stimulus) {
-                    return `
-                        <div style="margin-bottom: 15px; padding: 10px; background: #f5f5f5; border-radius: 8px;">
-                            <strong>${stimulus.icon} ${stimulus.name}</strong><br>
-                            <span style="color: #666; font-size: 12px;">${stimulus.howToUse}</span><br>
-                            <span style="color: #999; font-size: 11px;">💰 ${stimulus.price} · 🛒 ${stimulus.whereToBuy}</span>
-                        </div>
-                    `;
-                }
-                return `<div style="margin-bottom: 10px;">🔧 ${s}</div>`;
-            }).join('');
-        } catch(e) {}
+    for (const [key, combo] of Object.entries(ANCHORS_CONFIG.vector_combinations)) {
+        if (combo.condition(vectors)) {
+            combinations.push({
+                key: key,
+                ...combo
+            });
+        }
     }
     
-    const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Инструкция: ${anchor.name}</title>
-            <style>
-                body { font-family: 'Arial', sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; line-height: 1.6; }
-                .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid ${state?.color || '#ff6b3b'}; }
-                .header-icon { font-size: 64px; display: block; margin-bottom: 10px; }
-                .header-title { font-size: 28px; font-weight: bold; color: ${state?.color || '#ff6b3b'}; margin-bottom: 5px; }
-                .header-subtitle { color: #666; font-size: 14px; }
-                .section { margin-bottom: 25px; }
-                .section-title { font-size: 18px; font-weight: bold; color: ${state?.color || '#333'}; margin-bottom: 10px; border-left: 3px solid ${state?.color || '#ff6b3b'}; padding-left: 12px; }
-                .step { margin-bottom: 12px; }
-                .step-num { display: inline-block; width: 28px; height: 28px; background: ${state?.color || '#ff6b3b'}; color: white; border-radius: 50%; text-align: center; line-height: 28px; font-weight: bold; margin-right: 10px; }
-                .trigger-box { background: #f0f0f0; padding: 15px; border-radius: 8px; text-align: center; margin: 15px 0; }
-                .trigger-text { font-size: 24px; font-weight: bold; color: ${state?.color || '#ff6b3b'}; font-family: monospace; }
-                .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; font-size: 11px; color: #999; }
-                .qr-code { text-align: center; margin: 20px 0; }
-                .qr-placeholder { width: 120px; height: 120px; background: #f0f0f0; margin: 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 12px; }
-                .affirmation { font-style: italic; color: ${state?.color || '#ff6b3b'}; text-align: center; margin: 20px 0; font-size: 18px; }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <div class="header-icon">${state?.icon || '⚓'}</div>
-                <div class="header-title">${_anEscapeHtml(anchor.name)}</div>
-                <div class="header-subtitle">Персональная инструкция для ${_anEscapeHtml(userName)}</div>
-                <div class="header-subtitle">Создано: ${today}</div>
-            </div>
-            
-            <div class="affirmation">«${state?.affirmation || anchor.phrase || 'Я спокоен и уверен'}»</div>
-            
-            <div class="section">
-                <div class="section-title">🎯 ВАШ ТРИГГЕР</div>
-                <div class="trigger-box">
-                    <div class="trigger-text">«${_anEscapeHtml(anchor.trigger || anchor.phrase)}»</div>
-                    <div style="margin-top: 8px; font-size: 12px;">${ANCHORS_CONFIG.modalities[anchor.modality]?.name || 'Аудиальный'} якорь</div>
-                </div>
-            </div>
-            
-            <div class="section">
-                <div class="section-title">📋 ПОШАГОВАЯ ИНСТРУКЦИЯ</div>
-                ${anchor.instruction_steps ? (() => {
-                    try {
-                        const steps = JSON.parse(anchor.instruction_steps);
-                        return steps.map((step, i) => `
-                            <div class="step">
-                                <span class="step-num">${i+1}</span>
-                                <span>${step}</span>
-                            </div>
-                        `).join('');
-                    } catch(e) { return ''; }
-                })() : `
-                    <div class="step"><span class="step-num">1</span> Найдите спокойное место, где вас никто не побеспокоит</div>
-                    <div class="step"><span class="step-num">2</span> Вспомните ситуацию, когда вы чувствовали ${state?.name.toLowerCase()}</div>
-                    <div class="step"><span class="step-num">3</span> Доведите это ощущение до пика (30-60 секунд)</div>
-                    <div class="step"><span class="step-num">4</span> В момент пика скажите/сделайте: <strong>«${anchor.trigger || anchor.phrase}»</strong></div>
-                    <div class="step"><span class="step-num">5</span> Сбросьте состояние (встаньте, отвлекитесь)</div>
-                    <div class="step"><span class="step-num">6</span> Повторите шаги 2-5 ещё 4-5 раз для закрепления</div>
-                `}
-            </div>
-            
-            ${stimuliHtml ? `
-            <div class="section">
-                <div class="section-title">🔧 РЕКОМЕНДУЕМЫЕ СТИМУЛЫ</div>
-                ${stimuliHtml}
-            </div>
-            ` : ''}
-            
-            <div class="section">
-                <div class="section-title">⚡ СОВЕТ ДЛЯ ЗАКРЕПЛЕНИЯ</div>
-                <p>Практикуйте активацию якоря ежедневно в течение 21 дня. Чем чаще вы используете триггер, тем быстрее состояние становится автоматическим.</p>
-                <p><strong>Лучшее время для практики:</strong> утром после пробуждения и вечером перед сном.</p>
-            </div>
-            
-            <div class="footer">
-                <p>Сгенерировано Фреди — вашим виртуальным психологом</p>
-                <p>Фреди помогает создавать ресурсные состояния и менять жизнь к лучшему</p>
-            </div>
-        </body>
-        </html>
-    `;
+    const severityScore = (v) => {
+        const sum = (v.СБ + v.ТФ + v.УБ + v.ЧВ) / 4;
+        if (sum <= 2) return 3;
+        if (sum <= 3.5) return 2;
+        return 1;
+    };
     
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `instruction_${anchor.name.replace(/[^a-zа-яё]/gi, '_')}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
+    combinations.sort((a, b) => severityScore(vectors) - severityScore(vectors));
     
-    _anShowToast('📄 Инструкция скачана! Откройте в браузере и сохраните как PDF', 'success');
+    return combinations;
+}
+
+function getSeverityLevel(vectors) {
+    const avg = (vectors.СБ + vectors.ТФ + vectors.УБ + vectors.ЧВ) / 4;
+    if (avg <= 2) return 'critical';
+    if (avg <= 3.5) return 'moderate';
+    return 'mild';
+}
+
+function getSeverityText(vectors) {
+    const avg = (vectors.СБ + vectors.ТФ + vectors.УБ + vectors.ЧВ) / 4;
+    if (avg <= 2) return 'Критическое';
+    if (avg <= 3.5) return 'Среднее';
+    return 'Хорошее';
+}
+
+function detectSituationType(vectors, combination) {
+    const hour = new Date().getHours();
+    
+    if (hour < 12) return 'morning';
+    if (hour > 21) return 'evening';
+    
+    if (vectors.СБ <= 2) return 'work';
+    if (vectors.ЧВ <= 2) return 'relationships';
+    
+    return 'self';
+}
+
+function getRecommendedState(combinationKey) {
+    const stateMap = {
+        'conflict_avoidance': 'confidence',
+        'financial_chaos': 'grounding',
+        'analytical_coldness': 'love',
+        'burnout': 'calm',
+        'leader_empath': 'action'
+    };
+    return stateMap[combinationKey] || 'calm';
 }
 
 // ============================================
-// GUIDED-АКТИВАЦИЯ ЯКОРЯ (ВАУ-ЭФФЕКТ!)
+// ГЕНЕРАЦИЯ ПЕРСОНАЛИЗИРОВАННЫХ РЕКОМЕНДАЦИЙ
+// ============================================
+
+async function generatePersonalizedRecommendation(combo, vectors, situationType = 'self') {
+    const situation = ANCHORS_CONFIG.situations[situationType]?.scenarios || {};
+    const actionTemplate = combo.actions?.[situationType] || combo.actions?.self;
+    
+    if (!actionTemplate) return null;
+    
+    return {
+        id: combo.key,
+        name: combo.name,
+        icon: combo.icon,
+        description: combo.description,
+        severity: getSeverityLevel(vectors),
+        situation: situationType,
+        action: {
+            title: actionTemplate.title,
+            description: actionTemplate.description,
+            trigger: actionTemplate.trigger
+        },
+        affirmation: actionTemplate.phrase,
+        phrase: actionTemplate.phrase,
+        state: getRecommendedState(combo.key),
+        trigger: actionTemplate.trigger
+    };
+}
+
+function getStrengtheningRecommendations(vectors) {
+    const recommendations = [];
+    
+    if (vectors.СБ >= 5) {
+        recommendations.push({
+            id: 'strength_sb',
+            name: 'Усиление лидерства',
+            description: 'Ваша уверенность — это ресурс для других',
+            state: 'confidence',
+            trigger: 'выпрямить спину и поднять голову',
+            phrase: 'Я веду за собой, потому что уверен в себе',
+            affirmation: 'Моя уверенность заражает окружающих',
+            action: 'Завтра возьми на себя инициативу в одном вопросе, где обычно молчишь',
+            severity: 'strength',
+            icon: '👑'
+        });
+    }
+    
+    if (vectors.ЧВ >= 5) {
+        recommendations.push({
+            id: 'strength_chv',
+            name: 'Эмоциональный интеллект',
+            description: 'Ваша эмпатия — суперсила, которую можно усилить',
+            state: 'love',
+            trigger: 'рука на сердце',
+            phrase: 'Я чувствую и понимаю других',
+            affirmation: 'Моя эмпатия создаёт глубокие связи',
+            action: 'Завтра скажи кому-то искреннее «я тебя понимаю»',
+            severity: 'strength',
+            icon: '💕'
+        });
+    }
+    
+    return recommendations;
+}
+
+function getFallbackRecommendations() {
+    return [
+        {
+            id: 'fallback_calm',
+            name: 'Спокойствие в моменте',
+            description: 'Базовая практика для снижения тревоги',
+            state: 'calm',
+            trigger: 'глубокий вдох',
+            phrase: 'Я спокоен. Всё хорошо',
+            affirmation: 'Я дышу — значит, я есть',
+            action: 'Сделай 5 глубоких вдохов прямо сейчас',
+            severity: 'mild',
+            icon: '😌'
+        },
+        {
+            id: 'fallback_confidence',
+            name: 'Минутная уверенность',
+            description: 'Быстрый способ поднять самооценку',
+            state: 'confidence',
+            trigger: 'расправить плечи',
+            phrase: 'Я знаю, что делаю',
+            affirmation: 'Моя уверенность растёт с каждым днём',
+            action: 'Вспомни три свои победы за последнюю неделю',
+            severity: 'mild',
+            icon: '💪'
+        }
+    ];
+}
+
+// ============================================
+// ПОЛУЧЕНИЕ РЕКОМЕНДАЦИЙ НА ОСНОВЕ ПРОФИЛЯ
+// ============================================
+
+async function getProfileBasedRecommendations() {
+    try {
+        const status = await getUserStatus();
+        if (!status.has_profile) return getFallbackRecommendations();
+        
+        const vectors = status.vectors || {};
+        const combinations = analyzeVectorCombinations(vectors);
+        
+        if (combinations.length === 0) {
+            const strengthening = getStrengtheningRecommendations(vectors);
+            if (strengthening.length > 0) return strengthening;
+            return getFallbackRecommendations();
+        }
+        
+        const recommendations = [];
+        
+        for (const combo of combinations) {
+            const situationType = detectSituationType(vectors, combo);
+            const rec = await generatePersonalizedRecommendation(combo, vectors, situationType);
+            
+            if (rec) {
+                recommendations.push({
+                    id: rec.id,
+                    name: rec.name,
+                    description: rec.description,
+                    icon: rec.icon,
+                    state: rec.state,
+                    trigger: rec.action.trigger,
+                    phrase: rec.phrase,
+                    affirmation: rec.affirmation,
+                    action: rec.action.description,
+                    severity: rec.severity
+                });
+            }
+        }
+        
+        return recommendations;
+        
+    } catch (e) {
+        console.warn('Failed to get recommendations:', e);
+        return getFallbackRecommendations();
+    }
+}
+
+// ============================================
+// GUIDED-АКТИВАЦИЯ ЯКОРЯ
 // ============================================
 
 async function startGuidedActivation(anchor) {
@@ -441,7 +642,6 @@ async function startGuidedActivation(anchor) {
     
     isGuidedMode = true;
     
-    // Показываем красивый интерфейс guided-медитации
     container.innerHTML = `
         <div class="full-content-page" style="background: radial-gradient(ellipse at center, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.95) 100%);">
             <button class="back-btn" id="guidedBackBtn" style="position: absolute; top: 20px; left: 20px; z-index: 10;">◀️ ВЫХОД</button>
@@ -500,27 +700,24 @@ async function startGuidedActivation(anchor) {
         showAnchorsScreen();
     };
     
-    // Guided-шаги
     const steps = [
-        { text: '🧘 Сядьте удобно, закройте глаза', duration: 5000, subtext: 'Почувствуйте опору под собой' },
-        { text: '🌬️ Сделайте глубокий вдох... и медленный выдох', duration: 8000, subtext: 'Вдох — 4 секунды, выдох — 6 секунд' },
-        { text: '💭 Вспомните момент, когда вы чувствовали себя ${state?.name.toLowerCase()}', duration: 10000, subtext: 'Представьте эту ситуацию в деталях' },
-        { text: `🔊 Скажите про себя: «${anchor.trigger || anchor.phrase}»`, duration: 5000, subtext: 'Почувствуйте, как состояние усиливается' },
-        { text: '🔄 Повторите триггер ещё 3 раза', duration: 8000, subtext: 'С каждым разом состояние становится ярче' },
-        { text: '✨ Откройте глаза. Ваш якорь активирован!', duration: 4000, subtext: 'Теперь вы можете использовать его в любой момент' }
+        { text: '🧘 Сядьте удобно, закройте глаза', duration: 5000 },
+        { text: '🌬️ Сделайте глубокий вдох... и медленный выдох', duration: 8000 },
+        { text: `💭 Вспомните момент, когда вы чувствовали себя ${state?.name.toLowerCase()}`, duration: 10000 },
+        { text: `🔊 Скажите про себя: «${anchor.trigger || anchor.phrase}»`, duration: 5000 },
+        { text: '🔄 Повторите триггер ещё 3 раза', duration: 8000 },
+        { text: '✨ Откройте глаза. Ваш якорь активирован!', duration: 4000 }
     ];
     
     let currentStep = 0;
     const stepDiv = document.getElementById('guidedStep');
     const timerDiv = document.getElementById('guidedTimer');
     const progressDiv = document.getElementById('guidedProgress');
-    const affirmationDiv = document.getElementById('guidedAffirmation');
     
     function playStep() {
         if (currentStep >= steps.length || !isGuidedMode) {
-            // Завершение
             if (typeof showToast === 'function') {
-                showToast('✅ Якорь активирован! Теперь вы можете использовать его в любой момент', 'success');
+                showToast('✅ Якорь активирован!', 'success');
             }
             _anPlayBeep();
             setTimeout(() => showAnchorsScreen(), 2000);
@@ -532,158 +729,132 @@ async function startGuidedActivation(anchor) {
         timerDiv.innerHTML = `Шаг ${currentStep + 1} из ${steps.length}`;
         progressDiv.style.width = `${((currentStep + 1) / steps.length) * 100}%`;
         
-        // Озвучиваем шаг
         if (window.voiceManager) {
             const cleanText = step.text.replace(/[🔊🧘🌬️💭🔄✨]/g, '');
             window.voiceManager.textToSpeech(cleanText, 'psychologist');
-        }
-        
-        // Анимируем аффирмацию
-        if (affirmationDiv) {
-            affirmationDiv.style.opacity = '0';
-            setTimeout(() => {
-                affirmationDiv.style.opacity = '0.8';
-            }, 300);
         }
         
         currentStep++;
         setTimeout(playStep, step.duration);
     }
     
-    // Небольшая задержка перед началом
     setTimeout(playStep, 1000);
 }
 
 // ============================================
-// СТИЛИ
+// ГЕНЕРАЦИЯ PDF ИНСТРУКЦИИ
 // ============================================
 
-function _anInjectStyles() {
-    if (document.getElementById('an-v3-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'an-v3-styles';
-    style.textContent = `
-        .an-tabs {
-            display: flex; flex-wrap: wrap; gap: 4px; background: rgba(224,224,224,0.05);
-            border: 1px solid rgba(224,224,224,0.1); border-radius: 40px; padding: 4px;
-            margin-bottom: 20px; overflow-x: auto; scrollbar-width: none;
-        }
-        .an-tabs::-webkit-scrollbar { display: none; }
-        .an-tab {
-            flex-shrink: 0; padding: 8px 12px; border-radius: 30px; border: none;
-            background: transparent; color: var(--text-secondary); font-size: 11px;
-            font-weight: 600; font-family: inherit; cursor: pointer; transition: background 0.2s;
-            min-height: 36px; white-space: nowrap;
-        }
-        .an-tab.active { background: rgba(224,224,224,0.14); color: var(--text-primary); }
-        
-        .anchor-card {
-            background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px;
-            margin-bottom: 12px; border: 1px solid rgba(224,224,224,0.1);
-            transition: all 0.2s; cursor: pointer;
-        }
-        .anchor-card:hover { background: rgba(224,224,224,0.08); transform: translateX(4px); }
-        .anchor-name { font-size: 18px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-        .anchor-actions { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
-        .anchor-btn {
-            padding: 8px 16px; border-radius: 30px; border: none; cursor: pointer;
-            font-size: 13px; transition: all 0.2s; font-family: inherit;
-        }
-        .fire-btn {
-            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
-            border: 1px solid rgba(224,224,224,0.3); color: var(--text-primary);
-        }
-        .pdf-btn {
-            background: rgba(255,107,59,0.15); border: 1px solid rgba(255,107,59,0.3);
-            color: #ff6b3b;
-        }
-        .delete-btn {
-            background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.14);
-            color: var(--text-secondary);
-        }
-        
-        .type-badge {
-            font-size: 9px; padding: 2px 8px; border-radius: 20px;
-            background: rgba(224,224,224,0.08); border: 1px solid rgba(224,224,224,0.1);
-            color: var(--text-secondary); margin-left: 8px;
-        }
-        
-        .wizard-step { background: rgba(224,224,224,0.05); border-radius: 20px; padding: 24px; margin-top: 20px; }
-        .wizard-options { display: flex; flex-direction: column; gap: 12px; margin: 20px 0; }
-        .wizard-option {
-            background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.1);
-            border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s;
-        }
-        .wizard-option:hover { background: rgba(224,224,224,0.08); border-color: rgba(224,224,224,0.3); }
-        
-        .stimuli-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 12px; margin: 16px 0;
-        }
-        .stimulus-card {
-            background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
-            border-radius: 12px; padding: 12px; text-align: center; cursor: pointer;
-            transition: all 0.2s;
-        }
-        .stimulus-card:hover { background: rgba(224,224,224,0.1); transform: translateY(-2px); }
-        .stimulus-card.selected { border-color: #ff6b3b; background: rgba(255,107,59,0.1); }
-        .stimulus-icon { font-size: 32px; display: block; margin-bottom: 8px; }
-        .stimulus-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-        .stimulus-desc { font-size: 10px; color: var(--text-secondary); }
-        
-        .an-progress-bar { height: 4px; background: rgba(224,224,224,0.1); border-radius: 2px; overflow: hidden; margin: 8px 0; }
-        .an-progress-fill { height: 100%; background: linear-gradient(90deg, rgba(224,224,224,0.4), rgba(192,192,192,0.3)); width: 0%; transition: width 0.3s; }
-        
-        .imprint-card {
-            background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px;
-            margin-bottom: 12px; cursor: pointer; transition: all 0.2s;
-        }
-        .imprint-card:hover { background: rgba(224,224,224,0.08); transform: translateX(4px); }
-        
-        .diagnostic-card { background: rgba(224,224,224,0.05); border-radius: 24px; padding: 32px; margin: 24px 0; text-align: center; }
-        .question-counter { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; }
-        .question-text { font-size: 20px; font-weight: 600; margin-bottom: 32px; line-height: 1.4; }
-        .answer-options { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
-        .answer-btn {
-            background: rgba(224,224,224,0.08); border: 1px solid rgba(224,224,224,0.1);
-            border-radius: 40px; padding: 12px 24px; cursor: pointer; font-size: 14px;
-            transition: all 0.2s; font-family: inherit; color: var(--text-primary);
-        }
-        .answer-btn:hover { background: rgba(224,224,224,0.16); border-color: rgba(224,224,224,0.3); transform: scale(1.02); }
-        
-        .result-card {
-            background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.1);
-            border-radius: 20px; padding: 24px; margin: 16px 0;
-            border-left: 4px solid var(--imprint-color, rgba(224,224,224,0.3));
-        }
-        .result-icon { font-size: 48px; margin-bottom: 12px; }
-        .result-name { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
-        
-        .reimprinting-card { background: rgba(224,224,224,0.05); border-radius: 24px; padding: 32px; margin: 24px 0; }
-        .step-title { font-size: 18px; font-weight: 600; margin-bottom: 24px; }
-        .reimprinting-textarea {
-            width: 100%; padding: 16px; border-radius: 16px; background: rgba(224,224,224,0.05);
-            border: 1px solid rgba(224,224,224,0.2); color: var(--text-primary);
-            font-family: inherit; font-size: 14px; min-height: 120px; resize: vertical;
-            box-sizing: border-box;
-        }
-        .an-btn-primary {
-            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
-            border: 1px solid rgba(224,224,224,0.3); padding: 14px 24px; border-radius: 40px;
-            color: var(--text-primary); font-weight: 600; cursor: pointer; width: 100%;
-            margin-top: 16px; font-family: inherit; font-size: 13px;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.05); opacity: 0.9; }
-        }
-        @keyframes breathe {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.2); }
-        }
+async function generateInstructionPDF(anchor) {
+    const state = ANCHORS_CONFIG.states[anchor.state];
+    const userName = localStorage.getItem('fredi_user_name') || 'Пользователь';
+    const today = new Date().toLocaleDateString('ru-RU');
+    
+    let stimuliHtml = '';
+    if (anchor.recommended_stimuli) {
+        try {
+            const stimuli = JSON.parse(anchor.recommended_stimuli);
+            stimuliHtml = stimuli.map(s => {
+                const stimulus = Object.values(ANCHORS_CONFIG.physical_stimuli).find(p => p.name === s);
+                if (stimulus) {
+                    return `
+                        <div style="margin-bottom: 15px; padding: 10px; background: #f5f5f5; border-radius: 8px;">
+                            <strong>${stimulus.icon} ${stimulus.name}</strong><br>
+                            <span style="color: #666; font-size: 12px;">${stimulus.howToUse}</span><br>
+                            <span style="color: #999; font-size: 11px;">💰 ${stimulus.price} · 🛒 ${stimulus.whereToBuy}</span>
+                        </div>
+                    `;
+                }
+                return `<div style="margin-bottom: 10px;">🔧 ${s}</div>`;
+            }).join('');
+        } catch(e) {}
+    }
+    
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Инструкция: ${anchor.name}</title>
+            <style>
+                body { font-family: 'Arial', sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; line-height: 1.6; }
+                .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid ${state?.color || '#ff6b3b'}; }
+                .header-icon { font-size: 64px; display: block; margin-bottom: 10px; }
+                .header-title { font-size: 28px; font-weight: bold; color: ${state?.color || '#ff6b3b'}; margin-bottom: 5px; }
+                .header-subtitle { color: #666; font-size: 14px; }
+                .section { margin-bottom: 25px; }
+                .section-title { font-size: 18px; font-weight: bold; color: ${state?.color || '#333'}; margin-bottom: 10px; border-left: 3px solid ${state?.color || '#ff6b3b'}; padding-left: 12px; }
+                .step { margin-bottom: 12px; }
+                .step-num { display: inline-block; width: 28px; height: 28px; background: ${state?.color || '#ff6b3b'}; color: white; border-radius: 50%; text-align: center; line-height: 28px; font-weight: bold; margin-right: 10px; }
+                .trigger-box { background: #f0f0f0; padding: 15px; border-radius: 8px; text-align: center; margin: 15px 0; }
+                .trigger-text { font-size: 24px; font-weight: bold; color: ${state?.color || '#ff6b3b'}; font-family: monospace; }
+                .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; font-size: 11px; color: #999; }
+                .affirmation { font-style: italic; color: ${state?.color || '#ff6b3b'}; text-align: center; margin: 20px 0; font-size: 18px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div class="header-icon">${state?.icon || '⚓'}</div>
+                <div class="header-title">${_anEscapeHtml(anchor.name)}</div>
+                <div class="header-subtitle">Персональная инструкция для ${_anEscapeHtml(userName)}</div>
+                <div class="header-subtitle">Создано: ${today}</div>
+            </div>
+            
+            <div class="affirmation">«${state?.affirmation || anchor.phrase || 'Я спокоен и уверен'}»</div>
+            
+            <div class="section">
+                <div class="section-title">🎯 ВАШ ТРИГГЕР</div>
+                <div class="trigger-box">
+                    <div class="trigger-text">«${_anEscapeHtml(anchor.trigger || anchor.phrase)}»</div>
+                    <div style="margin-top: 8px; font-size: 12px;">${ANCHORS_CONFIG.modalities[anchor.modality]?.name || 'Аудиальный'} якорь</div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">📋 ПОШАГОВАЯ ИНСТРУКЦИЯ</div>
+                ${anchor.instruction_steps ? (() => {
+                    try {
+                        const steps = JSON.parse(anchor.instruction_steps);
+                        return steps.map((step, i) => `
+                            <div class="step">
+                                <span class="step-num">${i+1}</span>
+                                <span>${step}</span>
+                            </div>
+                        `).join('');
+                    } catch(e) { return ''; }
+                })() : `
+                    <div class="step"><span class="step-num">1</span> Найдите спокойное место, где вас никто не побеспокоит</div>
+                    <div class="step"><span class="step-num">2</span> Вспомните ситуацию, когда вы чувствовали ${state?.name.toLowerCase()}</div>
+                    <div class="step"><span class="step-num">3</span> Доведите это ощущение до пика (30-60 секунд)</div>
+                    <div class="step"><span class="step-num">4</span> В момент пика скажите/сделайте: <strong>«${anchor.trigger || anchor.phrase}»</strong></div>
+                    <div class="step"><span class="step-num">5</span> Сбросьте состояние (встаньте, отвлекитесь)</div>
+                    <div class="step"><span class="step-num">6</span> Повторите шаги 2-5 ещё 4-5 раз для закрепления</div>
+                `}
+            </div>
+            
+            ${stimuliHtml ? `
+            <div class="section">
+                <div class="section-title">🔧 РЕКОМЕНДУЕМЫЕ СТИМУЛЫ</div>
+                ${stimuliHtml}
+            </div>
+            ` : ''}
+            
+            <div class="footer">
+                <p>Сгенерировано Фреди — вашим виртуальным психологом</p>
+            </div>
+        </body>
+        </html>
     `;
-    document.head.appendChild(style);
+    
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `instruction_${anchor.name.replace(/[^a-zа-яё]/gi, '_')}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    _anShowToast('📄 Инструкция скачана!', 'success');
 }
 
 // ============================================
@@ -741,64 +912,8 @@ async function fireAnchorAPI(anchorId, anchorName) {
     }
 }
 
-async function getProfileBasedRecommendations() {
-    try {
-        const status = await getUserStatus();
-        if (!status.has_profile) return [];
-        
-        const vectors = status.vectors || {};
-        const recommendations = [];
-        
-        // Используем русские буквы: СБ, ТФ, УБ, ЧВ
-        if (vectors.СБ !== undefined && vectors.СБ < 3) {
-            recommendations.push({
-                state: 'action',
-                name: 'Импульс действия',
-                trigger: 'хлопок в ладоши',
-                phrase: 'Раз! И я начинаю.',
-                reason: `Ваш вектор СБ = ${vectors.СБ}/6 — нуждается в поддержке`,
-                stimuli: ['pen', 'keychain']
-            });
-        }
-        if (vectors.ТФ !== undefined && vectors.ТФ < 3) {
-            recommendations.push({
-                state: 'grounding',
-                name: 'Заземление',
-                trigger: 'стопы в пол',
-                phrase: 'Я здесь. Моё тело — моя опора.',
-                reason: `Ваш вектор ТФ = ${vectors.ТФ}/6 — нуждается в заземлении`,
-                stimuli: ['crystal', 'teaCup']
-            });
-        }
-        if (vectors.УБ !== undefined && vectors.УБ < 3) {
-            recommendations.push({
-                state: 'calm',
-                name: 'Гибкость',
-                trigger: 'пожать плечами',
-                phrase: 'Можно и так.',
-                reason: `Ваш вектор УБ = ${vectors.УБ}/6 — нуждается в расслаблении`,
-                stimuli: ['stressBall', 'teaCup']
-            });
-        }
-        if (vectors.ЧВ !== undefined && vectors.ЧВ < 3) {
-            recommendations.push({
-                state: 'joy',
-                name: 'Тепло',
-                trigger: 'рука на сердце',
-                phrase: 'Я чувствую. Я живу.',
-                reason: `Ваш вектор ЧВ = ${vectors.ЧВ}/6 — нуждается в тепле`,
-                stimuli: ['perfume', 'ring']
-            });
-        }
-        
-        return recommendations;
-    } catch (e) {
-        console.warn('Failed to get recommendations:', e);
-        return [];
-    }
-}
 // ============================================
-// ДИАГНОСТИКА ИМПРИНТОВ (ИСПРАВЛЕНА)
+// ДИАГНОСТИКА ИМПРИНТОВ
 // ============================================
 
 function startImprintDiagnostic() {
@@ -839,7 +954,6 @@ function showDiagnosticQuestion(index) {
                     <button class="answer-btn" data-value="3">✅ Очень точно</button>
                 </div>
             </div>
-            <div class="diagnostic-note">💡 Честные ответы помогут точнее определить ваши глубинные программы</div>
         </div>
     `;
     
@@ -852,12 +966,11 @@ function showDiagnosticQuestion(index) {
     document.querySelectorAll('.answer-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const value = parseInt(btn.dataset.value);
-            // ИСПРАВЛЕНО: сохраняем raw value и вес отдельно
             diagnosticAnswers[index] = { 
                 question: question.text, 
                 imprint: question.imprint, 
                 weight: question.weight, 
-                value: value  // raw 0-3, без умножения!
+                value: value
             };
             showDiagnosticQuestion(index + 1);
         });
@@ -875,7 +988,6 @@ function finishDiagnostic() {
     for (let i = 0; i < IMPRINTS_CONFIG.questions.length; i++) {
         const answer = diagnosticAnswers[i];
         if (answer && answer.imprint) {
-            // ИСПРАВЛЕНО: умножаем weight ТОЛЬКО здесь, один раз
             scores[answer.imprint] += answer.value * answer.weight;
             maxPossibleScore += 3 * answer.weight;
         }
@@ -930,20 +1042,11 @@ function showDiagnosticResult() {
                 <button class="action-btn" id="saveHealingPhraseBtn" style="margin-top: 12px; padding: 10px 20px; background: #4caf50; border: none; border-radius: 30px; color: white; cursor: pointer;">💾 Сохранить как инструкцию</button>
             </div>
             <div class="manifestations-list" style="background: rgba(224,224,224,0.03); border-radius: 16px; padding: 16px; margin: 16px 0;">
-                <div style="font-weight: 700; margin-bottom: 8px;">📌 Как это проявляется во взрослой жизни:</div>
+                <div style="font-weight: 700; margin-bottom: 8px;">📌 Как это проявляется:</div>
                 <ul style="margin-left: 20px;">${imprint.adult_manifestations.map(m => `<li style="margin: 8px 0;">${_anEscapeHtml(m)}</li>`).join('')}</ul>
             </div>
-            <div style="background: rgba(33,150,243,0.1); border-radius: 16px; padding: 16px; margin: 16px 0;">
-                <div style="font-weight: 700; margin-bottom: 8px;">👶 Откуда это взялось:</div>
-                <div style="color: var(--text-secondary);">${imprint.childhood}</div>
-            </div>
-            <div class="result-card" style="background: rgba(255,193,7,0.1);">
-                <div style="font-weight: 700; margin-bottom: 8px;">🔑 Рекомендуемое состояние</div>
-                <div>${ANCHORS_CONFIG.states[imprint.recommended_state]?.name || imprint.recommended_anchor || 'Безопасность'}</div>
-                <button class="action-btn" id="createRecommendedAnchorBtn" style="margin-top: 12px; padding: 10px 20px; background: #ff9800; border: none; border-radius: 30px; color: white; cursor: pointer;">➕ Создать инструкцию</button>
-            </div>
             <div class="result-card">
-                <div style="font-weight: 700; margin-bottom: 12px;">📈 Все импринты (по степени выраженности)</div>
+                <div style="font-weight: 700; margin-bottom: 12px;">📈 Все импринты</div>
                 ${sortedScores.map(s => {
                     const percent = result.maxPossibleScore > 0 ? Math.round((s.score / result.maxPossibleScore) * 100) : 0;
                     return `
@@ -958,9 +1061,9 @@ function showDiagnosticResult() {
                     </div>`;
                 }).join('')}
             </div>
-            <div style="display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
                 <button class="action-btn" id="startReimprintingBtn" style="padding: 12px 24px; background: #9c27b0; border: none; border-radius: 30px; color: white; cursor: pointer;">🔄 Начать реимпринтинг</button>
-                <button class="action-btn" id="saveResultsBtn" style="padding: 12px 24px; background: #607d8b; border: none; border-radius: 30px; color: white; cursor: pointer;">💾 Сохранить результаты</button>
+                <button class="action-btn" id="saveResultsBtn" style="padding: 12px 24px; background: #607d8b; border: none; border-radius: 30px; color: white; cursor: pointer;">💾 Сохранить</button>
             </div>
         </div>
     `;
@@ -985,29 +1088,15 @@ function showDiagnosticResult() {
                 'Повторите про себя исцеляющую фразу: "' + imprint.healing_phrase + '"',
                 'Почувствуйте, как тепло разливается по телу',
                 'Откройте глаза и улыбнитесь'
-            ]),
-            recommended_stimuli: JSON.stringify(['teaCup', 'crystal'])
+            ])
         };
         const success = await saveAnchor(anchorData);
         if (success) {
-            _anShowToast('✅ Исцеляющая фраза сохранена как инструкция!', 'success');
+            _anShowToast('✅ Исцеляющая фраза сохранена!', 'success');
             await loadUserAnchors();
         } else {
             _anShowToast('❌ Ошибка сохранения', 'error');
         }
-    });
-    
-    document.getElementById('createRecommendedAnchorBtn')?.addEventListener('click', async () => {
-        anchorWizardData = {
-            state: imprint.recommended_state || 'safety',
-            source: 'own',
-            source_detail: imprint.recommended_anchor || 'Безопасность',
-            modality: 'auditory',
-            trigger: imprint.healing_phrase,
-            name: imprint.recommended_anchor || 'Безопасность в себе'
-        };
-        anchorWizardStep = 3;
-        showAnchorsScreen();
     });
     
     document.getElementById('startReimprintingBtn')?.addEventListener('click', () => {
@@ -1049,21 +1138,17 @@ function showReimprintingScreen() {
     
     const steps = {
         1: { title: 'Шаг 1 из 5: Найдите ситуацию', icon: '🔍',
-            content: `<textarea id="situation" placeholder="Например: «Меня наказали за ошибку, и я решил, что ошибаться нельзя»" class="reimprinting-textarea">${_anEscapeHtml(reimprintingData.situation || '')}</textarea>
-                      <div class="step-hint">💡 Вспомните конкретный момент. Кто был рядом? Что вы чувствовали?</div>` },
+            content: `<textarea id="situation" placeholder="Например: «Меня наказали за ошибку, и я решил, что ошибаться нельзя»" class="reimprinting-textarea" style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;min-height:100px;">${_anEscapeHtml(reimprintingData.situation || '')}</textarea>` },
         2: { title: 'Шаг 2 из 5: Распознайте решение', icon: '💭',
-            content: `<textarea id="decision" placeholder="Например: «Я решил, что должен быть идеальным, чтобы меня любили»" class="reimprinting-textarea">${_anEscapeHtml(reimprintingData.decision || '')}</textarea>
-                      <div class="step-hint">💡 Это было лучшее решение, которое вы могли принять в той ситуации.</div>` },
+            content: `<textarea id="decision" placeholder="Например: «Я решил, что должен быть идеальным, чтобы меня любили»" class="reimprinting-textarea" style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;min-height:100px;">${_anEscapeHtml(reimprintingData.decision || '')}</textarea>` },
         3: { title: 'Шаг 3 из 5: Войдите в ресурс', icon: '🧘',
-            content: `<div class="step-instruction"><p>Сделайте глубокий вдох... Почувствуйте свою силу...</p><p>Вы прошли через многое. У вас есть опыт, знания, мудрость.</p></div>
-                      <button class="an-btn-primary" id="enterResourceBtn">✅ Я вошёл в ресурсное состояние</button>` },
+            content: `<div><p>Сделайте глубокий вдох... Почувствуйте свою силу...</p><p>Вы прошли через многое. У вас есть опыт, знания, мудрость.</p></div>
+                      <button class="an-btn-primary" id="enterResourceBtn" style="margin-top:20px;padding:12px;background:#4caf50;border:none;border-radius:30px;color:white;cursor:pointer;">✅ Я вошёл в ресурсное состояние</button>` },
         4: { title: 'Шаг 4 из 5: Перепишите импринт', icon: '💌',
-            content: `<textarea id="newMessage" placeholder="Напишите новое послание себе-ребёнку..." class="reimprinting-textarea">${_anEscapeHtml(reimprintingData.newMessage || '')}</textarea>
-                      <div class="step-hint">💡 Скажите то, что вам самому нужно было услышать в детстве.</div>` },
+            content: `<textarea id="newMessage" placeholder="Напишите новое послание себе-ребёнку..." class="reimprinting-textarea" style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;min-height:100px;">${_anEscapeHtml(reimprintingData.newMessage || '')}</textarea>` },
         5: { title: 'Шаг 5 из 5: Закрепите якорем', icon: '⚓',
-            content: `<input type="text" id="newAnchor" placeholder="Придумайте триггер (жест, фразу)" class="reimprinting-input" value="${_anEscapeHtml(reimprintingData.newAnchor || '')}">
-                      <div class="step-hint">💡 Например: рука на сердце + «Я имею право ошибаться»</div>
-                      <button class="an-btn-primary" id="completeReimprintingBtn">✅ Завершить и сохранить инструкцию</button>` }
+            content: `<input type="text" id="newAnchor" placeholder="Придумайте триггер (жест, фразу)" style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;" value="${_anEscapeHtml(reimprintingData.newAnchor || '')}">
+                      <button class="an-btn-primary" id="completeReimprintingBtn" style="margin-top:20px;padding:12px;background:#9c27b0;border:none;border-radius:30px;color:white;cursor:pointer;">✅ Завершить и сохранить</button>` }
     };
     
     const currentStep = steps[reimprintingStep];
@@ -1075,9 +1160,9 @@ function showReimprintingScreen() {
             <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
             <div class="content-header"><div class="content-emoji">🔄</div><h1 class="content-title">Реимпринтинг</h1></div>
             <div class="an-progress-bar"><div class="an-progress-fill" style="width: ${progress}%"></div></div>
-            <div class="reimprinting-card">
-                <div class="step-title">${currentStep.title}</div>
-                <div class="step-icon" style="font-size: 48px; text-align: center;">${currentStep.icon}</div>
+            <div class="reimprinting-card" style="background:rgba(224,224,224,0.05);border-radius:24px;padding:32px;margin:24px 0;">
+                <div class="step-title" style="font-size:20px;font-weight:600;margin-bottom:16px;">${currentStep.title}</div>
+                <div style="font-size: 48px; text-align: center;">${currentStep.icon}</div>
                 ${currentStep.content}
             </div>
         </div>
@@ -1111,17 +1196,17 @@ function showReimprintingScreen() {
                 state_name: 'Реимпринтинг',
                 instruction_steps: JSON.stringify([
                     'Сядьте удобно, закройте глаза',
-                    'Вспомните ситуацию из детства, которая повлияла на вас',
+                    'Вспомните ситуацию из детства',
                     'Представьте себя взрослым, мудрым, ресурсным',
                     'Скажите себе-ребёнку новое поддерживающее послание',
                     'Сделайте триггер: ' + (newAnchor || 'рука на сердце'),
-                    'Повторите 3-5 раз для закрепления'
+                    'Повторите 3-5 раз'
                 ])
             };
             
             const success = await saveAnchor(anchorToSave);
             if (success) {
-                _anShowToast('✅ Импринт переписан! Новая инструкция создана.', 'success');
+                _anShowToast('✅ Импринт переписан!', 'success');
                 reimprintingStep = 0;
                 reimprintingData = {};
                 showAnchorsScreen();
@@ -1133,6 +1218,7 @@ function showReimprintingScreen() {
         const nextBtn = document.createElement('button');
         nextBtn.className = 'an-btn-primary';
         nextBtn.textContent = 'Далее →';
+        nextBtn.style.cssText = 'margin-top:20px;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;width:100%;';
         nextBtn.onclick = () => {
             const situation = document.getElementById('situation');
             const decision = document.getElementById('decision');
@@ -1157,7 +1243,6 @@ function showReimprintingScreen() {
 async function showAnchorsScreen() {
     _anInjectStyles();
     await loadUserAnchors();
-    const recommendations = await getProfileBasedRecommendations();
     
     const container = document.getElementById('screenContainer');
     if (!container) return;
@@ -1178,15 +1263,25 @@ async function showAnchorsScreen() {
                 <button class="an-tab ${currentAnchorView === 'imprints' ? 'active' : ''}" data-view="imprints">📚 Импринты</button>
                 <button class="an-tab ${currentAnchorView === 'constructor' ? 'active' : ''}" data-view="constructor">🎬 Конструктор</button>
             </div>
-            <div id="anBody">${renderCurrentView(currentAnchorView, { recommendations, userAnchors })}</div>
+            <div id="anBody">${await renderCurrentView(currentAnchorView)}</div>
         </div>
     `;
     
-    document.getElementById('backBtn').onclick = () => renderDashboard();
+    document.getElementById('backBtn').onclick = () => {
+        if (typeof renderDashboard === 'function') renderDashboard();
+        else if (typeof window.loadMainScreen === 'function') window.loadMainScreen();
+    };
+    
     document.querySelectorAll('.an-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
+        tab.addEventListener('click', async () => {
             currentAnchorView = tab.dataset.view;
-            showAnchorsScreen();
+            anchorWizardStep = 0;
+            anchorWizardData = {};
+            selectedStimuli = [];
+            const bodyDiv = document.getElementById('anBody');
+            if (bodyDiv) bodyDiv.innerHTML = await renderCurrentView(currentAnchorView);
+            document.querySelectorAll('.an-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
         });
     });
 }
@@ -1195,33 +1290,33 @@ async function showAnchorsScreen() {
 // РЕНДЕР ВИДОВ
 // ============================================
 
-function renderCurrentView(view, data) {
+async function renderCurrentView(view) {
     switch(view) {
-        case 'list': return renderAnchorsList(data.userAnchors);
+        case 'list': return renderAnchorsList();
         case 'create': return renderAnchorWizard();
-        case 'recommend': return renderRecommendations(data.recommendations);
+        case 'recommend': return await renderAdvancedRecommendations();
         case 'techniques': return renderTechniques();
         case 'imprints': return renderImprints();
         case 'constructor': return renderConstructor();
-        default: return renderAnchorsList(data.userAnchors);
+        default: return renderAnchorsList();
     }
 }
 
-function renderAnchorsList(anchors) {
-    if (!anchors.length) {
+function renderAnchorsList() {
+    if (!userAnchors.length) {
         return `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 64px; margin-bottom: 16px;">📚</div>
                 <h3>У вас пока нет инструкций</h3>
                 <p style="color: var(--text-secondary); margin-bottom: 20px;">Создайте первую инструкцию — и вы сможете вызывать нужное состояние в любой момент</p>
-                <button class="an-tab active" data-view="create" style="padding: 12px 24px;">➕ Создать инструкцию</button>
+                <button class="an-tab" data-view="create" style="padding: 12px 24px; background: #ff6b3b; border: none; border-radius: 30px; color: white; cursor: pointer;">➕ Создать инструкцию</button>
             </div>
         `;
     }
     
     const stats = [
-        { count: anchors.length, label: 'всего' },
-        { count: anchors.filter(a => a.uses > 0).length, label: 'использовано' }
+        { count: userAnchors.length, label: 'всего' },
+        { count: userAnchors.filter(a => a.uses > 0).length, label: 'использовано' }
     ];
     
     return `
@@ -1233,26 +1328,26 @@ function renderAnchorsList(anchors) {
                 </div>
             `).join('')}
         </div>
-        ${anchors.map(anchor => {
+        ${userAnchors.map(anchor => {
             const state = ANCHORS_CONFIG.states[anchor.state];
             const hasSteps = anchor.instruction_steps && anchor.instruction_steps !== '[]';
             return `
-            <div class="anchor-card" data-id="${anchor.id}" onclick="showInstructionDetail('${anchor.id}')">
-                <div class="anchor-name">
-                    <span>${anchor.icon || state?.icon || '📝'}</span>
-                    <span>${_anEscapeHtml(anchor.name)}</span>
-                    <span class="type-badge">${hasSteps ? '📝 Инструкция' : '📄 Заметка'}</span>
+            <div class="anchor-card" data-id="${anchor.id}" onclick="showInstructionDetail('${anchor.id}')" style="background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;margin-bottom:12px;border:1px solid rgba(224,224,224,0.1);cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <span style="font-size:24px;">${anchor.icon || state?.icon || '📝'}</span>
+                    <span style="font-size:18px;font-weight:700;">${_anEscapeHtml(anchor.name)}</span>
+                    <span class="type-badge" style="font-size:9px;padding:2px 8px;border-radius:20px;background:rgba(224,224,224,0.08);">${hasSteps ? '📝 Инструкция' : '📄 Заметка'}</span>
                 </div>
-                <div style="font-size: 12px; color: var(--text-secondary); margin: 4px 0;">
+                <div style="font-size:12px;color:var(--text-secondary);margin:4px 0;">
                     ${state?.name || anchor.state} · ${ANCHORS_CONFIG.modalities[anchor.modality]?.name || anchor.modality || 'аудиальный'}
                 </div>
-                ${anchor.trigger ? `<div style="font-size: 11px; color: var(--chrome); margin: 4px 0;">🔊 Триггер: «${_anEscapeHtml(anchor.trigger)}»</div>` : ''}
-                <div class="anchor-actions" onclick="event.stopPropagation()">
-                    <button class="anchor-btn fire-btn" onclick="startGuidedActivationFromAnchor('${anchor.id}')">🎧 Guided-активация</button>
-                    <button class="anchor-btn pdf-btn" onclick="exportInstructionToPDF('${anchor.id}')">📄 PDF</button>
-                    <button class="anchor-btn delete-btn" onclick="deleteAnchorConfirm('${anchor.id}')">🗑️</button>
+                ${anchor.trigger ? `<div style="font-size:11px;color:var(--chrome);margin:4px 0;">🔊 Триггер: «${_anEscapeHtml(anchor.trigger)}»</div>` : ''}
+                <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;" onclick="event.stopPropagation()">
+                    <button class="anchor-btn fire-btn" onclick="startGuidedActivationFromAnchor('${anchor.id}')" style="padding:8px16px;border-radius:30px;background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);color:var(--text-primary);cursor:pointer;">🎧 Guided</button>
+                    <button class="anchor-btn pdf-btn" onclick="exportInstructionToPDF('${anchor.id}')" style="padding:8px16px;border-radius:30px;background:rgba(255,107,59,0.15);border:1px solid rgba(255,107,59,0.3);color:#ff6b3b;cursor:pointer;">📄 PDF</button>
+                    <button class="anchor-btn delete-btn" onclick="deleteAnchorConfirm('${anchor.id}')" style="padding:8px16px;border-radius:30px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.14);color:var(--text-secondary);cursor:pointer;">🗑️</button>
                 </div>
-                ${anchor.uses ? `<div style="font-size: 10px; color: var(--text-secondary); margin-top: 8px;">✅ использовано ${anchor.uses} раз</div>` : ''}
+                ${anchor.uses ? `<div style="font-size:10px;color:var(--text-secondary);margin-top:8px;">✅ использовано ${anchor.uses} раз</div>` : ''}
             </div>`;
         }).join('')}
     `;
@@ -1308,9 +1403,9 @@ function showInstructionDetail(anchorId) {
             </div>` : ''}
             
             <div style="display: flex; gap: 12px; margin-top: 16px;">
-                <button class="anchor-btn fire-btn" style="flex: 1;" onclick="startGuidedActivationFromAnchor('${anchor.id}')">🎧 Guided-активация</button>
-                <button class="anchor-btn pdf-btn" style="flex: 1;" onclick="exportInstructionToPDF('${anchor.id}')">📄 Скачать PDF</button>
-                <button class="anchor-btn delete-btn" style="flex: 1;" onclick="deleteAnchorConfirm('${anchor.id}')">🗑️ Удалить</button>
+                <button class="anchor-btn fire-btn" style="flex:1;padding:12px;border-radius:30px;background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);color:var(--text-primary);cursor:pointer;" onclick="startGuidedActivationFromAnchor('${anchor.id}')">🎧 Guided-активация</button>
+                <button class="anchor-btn pdf-btn" style="flex:1;padding:12px;border-radius:30px;background:rgba(255,107,59,0.15);border:1px solid rgba(255,107,59,0.3);color:#ff6b3b;cursor:pointer;" onclick="exportInstructionToPDF('${anchor.id}')">📄 Скачать PDF</button>
+                <button class="anchor-btn delete-btn" style="flex:1;padding:12px;border-radius:30px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.14);color:var(--text-secondary);cursor:pointer;" onclick="deleteAnchorConfirm('${anchor.id}')">🗑️ Удалить</button>
             </div>
         </div>
     `;
@@ -1327,252 +1422,76 @@ function startGuidedActivationFromAnchor(anchorId) {
     if (anchor) startGuidedActivation(anchor);
 }
 
-function renderAnchorWizard() {
-    const step = anchorWizardStep;
-    const data = anchorWizardData;
-    
-    if (step === 0) {
-        return `
-            <div class="wizard-step">
-                <h3>➕ Создание инструкции</h3>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 1 из 5: Какое состояние вы хотите научиться вызывать?</p>
-                <div class="wizard-options">
-                    ${Object.entries(ANCHORS_CONFIG.states).map(([key, state]) => `
-                        <div class="wizard-option" onclick="anchorWizardSelectState('${key}')">
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <span style="font-size: 24px;">${state.icon}</span>
-                                <div>
-                                    <div style="font-weight: 600;">${state.name}</div>
-                                    <div style="font-size: 12px; color: var(--text-secondary);">${state.desc}</div>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        `;
-    }
-    
-    if (step === 1) {
-        return `
-            <div class="wizard-step">
-                <h3>➕ Создание инструкции</h3>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 2 из 5: Откуда возьмём состояние «${ANCHORS_CONFIG.states[data.state]?.name || data.state}»?</p>
-                <div class="wizard-options">
-                    ${Object.entries(ANCHORS_CONFIG.sources).map(([key, source]) => `
-                        <div class="wizard-option ${data.source === key ? 'selected' : ''}" onclick="anchorWizardSelectSource('${key}')">
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <span style="font-size: 24px;">${source.icon}</span>
-                                <div>
-                                    <div style="font-weight: 600;">${source.name}</div>
-                                    <div style="font-size: 12px; color: var(--text-secondary);">${source.desc}</div>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-                ${data.source ? `
-                    <div style="margin-top: 20px;">
-                        <label style="display: block; margin-bottom: 8px;">Опишите источник:</label>
-                        <textarea id="sourceDetail" placeholder="Опишите ситуацию, фильм, музыку или метафору..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 80px;"></textarea>
-                    </div>
-                    <button class="anchor-btn fire-btn" style="margin-top: 20px; width: 100%;" onclick="anchorWizardNext()">Далее →</button>
-                ` : ''}
-            </div>
-        `;
-    }
-    
-    if (step === 2) {
-        return `
-            <div class="wizard-step">
-                <h3>➕ Создание инструкции</h3>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 3 из 5: Какой будет триггер?</p>
-                <div class="wizard-options">
-                    <div class="wizard-option ${data.modality === 'auditory' ? 'selected' : ''}" onclick="anchorWizardSelectModality('auditory')">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <span style="font-size: 24px;">🔊</span>
-                            <div><div style="font-weight: 600;">Аудиальный</div><div style="font-size: 12px;">Ключевая фраза, слово</div></div>
-                        </div>
-                    </div>
-                    <div class="wizard-option ${data.modality === 'kinesthetic' ? 'selected' : ''}" onclick="anchorWizardSelectModality('kinesthetic')">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <span style="font-size: 24px;">🖐️</span>
-                            <div><div style="font-weight: 600;">Кинестетический</div><div style="font-size: 12px;">Жест, прикосновение, поза</div></div>
-                        </div>
-                    </div>
-                    <div class="wizard-option ${data.modality === 'visual' ? 'selected' : ''}" onclick="anchorWizardSelectModality('visual')">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <span style="font-size: 24px;">👁️</span>
-                            <div><div style="font-weight: 600;">Визуальный</div><div style="font-size: 12px;">Образ, символ, мысленная картинка</div></div>
-                        </div>
-                    </div>
-                </div>
-                ${data.modality ? `
-                    <div style="margin-top: 20px;">
-                        <label style="display: block; margin-bottom: 8px;">Введите ваш триггер:</label>
-                        <input type="text" id="triggerInput" class="wizard-input" placeholder="Например: «Я спокоен» или сжать кулак" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white;">
-                    </div>
-                    <button class="anchor-btn fire-btn" style="margin-top: 20px; width: 100%;" onclick="anchorWizardSaveTrigger()">Далее →</button>
-                ` : ''}
-            </div>
-        `;
-    }
-    
-    if (step === 3) {
-        // Рекомендации стимулов для вау-эффекта
-        const stateKey = data.state;
-        let recommendedStimuli = [];
-        if (stateKey === 'calm') recommendedStimuli = ['teaCup', 'crystal', 'stressBall'];
-        else if (stateKey === 'confidence') recommendedStimuli = ['zippo', 'pen', 'ring'];
-        else if (stateKey === 'focus') recommendedStimuli = ['pen', 'crystal', 'stressBall'];
-        else if (stateKey === 'energy') recommendedStimuli = ['zippo', 'keychain'];
-        else if (stateKey === 'grounding') recommendedStimuli = ['crystal', 'teaCup', 'ring'];
-        else recommendedStimuli = ['teaCup', 'stressBall', 'pen'];
-        
-        const stimuliHtml = recommendedStimuli.map(key => {
-            const s = ANCHORS_CONFIG.physical_stimuli[key];
-            if (!s) return '';
-            return `
-                <div class="stimulus-card" data-stimulus="${key}" onclick="toggleStimulus('${key}')">
-                    <div class="stimulus-icon">${s.icon}</div>
-                    <div class="stimulus-name">${s.name}</div>
-                    <div class="stimulus-desc">${s.description.substring(0, 40)}...</div>
-                </div>
-            `;
-        }).join('');
-        
-        return `
-            <div class="wizard-step">
-                <h3>➕ Создание инструкции</h3>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 4 из 5: Назовите вашу инструкцию</p>
-                <input type="text" id="anchorNameInput" placeholder="Например: «Спокойствие перед выступлением»" value="${_anEscapeHtml(data.name || '')}" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; margin-bottom: 20px;">
-                
-                <h3 style="margin-top: 20px;">🔧 Рекомендуемые стимулы (для усиления)</h3>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">Выберите физические предметы, которые усилят ваш якорь:</p>
-                <div class="stimuli-grid" id="stimuliGrid">
-                    ${stimuliHtml}
-                </div>
-                <input type="text" id="customStimulus" placeholder="Или введите свой стимул..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; margin-top: 12px;">
-                
-                <div style="background: linear-gradient(135deg, rgba(76,175,80,0.1), rgba(76,175,80,0.05)); border-radius: 12px; padding: 16px; margin: 20px 0;">
-                    <p><strong>🎯 Ваш персональный план:</strong></p>
-                    <ol style="margin-left: 20px; line-height: 1.8;">
-                        <li>Войдите в состояние ${ANCHORS_CONFIG.states[data.state]?.name || data.state}</li>
-                        <li>В момент ПИКА состояния — сделайте триггер: <strong>«${data.trigger || '...'}»</strong></li>
-                        <li>Сбросьте состояние (отвлекитесь, встаньте)</li>
-                        <li>Повторите шаги 1-3 ещё 3-5 раз</li>
-                        <li>Проверьте: активируйте триггер — должно приходить состояние</li>
-                    </ol>
-                </div>
-                
-                <div class="anchor-actions" style="margin-top: 20px;">
-                    <button class="anchor-btn fire-btn" style="flex: 1;" onclick="anchorWizardComplete()">✅ Сохранить инструкцию</button>
-                    <button class="anchor-btn delete-btn" style="flex: 1;" onclick="anchorWizardReset()">↺ Начать заново</button>
-                </div>
-            </div>
-        `;
-    }
-    
-    return '<div>Загрузка...</div>';
-}
+// ============================================
+// РЕНДЕР ПОДБОРА (ВАУ-ЭФФЕКТ!)
+// ============================================
 
-// Глобальная переменная для выбранных стимулов
-let selectedStimuli = [];
-
-function toggleStimulus(key) {
-    const card = document.querySelector(`.stimulus-card[data-stimulus="${key}"]`);
-    if (selectedStimuli.includes(key)) {
-        selectedStimuli = selectedStimuli.filter(s => s !== key);
-        card?.classList.remove('selected');
-    } else {
-        selectedStimuli.push(key);
-        card?.classList.add('selected');
-    }
-}
-
-function renderRecommendations(recommendations) {
+async function renderAdvancedRecommendations() {
+    const recommendations = await getProfileBasedRecommendations();
+    
     if (!recommendations.length) {
         return `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 64px; margin-bottom: 16px;">🎲</div>
                 <h3>Нет персональных рекомендаций</h3>
                 <p style="color: var(--text-secondary);">Пройдите психологический тест, чтобы получить инструкции под ваш профиль</p>
-                <button class="an-tab active" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px;">📊 Пройти тест</button>
+                <button class="action-btn" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px; background: #ff6b3b; border: none; border-radius: 30px; color: white; cursor: pointer;">📊 Пройти тест</button>
             </div>
         `;
     }
     
-    return `
-        <div style="margin-bottom: 16px;"><p>🎯 На основе вашего психологического профиля:</p></div>
-        ${recommendations.map(rec => `
-            <div class="recommend-card" style="background: rgba(224,224,224,0.05); border-radius: 16px; padding: 16px; margin-bottom: 12px; border-left: 3px solid ${ANCHORS_CONFIG.states[rec.state]?.color || '#ff6b3b'};">
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                    <span style="font-size: 32px;">${ANCHORS_CONFIG.states[rec.state]?.icon || '⚓'}</span>
-                    <div>
-                        <div style="font-weight: 700; font-size: 18px;">${rec.name}</div>
-                        <div style="font-size: 12px; color: var(--text-secondary);">${rec.reason}</div>
+    let html = `
+        <div class="recommendations-header" style="text-align:center;margin-bottom:24px;">
+            <div style="display:inline-block;font-size:10px;background:rgba(255,107,59,0.2);padding:4px 12px;border-radius:20px;color:#ff6b3b;margin-bottom:12px;">🧠 AI-АНАЛИЗ</div>
+            <div style="font-size:22px;font-weight:700;color:white;margin-bottom:8px;">Ваш персональный план развития</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.4);">На основе анализа ваших психологических векторов</div>
+        </div>
+    `;
+    
+    for (const rec of recommendations) {
+        const severityColor = rec.severity === 'critical' ? '#ff4444' : rec.severity === 'moderate' ? '#ffaa44' : rec.severity === 'strength' ? '#44aa44' : '#44aa44';
+        const severityText = rec.severity === 'critical' ? '🔴 КРИТИЧЕСКИ ВАЖНО' : rec.severity === 'moderate' ? '🟡 РЕКОМЕНДУЕТСЯ' : rec.severity === 'strength' ? '🟢 ВАША СИЛА' : '🟢 ДЛЯ РОСТА';
+        
+        html += `
+            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-left:4px solid ${severityColor};border-radius:20px;padding:20px;margin-bottom:16px;transition:all0.3s ease;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <div style="font-size:32px;">${rec.icon || '🎯'}</div>
+                    <div style="font-size:10px;padding:4px 10px;border-radius:20px;font-weight:600;background:${severityColor}20;color:${severityColor};">${severityText}</div>
+                </div>
+                <div style="font-size:18px;font-weight:700;color:white;margin-bottom:8px;">${rec.name}</div>
+                <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:16px;line-height:1.5;">${rec.description}</div>
+                
+                <div style="display:flex;gap:12px;margin-bottom:16px;padding:12px;background:rgba(255,255,255,0.02);border-radius:12px;">
+                    <div style="font-size:20px;flex-shrink:0;">🎯</div>
+                    <div style="flex:1;">
+                        <div style="font-size:10px;color:#ff6b3b;text-transform:uppercase;margin-bottom:6px;">Конкретное действие на завтра</div>
+                        <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.5;margin-bottom:6px;">${rec.action || rec.description}</div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.4);">⚡ Триггер: ${rec.trigger}</div>
                     </div>
                 </div>
-                <div style="font-size: 14px; margin-bottom: 16px;">💬 Фраза: «${rec.phrase}»</div>
-                <button class="anchor-btn fire-btn" onclick="quickCreateAnchor('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}', '${rec.phrase.replace(/'/g, "\\'")}')">➕ Создать инструкцию</button>
-            </div>
-        `).join('')}
-    `;
-}
-
-function renderTechniques() {
-    return `
-        <div style="margin-bottom: 20px;"><p>🔧 Продвинутые техники работы с состояниями</p></div>
-        ${Object.entries(ANCHORS_CONFIG.techniques).map(([key, tech]) => `
-            <div class="imprint-card" onclick="showTechnique('${key}')">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <span style="font-size: 32px;">${tech.icon}</span>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 700; font-size: 18px;">${tech.name}</div>
-                        <div style="font-size: 13px; color: var(--text-secondary);">${tech.desc}</div>
-                        <div style="font-size: 11px; color: var(--chrome); margin-top: 4px;">⏱ ${tech.duration}</div>
+                
+                <div style="display:flex;gap:12px;margin-bottom:16px;padding:12px;background:rgba(255,255,255,0.02);border-radius:12px;">
+                    <div style="font-size:20px;flex-shrink:0;">💭</div>
+                    <div style="flex:1;">
+                        <div style="font-size:10px;color:#ff6b3b;text-transform:uppercase;margin-bottom:6px;">Персональная аффирмация</div>
+                        <div style="font-size:14px;color:#ff6b3b;font-style:italic;line-height:1.5;">«${rec.affirmation || rec.phrase}»</div>
                     </div>
-                    <span style="font-size: 20px; color: var(--text-secondary);">→</span>
+                </div>
+                
+                <div style="display:flex;gap:10px;margin-top:16px;">
+                    <button class="create-btn" onclick="quickCreateAnchorFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}', '${(rec.phrase || rec.affirmation || '').replace(/'/g, "\\'")}')" style="flex:1;padding:10px;border-radius:30px;font-size:12px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);border:none;color:white;">✨ Создать инструкцию</button>
+                    <button class="guide-btn" onclick="startGuidedFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}')" style="flex:1;padding:10px;border-radius:30px;font-size:12px;font-weight:600;cursor:pointer;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.8);">🎧 Guided-медитация</button>
                 </div>
             </div>
-        `).join('')}
-    `;
+        `;
+    }
+    
+    return html;
 }
 
-function renderImprints() {
-    return `
-        <div style="margin-bottom: 20px;"><p>📚 Глубинная работа с импринтами (детскими программами)</p></div>
-        <div class="imprint-card" onclick="startImprintDiagnostic()">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 32px;">🔍</span>
-                <div><div style="font-weight: 700;">Диагностика импринтов</div><div style="font-size: 13px; color: var(--text-secondary);">20 вопросов, 3 минуты</div></div>
-            </div>
-        </div>
-        <div class="imprint-card" onclick="startReimprinting()">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 32px;">🔄</span>
-                <div><div style="font-weight: 700;">Реимпринтинг</div><div style="font-size: 13px; color: var(--text-secondary);">Перезапись детских программ</div></div>
-            </div>
-        </div>
-        <details style="background: rgba(224,224,224,0.03); border-radius: 16px; padding: 16px; margin-top: 16px;">
-            <summary style="cursor: pointer; color: #ff6b3b; font-weight: 500;">📖 Что такое импринты?</summary>
-            <div style="margin-top: 12px; line-height: 1.6; font-size: 14px;">
-                <p>Импринт (запечатление) — это бессознательная программа, сформированная в критический период развития (0-7 лет).</p>
-                <p><strong>Основные типы импринтов:</strong></p>
-                <ul style="margin-left: 20px; margin-top: 8px;">
-                    <li>😔 <strong>Отвержения</strong> — «Я не нужен»</li>
-                    <li>⚠️ <strong>Опасности</strong> — «Мир опасен»</li>
-                    <li>🎯 <strong>Перфекционизма</strong> — «Надо быть идеальным»</li>
-                    <li>🔇 <strong>Подавления эмоций</strong> — «Чувства = слабость»</li>
-                    <li>🪶 <strong>Беспомощности</strong> — «Я ничего не могу изменить»</li>
-                    <li>💔 <strong>Недостойности</strong> — «Я недостаточно хорош»</li>
-                    <li>🎮 <strong>Контроля</strong> — «Всё должно быть под контролем»</li>
-                </ul>
-                <p style="margin-top: 12px;"><strong>Реимпринтинг</strong> — техника перезаписи этих программ через ресурсного свидетеля (взрослого себя).</p>
-            </div>
-        </details>
-    `;
-}
+// ============================================
+// РЕНДЕР КОНСТРУКТОРА И ВИЗАРДА (ИСПРАВЛЕННЫЙ)
+// ============================================
 
 function renderConstructor() {
     if (anchorWizardStep > 0 && anchorWizardData.source) {
@@ -1590,54 +1509,207 @@ function renderConstructor() {
         <div class="wizard-options">
             ${externalSources.map(key => {
                 const source = ANCHORS_CONFIG.sources[key];
-                return `<div class="wizard-option" onclick="constructorSelectSource('${key}')">
+                return `<div class="wizard-option" onclick="constructorSelectSource('${key}')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;cursor:pointer;margin-bottom:8px;">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <span style="font-size: 24px;">${source.icon}</span>
                         <div>
                             <div style="font-weight: 600;">${source.name}</div>
                             <div style="font-size: 12px; color: var(--text-secondary);">${source.desc}</div>
-                            ${source.requiresFile ? '<div style="font-size: 10px; color: #ff9800; margin-top: 4px;">📁 Требуется файл</div>' : ''}
                         </div>
                     </div>
                 </div>`;
             }).join('')}
         </div>
         <div id="constructorContent"></div>
-        <div style="margin-top:20px;padding:12px;background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.06);border-radius:12px;">
-            <p style="font-size:11px;color:var(--text-secondary);line-height:1.6;">
-                💡 <strong>Совет:</strong> Если у вас есть собственный опыт нужного состояния — используйте вкладку «Создать» для создания инструкции из вашей памяти.
-            </p>
-        </div>
     `;
 }
 
+function renderAnchorWizard() {
+    const step = anchorWizardStep;
+    const data = anchorWizardData;
+    
+    // Шаг 0: выбор состояния
+    if (step === 0) {
+        return `
+            <div class="wizard-step" style="background:rgba(224,224,224,0.05);border-radius:20px;padding:24px;margin-top:20px;">
+                <h3>➕ Создание инструкции</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 1 из 4: Какое состояние вы хотите научиться вызывать?</p>
+                <div class="wizard-options" style="display:flex;flex-direction:column;gap:12px;">
+                    ${Object.entries(ANCHORS_CONFIG.states).map(([key, state]) => `
+                        <div class="wizard-option" onclick="anchorWizardSelectState('${key}')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;cursor:pointer;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span style="font-size: 24px;">${state.icon}</span>
+                                <div>
+                                    <div style="font-weight: 600;">${state.name}</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">${state.desc}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Шаг 1: выбор источника
+    if (step === 1) {
+        return `
+            <div class="wizard-step" style="background:rgba(224,224,224,0.05);border-radius:20px;padding:24px;margin-top:20px;">
+                <h3>➕ Создание инструкции</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 2 из 4: Откуда возьмём состояние «${ANCHORS_CONFIG.states[data.state]?.name || data.state}»?</p>
+                <div class="wizard-options" style="display:flex;flex-direction:column;gap:12px;">
+                    ${Object.entries(ANCHORS_CONFIG.sources).map(([key, source]) => `
+                        <div class="wizard-option ${data.source === key ? 'selected' : ''}" onclick="anchorWizardSelectSource('${key}')" style="background:rgba(224,224,224,0.03);border:1px solid ${data.source === key ? '#ff6b3b' : 'rgba(224,224,224,0.1)'};border-radius:12px;padding:16px;cursor:pointer;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span style="font-size: 24px;">${source.icon}</span>
+                                <div>
+                                    <div style="font-weight: 600;">${source.name}</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">${source.desc}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                ${data.source ? `
+                    <div style="margin-top: 20px;">
+                        <label style="display: block; margin-bottom: 8px;">Опишите источник:</label>
+                        <textarea id="sourceDetail" placeholder="Опишите ситуацию, фильм, музыку или метафору..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; min-height: 80px; box-sizing:border-box;">${_anEscapeHtml(data.sourceDetail || '')}</textarea>
+                    </div>
+                    <button class="anchor-btn fire-btn" style="margin-top: 20px; width: 100%; padding:12px; background:#ff6b3b; border:none; border-radius:30px; color:white; cursor:pointer;" onclick="anchorWizardNext()">Далее →</button>
+                ` : ''}
+            </div>
+        `;
+    }
+    
+    // Шаг 2: выбор триггера (ИСПРАВЛЕНО - сохраняем в data)
+    if (step === 2) {
+        return `
+            <div class="wizard-step" style="background:rgba(224,224,224,0.05);border-radius:20px;padding:24px;margin-top:20px;">
+                <h3>➕ Создание инструкции</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 3 из 4: Какой будет триггер?</p>
+                <div class="wizard-options" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;">
+                    <div class="wizard-option ${data.modality === 'auditory' ? 'selected' : ''}" onclick="anchorWizardSelectModality('auditory')" style="background:rgba(224,224,224,0.03);border:1px solid ${data.modality === 'auditory' ? '#ff6b3b' : 'rgba(224,224,224,0.1)'};border-radius:12px;padding:16px;cursor:pointer;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 24px;">🔊</span>
+                            <div><div style="font-weight: 600;">Аудиальный</div><div style="font-size: 12px;">Ключевая фраза, слово</div></div>
+                        </div>
+                    </div>
+                    <div class="wizard-option ${data.modality === 'kinesthetic' ? 'selected' : ''}" onclick="anchorWizardSelectModality('kinesthetic')" style="background:rgba(224,224,224,0.03);border:1px solid ${data.modality === 'kinesthetic' ? '#ff6b3b' : 'rgba(224,224,224,0.1)'};border-radius:12px;padding:16px;cursor:pointer;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 24px;">🖐️</span>
+                            <div><div style="font-weight: 600;">Кинестетический</div><div style="font-size: 12px;">Жест, прикосновение, поза</div></div>
+                        </div>
+                    </div>
+                    <div class="wizard-option ${data.modality === 'visual' ? 'selected' : ''}" onclick="anchorWizardSelectModality('visual')" style="background:rgba(224,224,224,0.03);border:1px solid ${data.modality === 'visual' ? '#ff6b3b' : 'rgba(224,224,224,0.1)'};border-radius:12px;padding:16px;cursor:pointer;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 24px;">👁️</span>
+                            <div><div style="font-weight: 600;">Визуальный</div><div style="font-size: 12px;">Образ, символ, мысленная картинка</div></div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <label style="display: block; margin-bottom: 8px;">Введите ваш триггер:</label>
+                    <input type="text" id="triggerInput" placeholder="Например: «Я спокоен» или сжать кулак" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; box-sizing:border-box;" value="${_anEscapeHtml(data.trigger || '')}">
+                </div>
+                <button class="anchor-btn fire-btn" style="margin-top: 20px; width: 100%; padding:12px; background:#ff6b3b; border:none; border-radius:30px; color:white; cursor:pointer;" onclick="anchorWizardSaveTrigger()">Далее →</button>
+            </div>
+        `;
+    }
+    
+    // Шаг 3: название и стимулы
+    if (step === 3) {
+        const stateKey = data.state;
+        let recommendedStimuli = [];
+        if (stateKey === 'calm') recommendedStimuli = ['teaCup', 'crystal', 'stressBall'];
+        else if (stateKey === 'confidence') recommendedStimuli = ['zippo', 'pen', 'ring'];
+        else if (stateKey === 'focus') recommendedStimuli = ['pen', 'crystal', 'stressBall'];
+        else if (stateKey === 'energy') recommendedStimuli = ['zippo', 'keychain'];
+        else if (stateKey === 'grounding') recommendedStimuli = ['crystal', 'teaCup', 'ring'];
+        else recommendedStimuli = ['teaCup', 'stressBall', 'pen'];
+        
+        const stimuliHtml = recommendedStimuli.map(key => {
+            const s = ANCHORS_CONFIG.physical_stimuli[key];
+            if (!s) return '';
+            const isSelected = selectedStimuli.includes(key);
+            return `
+                <div class="stimulus-card" data-stimulus="${key}" onclick="toggleStimulus('${key}')" style="background:rgba(224,224,224,0.04);border:1px solid ${isSelected ? '#ff6b3b' : 'rgba(224,224,224,0.1)'};border-radius:12px;padding:12px;text-align:center;cursor:pointer;">
+                    <div style="font-size:32px;">${s.icon}</div>
+                    <div style="font-weight:600;margin:8px 0 4px;">${s.name}</div>
+                    <div style="font-size:10px;color:var(--text-secondary);">${s.description.substring(0, 40)}...</div>
+                </div>
+            `;
+        }).join('');
+        
+        return `
+            <div class="wizard-step" style="background:rgba(224,224,224,0.05);border-radius:20px;padding:24px;margin-top:20px;">
+                <h3>➕ Создание инструкции</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Шаг 4 из 4: Назовите вашу инструкцию</p>
+                <input type="text" id="anchorNameInput" placeholder="Например: «Спокойствие перед выступлением»" value="${_anEscapeHtml(data.name || '')}" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; margin-bottom: 20px; box-sizing:border-box;">
+                
+                <h3 style="margin-top: 20px;">🔧 Рекомендуемые стимулы (для усиления)</h3>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">Выберите физические предметы, которые усилят ваш якорь:</p>
+                <div class="stimuli-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin:16px 0;">
+                    ${stimuliHtml}
+                </div>
+                <input type="text" id="customStimulus" placeholder="Или введите свой стимул..." style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; margin-top: 12px; box-sizing:border-box;">
+                
+                <div style="background: linear-gradient(135deg, rgba(76,175,80,0.1), rgba(76,175,80,0.05)); border-radius: 12px; padding: 16px; margin: 20px 0;">
+                    <p><strong>🎯 Ваш персональный план:</strong></p>
+                    <ol style="margin-left: 20px; line-height: 1.8;">
+                        <li>Войдите в состояние ${ANCHORS_CONFIG.states[data.state]?.name || data.state}</li>
+                        <li>В момент ПИКА состояния — сделайте триггер: <strong>«${data.trigger || '...'}»</strong></li>
+                        <li>Сбросьте состояние (отвлекитесь, встаньте)</li>
+                        <li>Повторите шаги 1-3 ещё 3-5 раз</li>
+                        <li>Проверьте: активируйте триггер — должно приходить состояние</li>
+                    </ol>
+                </div>
+                
+                <div style="display:flex;gap:12px;margin-top:20px;">
+                    <button class="anchor-btn fire-btn" style="flex:1;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;" onclick="anchorWizardComplete()">✅ Сохранить инструкцию</button>
+                    <button class="anchor-btn delete-btn" style="flex:1;padding:12px;background:rgba(224,224,224,0.1);border:1px solid rgba(224,224,224,0.2);border-radius:30px;color:white;cursor:pointer;" onclick="anchorWizardReset()">↺ Заново</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    return '<div>Загрузка...</div>';
+}
+
 // ============================================
-// ОБРАБОТЧИКИ
+// ОБРАБОТЧИКИ КОНСТРУКТОРА
 // ============================================
 
+function toggleStimulus(key) {
+    const index = selectedStimuli.indexOf(key);
+    if (index === -1) {
+        selectedStimuli.push(key);
+    } else {
+        selectedStimuli.splice(index, 1);
+    }
+    
+    const card = document.querySelector(`.stimulus-card[data-stimulus="${key}"]`);
+    if (card) {
+        if (selectedStimuli.includes(key)) {
+            card.style.borderColor = '#ff6b3b';
+        } else {
+            card.style.borderColor = 'rgba(224,224,224,0.1)';
+        }
+    }
+}
+
 window.anchorWizardSelectState = (state) => {
-    anchorWizardData.state = state;
+    anchorWizardData = { state: state };
     anchorWizardStep = 1;
     showAnchorsScreen();
 };
 
 window.anchorWizardSelectSource = (source) => {
     anchorWizardData.source = source;
-    anchorWizardStep = 2;
     showAnchorsScreen();
 };
 
 window.anchorWizardSelectModality = (modality) => {
     anchorWizardData.modality = modality;
-    showAnchorsScreen();
-};
-
-window.anchorWizardSaveTrigger = () => {
-    const triggerInput = document.getElementById('triggerInput');
-    if (triggerInput) {
-        anchorWizardData.trigger = triggerInput.value.trim();
-    }
-    anchorWizardStep = 3;
     showAnchorsScreen();
 };
 
@@ -1650,9 +1722,20 @@ window.anchorWizardNext = () => {
     showAnchorsScreen();
 };
 
+window.anchorWizardSaveTrigger = () => {
+    const triggerInput = document.getElementById('triggerInput');
+    if (triggerInput && triggerInput.value.trim()) {
+        anchorWizardData.trigger = triggerInput.value.trim();
+        anchorWizardStep = 3;
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Пожалуйста, введите триггер', 'error');
+    }
+};
+
 window.anchorWizardComplete = async () => {
     const nameInput = document.getElementById('anchorNameInput');
-    if (nameInput) {
+    if (nameInput && nameInput.value.trim()) {
         anchorWizardData.name = nameInput.value.trim();
     }
     
@@ -1665,13 +1748,11 @@ window.anchorWizardComplete = async () => {
         return;
     }
     
-    // Собираем выбранные стимулы
     const customStimulus = document.getElementById('customStimulus')?.value.trim();
     if (customStimulus) {
         selectedStimuli.push(customStimulus);
     }
     
-    // Генерируем пошаговую инструкцию
     const steps = [
         `Найдите спокойное место, где вас никто не побеспокоит`,
         `Сделайте 3 глубоких вдоха и выдоха`,
@@ -1689,7 +1770,7 @@ window.anchorWizardComplete = async () => {
         state: anchorWizardData.state,
         source: anchorWizardData.source,
         source_detail: anchorWizardData.sourceDetail,
-        modality: anchorWizardData.modality,
+        modality: anchorWizardData.modality || 'auditory',
         trigger: anchorWizardData.trigger,
         phrase: anchorWizardData.trigger,
         icon: ANCHORS_CONFIG.states[anchorWizardData.state]?.icon || '⚓',
@@ -1721,33 +1802,103 @@ window.anchorWizardReset = () => {
     showAnchorsScreen();
 };
 
-window.fireAnchor = async (anchorId, anchorName) => {
-    _anShowToast(`🎧 Активирую состояние «${anchorName}»...`, 'info');
-    const phrase = await fireAnchorAPI(anchorId, anchorName);
-    if (phrase) {
-        _anShowToast(`✅ ${phrase}`, 'success');
-        if (window.voiceManager) {
-            await window.voiceManager.textToSpeech(phrase, window.currentMode || 'psychologist');
-        }
-    } else {
-        _anShowToast('❌ Не удалось активировать', 'error');
-    }
-    await loadUserAnchors();
+window.constructorSelectSource = (source) => {
+    const container = document.getElementById('constructorContent');
+    if (!container) return;
+    
+    const sourcesContent = {
+        movie: `<div style="margin-top:20px;"><h3>🎬 Выберите фильм или сцену</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseMovie('gladiator')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🎬 Гладиатор — сцена перед битвой</div><div style="font-size:12px;">Уверенность, сила, победа</div></div><div class="wizard-option" onclick="constructorUseMovie('amelie')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🎬 Амели — момент радости</div><div style="font-size:12px;">Радость, лёгкость</div></div><div class="wizard-option" onclick="constructorUseMovie('matrix')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🎬 Матрица — «Я знаю кунг-фу»</div><div style="font-size:12px;">Фокус, уверенность</div></div></div><input type="text" id="customMovie" placeholder="Или напишите свой фильм..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;box-sizing:border-box;"><button class="anchor-btn fire-btn" style="margin-top:16px;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;" onclick="constructorCreateFromMovie()">Использовать этот источник</button></div>`,
+        music: `<div style="margin-top:20px;"><h3>🎵 Выберите музыку</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseMusic('hans')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🎵 Hans Zimmer — Time</div><div style="font-size:12px;">Величие, спокойствие</div></div><div class="wizard-option" onclick="constructorUseMusic('energetic')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🎵 Epic orchestral</div><div style="font-size:12px;">Энергия, подъём</div></div></div><input type="text" id="customMusic" placeholder="Или напишите свой трек..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;box-sizing:border-box;"><button class="anchor-btn fire-btn" style="margin-top:16px;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;" onclick="constructorCreateFromMusic()">Использовать этот источник</button></div>`,
+        metaphor: `<div style="margin-top:20px;"><h3>📖 Выберите метафору</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseMetaphor('rock')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🗻 «Я — скала, которую не может сдвинуть ветер»</div><div style="font-size:12px;">Спокойствие, устойчивость</div></div><div class="wizard-option" onclick="constructorUseMetaphor('ocean')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🌊 «Я — океан, могучий и глубокий»</div><div style="font-size:12px;">Сила, спокойствие</div></div></div><textarea id="customMetaphor" placeholder="Или напишите свою метафору..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;box-sizing:border-box;"></textarea><button class="anchor-btn fire-btn" style="margin-top:16px;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;" onclick="constructorCreateFromMetaphor()">Использовать эту метафору</button></div>`,
+        body: `<div style="margin-top:20px;"><h3>🧘 Телесная практика</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseBody('breath')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🌬️ Дыхание: вдох 4 — задержка 4 — выдох 6</div><div style="font-size:12px;">Спокойствие, расслабление</div></div><div class="wizard-option" onclick="constructorUseBody('posture')" style="background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.1);border-radius:12px;padding:16px;margin-bottom:8px;cursor:pointer;"><div>🧍 Поза супермена: руки в боки, плечи назад</div><div style="font-size:12px;">Уверенность, сила</div></div></div><textarea id="customBody" placeholder="Опишите свою телесную практику..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;box-sizing:border-box;"></textarea><button class="anchor-btn fire-btn" style="margin-top:16px;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;" onclick="constructorCreateFromBody()">Использовать эту практику</button></div>`,
+        other: `<div style="margin-top:20px;"><h3>👥 Опыт другого</h3><textarea id="otherSource" placeholder="Опишите опыт другого человека, который вас вдохновляет..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;min-height:100px;box-sizing:border-box;"></textarea><button class="anchor-btn fire-btn" style="margin-top:16px;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;" onclick="constructorCreateFromOther()">Использовать этот источник</button></div>`
+    };
+    
+    container.innerHTML = sourcesContent[source] || '<p>Выберите источник</p>';
+};
+
+window.constructorUseMovie = (movie) => {
+    anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: movie === 'gladiator' ? 'Гладиатор — сцена перед битвой' : (movie === 'amelie' ? 'Амели — момент радости' : 'Матрица — «Я знаю кунг-фу»'), modality: 'visual' };
+    anchorWizardStep = 2;
     showAnchorsScreen();
 };
 
-window.deleteAnchorConfirm = async (anchorId) => {
-    if (confirm('Удалить эту инструкцию?')) {
-        const success = await deleteAnchor(anchorId);
-        if (success) {
-            _anShowToast('🗑️ Инструкция удалена', 'success');
-            await loadUserAnchors();
-            showAnchorsScreen();
-        } else {
-            _anShowToast('❌ Не удалось удалить', 'error');
-        }
+window.constructorCreateFromMovie = () => {
+    const custom = document.getElementById('customMovie')?.value;
+    if (custom) {
+        anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: custom, modality: 'visual' };
+        anchorWizardStep = 2;
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Введите название фильма', 'error');
     }
 };
+
+window.constructorUseMusic = (music) => {
+    anchorWizardData = { state: 'calm', source: 'music', sourceDetail: music === 'hans' ? 'Hans Zimmer — Time' : 'Epic orchestral music', modality: 'auditory' };
+    anchorWizardStep = 2;
+    showAnchorsScreen();
+};
+
+window.constructorCreateFromMusic = () => {
+    const custom = document.getElementById('customMusic')?.value;
+    if (custom) {
+        anchorWizardData = { state: 'calm', source: 'music', sourceDetail: custom, modality: 'auditory' };
+        anchorWizardStep = 2;
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Введите название трека', 'error');
+    }
+};
+
+window.constructorUseMetaphor = (metaphor) => {
+    anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: metaphor === 'rock' ? 'Я — скала, которую не может сдвинуть ветер' : 'Я — океан, могучий и глубокий', modality: 'visual' };
+    anchorWizardStep = 2;
+    showAnchorsScreen();
+};
+
+window.constructorCreateFromMetaphor = () => {
+    const custom = document.getElementById('customMetaphor')?.value;
+    if (custom) {
+        anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: custom, modality: 'visual' };
+        anchorWizardStep = 2;
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Введите метафору', 'error');
+    }
+};
+
+window.constructorUseBody = (practice) => {
+    anchorWizardData = { state: 'calm', source: 'body', sourceDetail: practice === 'breath' ? 'Дыхание: вдох 4 — задержка 4 — выдох 6' : 'Поза супермена: руки в боки, плечи назад', modality: 'kinesthetic' };
+    anchorWizardStep = 2;
+    showAnchorsScreen();
+};
+
+window.constructorCreateFromBody = () => {
+    const custom = document.getElementById('customBody')?.value;
+    if (custom) {
+        anchorWizardData = { state: 'calm', source: 'body', sourceDetail: custom, modality: 'kinesthetic' };
+        anchorWizardStep = 2;
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Опишите практику', 'error');
+    }
+};
+
+window.constructorCreateFromOther = () => {
+    const custom = document.getElementById('otherSource')?.value;
+    if (custom) {
+        anchorWizardData = { state: 'confidence', source: 'other', sourceDetail: custom, modality: 'auditory' };
+        anchorWizardStep = 2;
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Опишите опыт', 'error');
+    }
+};
+
+// ============================================
+// ОСТАЛЬНЫЕ ОБРАБОТЧИКИ
+// ============================================
 
 window.quickCreateAnchor = async (state, name, trigger, phrase) => {
     const steps = [
@@ -1783,12 +1934,111 @@ window.quickCreateAnchor = async (state, name, trigger, phrase) => {
     }
 };
 
+window.quickCreateAnchorFromRecommendation = async (state, name, trigger, phrase) => {
+    await window.quickCreateAnchor(state, name, trigger, phrase);
+};
+
+window.startGuidedFromRecommendation = (state, name, trigger) => {
+    const fakeAnchor = {
+        name: name,
+        state: state,
+        trigger: trigger,
+        phrase: trigger
+    };
+    startGuidedActivation(fakeAnchor);
+};
+
+window.deleteAnchorConfirm = async (anchorId) => {
+    if (confirm('Удалить эту инструкцию?')) {
+        const success = await deleteAnchor(anchorId);
+        if (success) {
+            _anShowToast('🗑️ Инструкция удалена', 'success');
+            await loadUserAnchors();
+            showAnchorsScreen();
+        } else {
+            _anShowToast('❌ Не удалось удалить', 'error');
+        }
+    }
+};
+
+window.fireAnchor = async (anchorId, anchorName) => {
+    _anShowToast(`🎧 Активирую состояние «${anchorName}»...`, 'info');
+    const phrase = await fireAnchorAPI(anchorId, anchorName);
+    if (phrase) {
+        _anShowToast(`✅ ${phrase}`, 'success');
+        if (window.voiceManager) {
+            await window.voiceManager.textToSpeech(phrase, window.currentMode || 'psychologist');
+        }
+    } else {
+        _anShowToast('❌ Не удалось активировать', 'error');
+    }
+    await loadUserAnchors();
+    showAnchorsScreen();
+};
+
+// ============================================
+// РЕНДЕР ТЕХНИК И ИМПРИНТОВ
+// ============================================
+
+function renderTechniques() {
+    return `
+        <div style="margin-bottom: 20px;"><p>🔧 Продвинутые техники работы с состояниями</p></div>
+        ${Object.entries(ANCHORS_CONFIG.techniques).map(([key, tech]) => `
+            <div class="imprint-card" onclick="showTechnique('${key}')" style="background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;margin-bottom:12px;cursor:pointer;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 32px;">${tech.icon}</span>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 700; font-size: 18px;">${tech.name}</div>
+                        <div style="font-size: 13px; color: var(--text-secondary);">${tech.desc}</div>
+                        <div style="font-size: 11px; color: var(--chrome); margin-top: 4px;">⏱ ${tech.duration}</div>
+                    </div>
+                    <span style="font-size: 20px; color: var(--text-secondary);">→</span>
+                </div>
+            </div>
+        `).join('')}
+    `;
+}
+
+function renderImprints() {
+    return `
+        <div style="margin-bottom: 20px;"><p>📚 Глубинная работа с импринтами (детскими программами)</p></div>
+        <div class="imprint-card" onclick="startImprintDiagnostic()" style="background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;margin-bottom:12px;cursor:pointer;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 32px;">🔍</span>
+                <div><div style="font-weight: 700;">Диагностика импринтов</div><div style="font-size: 13px; color: var(--text-secondary);">20 вопросов, 3 минуты</div></div>
+            </div>
+        </div>
+        <div class="imprint-card" onclick="startReimprinting()" style="background:rgba(224,224,224,0.05);border-radius:16px;padding:16px;margin-bottom:12px;cursor:pointer;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 32px;">🔄</span>
+                <div><div style="font-weight: 700;">Реимпринтинг</div><div style="font-size: 13px; color: var(--text-secondary);">Перезапись детских программ</div></div>
+            </div>
+        </div>
+        <details style="background: rgba(224,224,224,0.03); border-radius: 16px; padding: 16px; margin-top: 16px;">
+            <summary style="cursor: pointer; color: #ff6b3b; font-weight: 500;">📖 Что такое импринты?</summary>
+            <div style="margin-top: 12px; line-height: 1.6; font-size: 14px;">
+                <p>Импринт (запечатление) — это бессознательная программа, сформированная в критический период развития (0-7 лет).</p>
+                <p><strong>Основные типы импринтов:</strong></p>
+                <ul style="margin-left: 20px; margin-top: 8px;">
+                    <li>😔 <strong>Отвержения</strong> — «Я не нужен»</li>
+                    <li>⚠️ <strong>Опасности</strong> — «Мир опасен»</li>
+                    <li>🎯 <strong>Перфекционизма</strong> — «Надо быть идеальным»</li>
+                    <li>🔇 <strong>Подавления эмоций</strong> — «Чувства = слабость»</li>
+                    <li>🪶 <strong>Беспомощности</strong> — «Я ничего не могу изменить»</li>
+                    <li>💔 <strong>Недостойности</strong> — «Я недостаточно хорош»</li>
+                    <li>🎮 <strong>Контроля</strong> — «Всё должно быть под контролем»</li>
+                </ul>
+            </div>
+        </details>
+    `;
+}
+
 window.showTechnique = (techniqueKey) => {
     const techniquesContent = {
-        stacking: `<h3>🔗 Накладка якорей</h3><p>Техника соединения двух ресурсных состояний в один мощный якорь.</p><ol style="margin: 16px 0 16px 20px;"><li>Установите якорь на состояние А</li><li>Установите якорь на состояние Б</li><li>Активируйте оба якоря одновременно</li><li>Создайте новый интегрированный якорь</li></ol><p><strong>Когда применять:</strong> Когда нужно усилить состояние.</p>`,
-        collapse: `<h3>💥 Коллапс якорей</h3><p>Разрушение негативного якоря через накладку ресурса.</p><ol style="margin: 16px 0 16px 20px;"><li>Установите якорь на негативное состояние</li><li>Установите мощный ресурсный якорь</li><li>Активируйте оба одновременно</li><li>Негатив «схлопывается» ресурсом</li></ol><p><strong>Когда применять:</strong> При негативной реакции на триггер.</p>`,
-        chaining: `<h3>⛓️ Цепочка якорей</h3><p>Последовательная активация состояний для достижения сложной цели.</p><ol style="margin: 16px 0 16px 20px;"><li>Состояние А → Якорь А</li><li>Переход к состоянию Б</li><li>Состояние Б → Якорь Б</li><li>И так далее по цепочке</li></ol><p><strong>Когда применять:</strong> Когда нужно пройти через несколько состояний.</p>`,
-        reimprinting: `<h3>🔄 Реимпринтинг</h3><p>Перезапись детских программ через ресурсного свидетеля.</p><ol style="margin: 16px 0 16px 20px;"><li>Найти ситуацию из детства</li><li>Распознать решение/импринт</li><li>Войти в ресурсное состояние взрослого</li><li>Дать новое послание себе-ребёнку</li><li>Закрепить новое состояние якорем</li></ol><button class="anchor-btn fire-btn" onclick="startReimprinting()">Начать реимпринтинг</button>`
+        stacking: `<h3>🔗 Накладка якорей</h3><p>Техника соединения двух ресурсных состояний в один мощный якорь.</p><ol style="margin: 16px 0 16px 20px;"><li>Установите якорь на состояние А</li><li>Установите якорь на состояние Б</li><li>Активируйте оба якоря одновременно</li><li>Создайте новый интегрированный якорь</li></ol>`,
+        collapse: `<h3>💥 Коллапс якорей</h3><p>Разрушение негативного якоря через накладку ресурса.</p><ol style="margin: 16px 0 16px 20px;"><li>Установите якорь на негативное состояние</li><li>Установите мощный ресурсный якорь</li><li>Активируйте оба одновременно</li><li>Негатив «схлопывается» ресурсом</li></ol>`,
+        chaining: `<h3>⛓️ Цепочка якорей</h3><p>Последовательная активация состояний для достижения сложной цели.</p><ol style="margin: 16px 0 16px 20px;"><li>Состояние А → Якорь А</li><li>Переход к состоянию Б</li><li>Состояние Б → Якорь Б</li><li>И так далее по цепочке</li></ol>`,
+        reimprinting: `<h3>🔄 Реимпринтинг</h3><p>Перезапись детских программ через ресурсного свидетеля.</p><ol style="margin: 16px 0 16px 20px;"><li>Найти ситуацию из детства</li><li>Распознать решение/импринт</li><li>Войти в ресурсное состояние взрослого</li><li>Дать новое послание себе-ребёнку</li><li>Закрепить новое состояние якорем</li></ol><button class="anchor-btn fire-btn" onclick="startReimprinting()" style="margin-top:16px;padding:12px;background:#ff6b3b;border:none;border-radius:30px;color:white;cursor:pointer;">Начать реимпринтинг</button>`
     };
     
     const container = document.getElementById('screenContainer');
@@ -1804,71 +2054,62 @@ window.showTechnique = (techniqueKey) => {
     }
 };
 
-window.constructorSelectSource = (source) => {
-    const container = document.getElementById('constructorContent');
-    if (!container) return;
-    
-    const sourcesContent = {
-        movie: `<div style="margin-top: 20px;"><h3>🎬 Выберите фильм или сцену</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseMovie('gladiator')"><div>🎬 Гладиатор — сцена перед битвой</div><div style="font-size: 12px;">Уверенность, сила, победа</div></div><div class="wizard-option" onclick="constructorUseMovie('amelie')"><div>🎬 Амели — момент радости</div><div style="font-size: 12px;">Радость, лёгкость</div></div><div class="wizard-option" onclick="constructorUseMovie('matrix')"><div>🎬 Матрица — «Я знаю кунг-фу»</div><div style="font-size: 12px;">Фокус, уверенность</div></div></div><input type="text" id="customMovie" placeholder="Или напишите свой фильм..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;"><button class="anchor-btn fire-btn" style="margin-top:16px;" onclick="constructorCreateFromMovie()">Использовать этот источник</button></div>`,
-        music: `<div style="margin-top: 20px;"><h3>🎵 Выберите музыку</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseMusic('hans')"><div>🎵 Hans Zimmer — Time</div><div style="font-size: 12px;">Величие, спокойствие</div></div><div class="wizard-option" onclick="constructorUseMusic('energetic')"><div>🎵 Epic orchestral</div><div style="font-size: 12px;">Энергия, подъём</div></div></div><input type="text" id="customMusic" placeholder="Или напишите свой трек..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;"><button class="anchor-btn fire-btn" style="margin-top:16px;" onclick="constructorCreateFromMusic()">Использовать этот источник</button></div>`,
-        metaphor: `<div style="margin-top: 20px;"><h3>📖 Выберите метафору</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseMetaphor('rock')"><div>🗻 «Я — скала, которую не может сдвинуть ветер»</div><div style="font-size: 12px;">Спокойствие, устойчивость</div></div><div class="wizard-option" onclick="constructorUseMetaphor('ocean')"><div>🌊 «Я — океан, могучий и глубокий»</div><div style="font-size: 12px;">Сила, спокойствие</div></div></div><textarea id="customMetaphor" placeholder="Или напишите свою метафору..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;"></textarea><button class="anchor-btn fire-btn" style="margin-top:16px;" onclick="constructorCreateFromMetaphor()">Использовать эту метафору</button></div>`,
-        body: `<div style="margin-top: 20px;"><h3>🧘 Телесная практика</h3><div class="wizard-options"><div class="wizard-option" onclick="constructorUseBody('breath')"><div>🌬️ Дыхание: вдох 4 — задержка 4 — выдох 6</div><div style="font-size: 12px;">Спокойствие, расслабление</div></div><div class="wizard-option" onclick="constructorUseBody('posture')"><div>🧍 Поза супермена: руки в боки, плечи назад</div><div style="font-size: 12px;">Уверенность, сила</div></div></div><textarea id="customBody" placeholder="Опишите свою телесную практику..." style="width:100%;padding:12px;border-radius:12px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:white;margin-top:12px;"></textarea><button class="anchor-btn fire-btn" style="margin-top:16px;" onclick="constructorCreateFromBody()">Использовать эту практику</button></div>`
-    };
-    
-    container.innerHTML = sourcesContent[source] || '<p>Выберите источник</p>';
-};
+// ============================================
+// СТИЛИ
+// ============================================
 
-window.constructorUseMovie = (movie) => {
-    anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: movie === 'gladiator' ? 'Гладиатор — сцена перед битвой' : (movie === 'amelie' ? 'Амели — момент радости' : 'Матрица — «Я знаю кунг-фу»'), modality: 'visual' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
-
-window.constructorCreateFromMovie = () => {
-    const custom = document.getElementById('customMovie')?.value;
-    anchorWizardData = { state: 'confidence', source: 'movie', sourceDetail: custom || 'Фильм по выбору пользователя', modality: 'visual' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
-
-window.constructorUseMusic = (music) => {
-    anchorWizardData = { state: 'calm', source: 'music', sourceDetail: music === 'hans' ? 'Hans Zimmer — Time' : 'Epic orchestral music', modality: 'auditory' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
-
-window.constructorCreateFromMusic = () => {
-    const custom = document.getElementById('customMusic')?.value;
-    anchorWizardData = { state: 'calm', source: 'music', sourceDetail: custom || 'Музыка по выбору пользователя', modality: 'auditory' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
-
-window.constructorUseMetaphor = (metaphor) => {
-    anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: metaphor === 'rock' ? 'Я — скала, которую не может сдвинуть ветер' : 'Я — океан, могучий и глубокий', modality: 'visual' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
-
-window.constructorCreateFromMetaphor = () => {
-    const custom = document.getElementById('customMetaphor')?.value;
-    anchorWizardData = { state: 'calm', source: 'metaphor', sourceDetail: custom || 'Метафора пользователя', modality: 'visual' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
-
-window.constructorUseBody = (practice) => {
-    anchorWizardData = { state: 'calm', source: 'body', sourceDetail: practice === 'breath' ? 'Дыхание: вдох 4 — задержка 4 — выдох 6' : 'Поза супермена: руки в боки, плечи назад', modality: 'kinesthetic' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
-
-window.constructorCreateFromBody = () => {
-    const custom = document.getElementById('customBody')?.value;
-    anchorWizardData = { state: 'calm', source: 'body', sourceDetail: custom || 'Телесная практика пользователя', modality: 'kinesthetic' };
-    anchorWizardStep = 2;
-    showAnchorsScreen();
-};
+function _anInjectStyles() {
+    if (document.getElementById('an-v4-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'an-v4-styles';
+    style.textContent = `
+        .an-tabs {
+            display: flex; flex-wrap: wrap; gap: 4px; background: rgba(224,224,224,0.05);
+            border: 1px solid rgba(224,224,224,0.1); border-radius: 40px; padding: 4px;
+            margin-bottom: 20px; overflow-x: auto;
+        }
+        .an-tab {
+            flex-shrink: 0; padding: 8px 12px; border-radius: 30px; border: none;
+            background: transparent; color: var(--text-secondary); font-size: 11px;
+            font-weight: 600; cursor: pointer; transition: background 0.2s;
+        }
+        .an-tab.active { background: rgba(224,224,224,0.14); color: var(--text-primary); }
+        .an-progress-bar { height: 4px; background: rgba(224,224,224,0.1); border-radius: 2px; overflow: hidden; margin: 8px 0; }
+        .an-progress-fill { height: 100%; background: linear-gradient(90deg, rgba(224,224,224,0.4), rgba(192,192,192,0.3)); width: 0%; transition: width 0.3s; }
+        .answer-btn {
+            background: rgba(224,224,224,0.08); border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 40px; padding: 12px 24px; cursor: pointer; font-size: 14px;
+            transition: all 0.2s; font-family: inherit; color: var(--text-primary);
+        }
+        .answer-btn:hover { background: rgba(224,224,224,0.16); transform: scale(1.02); }
+        .diagnostic-card { background: rgba(224,224,224,0.05); border-radius: 24px; padding: 32px; margin: 24px 0; text-align: center; }
+        .question-text { font-size: 20px; font-weight: 600; margin-bottom: 32px; line-height: 1.4; }
+        .result-card { background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.1); border-radius: 20px; padding: 24px; margin: 16px 0; }
+        .result-icon { font-size: 48px; margin-bottom: 12px; }
+        .result-name { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+        .reimprinting-textarea, .reimprinting-input {
+            width: 100%; padding: 12px; border-radius: 12px;
+            background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2);
+            color: white; font-family: inherit; font-size: 14px; box-sizing: border-box;
+        }
+        .reimprinting-textarea { min-height: 100px; resize: vertical; }
+        .an-btn-primary {
+            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.3); padding: 14px 24px; border-radius: 40px;
+            color: var(--text-primary); font-weight: 600; cursor: pointer; width: 100%;
+            margin-top: 16px; font-family: inherit; font-size: 13px;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        @keyframes breathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+    `;
+    document.head.appendChild(style);
+}
 
 // ============================================
 // ЭКСПОРТ
@@ -1881,4 +2122,4 @@ window.exportInstructionToPDF = exportInstructionToPDF;
 window.startGuidedActivationFromAnchor = startGuidedActivationFromAnchor;
 window.showInstructionDetail = showInstructionDetail;
 
-console.log('✅ Модуль "Библиотека состояний" загружен (anchors.js v3.0)');
+console.log('✅ Модуль "Библиотека состояний" загружен (anchors.js v4.0)');
