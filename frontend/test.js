@@ -865,7 +865,7 @@ const Test = {
         const cleanCode = ref.replace(/^mirror_/, '');
         localStorage.setItem('fredi_mirror_ref', cleanCode);
         return cleanCode;
-    }
+    },
     const stored = localStorage.getItem('fredi_mirror_ref');
     if (stored) {
         return stored.replace(/^mirror_/, '');
