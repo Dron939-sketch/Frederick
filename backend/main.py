@@ -1864,6 +1864,31 @@ async def process_voice(
         return {"success": False, "error": str(e)}
 
 
+@app.post("/api/voice/stt")
+@limiter.limit("20/minute")
+async def voice_stt_only(request: Request):
+    """Speech-to-text only — no AI processing. For dreams, diary, etc."""
+    try:
+        form = await request.form()
+        audio_file = form.get("file")
+        if not audio_file:
+            return {"success": False, "error": "No audio file"}
+
+        audio_bytes = await audio_file.read()
+        filename = audio_file.filename or "voice.wav"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "wav"
+
+        text = await voice_service.speech_to_text(audio_bytes, ext)
+        if text:
+            logger.info(f"🎤 STT-only: {len(text)} chars")
+            return {"success": True, "text": text}
+        else:
+            return {"success": False, "text": "", "error": "Не удалось распознать речь"}
+    except Exception as e:
+        logger.error(f"STT-only error: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @app.post("/api/voice/tts")
 @limiter.limit("30/minute")
 async def text_to_speech_endpoint(

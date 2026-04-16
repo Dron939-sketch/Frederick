@@ -980,6 +980,7 @@ class VoiceManager {
         this.onError          = null;
         this.onRecordingStart = null;
         this.onRecordingStop  = null;
+        this.sttOnly          = false; // true = только распознавание, без AI ответа
         this.onVolumeChange   = null;
         this.onThinking       = null;
         this.onSpeechDetected = null;
@@ -1060,10 +1061,26 @@ class VoiceManager {
             this.isRecording = false;
             this._status('idle');
             if (this.onRecordingStop) this.onRecordingStop(blob);
-            if (blob) {
+            if (blob && !this.sttOnly) {
                 // Длительность уже проверена в VoiceRecorder.stop() —
                 // если blob есть, значит запись валидная
                 await this._transport.sendAudio(blob);
+            } else if (blob && this.sttOnly) {
+                // STT only: отправляем на распознавание без AI
+                try {
+                    const form = new FormData();
+                    form.append('file', blob, 'voice.wav');
+                    form.append('user_id', String(this.userId));
+                    const resp = await fetch(`${this._transport.apiBaseUrl}/api/voice/stt`, {
+                        method: 'POST', body: form
+                    });
+                    const data = await resp.json();
+                    if (data.text && this.onTranscript) {
+                        this.onTranscript(data.text);
+                    }
+                } catch(e) {
+                    console.warn('STT-only error:', e);
+                }
             }
         };
 
