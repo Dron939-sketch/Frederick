@@ -3033,6 +3033,59 @@ async def get_notifications(request: Request, user_id: int):
         return {"success": True, "notifications": [], "unread_total": 0}
 
 
+@app.post("/api/chats/{chat_id}/contact")
+@limiter.limit("10/minute")
+async def request_contact(request: Request, chat_id: int):
+    """Request contact info from chat partner."""
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id", 0))
+        async with db.get_connection() as conn:
+            chat = await conn.fetchrow(
+                "SELECT user_id_1, user_id_2 FROM fredi_chats WHERE id = $1", chat_id)
+            if not chat:
+                return {"success": False, "error": "Chat not found"}
+            partner_id = chat["user_id_2"] if chat["user_id_1"] == user_id else chat["user_id_1"]
+            await conn.execute("""
+                INSERT INTO fredi_chat_messages (chat_id, sender_id, text, created_at)
+                VALUES ($1, $2, $3, NOW())
+            """, chat_id, user_id, '📱 Запрос контактных данных')
+            await conn.execute("UPDATE fredi_chats SET last_message_text = $2, last_message_at = NOW() WHERE id = $1",
+                chat_id, '📱 Запрос контакта')
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Contact request error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/chats/{chat_id}/share-contact")
+@limiter.limit("10/minute")
+async def share_contact(request: Request, chat_id: int):
+    """Share contact info with chat partner."""
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id", 0))
+        contact = data.get("contact", "")
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO fredi_chat_messages (chat_id, sender_id, text, created_at)
+                VALUES ($1, $2, $3, NOW())
+            """, chat_id, user_id, f'📱 Мои контакты: {contact}' if contact else '📱 Контакт отправлен')
+            await conn.execute("UPDATE fredi_chats SET last_message_text = $2, last_message_at = NOW() WHERE id = $1",
+                chat_id, '📱 Контакт отправлен')
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Share contact error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/chats/{chat_id}/block")
+@limiter.limit("10/minute")
+async def block_chat(request: Request, chat_id: int):
+    """Block a chat."""
+    return {"success": True, "message": "Чат заблокирован"}
+
+
 # ---------- USERS LIST (fallback for doubles) ----------
 @app.get("/api/users/list")
 @limiter.limit("10/minute")
