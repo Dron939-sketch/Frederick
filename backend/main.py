@@ -4194,26 +4194,48 @@ async def get_user_reflections(user_id: int):
                        m.friend_profile_code, m.friend_vectors, m.friend_deep_patterns,
                        m.friend_ai_profile, m.friend_perception_type, m.friend_thinking_level,
                        m.completed_at, m.created_at,
-                       c.name as context_name
+                       c.name as context_name, c.city, c.age, c.gender
                 FROM fredi_mirrors m
                 LEFT JOIN fredi_user_contexts c ON c.user_id = m.friend_user_id
                 WHERE m.user_id = $1 AND m.status = 'used'
                 ORDER BY m.completed_at DESC
             """, user_id)
+            
             reflections = []
             for row in rows:
                 r = dict(row)
+                
                 # Используем настоящее имя: context > mirror > fallback
                 real_name = r.pop("context_name", None)
                 if real_name and real_name not in ('друг', 'Друг', None, ''):
                     r["friend_name"] = real_name
                 elif not r.get("friend_name") or r["friend_name"] in ('Друг', 'друг'):
                     r["friend_name"] = f'Пользователь'
-                if r.get("completed_at"): r["completed_at"] = r["completed_at"].isoformat()
-                if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
+                
+                # Добавляем контекст друга (город, возраст, пол)
+                r["friend_context"] = {
+                    "city": r.pop("city", None),
+                    "age": r.pop("age", None),
+                    "gender": r.pop("gender", None)
+                }
+                
+                if r.get("completed_at"): 
+                    r["completed_at"] = r["completed_at"].isoformat()
+                if r.get("created_at"): 
+                    r["created_at"] = r["created_at"].isoformat()
+                    
                 reflections.append(r)
+                
             total = await conn.fetchval("SELECT COUNT(*) FROM fredi_mirrors WHERE user_id = $1", user_id)
-        return {"success": True, "reflections": reflections, "stats": {"total_mirrors": total or 0, "total_reflections": len(reflections)}}
+            
+        return {
+            "success": True, 
+            "reflections": reflections, 
+            "stats": {
+                "total_mirrors": total or 0, 
+                "total_reflections": len(reflections)
+            }
+        }
     except Exception as e:
         logger.error(f"Ошибка получения отражений: {e}")
         return {"success": False, "reflections": [], "stats": {}}
