@@ -1,6 +1,6 @@
 // ============================================
 // 🪞 ЗЕРКАЛА / ОТРАЖЕНИЯ
-// Версия 2.2 — с полным логированием и исправлениями
+// Версия 3.0 — с улучшенными карточками (город, возраст, пол)
 // ============================================
 
 const API_BASE = window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
@@ -30,7 +30,6 @@ function _log(level, module, message, data = null) {
         console.log(prefix, message);
     }
     
-    // Сохраняем последние 50 логов в localStorage для отладки
     try {
         const logs = JSON.parse(localStorage.getItem('mirror_debug_logs') || '[]');
         logs.push({ timestamp, level: levelName, module, message, data: data ? JSON.stringify(data) : null });
@@ -50,7 +49,6 @@ const log = {
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ============================================
 
-// Экранирование HTML для предотвращения XSS
 function _escapeHtml(str) {
     if (!str) return '';
     return str
@@ -62,12 +60,10 @@ function _escapeHtml(str) {
         .replace(/`/g, '&#96;');
 }
 
-// Фикс двойной сериализации JSONB
 function _fixMirrorRef(ref) {
     log.debug('Mirrors', '_fixMirrorRef called', { hasRef: !!ref });
     if (!ref) return ref;
     
-    // Создаем копию, чтобы не мутировать оригинал
     const copy = JSON.parse(JSON.stringify(ref));
     
     ['friend_vectors', 'friend_deep_patterns'].forEach(function(key) {
@@ -93,7 +89,6 @@ function _fixMirrorRef(ref) {
     return copy;
 }
 
-// Функция возврата на главный экран
 function _mirrorsGoBack() {
     log.info('Mirrors', 'Going back to dashboard');
     if (typeof renderDashboard === 'function') {
@@ -105,7 +100,6 @@ function _mirrorsGoBack() {
     }
 }
 
-// Копирование в буфер с fallback
 async function _copyToClipboard(text) {
     log.debug('Mirrors', 'Copying to clipboard', { textLength: text?.length });
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -118,7 +112,6 @@ async function _copyToClipboard(text) {
         }
     }
     
-    // Fallback для старых браузеров и Safari
     return new Promise((resolve) => {
         const el = document.createElement('textarea');
         el.value = text;
@@ -143,7 +136,7 @@ async function _copyToClipboard(text) {
 let reflectionsCache = {
     data: null,
     timestamp: null,
-    ttl: 30000 // 30 секунд
+    ttl: 30000
 };
 
 function _getCachedReflections() {
@@ -346,6 +339,39 @@ function injectMirrorStyles() {
         @keyframes mirrorSpin {
             to { transform: rotate(360deg); }
         }
+        
+        /* Новые стили для карточек */
+        .mirror-vector-badge {
+            flex: 1;
+            text-align: center;
+            background: rgba(255,255,255,0.04);
+            border-radius: 12px;
+            padding: 8px 4px;
+            transition: all 0.2s;
+        }
+        .mirror-vector-badge:hover {
+            background: rgba(255,255,255,0.08);
+        }
+        .mirror-vector-value {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .mirror-vector-label {
+            font-size: 9px;
+            color: rgba(255,255,255,0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .mirror-city-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 20px;
+            padding: 3px 10px;
+            font-size: 11px;
+            color: rgba(255,255,255,0.6);
+        }
     `;
     document.head.appendChild(style);
     log.info('Mirrors', 'Styles injected');
@@ -476,12 +502,11 @@ function switchMirrorTab(tab) {
 }
 
 // ============================================
-// ТАБ: ОТРАЖЕНИЯ
+// ТАБ: ОТРАЖЕНИЯ (УЛУЧШЕННАЯ ВЕРСИЯ)
 // ============================================
 async function showReflectionsTab(container) {
     log.info('Mirrors', 'showReflectionsTab called');
     
-    // Показываем скелетон
     container.innerHTML = `
         <div style="padding:32px;text-align:center;color:rgba(255,255,255,0.3);">
             <div class="mirror-skeleton" style="width:60%;margin:0 auto 8px;height:12px;"></div>
@@ -489,7 +514,6 @@ async function showReflectionsTab(container) {
         </div>`;
 
     try {
-        // Пытаемся получить из кэша
         let data = _getCachedReflections();
         
         if (!data) {
@@ -563,48 +587,73 @@ async function showReflectionsTab(container) {
             const date = ref.completed_at ? new Date(ref.completed_at).toLocaleDateString('ru') : '';
             const vectors = ref.friend_vectors || {};
             
-            log.debug('Mirrors', `Rendering reflection ${i}`, { name, profile, hasVectors: !!Object.keys(vectors).length });
+            // Получаем контекст друга (город, возраст, пол)
+            const friendContext = ref.friend_context || {};
+            const city = friendContext.city ? _escapeHtml(friendContext.city) : null;
+            const age = friendContext.age ? friendContext.age : null;
+            const gender = friendContext.gender === 'male' ? '♂️' : friendContext.gender === 'female' ? '♀️' : null;
+            
+            // Город + возраст + пол в одну строку
+            const locationParts = [];
+            if (city) locationParts.push(city);
+            if (age) locationParts.push(`${age} лет`);
+            if (gender) locationParts.push(gender);
+            const locationString = locationParts.join(' • ');
+            
+            // Значения векторов
+            const sb = Math.round(vectors.СБ || 4);
+            const tf = Math.round(vectors.ТФ || 4);
+            const ub = Math.round(vectors.УБ || 4);
+            const chv = Math.round(vectors.ЧВ || 4);
+            
+            const getColor = (v) => v <= 2 ? '#3b82ff' : v <= 4 ? '#f39c12' : '#ff6b3b';
+            
+            log.debug('Mirrors', `Rendering reflection ${i}`, { name, profile, city, age, gender, vectors: { sb, tf, ub, chv } });
 
             html += `
-                <div class="mirror-card" style="animation-delay:${i*0.06}s"
+                <div class="mirror-card" style="animation-delay:${i*0.06}s; cursor:pointer;"
                      onclick="showFriendProfile(${JSON.stringify(ref).replace(/"/g,'&quot;')})">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
-                        <div style="display:flex;align-items:center;gap:12px;">
-                            <div style="width:42px;height:42px;border-radius:50%;
-                                        background:linear-gradient(135deg,rgba(255,107,59,0.3),rgba(255,59,59,0.15));
-                                        border:1px solid rgba(255,107,59,0.3);
-                                        display:flex;align-items:center;justify-content:center;
-                                        font-size:18px;font-weight:700;color:#fff;">
+                    
+                    <!-- ШАПКА: аватар + имя + профиль -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, #ff6b3b, #ff3b3b); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: white;">
                                 ${name.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                                <div style="font-size:15px;font-weight:600;color:#fff;">${name}</div>
-                                <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">${date}</div>
+                                <div style="font-size: 16px; font-weight: 600; color: white;">${name}</div>
+                                ${locationString ? `<div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px;">📍 ${locationString}</div>` : ''}
                             </div>
                         </div>
-                        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
-                                    border-radius:8px;padding:4px 10px;font-size:11px;color:rgba(255,255,255,0.5);
-                                    font-weight:600;letter-spacing:0.3px;">${profile}</div>
+                        <div style="background: rgba(255,255,255,0.08); border-radius: 20px; padding: 4px 10px; font-size: 10px; color: #ff6b3b; font-family: monospace;">
+                            ${profile}
+                        </div>
                     </div>
-
-                    ${Object.keys(vectors).length ? `
-                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
-                        ${Object.entries(vectors).map(([k,v]) => {
-                            const val = typeof v === 'number' ? v : 4;
-                            const pct = Math.round((val/6)*100);
-                            const col = val<=2?'#3b82ff':val<=4?'#f39c12':'#ff6b3b';
-                            return `<div style="text-align:center;">
-                                <div style="font-size:15px;font-weight:700;color:${col};">${Math.round(val)}</div>
-                                <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:4px;">${_escapeHtml(k)}</div>
-                                <div class="mirror-vector-bar-track">
-                                    <div class="mirror-vector-bar-fill" style="width:${pct}%;background:${col};"></div>
-                                </div>
-                            </div>`;
-                        }).join('')}
-                    </div>` : ''}
-
-                    <div style="font-size:11px;color:rgba(255,107,59,0.7);text-align:right;letter-spacing:0.3px;">
-                        Открыть профиль →
+                    
+                    <!-- ВЕКТОРЫ (4 компактные плитки) -->
+                    <div style="display: flex; gap: 8px; margin: 12px 0;">
+                        <div class="mirror-vector-badge">
+                            <div class="mirror-vector-value" style="color: ${getColor(sb)};">${sb}/6</div>
+                            <div class="mirror-vector-label">САМООБОРОНА</div>
+                        </div>
+                        <div class="mirror-vector-badge">
+                            <div class="mirror-vector-value" style="color: ${getColor(tf)};">${tf}/6</div>
+                            <div class="mirror-vector-label">ФИНАНСЫ</div>
+                        </div>
+                        <div class="mirror-vector-badge">
+                            <div class="mirror-vector-value" style="color: ${getColor(ub)};">${ub}/6</div>
+                            <div class="mirror-vector-label">МЫШЛЕНИЕ</div>
+                        </div>
+                        <div class="mirror-vector-badge">
+                            <div class="mirror-vector-value" style="color: ${getColor(chv)};">${chv}/6</div>
+                            <div class="mirror-vector-label">ОТНОШЕНИЯ</div>
+                        </div>
+                    </div>
+                    
+                    <!-- ФУТЕР: дата + кнопка -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <div style="font-size: 10px; color: rgba(255,255,255,0.3);">📅 ${date}</div>
+                        <div style="font-size: 11px; color: rgba(255,107,59,0.7);">Открыть профиль →</div>
                     </div>
                 </div>`;
         });
@@ -767,7 +816,6 @@ async function generateMirrorLink(mirrorType) {
                 </button>
             </div>`;
             
-        // Очищаем кэш отражений, так как появилось новое зеркало
         _clearReflectionsCache();
         
     } catch(e) {
@@ -810,12 +858,11 @@ function shareMirrorLink(link, text) {
 }
 
 // ============================================
-// ПРОФИЛЬ ДРУГА (с фиксом JSONB)
+// ПРОФИЛЬ ДРУГА (остаётся без изменений)
 // ============================================
 async function showFriendProfile(ref) {
     log.info('Mirrors', 'showFriendProfile called', { hasRef: !!ref });
     
-    // Показываем индикатор загрузки
     const container = document.getElementById('screenContainer');
     if (!container) return;
     
@@ -825,7 +872,6 @@ async function showFriendProfile(ref) {
             <div style="margin-top:12px;color:var(--text-secondary);">Загрузка профиля...</div>
         </div>`;
     
-    // Применяем фикс на всякий случай
     ref = _fixMirrorRef(ref);
     
     const name = (ref.friend_name && ref.friend_name !== 'Друг' && ref.friend_name !== 'друг') 
@@ -846,19 +892,17 @@ async function showFriendProfile(ref) {
     container.innerHTML = `
         <div style="max-width:600px;margin:0 auto;padding:20px 16px;padding-bottom:max(80px,calc(env(safe-area-inset-bottom,0px) + 80px));animation:mirrorFadeIn 0.35s ease;">
 
-            <!-- НАВИГАЦИЯ -->
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
                 <button onclick="showMirrorsScreen()"
                     style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,0.06);
                            border:1px solid rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:16px;
                            display:flex;align-items:center;justify-content:center;flex-shrink:0;
-                           transition:all 0.2s;font-family:inherit;"
-                    onmouseover="this.style.background='rgba(255,255,255,0.1)'"
-                    onmouseout="this.style.background='rgba(255,255,255,0.06)'">←</button>
+                           transition:all 0.2s;font-family:inherit;
+                           onmouseover="this.style.background='rgba(255,255,255,0.1)'"
+                           onmouseout="this.style.background='rgba(255,255,255,0.06)'">←</button>
                 <div style="font-size:17px;font-weight:600;color:#fff;">🪞 Профиль отражения</div>
             </div>
 
-            <!-- HERO -->
             <div style="background:linear-gradient(135deg,rgba(255,107,59,0.1),rgba(255,59,59,0.05));
                         border:1px solid rgba(255,107,59,0.2);border-radius:24px;
                         padding:28px;margin-bottom:16px;text-align:center;">
@@ -876,7 +920,6 @@ async function showFriendProfile(ref) {
                 <div style="font-size:11px;color:rgba(255,255,255,0.25);">Тест пройден: ${date}</div>
             </div>
 
-            <!-- ВЕКТОРЫ -->
             ${Object.keys(vectors).length ? `
             <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
                         border-radius:20px;padding:20px;margin-bottom:12px;">
@@ -896,7 +939,6 @@ async function showFriendProfile(ref) {
                 }).join('')}
             </div>` : '<div class="mirror-info-block" style="text-align:center;color:rgba(255,255,255,0.4);">Нет данных о векторах</div>'}
 
-            <!-- ПАТТЕРНЫ -->
             ${Object.keys(patterns).length ? `
             <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
                         border-radius:20px;padding:20px;margin-bottom:12px;">
@@ -913,7 +955,6 @@ async function showFriendProfile(ref) {
                 </div>` : ''}
             </div>` : ''}
 
-            <!-- AI ПРОФИЛЬ -->
             ${aiProfile ? `
             <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
                         border-radius:20px;padding:20px;margin-bottom:12px;">
@@ -923,7 +964,6 @@ async function showFriendProfile(ref) {
                 </div>
             </div>` : ''}
 
-            <!-- КНОПКИ -->
             <div style="display:flex;gap:10px;margin-bottom:12px;">
                 <button onclick="loadIntimateProfile('${mirrorCode}')"
                     style="flex:1;background:rgba(59,130,246,0.08);color:#3b82ff;
@@ -1072,7 +1112,7 @@ async function load4FKeys(mirrorCode) {
 }
 
 // ============================================
-// ПРИМЕР ПРОФИЛЯ
+// ПРИМЕР ПРОФИЛЯ (остаётся без изменений)
 // ============================================
 function showProfileExample() {
     log.info('Mirrors', 'showProfileExample called');
@@ -1087,7 +1127,6 @@ function showProfileExample() {
                 <div style="font-size:17px;font-weight:600;color:#fff;">👁 Пример профиля</div>
             </div>
 
-            <!-- ТАБЫ -->
             <div style="display:flex;gap:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);
                         border-radius:14px;padding:4px;margin-bottom:20px;">
                 <button class="mirror-tab-btn active" id="ex-tab-basic" onclick="switchExampleTab('basic')">🧠 Профиль</button>
@@ -1260,7 +1299,6 @@ window.showProfileExample = showProfileExample;
 window.switchExampleTab = switchExampleTab;
 window.forceRefreshReflections = forceRefreshReflections;
 
-// Функция для просмотра логов в консоли (для отладки)
 window.showMirrorDebugLogs = function() {
     const logs = localStorage.getItem('mirror_debug_logs');
     if (logs) {
@@ -1270,4 +1308,4 @@ window.showMirrorDebugLogs = function() {
     }
 };
 
-console.log('✅ mirrors.js v2.2 загружен (с полным логированием и исправлениями)');
+console.log('✅ mirrors.js v3.0 загружен (улучшенные карточки с городом, возрастом, полом)');
