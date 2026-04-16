@@ -937,141 +937,149 @@ const CLARIFYING_QUESTIONS = {
 };
 
 // ============================================
-// РАСЧЁТ СОВМЕСТИМОСТИ (ДЕФИЦИТ-ОРИЕНТИРОВАННЫЙ) — ПОЛНАЯ ВЕРСИЯ
+// ПРАВИЛА СОВМЕСТИМОСТИ
 // ============================================
+// СБ = Стратегия/Сила (1-6)
+// ТФ = Тактика/Гибкость (1-6)
+// УБ = Убеждения/Надёжность (1-6)
+// ЧВ = Чувства/Эмоции (1-6)
+//
+// ПРАВИЛА ПО ПОЛУ:
+// lover/spouse → ОБЯЗАТЕЛЬНО противоположный пол (или указанный)
+// friend/travel/twin → любой пол
+// employee/boss/companion/mentor → любой пол
+//
+// ПОРОГ: показываем только >= 75%
+// ============================================
+
+const GENDER_RULES = {
+    lover:  'opposite',   // обязательно противоположный
+    spouse: 'opposite',   // обязательно противоположный
+    friend: 'any',
+    companion: 'any',
+    employee: 'any',
+    boss: 'any',
+    mentor: 'any',
+    travel: 'any',
+    twin: 'any'
+};
+
+function _getRequiredGender(goal, userGender, explicitGender) {
+    // Если пользователь явно указал пол — используем его
+    if (explicitGender && explicitGender !== 'any') return explicitGender;
+    // Для романтических целей — автоматически противоположный
+    if (GENDER_RULES[goal] === 'opposite' && userGender) {
+        return userGender === 'male' ? 'female' : (userGender === 'female' ? 'male' : 'any');
+    }
+    return 'any';
+}
 
 function _calculateCompatibility(user, candidate, goal, params) {
     const u = user.vectors;
     const c = candidate.vectors;
-    
+    if (!u || !c) return 0;
+
+    // Базовая близость векторов (0-100)
+    const diff = (k) => Math.abs((u[k]||4) - (c[k]||4));
+    const totalDiff = diff('СБ') + diff('ТФ') + diff('УБ') + diff('ЧВ');
+    const baseSimilarity = Math.round((1 - totalDiff / 20) * 100); // max diff=20 (5*4)
+
     switch(goal) {
-        case 'twin':
-            return Math.round(100 - (
-                Math.abs(u.СБ - c.СБ) * 10 +
-                Math.abs(u.ТФ - c.ТФ) * 10 +
-                Math.abs(u.УБ - c.УБ) * 10 +
-                Math.abs(u.ЧВ - c.ЧВ) * 10
-            ));
-            
-        case 'lover':
-            let score = 0;
-            if (params.intensity === 'extreme') score += Math.min(35, c.ЧВ * 7);
-            else if (params.intensity === 'romantic') score += Math.min(30, (6 - Math.abs(u.ЧВ - c.ЧВ)) * 6);
-            else if (params.intensity === 'awaken') score += Math.min(40, c.ЧВ * 8);
-            else if (params.intensity === 'calm') score += 30 - Math.abs(u.ЧВ - c.ЧВ) * 5;
-            else score += 25 - Math.abs(u.ЧВ - c.ЧВ) * 4;
-            
-            if (u.ЧВ < 3 && c.ЧВ > 4) score += 15;
-            if (u.ТФ < 3 && c.ТФ > 4) score += 10;
-            
-            score += 30 - Math.abs(u.УБ - c.УБ) * 6;
-            score += 20 - Math.abs(u.СБ - c.СБ) * 5;
-            
-            return Math.min(98, Math.max(0, Math.round(score)));
-            
-        case 'spouse':
-            let spouseScore = 0;
-            if (Math.abs(u.УБ - c.УБ) <= 1) spouseScore += 40;
-            else if (Math.abs(u.УБ - c.УБ) <= 2) spouseScore += 20;
-            else spouseScore += 5;
-            
-            if (params.compensation === 'balance') {
-                if (u.СБ < 3 && c.СБ > 4) spouseScore += 10;
-                if (u.ТФ < 3 && c.ТФ > 4) spouseScore += 10;
-                if (u.УБ < 3 && c.УБ > 4) spouseScore += 15;
-                if (u.ЧВ < 3 && c.ЧВ > 4) spouseScore += 10;
-            } else if (params.compensation === 'similar') {
-                spouseScore += 30 - (Math.abs(u.СБ - c.СБ) + Math.abs(u.ТФ - c.ТФ) + 
-                                     Math.abs(u.УБ - c.УБ) + Math.abs(u.ЧВ - c.ЧВ)) * 3;
-            }
-            
-            if (params.family_values === 'traditional') spouseScore += 10;
-            if (params.children === 'want') spouseScore += 5;
-            
-            return Math.min(98, Math.max(0, Math.round(spouseScore)));
-            
-        case 'employee':
-            let empScore = 0;
-            if (params.position === 'junior') empScore += c.УБ * 5;
-            else empScore += c.УБ * 8;
-            
-            if (params.qualities === 'discipline') empScore += c.ТФ * 8;
-            else empScore += c.ТФ * 5;
-            
-            if (u.СБ > 4 && c.ТФ > 4) empScore += 15;
-            if (u.ТФ > 4 && c.УБ > 4) empScore += 10;
-            
-            return Math.min(98, Math.round(empScore));
-            
-        case 'companion':
-            let compScore = 0;
-            if (params.role === 'strategist' && c.СБ > 4) compScore += 40;
-            else if (params.role === 'executor' && c.ТФ > 4) compScore += 40;
-            else if (params.role === 'equal') {
-                compScore += 30 - Math.abs(u.СБ - c.СБ) * 5;
-                compScore += 30 - Math.abs(u.ТФ - c.ТФ) * 5;
-            } else if (params.role === 'finance' && c.УБ > 4) compScore += 35;
-            else if (params.role === 'operations' && c.ТФ > 4 && c.УБ > 4) compScore += 40;
-            
-            if (params.risk_tolerance === 'low' && c.УБ > 4) compScore += 20;
-            else if (params.risk_tolerance === 'high' && c.УБ < 3) compScore += 20;
-            else compScore += 10;
-            
-            return Math.min(98, Math.round(compScore));
-            
-        case 'friend':
-            let friendScore = 50;
-            friendScore += 25 - (Math.abs(u.СБ - c.СБ) + Math.abs(u.ТФ - c.ТФ)) * 3;
-            friendScore += 25 - (Math.abs(u.УБ - c.УБ) + Math.abs(u.ЧВ - c.ЧВ)) * 2;
-            return Math.min(98, Math.max(0, Math.round(friendScore)));
-            
-        case 'mentor':
-            let mentorScore = 0;
-            if (params.mentor_area === 'career') {
-                mentorScore += c.СБ > u.СБ ? 40 : 20;
-                mentorScore += c.УБ > u.УБ ? 20 : 10;
-            } else if (params.mentor_area === 'emotional') {
-                mentorScore += c.ЧВ > u.ЧВ ? 50 : 25;
-            } else {
-                mentorScore += c.СБ > u.СБ ? 30 : 15;
-                mentorScore += c.ЧВ > u.ЧВ ? 30 : 15;
-            }
-            
-            mentorScore += c.ТФ * 5;
-            
-            return Math.min(98, Math.round(mentorScore));
-            
-        case 'boss':
-            let bossScore = 0;
-            if (params.management_style === 'autocratic') {
-                bossScore += c.СБ * 8;
-                bossScore += c.ЧВ * 6;
-            } else if (params.management_style === 'democratic') {
-                bossScore += c.СБ * 6;
-                bossScore += c.ТФ * 6;
-            } else if (params.management_style === 'mentor') {
-                bossScore += c.СБ * 7;
-                bossScore += c.ЧВ * 7;
-            } else {
-                bossScore += c.ЧВ * 8;
-                bossScore += c.ТФ * 6;
-            }
-            
-            bossScore += c.УБ * 5;
-            
-            return Math.min(98, Math.round(bossScore));
-            
-        case 'travel':
-            let travelScore = 60;
-            travelScore += c.ТФ * 8;
-            travelScore += c.ЧВ * 5;
-            if (params.travel_type === 'adventure') travelScore += c.УБ * 3;
-            else travelScore += c.УБ * 6;
-            
-            return Math.min(98, Math.round(travelScore));
-            
+        case 'twin': {
+            // Двойник: максимальное сходство по всем 4 векторам
+            // Вес: СБ=25, ТФ=25, УБ=25, ЧВ=25 (равномерно)
+            return Math.max(0, Math.min(98, baseSimilarity));
+        }
+
+        case 'lover': {
+            // Любовник: ЧВ важнее всего (40%), ТФ=гибкость (25%), СБ=страсть (20%), УБ=доверие (15%)
+            let s = 0;
+            s += Math.max(0, 40 - diff('ЧВ') * 10);   // Эмоциональная совместимость
+            s += Math.max(0, 25 - diff('ТФ') * 6);     // Гибкость в отношениях
+            s += Math.max(0, 20 - diff('СБ') * 5);     // Энергетика
+            s += Math.max(0, 15 - diff('УБ') * 4);     // Базовое доверие
+            // Бонус: если у одного низкий ЧВ, а у другого высокий — притяжение
+            if (u.ЧВ <= 2 && c.ЧВ >= 5) s += 8;
+            if (u.ЧВ >= 5 && c.ЧВ <= 2) s += 5;
+            return Math.max(0, Math.min(98, Math.round(s)));
+        }
+
+        case 'spouse': {
+            // Муж/жена: УБ=стабильность (35%), ЧВ=эмпатия (25%), ТФ=быт (25%), СБ=защита (15%)
+            let s = 0;
+            s += Math.max(0, 35 - diff('УБ') * 8);     // Совпадение ценностей
+            s += Math.max(0, 25 - diff('ЧВ') * 6);     // Эмоциональная связь
+            s += Math.max(0, 25 - diff('ТФ') * 6);     // Совместимость в быту
+            s += Math.max(0, 15 - diff('СБ') * 4);     // Чувство безопасности
+            // Бонус за высокий УБ у обоих (стабильная пара)
+            if (u.УБ >= 4 && c.УБ >= 4) s += 8;
+            return Math.max(0, Math.min(98, Math.round(s)));
+        }
+
+        case 'friend': {
+            // Друг: общие интересы (СБ+ТФ=50%), эмоциональный комфорт (ЧВ=30%), доверие (УБ=20%)
+            let s = 0;
+            s += Math.max(0, 25 - diff('СБ') * 6);
+            s += Math.max(0, 25 - diff('ТФ') * 6);
+            s += Math.max(0, 30 - diff('ЧВ') * 7);
+            s += Math.max(0, 20 - diff('УБ') * 5);
+            return Math.max(0, Math.min(98, Math.round(s)));
+        }
+
+        case 'employee': {
+            // Сотрудник: УБ=надёжность (35%), ТФ=исполнительность (30%), СБ=инициатива (20%), ЧВ=коммуникация (15%)
+            let s = 0;
+            s += Math.min(35, (c.УБ || 4) * 6);
+            s += Math.min(30, (c.ТФ || 4) * 5);
+            s += Math.min(20, (c.СБ || 4) * 4);
+            s += Math.min(15, (c.ЧВ || 4) * 3);
+            // Бонус если начальник сильнее (СБ) а сотрудник надёжнее (УБ)
+            if (u.СБ > c.СБ && c.УБ > u.УБ) s += 5;
+            return Math.max(0, Math.min(98, Math.round(s * 0.95)));
+        }
+
+        case 'boss': {
+            // Начальник: СБ=лидерство (35%), ЧВ=эмпатия (25%), УБ=справедливость (25%), ТФ=гибкость (15%)
+            let s = 0;
+            s += Math.min(35, (c.СБ || 4) * 6);
+            s += Math.min(25, (c.ЧВ || 4) * 5);
+            s += Math.min(25, (c.УБ || 4) * 5);
+            s += Math.min(15, (c.ТФ || 4) * 3);
+            return Math.max(0, Math.min(98, Math.round(s * 0.95)));
+        }
+
+        case 'companion': {
+            // Партнёр: СБ+ТФ=деловые качества (50%), УБ=доверие (30%), ЧВ=коммуникация (20%)
+            let s = 0;
+            s += Math.min(25, (c.СБ || 4) * 5);
+            s += Math.min(25, (c.ТФ || 4) * 5);
+            s += Math.max(0, 30 - diff('УБ') * 7);
+            s += Math.max(0, 20 - diff('ЧВ') * 5);
+            return Math.max(0, Math.min(98, Math.round(s)));
+        }
+
+        case 'mentor': {
+            // Ментор: должен превосходить по ключевым векторам
+            let s = 0;
+            s += (c.СБ > u.СБ) ? 30 : Math.max(0, 15 - (u.СБ - c.СБ) * 5);
+            s += (c.ЧВ > u.ЧВ) ? 25 : Math.max(0, 12 - (u.ЧВ - c.ЧВ) * 4);
+            s += (c.УБ > u.УБ) ? 25 : Math.max(0, 12 - (u.УБ - c.УБ) * 4);
+            s += Math.min(20, (c.ТФ || 4) * 4);
+            return Math.max(0, Math.min(98, Math.round(s)));
+        }
+
+        case 'travel': {
+            // Попутчик: ТФ=адаптивность (35%), ЧВ=комфорт общения (30%), УБ=надёжность (20%), СБ=инициатива (15%)
+            let s = 0;
+            s += Math.max(0, 35 - diff('ТФ') * 8);
+            s += Math.max(0, 30 - diff('ЧВ') * 7);
+            s += Math.max(0, 20 - diff('УБ') * 5);
+            s += Math.max(0, 15 - diff('СБ') * 4);
+            return Math.max(0, Math.min(98, Math.round(s)));
+        }
+
         default:
-            return 50;
+            return baseSimilarity;
     }
 }
 
@@ -1441,6 +1449,13 @@ async function _doSearch(container) {
         const questionDef = CLARIFYING_QUESTIONS[goal];
         const params = questionDef ? questionDef.buildSearchParams(doublesState.searchParams) : {};
         
+        // Автоматический фильтр по полу для романтических целей
+        const userGenderForApi = userDoublesProfile.gender || doublesState.searchParams?.gender_preference;
+        if (GENDER_RULES[goal] === 'opposite' && userGenderForApi) {
+            const opposite = userGenderForApi === 'male' ? 'female' : (userGenderForApi === 'female' ? 'male' : null);
+            if (opposite) doublesState.filters.gender = opposite;
+        }
+
         // Пробуем сначала использовать специализированный эндпоинт
         let url = `${api}/api/psychometric/find-doubles?user_id=${uid}&mode=${doublesState.searchMode}`;
         if (doublesState.searchGoal) url += `&goal=${doublesState.searchGoal}`;
@@ -1471,30 +1486,45 @@ async function _doSearch(container) {
             candidates = allUsers.filter(u => u.user_id !== uid && u.vectors);
         }
         
-        // Рассчитываем совместимость для каждого кандидата
-        const results = candidates.map(candidate => {
-            const similarity = _calculateCompatibility(
-                userDoublesProfile, 
-                candidate, 
-                goal, 
-                params
-            );
-            const insight = _generateInsight(similarity, goal, params, candidate);
-            
-            return {
-                user_id: candidate.user_id,
-                name: candidate.name || 'Пользователь',
-                age: candidate.age,
-                city: candidate.city,
-                gender: candidate.gender,
-                vectors: candidate.vectors,
-                profile: candidate.profile || userDoublesProfile.profile,
-                profile_type: candidate.profile_type,
-                similarity: similarity,
-                insight: insight
-            };
-        });
-        
+        // Определяем требуемый пол
+        const userGender = userDoublesProfile.gender || doublesState.searchParams?.gender_preference;
+        const requiredGender = _getRequiredGender(goal, userGender, doublesState.filters.gender);
+
+        // Рассчитываем совместимость, фильтруем по полу и порогу 75%
+        const results = candidates
+            .filter(candidate => {
+                // Фильтр по полу
+                if (requiredGender && requiredGender !== 'any' && candidate.gender) {
+                    if (candidate.gender !== requiredGender) return false;
+                }
+                return true;
+            })
+            .map(candidate => {
+                const similarity = _calculateCompatibility(
+                    userDoublesProfile,
+                    candidate,
+                    goal,
+                    params
+                );
+                const insight = _generateInsight(similarity, goal, params, candidate);
+
+                return {
+                    user_id: candidate.user_id,
+                    name: candidate.name || 'Пользователь',
+                    age: candidate.age,
+                    city: candidate.city,
+                    gender: candidate.gender,
+                    vectors: candidate.vectors,
+                    profile: candidate.profile || userDoublesProfile.profile,
+                    profile_type: candidate.profile_type,
+                    thinking_level: candidate.thinking_level,
+                    attachment: candidate.attachment,
+                    similarity: similarity,
+                    insight: insight
+                };
+            })
+            .filter(r => r.similarity >= 75);  // Показываем только >= 75%
+
         // Сортируем и берем топ-30
         doublesState.foundDoubles = results
             .sort((a, b) => b.similarity - a.similarity)
@@ -1531,9 +1561,7 @@ function _renderResults(container) {
                 <div class="db-empty-icon">🔍</div>
                 <div class="db-empty-title">Пока ничего не найдено</div>
                 <div class="db-empty-sub">
-                    ${isTwin
-                        ? 'Ваш профиль уникален в нашей базе.'
-                        : `Подходящих кандидатов для "${goalName}" пока нет.`}
+                    Кандидатов с совместимостью 75%+ пока нет.
                     <br>База пополняется ежедневно — загляните позже!
                 </div>
             </div>`;
