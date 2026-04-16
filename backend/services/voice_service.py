@@ -563,15 +563,27 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
 
     if len(text) > 4500:
         text = text[:4500] + "..."
+
+    # ===== FISH AUDIO (Jarvis) — PRIMARY =====
+    try:
+        from services.fish_audio_service import synthesize_fish_audio
+        fish_result = await synthesize_fish_audio(text, mode)
+        if fish_result:
+            logger.info(f"✅ Fish Audio (Jarvis): {len(fish_result)} байт, mode={mode}")
+            return fish_result
+        logger.info("Fish Audio недоступен, переключаюсь на Yandex")
+    except Exception as e:
+        logger.warning(f"Fish Audio ошибка: {e}, fallback на Yandex")
+
+    # ===== YANDEX (Filipp) — FALLBACK =====
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/x-www-form-urlencoded"}
-    # emotion убран — вызывал переключение на дефолтный голос при неподдерживаемом значении
     data = {"text": text, "lang": "ru-RU", "voice": voice, "speed": settings["speed"], "format": "mp3"}
     try:
         client = await get_http_client()
         response = await client.post(YANDEX_TTS_API_URL, headers=headers, data=data, timeout=30.0)
         if response.status_code == 200:
             audio_data = response.content
-            logger.info(f"✅ Речь синтезирована: {len(audio_data)} байт, голос: {voice}")
+            logger.info(f"✅ Yandex TTS (Filipp): {len(audio_data)} байт, голос: {voice}")
             return audio_data
         else:
             logger.error(f"❌ Yandex TTS error {response.status_code}: {response.text[:200]}")
