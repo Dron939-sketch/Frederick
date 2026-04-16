@@ -63,8 +63,58 @@ function _drInjectStyles() {
         .dr-loading{text-align:center;padding:40px}
         .dr-spinner{font-size:48px;animation:drSpin 1s linear infinite;display:inline-block}
         @keyframes drSpin{to{transform:rotate(360deg)}}
+
+        .dr-status{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:16px;padding:16px;margin:16px 0;text-align:center}
+        .dr-status-steps{display:flex;justify-content:center;gap:6px;margin-bottom:12px}
+        .dr-status-step{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);opacity:0.4;transition:opacity 0.3s}
+        .dr-status-step.active{opacity:1;color:var(--text-primary)}
+        .dr-status-step.done{opacity:0.7;color:var(--text-primary)}
+        .dr-status-dot{width:8px;height:8px;border-radius:50%;background:rgba(224,224,224,0.2);transition:background 0.3s}
+        .dr-status-step.active .dr-status-dot{background:var(--text-primary);animation:drPulse 1.5s infinite}
+        .dr-status-step.done .dr-status-dot{background:var(--text-primary)}
+        .dr-status-arrow{color:rgba(224,224,224,0.15);font-size:10px}
+        .dr-status-text{font-size:13px;color:var(--text-secondary);margin-top:8px}
     `;
     document.head.appendChild(style);
+}
+
+// ============================================
+// СТАТУС-ИНДИКАТОР
+// ============================================
+function _drShowStatus(stage, text) {
+    // stage: 'recording' | 'transcribing' | 'interpreting' | 'done' | null
+    let statusEl = document.getElementById('drStatusIndicator');
+    if (!stage) {
+        if (statusEl) statusEl.remove();
+        return;
+    }
+    if (!statusEl) {
+        statusEl = document.createElement('div');
+        statusEl.id = 'drStatusIndicator';
+        const resultDiv = document.getElementById('interpretationResult');
+        if (resultDiv) resultDiv.before(statusEl);
+        else {
+            const body = document.getElementById('drBody');
+            if (body) body.appendChild(statusEl);
+        }
+    }
+    const stages = ['recording', 'transcribing', 'interpreting'];
+    const labels = ['🎤 Запись', '📝 Расшифровка', '🌙 Толкование'];
+    const activeIdx = stages.indexOf(stage);
+
+    statusEl.innerHTML = `
+        <div class="dr-status">
+            <div class="dr-status-steps">
+                ${stages.map((s, i) => `
+                    <span class="dr-status-step ${i < activeIdx ? 'done' : (i === activeIdx ? 'active' : '')}">
+                        <span class="dr-status-dot"></span>${labels[i]}
+                    </span>
+                    ${i < stages.length - 1 ? '<span class="dr-status-arrow">→</span>' : ''}
+                `).join('')}
+            </div>
+            <div class="dr-status-text">${text || ''}</div>
+        </div>
+    `;
 }
 
 // ============================================
@@ -248,6 +298,7 @@ function _drInitVoiceButton() {
             try { window.voiceManager.stopRecording(); } catch(e) {}
         }
         isRecording = false;
+        _drShowStatus(null);
         // Restore original transcript handler and sttOnly mode
         if (window.voiceManager) {
             window.voiceManager.sttOnly = false;
@@ -274,6 +325,7 @@ function _drInitVoiceButton() {
             const icon = getIcon();
             if (icon) icon.textContent = '⏹️';
             isRecording = true;
+            _drShowStatus('recording', 'Говорите... Отпустите кнопку когда закончите.');
 
             // STT-only mode: только распознавание речи, без AI ответа
             window.voiceManager.sttOnly = true;
@@ -312,8 +364,9 @@ function _drInitVoiceButton() {
 
         if (watchdog) { clearTimeout(watchdog); watchdog = null; }
         if (isRecording && window.voiceManager) {
+            _drShowStatus('transcribing', 'Расшифровываю запись...');
             window.voiceManager.stopRecording();
-            // Restore transcript handler + sttOnly after a short delay
+            // Restore transcript handler + sttOnly after transcript arrives
             setTimeout(() => {
                 if (window.voiceManager) {
                     window.voiceManager.sttOnly = false;
@@ -322,7 +375,15 @@ function _drInitVoiceButton() {
                         savedOnTranscript = null;
                     }
                 }
-            }, 2000);
+                // Check if text appeared
+                const input = document.getElementById('dreamTextInput');
+                if (input && input.value.trim()) {
+                    _drShowStatus(null);  // Clear status — text is ready
+                } else {
+                    _drShowStatus(null);
+                    showToast('Не удалось распознать речь. Попробуйте ещё раз.', 'info');
+                }
+            }, 3000);
         }
         isRecording = false;
         resetBtn();
@@ -365,13 +426,14 @@ async function _drInterpret() {
     _drCurrentText = dreamText;
 
     const resultDiv = document.getElementById('interpretationResult');
-    if (resultDiv) {
-        resultDiv.innerHTML = `<div class="dr-loading"><div class="dr-spinner">🌙</div><div>Фреди анализирует ваш сон...</div></div>`;
-    }
+    _drShowStatus('interpreting', 'Фреди анализирует символику вашего сна...');
+    if (resultDiv) resultDiv.innerHTML = '';
 
     try {
         const status = await getUserStatus();
+        _drShowStatus('interpreting', 'Загружаю ваш профиль...');
         const profileData = await apiCall(`/api/get-profile/${CONFIG.USER_ID}`);
+        _drShowStatus('interpreting', 'Генерирую юнгианскую интерпретацию...');
 
         const response = await apiCall('/api/dreams/interpret', {
             method: 'POST',
@@ -389,6 +451,7 @@ async function _drInterpret() {
         });
 
         if (response.needs_clarification) {
+            _drShowStatus(null);
             _drNeedsClarification = true;
             _drClarificationSessionId = response.session_id;
             showDreamsScreen();
@@ -396,6 +459,7 @@ async function _drInterpret() {
             const questionDiv = document.getElementById('clarificationQuestion');
             if (questionDiv) questionDiv.textContent = response.question;
         } else {
+            _drShowStatus(null);
             if (resultDiv) {
                 resultDiv.innerHTML = _drRenderInterpretation(response.interpretation);
                 if (window.voiceManager && response.interpretation) {
@@ -405,6 +469,7 @@ async function _drInterpret() {
             await _drSaveToHistory(dreamText, response.interpretation);
         }
     } catch (error) {
+        _drShowStatus(null);
         console.error('Interpretation error:', error);
         if (resultDiv) {
             resultDiv.innerHTML = `<div class="dr-interpretation"><div class="dr-interpretation-text">😔 Не удалось получить толкование. Попробуйте ещё раз.</div></div>`;
