@@ -1556,7 +1556,7 @@ ${this.getStage5Interpretation()}
     } catch(e) {
         console.error('⚠️ Ошибка активации зеркала:', e);
     }
-}
+},
 
     async fetchAIGeneratedProfile() {
         if (!this.userId) { this.showFinalProfileButtons(); return; }
