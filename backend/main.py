@@ -934,6 +934,11 @@ async def init_database_tables():
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_anchors_user_id ON fredi_anchors(user_id, created_at DESC)")
+        for col, coltype in [("type", "TEXT DEFAULT 'anchor'"), ("instruction_steps", "JSONB"), ("program_json", "JSONB"), ("recommended_stimuli", "JSONB")]:
+            try:
+                await conn.execute(f"ALTER TABLE fredi_anchors ADD COLUMN IF NOT EXISTS {col} {coltype}")
+            except Exception:
+                pass
         # Dreams table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_dreams (
@@ -2726,8 +2731,9 @@ async def save_anchor_v2(request: Request):
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
                 INSERT INTO fredi_anchors (user_id, name, state, source, source_detail,
-                    modality, trigger_text, phrase, icon, state_icon, state_name)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    modality, trigger_text, phrase, icon, state_icon, state_name,
+                    type, instruction_steps, program_json, recommended_stimuli)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 RETURNING id
             """,
                 user_id,
@@ -2740,7 +2746,11 @@ async def save_anchor_v2(request: Request):
                 data.get("phrase"),
                 data.get("icon", "⚓"),
                 data.get("state_icon"),
-                data.get("state_name")
+                data.get("state_name"),
+                data.get("type", "anchor"),
+                data.get("instruction_steps"),
+                data.get("program_json"),
+                data.get("recommended_stimuli")
             )
 
         await log_event(user_id, "anchor_saved", {"name": name})
