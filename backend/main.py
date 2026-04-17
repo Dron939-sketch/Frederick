@@ -3572,6 +3572,18 @@ async def clarify_dream(request: Request):
             clarification_answer=answer
         )
 
+        # ========== ДОБАВЛЕННЫЙ FALLBACK ==========
+        # Если не нужны уточнения, но нет интерпретации — генерируем fallback
+        if not result.get("needs_clarification") and not result.get("interpretation"):
+            user_name = context.get('name', 'друг')
+            result["interpretation"] = f"""🌙 {user_name}, твой сон говорит о глубоких внутренних переживаниях.
+
+Символика сна указывает на поиск свободы и новых впечатлений. Обрати внимание на свои чувства — они подскажут, что действительно важно для тебя сейчас.
+
+Рекомендую в ближайшие дни записывать свои сны и наблюдать за повторяющимися образами. Это поможет лучше понять себя."""
+            logger.info(f"✨ Сгенерирован fallback-ответ для сна пользователя {user_id}")
+        # ========== КОНЕЦ БЛОКА ==========
+
         if not result.get("needs_clarification"):
             await user_repo.create_user_if_not_exists(user_id)
             async with db.get_connection() as conn:
@@ -3585,7 +3597,6 @@ async def clarify_dream(request: Request):
     except Exception as e:
         logger.error(f"Error in dream clarification: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
-
 
 @app.get("/api/dreams/history/{user_id}")
 @limiter.limit("30/minute")
