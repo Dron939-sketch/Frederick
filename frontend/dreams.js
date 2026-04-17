@@ -9,6 +9,7 @@
 let _drCurrentText = '';
 let _drHistory = [];
 let _drNeedsClarification = false;
+let _drClarificationQuestion = '';
 let _drClarificationSessionId = null;
 let _drClarificationCount = 0;
 let _drActiveTab = 'record';
@@ -528,7 +529,7 @@ function _drRenderRecordTab(completed) {
                     <div class="clarification-progress">
                         Уточнение ${_drClarificationCount + 1}/${maxClarifications}
                     </div>
-                    <div class="dr-clarification-q" id="clarificationQuestion">Загрузка...</div>
+                    <div class="dr-clarification-q" id="clarificationQuestion">${_drEscapeHtml(_drClarificationQuestion) || 'Расскажите подробнее об этом сне...'}</div>
                     <textarea id="clarificationAnswer" class="dr-clarification-input" rows="3" placeholder="Напишите свой ответ здесь..."></textarea>
                     <div style="display:flex;gap:12px;margin-top:16px">
                         <button class="dr-btn" id="submitClarificationBtn">📤 Ответить</button>
@@ -855,6 +856,7 @@ function _drInitButtons() {
     if (skipBtn) {
         skipBtn.addEventListener('click', () => {
             _drNeedsClarification = false;
+            _drClarificationQuestion = '';
             showDreamsScreen();
         });
     }
@@ -944,12 +946,9 @@ async function _drInterpret() {
             _drShowStatus(null);
             _drNeedsClarification = true;
             _drClarificationSessionId = response.session_id;
-            showDreamsScreen();
-            
-            const questionDiv = document.getElementById('clarificationQuestion');
-            if (questionDiv) {
-                questionDiv.textContent = response.question || 'Расскажите подробнее об этом сне...';
-            }
+            _drClarificationQuestion = response.question || 'Расскажите подробнее об этом сне...';
+            console.log('[dreams] 🤔 needs_clarification:', _drClarificationQuestion);
+            await showDreamsScreen();
         } else if (response.needs_clarification && _drClarificationCount >= 3) {
             _drShowStatus(null);
             if (resultDiv) {
@@ -961,6 +960,7 @@ async function _drInterpret() {
             }
             await _drSaveToHistory(dreamText, response.interpretation || '');
             _drNeedsClarification = false;
+            _drClarificationQuestion = '';
             _drClarificationCount = 0;
         } else {
             _drShowStatus(null);
@@ -974,6 +974,7 @@ async function _drInterpret() {
             }
             await _drSaveToHistory(dreamText, interpretText);
             _drNeedsClarification = false;
+            _drClarificationQuestion = '';
             _drClarificationCount = 0;
         }
 
@@ -1033,14 +1034,12 @@ async function _drSubmitClarification() {
         if (response.needs_clarification && _drClarificationCount < 3) {
             _drNeedsClarification = true;
             _drClarificationSessionId = response.session_id;
-            showDreamsScreen();
-            
-            const questionDiv = document.getElementById('clarificationQuestion');
-            if (questionDiv) {
-                questionDiv.textContent = response.question || 'Расскажите подробнее...';
-            }
+            _drClarificationQuestion = response.question || 'Расскажите подробнее...';
+            console.log('[dreams] 🤔 needs_clarification (follow-up):', _drClarificationQuestion);
+            await showDreamsScreen();
         } else {
             _drNeedsClarification = false;
+            _drClarificationQuestion = '';
             
             if (resultDiv) {
                 const escapedText = _drEscapeHtml(response.interpretation);
