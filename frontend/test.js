@@ -1533,12 +1533,13 @@ ${this.getStage5Interpretation()}
     },
 
     async completeMirrorIfReferred(profile, deep) {
-    const mirrorCode = this.getMirrorCode();
-    if (!mirrorCode) return;
-    
-    // ✅ Убираем префикс 'mirror_' если есть
-    const cleanCode = mirrorCode.replace(/^mirror_/, '');
-    
+    const raw = this.getMirrorCode();
+    if (!raw) return;
+
+    // Единый канонический формат: всегда с префиксом 'mirror_'.
+    // Бэкенд нормализует оба варианта (#78), но мы шлём канонический для чистоты.
+    const canonicalCode = String(raw).startsWith('mirror_') ? String(raw) : `mirror_${raw}`;
+
     try {
         const vectors = {
             'СБ': profile.sbLevel || 3,
@@ -1546,13 +1547,12 @@ ${this.getStage5Interpretation()}
             'УБ': profile.ubLevel || 3,
             'ЧВ': profile.chvLevel || 3
         };
-        
-        // ✅ Отправляем cleanCode (БЕЗ префикса mirror_)
+
         const response = await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                mirror_code: cleanCode,  // ← БЕЗ mirror_!
+                mirror_code: canonicalCode,
                 friend_user_id: this.userId,
                 friend_name: this.context?.name || localStorage.getItem('fredi_user_name') || 'Друг',
                 friend_profile_code: profile?.displayName || null,
@@ -1568,8 +1568,9 @@ ${this.getStage5Interpretation()}
         console.log('🪞 Mirror complete response:', result);
         
         if (result.success && result.activated) {
-            localStorage.removeItem('fredi_mirror_ref');
-            console.log('🪞 Зеркало активировано:', cleanCode);
+            try { localStorage.removeItem('fredi_mirror_ref'); } catch (e) {}
+            try { sessionStorage.removeItem('fredi_mirror_ref'); } catch (e) {}
+            console.log('🪞 Зеркало активировано:', canonicalCode);
         } else {
             console.warn('🪞 Зеркало не активировано:', result);
         }
