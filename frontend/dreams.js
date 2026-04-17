@@ -1,6 +1,6 @@
 // ============================================
 // dreams.js — Интерпретация снов через AI
-// Версия: 4.0 — улучшенный UI, исправлена очистка полей
+// Версия: 4.0 — полная версия с исправлением микрофона
 // ============================================
 
 // ============================================
@@ -132,6 +132,11 @@ async function _drGetCachedProfile() {
     return _drProfileCache.data;
 }
 
+function _drClearProfileCache() {
+    _drProfileCache.data = null;
+    _drProfileCache.expires_at = null;
+}
+
 function _drGenerateFallbackInterpretation(dreamText, userName) {
     const dreamLower = (dreamText || '').toLowerCase();
     if (dreamLower.includes('лететь') || dreamLower.includes('полёт')) {
@@ -153,6 +158,34 @@ function _drGenerateFallbackInterpretation(dreamText, userName) {
 }
 
 // ============================================
+// ПРОВЕРКА МИКРОФОНА
+// ============================================
+async function _drCheckMicrophonePermission() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+        console.log('[dreams] ✅ Микрофон доступен');
+        return true;
+    } catch (error) {
+        console.error('[dreams] ❌ Нет доступа к микрофону:', error);
+        if (error.name === 'NotAllowedError') {
+            if (typeof showToast === 'function') {
+                showToast('🎤 Разрешите доступ к микрофону в настройках браузера', 'error');
+            }
+        } else if (error.name === 'NotFoundError') {
+            if (typeof showToast === 'function') {
+                showToast('🎤 Микрофон не найден. Подключите устройство', 'error');
+            }
+        } else {
+            if (typeof showToast === 'function') {
+                showToast('🎤 Ошибка доступа к микрофону', 'error');
+            }
+        }
+        return false;
+    }
+}
+
+// ============================================
 // СТИЛИ (КРАСИВЫЙ UI)
 // ============================================
 function _drInjectStyles() {
@@ -169,7 +202,6 @@ function _drInjectStyles() {
         .dr-voice-btn { width:80px; height:80px; border-radius:50%; background:linear-gradient(135deg,#ff6b3b,#ff3b3b); border:none; cursor:pointer; margin:0 auto; display:flex; align-items:center; justify-content:center; transition:all 0.2s; box-shadow:0 8px 20px rgba(255,59,59,0.3); }
         .dr-voice-btn:active { transform:scale(0.95); }
         .dr-voice-btn.recording { animation:drPulse 1.5s infinite; }
-        
         .dr-voice-btn-compact { width:52px; height:52px; margin:0; box-shadow:0 4px 12px rgba(255,59,59,0.2); }
         .dr-voice-icon { font-size:28px; }
         
@@ -290,7 +322,7 @@ function _drInjectStyles() {
 }
 
 // ============================================
-// ОВЕРЛЕЙ
+// ОВЕРЛЕЙ И СТАТУС
 // ============================================
 function _drShowAIOverlay(title, subtitle) {
     _drInjectStyles();
@@ -399,7 +431,7 @@ function _drRender(container, completed) {
 }
 
 // ============================================
-// ВКЛАДКИ
+// ВКЛАДКА ЗАПИСИ
 // ============================================
 function _drRenderRecordTab(completed) {
     if (!completed) {
@@ -471,7 +503,7 @@ function _drRenderChatBubble(msg, idx) {
     const isSystem = role === 'system';
     if (isSystem) return `<div class="dr-chat-system">${_drEscapeHtml(msg.text)}</div>`;
     const avatar = isUser ? '👤' : '🌙';
-    const label = isUser ? 'Вы' : (msg.kind === 'clarification' ? `Фреди · уточнение ${msg.clarNumber || ''}/3` : 'Фреди');
+    const label = isUser ? 'Вы' : (msg.kind === 'clarification' ? `Фреди · уточнение ${msg.clarNumber || ''}/3` : 'Фredi');
     const text = _drEscapeHtml(msg.text || '');
     const actions = !isUser && msg.text ? `<div class="dr-bubble-actions"><button class="dr-bubble-action" data-speak="${idx}">🔊 Озвучить</button></div>` : '';
     return `
@@ -501,8 +533,13 @@ function _drResetChatSession() {
     _drClarificationSessionId = null;
     _drCurrentText = '';
     _drClearDraft();
+    const input = document.getElementById('dreamTextInput');
+    if (input) input.value = '';
 }
 
+// ============================================
+// ВКЛАДКА ИСТОРИИ
+// ============================================
 function _drRenderHistoryTab(completed) {
     if (!completed) {
         return `
@@ -541,14 +578,45 @@ function _drRenderHistoryTab(completed) {
 }
 
 // ============================================
-// ГОЛОСОВАЯ ЗАПИСЬ
+// ГОЛОСОВАЯ ЗАПИСЬ (ИСПРАВЛЕНА)
 // ============================================
-function _drInitVoiceButton() {
+async function _drInitVoiceButton() {
     const voiceBtn = document.getElementById('dreamVoiceBtn');
-    if (!voiceBtn || !window.voiceManager) {
-        if (voiceBtn) voiceBtn.style.opacity = '0.4';
+    console.log('[dreams] _drInitVoiceButton: btn=', !!voiceBtn, '| voiceManager=', !!window.voiceManager);
+    
+    if (!voiceBtn) {
+        console.warn('[dreams] ⚠️ Кнопка dreamVoiceBtn не найдена');
         return;
     }
+    
+    // Проверяем и запрашиваем разрешение на микрофон
+    const hasMicrophone = await _drCheckMicrophonePermission();
+    if (!hasMicrophone) {
+        voiceBtn.style.opacity = '0.4';
+        voiceBtn.title = 'Нет доступа к микрофону';
+        return;
+    }
+    
+    if (!window.voiceManager) {
+        console.warn('[dreams] ⚠️ voiceManager не инициализирован, пытаемся инициализировать');
+        if (typeof initVoice === 'function') {
+            if (typeof showToast === 'function') {
+                showToast('🎤 Инициализация голосового ввода...', 'info');
+            }
+            await initVoice();
+        }
+        if (!window.voiceManager) {
+            voiceBtn.style.opacity = '0.4';
+            voiceBtn.title = 'Голосовой ввод недоступен';
+            voiceBtn.onclick = () => {
+                if (typeof showToast === 'function') {
+                    showToast('🎤 Голосовой ввод временно недоступен', 'info');
+                }
+            };
+            return;
+        }
+    }
+    
     if (voiceBtn._dreamVoiceInited) return;
     voiceBtn._dreamVoiceInited = true;
 
@@ -678,7 +746,10 @@ function _drInitButtons() {
         _drAddChatMessage('system', '⏭️ Ты пропустил уточнения. Фреди попытается дать толкование на основе уже сказанного.');
         _drNeedsClarification = false;
         _drClarificationCount = 3;
-        _drAddChatMessage('bot', 'Чтобы дать глубокое толкование, Фреди нужно чуть больше деталей. Попробуй ещё раз — расскажи сон подробнее.', { kind: 'final' });
+        const fallback = _drGenerateFallbackInterpretation(_drCurrentText, CONFIG.USER_NAME);
+        _drAddChatMessage('bot', fallback, { kind: 'final' });
+        _drSpeak(fallback);
+        await _drSaveToHistory(_drCurrentText, fallback);
         _drResetChatSession();
     });
     const newChatBtn = document.getElementById('newChatBtn');
@@ -817,7 +888,6 @@ async function _drSubmitClarification() {
             _drAddChatMessage('bot', interpretText, { kind: 'final' });
             _drSpeak(interpretText);
             await _drSaveToHistory(_drCurrentText, interpretText);
-            // Очистка после завершения
             _drCurrentText = '';
             _drClarificationCount = 0;
             _drChatFinalShown = true;
@@ -930,5 +1000,6 @@ window.viewDreamDetails = viewDreamDetails;
 window.speakInterpretation = speakInterpretation;
 window.speakText = speakText;
 window.saveDreamToJournal = saveDreamToJournal;
+window._drCheckMicrophonePermission = _drCheckMicrophonePermission;
 
 console.log('✅ Модуль "Толкование снов" загружен (dreams.js v4.0)');
