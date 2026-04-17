@@ -2688,11 +2688,24 @@ async def get_user_anchors_v2(request: Request, user_id: int):
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
                 SELECT id, name, state, source, source_detail, modality,
-                       trigger_text, phrase, icon, state_icon, state_name, uses, created_at
+                       trigger_text, phrase, icon, state_icon, state_name, uses, created_at,
+                       instruction_steps, recommended_stimuli, program_json, type
                 FROM fredi_anchors
                 WHERE user_id = $1
                 ORDER BY created_at DESC LIMIT 50
             """, user_id)
+
+        def _jsonb(v):
+            if v is None:
+                return None
+            if isinstance(v, (dict, list)):
+                return v
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return v
+            return v
 
         anchors = []
         for r in rows:
@@ -2709,7 +2722,11 @@ async def get_user_anchors_v2(request: Request, user_id: int):
                 "state_icon": r["state_icon"],
                 "state_name": r["state_name"],
                 "uses": r["uses"] or 0,
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "instruction_steps": _jsonb(r["instruction_steps"]),
+                "recommended_stimuli": _jsonb(r["recommended_stimuli"]),
+                "program_json": _jsonb(r["program_json"]),
+                "type": r["type"] or "anchor"
             })
 
         return {"success": True, "anchors": anchors}
@@ -4144,16 +4161,6 @@ _lifespan_started = False
 # 🪞 ЗЕРКАЛА — БАЗОВЫЕ ЭНДПОИНТЫ
 # ============================================
 
-def _normalize_mirror_code(code):
-    """Каноническое представление — всегда с префиксом 'mirror_'."""
-    if not code:
-        return code
-    code = str(code).strip()
-    if not code.startswith("mirror_"):
-        code = f"mirror_{code}"
-    return code
-
-
 @app.post("/api/mirrors/create")
 async def create_mirror(request: Request):
     try:
@@ -4303,7 +4310,8 @@ async def register_mirror_friend(request: Request):
         friend_name = data.get("friend_name", "Друг")
         if not mirror_code or not friend_user_id:
             return {"success": False, "error": "mirror_code and friend_user_id required"}
-        mirror_code = _normalize_mirror_code(mirror_code)
+        if not mirror_code.startswith("mirror_"):
+            mirror_code = f"mirror_{mirror_code}"
         async with db.get_connection() as conn:
             result = await conn.execute(
                 "UPDATE fredi_mirrors SET friend_user_id = $1, friend_name = $2 "
@@ -4326,7 +4334,8 @@ async def complete_mirror(request: Request):
             return {"success": False, "error": "mirror_code обязателен"}
         # Нормализация: фронт может прислать как "mirror_XXX", так и просто "XXX".
         # В БД хранится с префиксом — приводим к каноническому виду.
-        mirror_code = _normalize_mirror_code(mirror_code)
+        if not mirror_code.startswith("mirror_"):
+            mirror_code = f"mirror_{mirror_code}"
         friend_user_id = data.get("friend_user_id")
         friend_vectors = data.get("friend_vectors", {})
         friend_deep_patterns = data.get("friend_deep_patterns", {})
@@ -4375,7 +4384,6 @@ async def complete_mirror(request: Request):
 @app.post("/api/mirrors/{mirror_code}/complete")
 async def complete_mirror_by_url(mirror_code: str, request: Request):
     """Альтернативный эндпоинт с mirror_code в URL (для совместимости с test.js)"""
-    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         data = await request.json()
         data["mirror_code"] = mirror_code
@@ -4414,7 +4422,6 @@ def _build_profile_context(friend_data: dict) -> str:
 
 @app.get("/api/mirrors/{mirror_code}/intimate")
 async def generate_intimate_profile(mirror_code: str):
-    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
@@ -4463,7 +4470,6 @@ async def generate_intimate_profile(mirror_code: str):
 
 @app.get("/api/mirrors/{mirror_code}/4f-keys")
 async def generate_4f_keys(mirror_code: str):
-    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
@@ -4511,7 +4517,6 @@ async def generate_4f_keys(mirror_code: str):
 @app.get("/api/mirrors/{mirror_code}/brief-profile")
 async def generate_brief_profile(mirror_code: str):
     """Генерирует краткое описание профиля друга от третьего лица"""
-    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
