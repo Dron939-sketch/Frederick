@@ -663,33 +663,46 @@ function _drInitVoiceButton() {
     
     const getIcon = () => voiceBtn.querySelector('.dr-voice-icon');
     
-    const stopRecording = () => {
-        if (timerInterval) clearInterval(timerInterval);
-        if (levelInterval) clearInterval(levelInterval);
-        
-        if (isRecording && window.voiceManager) {
-            window.voiceManager.stopRecording();
-        }
-        
+    const uiCleanup = () => {
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        if (levelInterval) { clearInterval(levelInterval); levelInterval = null; }
         isRecording = false;
         voiceBtn.classList.remove('recording');
         if (recordingIndicator) recordingIndicator.style.display = 'none';
-        
         const icon = getIcon();
         if (icon) icon.textContent = '🎤';
-        
-        // Восстанавливаем обработчики
-        if (window.voiceManager) {
-            window.voiceManager.sttOnly = false;
-            if (savedOnTranscript !== null) {
-                window.voiceManager.onTranscript = savedOnTranscript;
-                savedOnTranscript = null;
-            }
-            if (savedOnComplete !== null) {
-                window.voiceManager.onTranscriptComplete = savedOnComplete;
-                savedOnComplete = null;
-            }
+    };
+
+    const restoreHandlers = () => {
+        // Возврат стандартных обработчиков — вызывается ПОСЛЕ того,
+        // как пришёл STT-ответ (в onTranscriptComplete или через страховочный таймаут).
+        if (!window.voiceManager) return;
+        window.voiceManager.sttOnly = false;
+        if (savedOnTranscript !== null) {
+            window.voiceManager.onTranscript = savedOnTranscript;
+            savedOnTranscript = null;
         }
+        if (savedOnComplete !== null) {
+            window.voiceManager.onTranscriptComplete = savedOnComplete;
+            savedOnComplete = null;
+        }
+    };
+
+    const stopRecording = () => {
+        if (isRecording && window.voiceManager) {
+            window.voiceManager.stopRecording();
+        }
+        uiCleanup();
+
+        // НЕ восстанавливаем обработчики здесь! HTTP-STT возвращает ответ через 3-5 секунд —
+        // если сбросить колбеки сейчас, результат распознавания упадёт в void.
+        // Страховочный таймаут: если STT не успел за 20 сек — восстановим, чтобы не держать чужой state.
+        setTimeout(() => {
+            if (savedOnTranscript !== null || savedOnComplete !== null) {
+                console.warn('[dreams] ⏱ STT не пришёл за 20с — восстанавливаю обработчики по таймауту');
+                restoreHandlers();
+            }
+        }, 20000);
     };
     
     const onPressStart = async (e) => {
@@ -755,7 +768,10 @@ function _drInitVoiceButton() {
 
         window.voiceManager.onTranscriptComplete = (finalText) => {
             console.log('[dreams] ✅ onTranscriptComplete finalText:', JSON.stringify(finalText));
-            stopRecording();
+            // UI-cleanup (на случай WS-режима, когда complete может прийти до отпускания кнопки)
+            try { uiCleanup(); } catch (e) {}
+            // Теперь можно восстановить стандартные обработчики — STT-ответ уже пришёл.
+            try { restoreHandlers(); } catch (e) { console.warn('[dreams] restoreHandlers error:', e); }
             _drShowStatus('transcribing', '📝 Расшифровываю...');
 
             setTimeout(() => {
