@@ -269,8 +269,121 @@ function _drInjectStyles() {
             .dr-voice-btn { width: 80px; height: 80px; }
             .recording-timer { font-size: 18px; }
         }
+
+        /* ===== Press-анимация для всех кнопок модуля ===== */
+        .dr-btn, .dr-btn-ghost, .dr-interpretation-btn, .dr-history-item {
+            transition: transform 0.12s ease, background 0.2s ease, box-shadow 0.2s ease;
+            -webkit-tap-highlight-color: rgba(255,107,59,0.12);
+        }
+        .dr-btn:active, .dr-btn-ghost:active, .dr-interpretation-btn:active {
+            transform: scale(0.97);
+        }
+        .dr-history-item:active { transform: scale(0.99); }
+        .dr-btn:hover { filter: brightness(1.06); }
+        .dr-btn-ghost:hover { background: rgba(127,127,127,0.14); }
+
+        /* ===== Полноэкранный AI-оверлей ===== */
+        @keyframes drAISpin { to { transform: rotate(360deg); } }
+        @keyframes drAIDot { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+        .dr-ai-overlay {
+            position: fixed; inset: 0; z-index: 99999;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.72);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        }
+        [data-theme="light"] .dr-ai-overlay { background: rgba(240,240,245,0.82); }
+        .dr-ai-box {
+            background: #1a1a1c; color: #fff;
+            border: 1px solid rgba(127,127,127,0.2);
+            border-radius: 20px; padding: 32px 28px;
+            max-width: 360px; width: calc(100% - 40px);
+            text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        [data-theme="light"] .dr-ai-box {
+            background: #fff; color: #1c1c1e;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+        .dr-ai-spinner {
+            width: 64px; height: 64px; margin: 0 auto 20px;
+            border: 5px solid rgba(127,127,127,0.18);
+            border-top-color: #ff6b3b; border-radius: 50%;
+            animation: drAISpin 0.9s linear infinite;
+        }
+        .dr-ai-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+        .dr-ai-sub { font-size: 13px; opacity: 0.7; line-height: 1.5; margin-bottom: 16px; }
+        .dr-ai-dots { display: flex; justify-content: center; gap: 6px; }
+        .dr-ai-dots span {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ff6b3b; display: inline-block;
+            animation: drAIDot 1.2s ease-in-out infinite;
+        }
+        .dr-ai-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .dr-ai-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+        /* ===== Theme overrides (light) ===== */
+        [data-theme="light"] .dr-record-card,
+        [data-theme="light"] .dr-interpretation,
+        [data-theme="light"] .dr-clarification-card,
+        [data-theme="light"] .dr-status,
+        [data-theme="light"] .dr-tabs {
+            background: rgba(127,127,127,0.06);
+            border-color: rgba(127,127,127,0.18);
+        }
+        [data-theme="light"] .dr-tab.active { background: rgba(127,127,127,0.16); }
+        [data-theme="light"] .dr-textarea,
+        [data-theme="light"] .dr-clarification-input,
+        [data-theme="light"] .dr-history-search {
+            background: rgba(127,127,127,0.05);
+            border-color: rgba(127,127,127,0.22);
+        }
+        [data-theme="light"] .dr-history-item {
+            background: rgba(127,127,127,0.04);
+            border-color: rgba(127,127,127,0.14);
+        }
+        [data-theme="light"] .dr-btn {
+            background: linear-gradient(135deg, rgba(127,127,127,0.14), rgba(127,127,127,0.08));
+            border-color: rgba(127,127,127,0.28);
+        }
+        [data-theme="light"] .dr-btn-ghost,
+        [data-theme="light"] .dr-interpretation-btn {
+            background: rgba(127,127,127,0.06);
+            border-color: rgba(127,127,127,0.22);
+        }
+        [data-theme="light"] .recording-indicator { background: rgba(255,255,255,0.9); color: #1c1c1e; }
+        [data-theme="light"] .recording-hint { color: rgba(0,0,0,0.5); }
     `;
     document.head.appendChild(style);
+}
+
+// Функции показа/скрытия полноэкранного AI-оверлея
+function _drShowAIOverlay(title, subtitle) {
+    _drInjectStyles();
+    let el = document.getElementById('dr-ai-overlay');
+    if (el) {
+        const t = el.querySelector('.dr-ai-title');
+        const s = el.querySelector('.dr-ai-sub');
+        if (t) t.textContent = '🌙 ' + (title || 'Фреди толкует сон');
+        if (s) s.textContent = subtitle || 'Это может занять 20-40 секунд. Не закрывайте страницу.';
+        el.style.display = 'flex';
+        return;
+    }
+    el = document.createElement('div');
+    el.id = 'dr-ai-overlay';
+    el.className = 'dr-ai-overlay';
+    el.innerHTML = `
+        <div class="dr-ai-box">
+            <div class="dr-ai-spinner"></div>
+            <div class="dr-ai-title">🌙 ${(title || 'Фреди толкует сон').replace(/</g,'&lt;')}</div>
+            <div class="dr-ai-sub">${(subtitle || 'Это может занять 20-40 секунд. Не закрывайте страницу.').replace(/</g,'&lt;')}</div>
+            <div class="dr-ai-dots"><span></span><span></span><span></span></div>
+        </div>
+    `;
+    document.body.appendChild(el);
+}
+
+function _drHideAIOverlay() {
+    const el = document.getElementById('dr-ai-overlay');
+    if (el) el.remove();
 }
 
 // ============================================
@@ -427,13 +540,15 @@ function _drRenderRecordTab(completed) {
 
             <div id="validationError" class="error-message" style="display: none;"></div>
 
-            <div style="display: flex; gap: 12px; justify-content: center;">
+            <div class="dr-hint" style="text-align:center;font-size:12px;color:var(--text-secondary);margin-top:-6px;margin-bottom:8px;">
+                🎤 После голосовой записи толкование начнётся автоматически
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
                 <button class="dr-btn" id="interpretDreamBtn">
                     <span class="btn-text">🔮 Толковать сон</span>
                     <span class="btn-loader">⏳</span>
                 </button>
-                <button class="dr-btn dr-btn-ghost" id="clearDreamBtn">🗑️ Очистить</button>
-                <button class="dr-btn dr-btn-ghost" id="exportHistoryBtn" style="${_drHistory.length === 0 ? 'display:none' : ''}">📥 Экспорт</button>
+                <button class="dr-btn dr-btn-ghost" id="exportHistoryBtn" style="${_drHistory.length === 0 ? 'display:none' : ''}">📥 Экспорт истории</button>
             </div>
         </div>
         <div id="interpretationResult"></div>
@@ -616,20 +731,19 @@ function _drInitVoiceButton() {
         window.voiceManager.onTranscriptComplete = (finalText) => {
             stopRecording();
             _drShowStatus('transcribing', '📝 Расшифровываю...');
-            
+
             setTimeout(() => {
                 const input = document.getElementById('dreamTextInput');
                 if (input && input.value.trim()) {
                     _drShowStatus(null);
                     if (typeof showToast === 'function') {
-                        showToast('✅ Голос распознан! Нажмите "Толковать сон"', 'success');
+                        showToast('✅ Голос распознан — запускаю толкование…', 'success');
                     }
-                    
-                    const interpretBtn = document.getElementById('interpretDreamBtn');
-                    if (interpretBtn) {
-                        interpretBtn.style.animation = 'drPulse 0.5s ease-in-out';
-                        setTimeout(() => interpretBtn.style.animation = '', 500);
-                    }
+                    // Авто-толкование после успешного распознавания речи.
+                    // Пользователю больше не надо жать «Толковать сон» после записи.
+                    setTimeout(() => {
+                        try { _drInterpret(); } catch (e) { console.error('auto-interpret error:', e); }
+                    }, 400);
                 } else {
                     _drShowStatus(null);
                     if (typeof showToast === 'function') {
@@ -665,26 +779,12 @@ function _drInitVoiceButton() {
 
 function _drInitButtons() {
     const interpretBtn = document.getElementById('interpretDreamBtn');
-    const clearBtn = document.getElementById('clearDreamBtn');
     const exportBtn = document.getElementById('exportHistoryBtn');
-    
+
     if (interpretBtn) {
         interpretBtn.addEventListener('click', () => _drInterpret());
     }
-    
-    if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-            const input = document.getElementById('dreamTextInput');
-            if (input) { 
-                input.value = ''; 
-                _drCurrentText = '';
-                _drClearDraft();
-            }
-            const errorDiv = document.getElementById('validationError');
-            if (errorDiv) errorDiv.style.display = 'none';
-        });
-    }
-    
+
     if (exportBtn) {
         exportBtn.addEventListener('click', () => _drExportHistory());
     }
@@ -740,13 +840,14 @@ async function _drInterpret() {
     
     _drIsInterpreting = true;
     if (interpretBtn) interpretBtn.classList.add('loading');
-    
+
     _drShowStatus('interpreting', 'Фреди анализирует символику вашего сна...');
+    _drShowAIOverlay('Фреди толкует твой сон', 'Анализ символов, архетипов и связи с твоим профилем. 20-40 секунд.');
     if (resultDiv) resultDiv.innerHTML = '';
-    
+
     try {
         const { status, profileData } = await _drGetCachedProfile();
-        
+
         _drShowStatus('interpreting', 'Генерирую юнгианскую интерпретацию...');
         
         const response = await apiCall('/api/dreams/interpret', {
@@ -789,20 +890,21 @@ async function _drInterpret() {
             _drClarificationCount = 0;
         } else {
             _drShowStatus(null);
+            const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
             if (resultDiv) {
-                const escapedText = _drEscapeHtml(response.interpretation);
+                const escapedText = _drEscapeHtml(interpretText);
                 resultDiv.innerHTML = _drRenderInterpretation(escapedText);
                 if (window.voiceManager && response.interpretation) {
                     await window.voiceManager.textToSpeech(response.interpretation, 'psychologist');
                 }
             }
-            await _drSaveToHistory(dreamText, response.interpretation);
+            await _drSaveToHistory(dreamText, interpretText);
             _drNeedsClarification = false;
             _drClarificationCount = 0;
         }
-        
+
         _drClearDraft();
-        
+
     } catch (error) {
         _drShowStatus(null);
         console.error('Interpretation error:', error);
@@ -815,6 +917,7 @@ async function _drInterpret() {
     } finally {
         _drIsInterpreting = false;
         if (interpretBtn) interpretBtn.classList.remove('loading');
+        _drHideAIOverlay();
     }
 }
 
