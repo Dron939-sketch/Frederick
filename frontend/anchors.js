@@ -424,6 +424,17 @@ function _anClearRecommendationsCache() {
     try { localStorage.removeItem(AN_REC_CACHE_KEY); } catch (e) {}
 }
 
+// Безопасное получение USER_ID для вызовов API этого модуля
+function _anGetUserId() {
+    if (typeof window.getUserId === 'function') return window.getUserId();
+    if (window.CONFIG?.USER_ID) return window.CONFIG.USER_ID;
+    try {
+        const id = localStorage.getItem('fredi_user_id');
+        if (id && id !== 'null') return id;
+    } catch (e) {}
+    return Date.now();
+}
+
 const TRIGGER_SUGGESTIONS = {
     auditory: {
         _default: ['Я спокоен', 'Я силён', 'Я готов', 'Я в потоке'],

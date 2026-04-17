@@ -1,6 +1,6 @@
 // ============================================
 // 🪞 ЗЕРКАЛА / ОТРАЖЕНИЯ
-// Версия 3.2 — исправлена идентификация пользователя на мобильных устройствах
+// Версия 3.3 — унификация USER_ID + mobile/Telegram WebView / PWA / private-mode fallback
 // ============================================
 
 const API_BASE = window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
