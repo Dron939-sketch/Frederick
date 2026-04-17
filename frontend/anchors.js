@@ -963,10 +963,32 @@ async function startGuidedActivation(anchor) {
 // ГЕНЕРАЦИЯ PDF ИНСТРУКЦИИ
 // ============================================
 
+function _anParseSteps(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(x => x != null && String(x).trim() !== '');
+    if (typeof raw === 'object') {
+        if (Array.isArray(raw.steps)) return raw.steps;
+        return [];
+    }
+    if (typeof raw !== 'string') return [];
+    const s = raw.trim();
+    if (!s || s === '[]' || s === 'null' || s === 'undefined') return [];
+    try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed.filter(x => x != null && String(x).trim() !== '');
+        if (parsed && Array.isArray(parsed.steps)) return parsed.steps;
+    } catch (e) {
+        // Бэкенд мог отдать строку с переносами — парсим построчно
+    }
+    return s.split(/\r?\n+/).map(x => x.replace(/^[\s\-\*\d\.\)]+/, '').trim()).filter(Boolean);
+}
+
 async function generateInstructionPDF(anchor) {
     const state = ANCHORS_CONFIG.states[anchor.state];
     const userName = localStorage.getItem('fredi_user_name') || 'Пользователь';
     const today = new Date().toLocaleDateString('ru-RU');
+    const parsedSteps = _anParseSteps(anchor.instruction_steps);
+    console.log('📄 PDF steps:', parsedSteps.length, '| raw type:', typeof anchor.instruction_steps);
     
     let stimuliHtml = '';
     if (anchor.recommended_stimuli) {
@@ -1030,21 +1052,16 @@ async function generateInstructionPDF(anchor) {
             
             <div class="section">
                 <div class="section-title">📋 ПОШАГОВАЯ ИНСТРУКЦИЯ</div>
-                ${anchor.instruction_steps ? (() => {
-                    try {
-                        const steps = JSON.parse(anchor.instruction_steps);
-                        return steps.map((step, i) => `
-                            <div class="step">
-                                <span class="step-num">${i+1}</span>
-                                <span>${step}</span>
-                            </div>
-                        `).join('');
-                    } catch(e) { return ''; }
-                })() : `
+                ${parsedSteps.length ? parsedSteps.map((step, i) => `
+                    <div class="step">
+                        <span class="step-num">${i+1}</span>
+                        <span>${_anEscapeHtml(String(step))}</span>
+                    </div>
+                `).join('') : `
                     <div class="step"><span class="step-num">1</span> Найдите спокойное место, где вас никто не побеспокоит</div>
-                    <div class="step"><span class="step-num">2</span> Вспомните ситуацию, когда вы чувствовали ${state?.name.toLowerCase()}</div>
+                    <div class="step"><span class="step-num">2</span> Вспомните ситуацию, когда вы чувствовали ${state?.name?.toLowerCase() || anchor.state}</div>
                     <div class="step"><span class="step-num">3</span> Доведите это ощущение до пика (30-60 секунд)</div>
-                    <div class="step"><span class="step-num">4</span> В момент пика скажите/сделайте: <strong>«${anchor.trigger || anchor.phrase}»</strong></div>
+                    <div class="step"><span class="step-num">4</span> В момент пика скажите/сделайте: <strong>«${_anEscapeHtml(anchor.trigger || anchor.phrase || '')}»</strong></div>
                     <div class="step"><span class="step-num">5</span> Сбросьте состояние (встаньте, отвлекитесь)</div>
                     <div class="step"><span class="step-num">6</span> Повторите шаги 2-5 ещё 4-5 раз для закрепления</div>
                 `}
@@ -1596,10 +1613,13 @@ function showInstructionDetail(anchorId) {
     if (!anchor) return;
     
     const state = ANCHORS_CONFIG.states[anchor.state];
-    let steps = [];
-    try { steps = JSON.parse(anchor.instruction_steps || '[]'); } catch(e) {}
+    const steps = _anParseSteps(anchor.instruction_steps);
     let stimuli = [];
-    try { stimuli = JSON.parse(anchor.recommended_stimuli || '[]'); } catch(e) {}
+    if (Array.isArray(anchor.recommended_stimuli)) {
+        stimuli = anchor.recommended_stimuli;
+    } else {
+        try { stimuli = JSON.parse(anchor.recommended_stimuli || '[]'); } catch(e) {}
+    }
     
     const container = document.getElementById('screenContainer');
     if (!container) return;
