@@ -351,6 +351,25 @@ function _drInjectStyles() {
         }
         [data-theme="light"] .recording-indicator { background: rgba(255,255,255,0.9); color: #1c1c1e; }
         [data-theme="light"] .recording-hint { color: rgba(0,0,0,0.5); }
+
+        /* Подсветка textarea после успешного распознавания голоса */
+        @keyframes drTextareaGlow {
+            0% { box-shadow: 0 0 0 0 rgba(255,107,59,0.5); border-color: rgba(255,107,59,0.8); }
+            70% { box-shadow: 0 0 0 12px rgba(255,107,59,0); border-color: rgba(255,107,59,0.4); }
+            100% { box-shadow: 0 0 0 0 rgba(255,107,59,0); border-color: rgba(224,224,224,0.2); }
+        }
+        .dr-textarea-highlight {
+            animation: drTextareaGlow 2.4s ease-out;
+        }
+
+        /* Пульс кнопки «Толковать сон» после записи */
+        @keyframes drBtnPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,59,0.35); transform: scale(1); }
+            50% { box-shadow: 0 0 0 8px rgba(255,107,59,0); transform: scale(1.03); }
+        }
+        .dr-btn-pulse {
+            animation: drBtnPulse 1s ease-in-out 3;
+        }
     `;
     document.head.appendChild(style);
 }
@@ -541,7 +560,7 @@ function _drRenderRecordTab(completed) {
             <div id="validationError" class="error-message" style="display: none;"></div>
 
             <div class="dr-hint" style="text-align:center;font-size:12px;color:var(--text-secondary);margin-top:-6px;margin-bottom:8px;">
-                🎤 После голосовой записи толкование начнётся автоматически
+                📝 После записи голоса текст появится в поле выше — проверь и нажми «Толковать сон»
             </div>
             <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
                 <button class="dr-btn" id="interpretDreamBtn">
@@ -737,13 +756,22 @@ function _drInitVoiceButton() {
                 if (input && input.value.trim()) {
                     _drShowStatus(null);
                     if (typeof showToast === 'function') {
-                        showToast('✅ Голос распознан — запускаю толкование…', 'success');
+                        showToast('✅ Голос распознан. Проверь текст и нажми «Толковать сон»', 'success');
                     }
-                    // Авто-толкование после успешного распознавания речи.
-                    // Пользователю больше не надо жать «Толковать сон» после записи.
-                    setTimeout(() => {
-                        try { _drInterpret(); } catch (e) { console.error('auto-interpret error:', e); }
-                    }, 400);
+                    // Делаем текстовое поле заметным: скроллим к нему, подсвечиваем рамку,
+                    // фокусируем курсор в конец, пульсируем кнопку «Толковать сон».
+                    try {
+                        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        input.classList.add('dr-textarea-highlight');
+                        setTimeout(() => input.classList.remove('dr-textarea-highlight'), 2500);
+                        input.focus();
+                        input.setSelectionRange(input.value.length, input.value.length);
+                    } catch (e) {}
+                    const btn = document.getElementById('interpretDreamBtn');
+                    if (btn) {
+                        btn.classList.add('dr-btn-pulse');
+                        setTimeout(() => btn.classList.remove('dr-btn-pulse'), 3000);
+                    }
                 } else {
                     _drShowStatus(null);
                     if (typeof showToast === 'function') {
