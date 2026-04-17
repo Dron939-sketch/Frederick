@@ -193,9 +193,14 @@ async function apiCall(endpoint, options = {}) {
         return _inflightRequests.get(key);
     }
 
+    // AI-эндпоинты генерируют ответ до 30-45 сек (DeepSeek/GPT), расширяем таймаут.
+    const isAIEndpoint = /\/api\/(ai\/|ai_|hypno|dreams|emotions|tales|relationships|interests|doubles|weekend|brand|hormones|goals|habits|motivation|strategy|healing|confinement|skill|practices|challenges|psychologist|morning|freshthought|meditation|analysis)/i.test(endpoint);
+    const defaultTimeout = isAIEndpoint ? 60000 : 15000;
+    const timeoutMs = options.timeout || defaultTimeout;
+
     const promise = (async () => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000); // 15 сек таймаут
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
             const response = await fetch(url, {
@@ -210,7 +215,7 @@ async function apiCall(endpoint, options = {}) {
         } catch (error) {
             clearTimeout(timeout);
             if (error.name === 'AbortError') {
-                console.error(`API timeout: ${endpoint}`);
+                console.error(`API timeout (${timeoutMs}ms): ${endpoint}`);
                 throw new Error('Сервер не отвечает. Попробуйте позже.');
             }
             console.error(`API Error: ${endpoint}`, error);
