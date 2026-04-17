@@ -494,6 +494,33 @@ function _anEscapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function _anShowAILoader(title = 'AI создаёт инструкцию', subtitle = 'Это может занять 15-45 секунд. Не закрывайте страницу.') {
+    let el = document.getElementById('an-ai-loader');
+    if (el) {
+        el.querySelector('.an-ai-loader-title').textContent = '🧠 ' + title;
+        el.querySelector('.an-ai-loader-sub').textContent = subtitle;
+        el.style.display = 'flex';
+        return;
+    }
+    el = document.createElement('div');
+    el.id = 'an-ai-loader';
+    el.className = 'an-ai-loader-overlay';
+    el.innerHTML = `
+        <div class="an-ai-loader-box">
+            <div class="an-ai-loader-spinner"></div>
+            <div class="an-ai-loader-title">🧠 ${_anEscapeHtml(title)}</div>
+            <div class="an-ai-loader-sub">${_anEscapeHtml(subtitle)}</div>
+            <div class="an-ai-loader-dots"><span></span><span></span><span></span></div>
+        </div>
+    `;
+    document.body.appendChild(el);
+}
+
+function _anHideAILoader() {
+    const el = document.getElementById('an-ai-loader');
+    if (el) el.remove();
+}
+
 function _anShowToast(msg, type = 'success') {
     if (typeof showToast === 'function') showToast(msg, type);
     else alert(msg);
@@ -1820,11 +1847,12 @@ window.refreshRecommendations = async () => {
 
 async function createAllRecommendations() {
     console.log('📦 Создание всех рекомендаций...');
-    _anShowToast('🔄 Создаю инструкции...', 'info');
+    _anShowAILoader('AI создаёт все инструкции', 'Собираем шаги и сохраняем по одному якорю. Это займёт 30-60 секунд.');
 
     const recommendations = await getProfileBasedRecommendations();
 
     if (!recommendations.length) {
+        _anHideAILoader();
         _anShowToast('❌ Нет рекомендаций для создания', 'error');
         return;
     }
@@ -1871,6 +1899,7 @@ async function createAllRecommendations() {
         await new Promise(resolve => setTimeout(resolve, 500));
     }
 
+    _anHideAILoader();
     if (successCount > 0) {
         _anShowToast(`✅ Создано ${successCount} инструкций${failCount > 0 ? `, ${failCount} ошибок` : ''}`, successCount === recommendations.length ? 'success' : 'info');
         await loadUserAnchors();
@@ -2172,6 +2201,9 @@ window.anchorWizardComplete = async () => {
         selectedStimuli.push(customStimulus);
     }
 
+    // Блокируем кнопку сохранения и показываем оверлей
+    _anShowAILoader('AI составляет вашу инструкцию', 'Анализ источника, подбор шагов и закрепление триггера. Обычно 15-40 секунд.');
+
     // ========== AI-ГЕНЕРАЦИЯ ИНСТРУКЦИИ ==========
     let steps = [];
     let instructionDescription = '';
@@ -2360,6 +2392,7 @@ window.anchorWizardComplete = async () => {
     };
 
     const success = await saveAnchor(anchorToSave);
+    _anHideAILoader();
     if (success) {
         _anShowToast('✅ Инструкция успешно создана!', 'success');
         _anPlayBeep();
@@ -2781,6 +2814,77 @@ function _anInjectStyles() {
 
         [data-theme="light"] .an-rec-card { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
         [data-theme="light"] .an-rec-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.10); }
+
+        /* ===== Оверлей AI-генерации (полноэкранный) ===== */
+        @keyframes an-ai-dot { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1.0); opacity: 1; } }
+        .an-ai-loader-overlay {
+            position: fixed; inset: 0; z-index: 99999;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.72);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            animation: an-fade-in 0.25s ease;
+        }
+        [data-theme="light"] .an-ai-loader-overlay { background: rgba(240,240,245,0.82); }
+        @keyframes an-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .an-ai-loader-box {
+            background: #1a1a1c; color: var(--text-primary);
+            border: 1px solid rgba(127,127,127,0.2);
+            border-radius: 20px; padding: 32px 28px;
+            max-width: 360px; width: calc(100% - 40px);
+            text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        [data-theme="light"] .an-ai-loader-box {
+            background: #ffffff; color: #1c1c1e;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+        .an-ai-loader-spinner {
+            width: 64px; height: 64px; margin: 0 auto 20px;
+            border: 5px solid rgba(127,127,127,0.18);
+            border-top-color: #ff6b3b;
+            border-radius: 50%;
+            animation: an-spin 0.9s linear infinite;
+        }
+        .an-ai-loader-title {
+            font-size: 17px; font-weight: 700;
+            color: var(--text-primary); margin-bottom: 8px;
+        }
+        [data-theme="light"] .an-ai-loader-title { color: #1c1c1e; }
+        .an-ai-loader-sub {
+            font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+            margin-bottom: 16px;
+        }
+        [data-theme="light"] .an-ai-loader-sub { color: #5a5a5e; }
+        .an-ai-loader-dots { display: flex; justify-content: center; gap: 6px; }
+        .an-ai-loader-dots span {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ff6b3b; display: inline-block;
+            animation: an-ai-dot 1.2s ease-in-out infinite;
+        }
+        .an-ai-loader-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .an-ai-loader-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+        /* ===== Анимация нажатия кнопок в конструкторе/визарде/подборе ===== */
+        .anchor-btn, .fire-btn, .an-btn-primary, .an-btn-cta, .an-btn-ghost,
+        .an-btn-refresh, .an-btn-primary-wide, .wizard-option, .trigger-chip,
+        .mirror-copy-btn, .mirror-action-btn, .create-btn, .guide-btn, .delete-btn, .pdf-btn,
+        .an-tab, .answer-btn, button.action-btn {
+            transition: transform 0.12s ease, background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            -webkit-tap-highlight-color: rgba(255,107,59,0.12);
+        }
+        .anchor-btn:active, .fire-btn:active, .an-btn-primary:active, .an-btn-cta:active,
+        .an-btn-ghost:active, .an-btn-refresh:active, .an-btn-primary-wide:active,
+        .wizard-option:active, .trigger-chip:active,
+        .mirror-copy-btn:active, .mirror-action-btn:active,
+        .create-btn:active, .guide-btn:active, .delete-btn:active, .pdf-btn:active,
+        .an-tab:active, .answer-btn:active, button.action-btn:active {
+            transform: scale(0.97);
+        }
+        .wizard-option:hover, .trigger-chip:hover {
+            border-color: rgba(255,107,59,0.45);
+            background: rgba(255,107,59,0.07);
+        }
+        .fire-btn:hover { filter: brightness(1.08); }
     `;
     document.head.appendChild(style);
 }
