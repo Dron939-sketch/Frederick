@@ -198,7 +198,7 @@ class UserRepository:
             await self.create_user_if_not_exists(user_id)
             
             result_id = await self.db.fetchval("""
-                INSERT INTO test_results (
+                INSERT INTO fredi_test_results (
                     user_id, test_type, results, profile_code,
                     perception_type, thinking_level, vectors,
                     behavioral_levels, confinement_model, created_at
@@ -223,7 +223,7 @@ class UserRepository:
             rows = await self.db.fetch(f"""
                 SELECT id, test_type, results, profile_code,
                        perception_type, thinking_level, created_at
-                FROM test_results WHERE {condition}
+                FROM fredi_test_results WHERE {condition}
                 ORDER BY created_at DESC LIMIT $2
             """, value, limit)
             
@@ -253,7 +253,7 @@ class UserRepository:
             await self.create_user_if_not_exists(user_id)
             
             await self.db.execute("""
-                INSERT INTO messages (user_id, role, content, metadata, created_at)
+                INSERT INTO fredi_messages (user_id, role, content, metadata, created_at)
                 VALUES ($1, $2, $3, $4, NOW())
             """, value, role, content, json.dumps(metadata or {}))
             
@@ -375,11 +375,11 @@ class UserRepository:
         try:
             condition, value = self._get_id_condition(user_id)
             messages_count = await self.db.fetchval(f"""
-                SELECT COUNT(*) FROM messages WHERE {condition}
+                SELECT COUNT(*) FROM fredi_messages WHERE {condition}
             """, value)
             sessions = await self.db.fetchval(f"""
                 SELECT COUNT(DISTINCT DATE_TRUNC('hour', created_at))
-                FROM messages WHERE {condition}
+                FROM fredi_messages WHERE {condition}
             """, value)
             last_activity = await self.db.fetchval(f"""
                 SELECT last_activity FROM fredi_users WHERE {condition}
