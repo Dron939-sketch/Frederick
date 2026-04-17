@@ -4144,6 +4144,16 @@ _lifespan_started = False
 # 🪞 ЗЕРКАЛА — БАЗОВЫЕ ЭНДПОИНТЫ
 # ============================================
 
+def _normalize_mirror_code(code):
+    """Каноническое представление — всегда с префиксом 'mirror_'."""
+    if not code:
+        return code
+    code = str(code).strip()
+    if not code.startswith("mirror_"):
+        code = f"mirror_{code}"
+    return code
+
+
 @app.post("/api/mirrors/create")
 async def create_mirror(request: Request):
     try:
@@ -4293,8 +4303,7 @@ async def register_mirror_friend(request: Request):
         friend_name = data.get("friend_name", "Друг")
         if not mirror_code or not friend_user_id:
             return {"success": False, "error": "mirror_code and friend_user_id required"}
-        if not mirror_code.startswith("mirror_"):
-            mirror_code = f"mirror_{mirror_code}"
+        mirror_code = _normalize_mirror_code(mirror_code)
         async with db.get_connection() as conn:
             result = await conn.execute(
                 "UPDATE fredi_mirrors SET friend_user_id = $1, friend_name = $2 "
@@ -4317,8 +4326,7 @@ async def complete_mirror(request: Request):
             return {"success": False, "error": "mirror_code обязателен"}
         # Нормализация: фронт может прислать как "mirror_XXX", так и просто "XXX".
         # В БД хранится с префиксом — приводим к каноническому виду.
-        if not mirror_code.startswith("mirror_"):
-            mirror_code = f"mirror_{mirror_code}"
+        mirror_code = _normalize_mirror_code(mirror_code)
         friend_user_id = data.get("friend_user_id")
         friend_vectors = data.get("friend_vectors", {})
         friend_deep_patterns = data.get("friend_deep_patterns", {})
@@ -4367,6 +4375,7 @@ async def complete_mirror(request: Request):
 @app.post("/api/mirrors/{mirror_code}/complete")
 async def complete_mirror_by_url(mirror_code: str, request: Request):
     """Альтернативный эндпоинт с mirror_code в URL (для совместимости с test.js)"""
+    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         data = await request.json()
         data["mirror_code"] = mirror_code
@@ -4405,6 +4414,7 @@ def _build_profile_context(friend_data: dict) -> str:
 
 @app.get("/api/mirrors/{mirror_code}/intimate")
 async def generate_intimate_profile(mirror_code: str):
+    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
@@ -4453,6 +4463,7 @@ async def generate_intimate_profile(mirror_code: str):
 
 @app.get("/api/mirrors/{mirror_code}/4f-keys")
 async def generate_4f_keys(mirror_code: str):
+    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
@@ -4500,6 +4511,7 @@ async def generate_4f_keys(mirror_code: str):
 @app.get("/api/mirrors/{mirror_code}/brief-profile")
 async def generate_brief_profile(mirror_code: str):
     """Генерирует краткое описание профиля друга от третьего лица"""
+    mirror_code = _normalize_mirror_code(mirror_code)
     try:
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
