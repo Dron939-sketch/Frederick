@@ -10,6 +10,7 @@ let _drCurrentText = '';
 let _drHistory = [];
 let _drNeedsClarification = false;
 let _drClarificationQuestion = '';
+let _drLastSpokenQuestion = '';
 let _drClarificationSessionId = null;
 let _drClarificationCount = 0;
 let _drActiveTab = 'record';
@@ -363,6 +364,18 @@ function _drInjectStyles() {
             animation: drTextareaGlow 2.4s ease-out;
         }
 
+        /* Кнопка «Озвучить вопрос» */
+        .dr-speak-question-btn {
+            display: block; margin: 8px auto 12px; padding: 8px 16px;
+            border-radius: 30px; background: rgba(127,127,127,0.1);
+            border: 1px solid rgba(127,127,127,0.22);
+            color: var(--text-primary); font-size: 12px; cursor: pointer;
+            font-family: inherit;
+            transition: transform 0.12s ease, background 0.2s ease;
+        }
+        .dr-speak-question-btn:hover { background: rgba(127,127,127,0.16); }
+        .dr-speak-question-btn:active { transform: scale(0.97); }
+
         /* Пульс кнопки «Толковать сон» после записи */
         @keyframes drBtnPulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,59,0.35); transform: scale(1); }
@@ -530,7 +543,14 @@ function _drRenderRecordTab(completed) {
                         Уточнение ${_drClarificationCount + 1}/${maxClarifications}
                     </div>
                     <div class="dr-clarification-q" id="clarificationQuestion">${_drEscapeHtml(_drClarificationQuestion) || 'Расскажите подробнее об этом сне...'}</div>
-                    <textarea id="clarificationAnswer" class="dr-clarification-input" rows="3" placeholder="Напишите свой ответ здесь..."></textarea>
+                    <button type="button" class="dr-speak-question-btn" id="speakQuestionBtn" title="Озвучить вопрос ещё раз">🔊 Озвучить вопрос</button>
+                    <button class="dr-voice-btn" id="clarificationVoiceBtn" type="button" title="Записать голосовой ответ" style="width:72px;height:72px;margin:16px auto 8px;">
+                        <span class="dr-voice-icon" style="font-size:32px;">🎤</span>
+                    </button>
+                    <div style="font-size:11px;color:var(--text-secondary);text-align:center;margin-bottom:12px;">
+                        Нажмите и удерживайте для записи ответа голосом
+                    </div>
+                    <textarea id="clarificationAnswer" class="dr-clarification-input" rows="3" placeholder="Или напишите свой ответ здесь..."></textarea>
                     <div style="display:flex;gap:12px;margin-top:16px">
                         <button class="dr-btn" id="submitClarificationBtn">📤 Ответить</button>
                         <button class="dr-btn dr-btn-ghost" id="skipClarificationBtn">⏭️ Пропустить</button>
@@ -860,6 +880,121 @@ function _drInitButtons() {
             showDreamsScreen();
         });
     }
+
+    // Голосовая связка для уточняющего вопроса
+    const speakQBtn = document.getElementById('speakQuestionBtn');
+    if (speakQBtn) {
+        speakQBtn.addEventListener('click', async () => {
+            if (!_drClarificationQuestion) return;
+            try {
+                if (window.voiceManager && window.voiceManager.textToSpeech) {
+                    await window.voiceManager.textToSpeech(_drClarificationQuestion, 'psychologist');
+                } else if ('speechSynthesis' in window) {
+                    const u = new SpeechSynthesisUtterance(_drClarificationQuestion);
+                    u.lang = 'ru-RU';
+                    speechSynthesis.speak(u);
+                }
+            } catch (e) { console.warn('[dreams] speak question failed:', e); }
+        });
+    }
+
+    _drInitClarificationVoiceButton();
+
+    // Авто-озвучка вопроса при появлении (один раз на один вопрос)
+    if (_drNeedsClarification && _drClarificationQuestion && !_drLastSpokenQuestion) {
+        _drLastSpokenQuestion = _drClarificationQuestion;
+        setTimeout(async () => {
+            try {
+                if (window.voiceManager && window.voiceManager.textToSpeech) {
+                    await window.voiceManager.textToSpeech(_drClarificationQuestion, 'psychologist');
+                }
+            } catch (e) { console.warn('[dreams] auto-speak failed:', e); }
+        }, 400);
+    }
+    if (!_drNeedsClarification) _drLastSpokenQuestion = '';
+}
+
+// Голосовая запись ответа на уточняющий вопрос
+function _drInitClarificationVoiceButton() {
+    const voiceBtn = document.getElementById('clarificationVoiceBtn');
+    if (!voiceBtn || !window.voiceManager) return;
+    if (voiceBtn._dreamClarifInited) return;
+    voiceBtn._dreamClarifInited = true;
+
+    let isRecording = false;
+    let savedOnTranscript = null;
+    let savedOnComplete = null;
+
+    const stop = () => {
+        if (isRecording && window.voiceManager) window.voiceManager.stopRecording();
+        isRecording = false;
+        voiceBtn.classList.remove('recording');
+        const icon = voiceBtn.querySelector('.dr-voice-icon');
+        if (icon) icon.textContent = '🎤';
+        // Handlers восстановим в onTranscriptComplete или через страховочный таймаут
+        setTimeout(() => {
+            if (!window.voiceManager) return;
+            if (savedOnTranscript !== null) {
+                window.voiceManager.onTranscript = savedOnTranscript;
+                savedOnTranscript = null;
+            }
+            if (savedOnComplete !== null) {
+                window.voiceManager.onTranscriptComplete = savedOnComplete;
+                savedOnComplete = null;
+            }
+            window.voiceManager.sttOnly = false;
+        }, 20000);
+    };
+
+    const start = async (e) => {
+        e.preventDefault();
+        if (isRecording) return;
+        if (!window.voiceManager) return;
+
+        savedOnTranscript = window.voiceManager.onTranscript;
+        savedOnComplete = window.voiceManager.onTranscriptComplete;
+        window.voiceManager.sttOnly = true;
+
+        window.voiceManager.onTranscript = (text) => {
+            const input = document.getElementById('clarificationAnswer');
+            if (!input) return;
+            const cur = input.value;
+            input.value = cur ? cur + ' ' + text : text;
+        };
+        window.voiceManager.onTranscriptComplete = (finalText) => {
+            console.log('[dreams] clarif STT complete:', JSON.stringify(finalText));
+            // Вернуть handlers, так как STT уже пришёл
+            if (window.voiceManager) {
+                if (savedOnTranscript !== null) {
+                    window.voiceManager.onTranscript = savedOnTranscript;
+                    savedOnTranscript = null;
+                }
+                if (savedOnComplete !== null) {
+                    window.voiceManager.onTranscriptComplete = savedOnComplete;
+                    savedOnComplete = null;
+                }
+                window.voiceManager.sttOnly = false;
+            }
+            const input = document.getElementById('clarificationAnswer');
+            if (input && input.value.trim()) {
+                if (typeof showToast === 'function') showToast('✅ Ответ распознан — нажмите «Ответить»', 'success');
+                try { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } catch (e) {}
+            }
+        };
+
+        isRecording = true;
+        voiceBtn.classList.add('recording');
+        const icon = voiceBtn.querySelector('.dr-voice-icon');
+        if (icon) icon.textContent = '⏺';
+        const started = await window.voiceManager.startRecording();
+        if (!started) { stop(); if (typeof showToast === 'function') showToast('🎤 Нет доступа к микрофону', 'error'); }
+    };
+
+    voiceBtn.addEventListener('mousedown', start);
+    voiceBtn.addEventListener('mouseup', stop);
+    voiceBtn.addEventListener('mouseleave', stop);
+    voiceBtn.addEventListener('touchstart', start, { passive: false });
+    voiceBtn.addEventListener('touchend', stop);
 }
 
 // ============================================
