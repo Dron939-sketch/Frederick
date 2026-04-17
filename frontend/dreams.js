@@ -621,7 +621,9 @@ function _drRenderHistoryTab(completed) {
 
 function _drInitVoiceButton() {
     const voiceBtn = document.getElementById('dreamVoiceBtn');
+    console.log('[dreams] _drInitVoiceButton: btn=', !!voiceBtn, '| voiceManager=', !!window.voiceManager);
     if (!voiceBtn || !window.voiceManager) {
+        console.warn('[dreams] ⚠️ Нет кнопки или voiceManager → голос недоступен');
         if (voiceBtn) {
             voiceBtn.style.opacity = '0.4';
             voiceBtn.onclick = () => showToast('🎤 Голосовой ввод недоступен', 'info');
@@ -736,37 +738,44 @@ function _drInitVoiceButton() {
         savedOnComplete = window.voiceManager.onTranscriptComplete;
         
         window.voiceManager.onTranscript = (text) => {
+            console.log('[dreams] 🎙️ onTranscript chunk:', JSON.stringify(text));
             const input = document.getElementById('dreamTextInput');
-            if (input) {
-                const currentText = input.value;
-                const newText = currentText ? currentText + ' ' + text : text;
-                input.value = newText;
-                _drCurrentText = newText;
-                _drAutoSaveDraft(newText);
-                input.scrollTop = input.scrollHeight;
+            if (!input) {
+                console.error('[dreams] ❌ onTranscript: #dreamTextInput НЕ НАЙДЕН в DOM');
+                return;
             }
+            const currentText = input.value;
+            const newText = currentText ? currentText + ' ' + text : text;
+            input.value = newText;
+            _drCurrentText = newText;
+            _drAutoSaveDraft(newText);
+            input.scrollTop = input.scrollHeight;
+            console.log('[dreams] 📝 textarea длина теперь:', newText.length);
         };
-        
+
         window.voiceManager.onTranscriptComplete = (finalText) => {
+            console.log('[dreams] ✅ onTranscriptComplete finalText:', JSON.stringify(finalText));
             stopRecording();
             _drShowStatus('transcribing', '📝 Расшифровываю...');
 
             setTimeout(() => {
                 const input = document.getElementById('dreamTextInput');
-                if (input && input.value.trim()) {
+                const value = input ? input.value.trim() : '';
+                console.log('[dreams] после 500ms: input exists =', !!input, '| length =', value.length);
+                if (input && value) {
                     _drShowStatus(null);
                     if (typeof showToast === 'function') {
                         showToast('✅ Голос распознан. Проверь текст и нажми «Толковать сон»', 'success');
                     }
-                    // Делаем текстовое поле заметным: скроллим к нему, подсвечиваем рамку,
-                    // фокусируем курсор в конец, пульсируем кнопку «Толковать сон».
                     try {
                         input.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         input.classList.add('dr-textarea-highlight');
                         setTimeout(() => input.classList.remove('dr-textarea-highlight'), 2500);
                         input.focus();
                         input.setSelectionRange(input.value.length, input.value.length);
-                    } catch (e) {}
+                    } catch (e) {
+                        console.warn('[dreams] focus/scroll failed:', e);
+                    }
                     const btn = document.getElementById('interpretDreamBtn');
                     if (btn) {
                         btn.classList.add('dr-btn-pulse');
@@ -774,6 +783,7 @@ function _drInitVoiceButton() {
                     }
                 } else {
                     _drShowStatus(null);
+                    console.warn('[dreams] ⚠️ textarea пустой после STT — finalText был:', JSON.stringify(finalText));
                     if (typeof showToast === 'function') {
                         showToast('❌ Не удалось распознать речь. Попробуйте ещё раз', 'error');
                     }
@@ -781,7 +791,9 @@ function _drInitVoiceButton() {
             }, 500);
         };
         
+        console.log('[dreams] 🎙️ startRecording() вызван');
         const started = await window.voiceManager.startRecording();
+        console.log('[dreams] startRecording result:', started);
         if (!started) {
             stopRecording();
             if (typeof showToast === 'function') {
@@ -837,35 +849,39 @@ function _drInitButtons() {
 // ============================================
 
 async function _drInterpret() {
+    console.log('[dreams] 🔮 _drInterpret START');
     if (_drIsInterpreting) {
+        console.warn('[dreams] уже выполняется — игнор');
         if (typeof showToast === 'function') {
             showToast('⏳ Интерпретация уже выполняется...', 'info');
         }
         return;
     }
-    
+
     const input = document.getElementById('dreamTextInput');
     const dreamText = input?.value.trim();
-    
+    console.log('[dreams] dreamText длина:', (dreamText || '').length, 'превью:', (dreamText || '').slice(0, 80));
+
     const validation = _drValidateDream(dreamText);
     const errorDiv = document.getElementById('validationError');
-    
+
     if (!validation.valid) {
+        console.warn('[dreams] ❌ валидация провалена:', validation.errors);
         if (errorDiv) {
             errorDiv.style.display = 'block';
             errorDiv.innerHTML = validation.errors.map(e => `• ${e}`).join('<br>');
         }
         return;
     }
-    
+
     if (errorDiv) errorDiv.style.display = 'none';
-    
+
     _drCurrentText = dreamText;
     _drAutoSaveDraft(dreamText);
-    
+
     const resultDiv = document.getElementById('interpretationResult');
     const interpretBtn = document.getElementById('interpretDreamBtn');
-    
+
     _drIsInterpreting = true;
     if (interpretBtn) interpretBtn.classList.add('loading');
 
@@ -875,23 +891,37 @@ async function _drInterpret() {
 
     try {
         const { status, profileData } = await _drGetCachedProfile();
+        console.log('[dreams] profile fetched: has_profile=', status?.has_profile, '| profile_code=', status?.profile_code);
 
         _drShowStatus('interpreting', 'Генерирую юнгианскую интерпретацию...');
-        
+
+        const requestBody = {
+            user_id: CONFIG.USER_ID,
+            dream_text: dreamText,
+            user_name: CONFIG.USER_NAME,
+            profile_code: status.profile_code,
+            perception_type: profileData.profile?.perception_type,
+            thinking_level: profileData.profile?.thinking_level,
+            vectors: status.vectors,
+            key_characteristic: profileData.profile?.key_characteristic,
+            main_trap: profileData.profile?.main_trap,
+            clarification_count: _drClarificationCount
+        };
+        console.log('[dreams] 📤 POST /api/dreams/interpret user_id=', requestBody.user_id, '| dream_length=', requestBody.dream_text.length);
+        const _tStart = performance.now();
+
         const response = await apiCall('/api/dreams/interpret', {
             method: 'POST',
-            body: JSON.stringify({
-                user_id: CONFIG.USER_ID,
-                dream_text: dreamText,
-                user_name: CONFIG.USER_NAME,
-                profile_code: status.profile_code,
-                perception_type: profileData.profile?.perception_type,
-                thinking_level: profileData.profile?.thinking_level,
-                vectors: status.vectors,
-                key_characteristic: profileData.profile?.key_characteristic,
-                main_trap: profileData.profile?.main_trap,
-                clarification_count: _drClarificationCount
-            })
+            body: JSON.stringify(requestBody)
+        });
+
+        const _tEnd = performance.now();
+        console.log('[dreams] 📥 response за', Math.round(_tEnd - _tStart), 'ms:', {
+            success: response?.success,
+            has_interpretation: !!response?.interpretation,
+            interpretation_length: (response?.interpretation || '').length,
+            needs_clarification: !!response?.needs_clarification,
+            error: response?.error
         });
         
         if (response.needs_clarification && _drClarificationCount < 3) {
@@ -935,17 +965,19 @@ async function _drInterpret() {
 
     } catch (error) {
         _drShowStatus(null);
-        console.error('Interpretation error:', error);
+        console.error('[dreams] ❌ Interpretation error:', error?.name, error?.message, error);
         if (resultDiv) {
-            resultDiv.innerHTML = `<div class="dr-interpretation"><div class="dr-interpretation-text">😔 Не удалось получить толкование. Попробуйте ещё раз.</div></div>`;
+            const msg = (error && error.message) ? _drEscapeHtml(error.message) : 'Не удалось получить толкование. Попробуйте ещё раз.';
+            resultDiv.innerHTML = `<div class="dr-interpretation"><div class="dr-interpretation-text">😔 ${msg}</div></div>`;
         }
         if (typeof showToast === 'function') {
-            showToast('❌ Ошибка получения толкования', 'error');
+            showToast('❌ Ошибка: ' + (error?.message || 'не удалось получить толкование'), 'error');
         }
     } finally {
         _drIsInterpreting = false;
         if (interpretBtn) interpretBtn.classList.remove('loading');
         _drHideAIOverlay();
+        console.log('[dreams] 🏁 _drInterpret END');
     }
 }
 
