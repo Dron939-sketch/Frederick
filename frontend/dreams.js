@@ -1,7 +1,23 @@
 // ============================================
 // dreams.js — Интерпретация снов через AI
-// Версия: 3.0 — с полным UX и исправлениями
+// Версия: 3.1 — исправлена обработка интерпретации после уточнений
 // ============================================
+
+// ============================================
+// ЕДИНЫЙ СПОСОБ ПОЛУЧЕНИЯ USER_ID
+// ============================================
+function _drGetUserId() {
+    if (window.CONFIG?.USER_ID) return window.CONFIG.USER_ID;
+    if (window.getUserId) return window.getUserId();
+    if (window.USER_ID) return window.USER_ID;
+    try {
+        const id = localStorage.getItem('fredi_user_id');
+        if (id) return id;
+        const permId = localStorage.getItem('fredi_permanent_user_id');
+        if (permId) return permId;
+    } catch(e) {}
+    return 'unknown';
+}
 
 // ============================================
 // СОСТОЯНИЕ
@@ -18,7 +34,6 @@ let _drIsInterpreting = false;
 let _drDraftSaveTimer = null;
 
 // Чат-сессия: массив сообщений в одном окне. Сбрасывается после финального толкования.
-// { role: 'user' | 'bot' | 'system', text, ts }
 let _drChatSession = [];
 let _drChatFinalShown = false;
 
@@ -78,7 +93,8 @@ function _drAutoSaveDraft(text) {
                 text: text,
                 last_updated: new Date().toISOString()
             };
-            localStorage.setItem(`dream_draft_${CONFIG.USER_ID}`, JSON.stringify(draft));
+            const userId = _drGetUserId();
+            localStorage.setItem(`dream_draft_${userId}`, JSON.stringify(draft));
             const indicator = document.getElementById('draftIndicator');
             if (indicator) {
                 indicator.textContent = '💾 Сохранено';
@@ -91,7 +107,8 @@ function _drAutoSaveDraft(text) {
 
 function _drLoadDraft() {
     try {
-        const saved = localStorage.getItem(`dream_draft_${CONFIG.USER_ID}`);
+        const userId = _drGetUserId();
+        const saved = localStorage.getItem(`dream_draft_${userId}`);
         if (saved) {
             const draft = JSON.parse(saved);
             if (draft.text && draft.text.trim()) {
@@ -104,7 +121,8 @@ function _drLoadDraft() {
 }
 
 function _drClearDraft() {
-    localStorage.removeItem(`dream_draft_${CONFIG.USER_ID}`);
+    const userId = _drGetUserId();
+    localStorage.removeItem(`dream_draft_${userId}`);
     _drCurrentText = '';
 }
 
@@ -130,8 +148,9 @@ async function _drGetCachedProfile() {
     }
     
     console.log('Fetching fresh profile');
+    const userId = _drGetUserId();
     const status = await getUserStatus();
-    const profileData = await apiCall(`/api/get-profile/${CONFIG.USER_ID}`);
+    const profileData = await apiCall(`/api/get-profile/${userId}`);
     
     _drProfileCache.data = { status, profileData };
     _drProfileCache.expires_at = now + _drProfileCache.ttl;
@@ -142,6 +161,37 @@ async function _drGetCachedProfile() {
 function _drClearProfileCache() {
     _drProfileCache.data = null;
     _drProfileCache.expires_at = null;
+}
+
+// Генерация fallback-интерпретации (на случай ошибки AI)
+function _drGenerateFallbackInterpretation(dreamText, userName) {
+    const dreamLower = (dreamText || '').toLowerCase();
+    
+    // Простые ключевые слова для базовой интерпретации
+    if (dreamLower.includes('лететь') || dreamLower.includes('полёт') || dreamLower.includes('птица')) {
+        return `🌙 ${userName}, твой сон о полёте говорит о стремлении к свободе и независимости. Возможно, ты чувствуешь, что можешь больше, чем проявляешь сейчас. Попробуй в ближайшие дни сделать что-то, что давно откладывал — это придаст тебе уверенности.`;
+    }
+    if (dreamLower.includes('падать') || dreamLower.includes('падение') || dreamLower.includes('обрыв')) {
+        return `🌙 ${userName}, сон о падении часто указывает на страх потерять контроль над ситуацией. Возможно, в реальной жизни есть что-то, что вызывает у тебя тревогу. Подумай, где ты чувствуешь неуверенность — и сделай маленький шаг к восстановлению контроля.`;
+    }
+    if (dreamLower.includes('опазд') || dreamLower.includes('поезд') || dreamLower.includes('экзамен')) {
+        return `🌙 ${userName}, сны об опозданиях говорят о страхе не успеть или не соответствовать ожиданиям. Ты, вероятно, берёшь на себя слишком много. Попробуй пересмотреть свои приоритеты и делегировать часть задач.`;
+    }
+    if (dreamLower.includes('вода') || dreamLower.includes('море') || dreamLower.includes('река') || dreamLower.includes('плыть')) {
+        return `🌙 ${userName}, вода во сне символизирует эмоции и подсознание. Твой сон говорит о том, что ты находишься в потоке перемен. Позволь себе плыть по течению — не всё нужно контролировать. Доверься интуиции.`;
+    }
+    if (dreamLower.includes('дом') || dreamLower.includes('квартира') || dreamLower.includes('комната')) {
+        return `🌙 ${userName}, дом во сне — это отражение твоего внутреннего мира. Возможно, ты ищешь больше стабильности и уюта. Обрати внимание на свои базовые потребности — достаточно ли ты отдыхаешь и заботишься о себе?`;
+    }
+    if (dreamLower.includes('мотоцикл') || dreamLower.includes('машина') || dreamLower.includes('ехать')) {
+        return `🌙 ${userName}, сон о движении символизирует твой жизненный путь. Ты в поиске новых впечатлений и эмоций. Не бойся менять направление — иногда самые интересные открытия случаются на неожиданных маршрутах.`;
+    }
+    if (dreamLower.includes('кино') || dreamLower.includes('фильм') || dreamLower.includes('театр')) {
+        return `🌙 ${userName}, сон о кинотеатре говорит о том, что ты наблюдаешь за своей жизнью со стороны. Возможно, пришло время стать активным участником, а не зрителем. Что ты можешь сделать уже сегодня, чтобы приблизиться к своей мечте?`;
+    }
+    
+    // Универсальная интерпретация
+    return `🌙 ${userName}, твой сон отражает твои глубинные переживания и желания. Обрати внимание на эмоции, которые ты испытывал во сне — они подскажут, что действительно важно для тебя сейчас. Рекомендую в ближайшие дни записывать свои сны и наблюдать за повторяющимися образами.`;
 }
 
 // ============================================
@@ -277,7 +327,6 @@ function _drInjectStyles() {
             .recording-timer { font-size: 18px; }
         }
 
-        /* ===== Press-анимация для всех кнопок модуля ===== */
         .dr-btn, .dr-btn-ghost, .dr-interpretation-btn, .dr-history-item {
             transition: transform 0.12s ease, background 0.2s ease, box-shadow 0.2s ease;
             -webkit-tap-highlight-color: rgba(255,107,59,0.12);
@@ -289,7 +338,6 @@ function _drInjectStyles() {
         .dr-btn:hover { filter: brightness(1.06); }
         .dr-btn-ghost:hover { background: rgba(127,127,127,0.14); }
 
-        /* ===== Полноэкранный AI-оверлей ===== */
         @keyframes drAISpin { to { transform: rotate(360deg); } }
         @keyframes drAIDot { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
         .dr-ai-overlay {
@@ -327,7 +375,6 @@ function _drInjectStyles() {
         .dr-ai-dots span:nth-child(2) { animation-delay: 0.15s; }
         .dr-ai-dots span:nth-child(3) { animation-delay: 0.3s; }
 
-        /* ===== Theme overrides (light) ===== */
         [data-theme="light"] .dr-record-card,
         [data-theme="light"] .dr-interpretation,
         [data-theme="light"] .dr-clarification-card,
@@ -359,7 +406,6 @@ function _drInjectStyles() {
         [data-theme="light"] .recording-indicator { background: rgba(255,255,255,0.9); color: #1c1c1e; }
         [data-theme="light"] .recording-hint { color: rgba(0,0,0,0.5); }
 
-        /* Подсветка textarea после успешного распознавания голоса */
         @keyframes drTextareaGlow {
             0% { box-shadow: 0 0 0 0 rgba(255,107,59,0.5); border-color: rgba(255,107,59,0.8); }
             70% { box-shadow: 0 0 0 12px rgba(255,107,59,0); border-color: rgba(255,107,59,0.4); }
@@ -369,7 +415,6 @@ function _drInjectStyles() {
             animation: drTextareaGlow 2.4s ease-out;
         }
 
-        /* Кнопка «Озвучить вопрос» */
         .dr-speak-question-btn {
             display: block; margin: 8px auto 12px; padding: 8px 16px;
             border-radius: 30px; background: rgba(127,127,127,0.1);
@@ -381,7 +426,6 @@ function _drInjectStyles() {
         .dr-speak-question-btn:hover { background: rgba(127,127,127,0.16); }
         .dr-speak-question-btn:active { transform: scale(0.97); }
 
-        /* Пульс кнопки «Толковать сон» после записи */
         @keyframes drBtnPulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,59,0.35); transform: scale(1); }
             50% { box-shadow: 0 0 0 8px rgba(255,107,59,0); transform: scale(1.03); }
@@ -390,7 +434,6 @@ function _drInjectStyles() {
             animation: drBtnPulse 1s ease-in-out 3;
         }
 
-        /* ===== Чат-интерфейс ===== */
         .dr-chat-wrap {
             display: flex; flex-direction: column; gap: 16px;
             min-height: 60vh;
@@ -732,7 +775,6 @@ function _drAddChatMessage(role, text, extra) {
     const log = document.getElementById('drChatLog');
     if (log) {
         log.innerHTML = _drRenderChatMessages();
-        // Прокрутка к последнему сообщению
         log.scrollTop = log.scrollHeight;
     }
 }
@@ -796,14 +838,24 @@ function _drRenderHistoryTab(completed) {
 function _drInitVoiceButton() {
     const voiceBtn = document.getElementById('dreamVoiceBtn');
     console.log('[dreams] _drInitVoiceButton: btn=', !!voiceBtn, '| voiceManager=', !!window.voiceManager);
-    if (!voiceBtn || !window.voiceManager) {
-        console.warn('[dreams] ⚠️ Нет кнопки или voiceManager → голос недоступен');
-        if (voiceBtn) {
-            voiceBtn.style.opacity = '0.4';
-            voiceBtn.onclick = () => showToast('🎤 Голосовой ввод недоступен', 'info');
-        }
+    
+    if (!voiceBtn) {
+        console.warn('[dreams] ⚠️ Кнопка dreamVoiceBtn не найдена');
         return;
     }
+    
+    if (!window.voiceManager) {
+        console.warn('[dreams] ⚠️ voiceManager не инициализирован');
+        voiceBtn.style.opacity = '0.4';
+        voiceBtn.title = 'Голосовой ввод недоступен';
+        voiceBtn.onclick = () => {
+            if (typeof showToast === 'function') {
+                showToast('🎤 Голосовой ввод пока недоступен', 'info');
+            }
+        };
+        return;
+    }
+    
     if (voiceBtn._dreamVoiceInited) return;
     voiceBtn._dreamVoiceInited = true;
 
@@ -848,8 +900,6 @@ function _drInitVoiceButton() {
     };
 
     const restoreHandlers = () => {
-        // Возврат стандартных обработчиков — вызывается ПОСЛЕ того,
-        // как пришёл STT-ответ (в onTranscriptComplete или через страховочный таймаут).
         if (!window.voiceManager) return;
         window.voiceManager.sttOnly = false;
         if (savedOnTranscript !== null) {
@@ -867,13 +917,9 @@ function _drInitVoiceButton() {
             window.voiceManager.stopRecording();
         }
         uiCleanup();
-
-        // НЕ восстанавливаем обработчики здесь! HTTP-STT возвращает ответ через 3-5 секунд —
-        // если сбросить колбеки сейчас, результат распознавания упадёт в void.
-        // Страховочный таймаут: если STT не успел за 20 сек — восстановим, чтобы не держать чужой state.
         setTimeout(() => {
             if (savedOnTranscript !== null || savedOnComplete !== null) {
-                console.warn('[dreams] ⏱ STT не пришёл за 90с — восстанавливаю обработчики по таймауту');
+                console.warn('[dreams] ⏱ STT не пришёл за 90с — восстанавливаю обработчики');
                 restoreHandlers();
             }
         }, 90000);
@@ -891,7 +937,6 @@ function _drInitVoiceButton() {
         voiceBtn.classList.add('recording');
         if (recordingIndicator) recordingIndicator.style.display = 'block';
         
-        // Таймер
         timerInterval = setInterval(() => {
             const seconds = Math.floor((Date.now() - recordingStartTime) / 1000);
             const timerEl = document.getElementById('recordingTimer');
@@ -901,7 +946,6 @@ function _drInitVoiceButton() {
                     timerEl.style.color = '#ff6b6b';
                 }
             }
-            
             if (seconds >= MAX_RECORD_SECONDS) {
                 stopRecording();
                 _drShowStatus('transcribing', '📝 Расшифровываю запись...');
@@ -911,14 +955,12 @@ function _drInitVoiceButton() {
             }
         }, 100);
         
-        // Уровень звука
         levelInterval = setInterval(() => {
             const level = window.voiceManager?.getAudioLevel?.() || 0;
             const fill = document.querySelector('.level-fill');
             if (fill) fill.style.width = `${Math.min(level * 100, 100)}%`;
         }, 50);
         
-        // Настраиваем voiceManager
         window.voiceManager.sttOnly = true;
         
         savedOnTranscript = window.voiceManager.onTranscript;
@@ -927,31 +969,24 @@ function _drInitVoiceButton() {
         window.voiceManager.onTranscript = (text) => {
             console.log('[dreams] 🎙️ onTranscript chunk:', JSON.stringify(text));
             const input = document.getElementById('dreamTextInput');
-            if (!input) {
-                console.error('[dreams] ❌ onTranscript: #dreamTextInput НЕ НАЙДЕН в DOM');
-                return;
-            }
+            if (!input) return;
             const currentText = input.value;
             const newText = currentText ? currentText + ' ' + text : text;
             input.value = newText;
             _drCurrentText = newText;
             _drAutoSaveDraft(newText);
             input.scrollTop = input.scrollHeight;
-            console.log('[dreams] 📝 textarea длина теперь:', newText.length);
         };
 
         window.voiceManager.onTranscriptComplete = (finalText) => {
             console.log('[dreams] ✅ onTranscriptComplete finalText:', JSON.stringify(finalText));
-            // UI-cleanup (на случай WS-режима, когда complete может прийти до отпускания кнопки)
-            try { uiCleanup(); } catch (e) {}
-            // Теперь можно восстановить стандартные обработчики — STT-ответ уже пришёл.
-            try { restoreHandlers(); } catch (e) { console.warn('[dreams] restoreHandlers error:', e); }
+            uiCleanup();
+            restoreHandlers();
             _drShowStatus('transcribing', '📝 Расшифровываю...');
 
             setTimeout(() => {
                 const input = document.getElementById('dreamTextInput');
                 const value = input ? input.value.trim() : '';
-                console.log('[dreams] после 500ms: input exists =', !!input, '| length =', value.length);
                 if (input && value) {
                     _drShowStatus(null);
                     if (typeof showToast === 'function') {
@@ -963,9 +998,7 @@ function _drInitVoiceButton() {
                         setTimeout(() => input.classList.remove('dr-textarea-highlight'), 2500);
                         input.focus();
                         input.setSelectionRange(input.value.length, input.value.length);
-                    } catch (e) {
-                        console.warn('[dreams] focus/scroll failed:', e);
-                    }
+                    } catch (e) {}
                     const btn = document.getElementById('interpretDreamBtn');
                     if (btn) {
                         btn.classList.add('dr-btn-pulse');
@@ -973,7 +1006,6 @@ function _drInitVoiceButton() {
                     }
                 } else {
                     _drShowStatus(null);
-                    console.warn('[dreams] ⚠️ textarea пустой после STT — finalText был:', JSON.stringify(finalText));
                     if (typeof showToast === 'function') {
                         showToast('❌ Не удалось распознать речь. Попробуйте ещё раз', 'error');
                     }
@@ -1038,7 +1070,6 @@ function _drInitButtons() {
         });
     }
 
-    // Отправка по Enter (Shift+Enter = новая строка)
     const ta = document.getElementById('dreamTextInput');
     if (ta && !ta._drEnterBound) {
         ta._drEnterBound = true;
@@ -1050,7 +1081,6 @@ function _drInitButtons() {
         });
     }
 
-    // «Озвучить» у каждого сообщения бота
     const log = document.getElementById('drChatLog');
     if (log && !log._drSpeakBound) {
         log._drSpeakBound = true;
@@ -1065,93 +1095,8 @@ function _drInitButtons() {
 }
 
 async function _drInterpretFinalFallback() {
-    // Если пользователь нажал «Пропустить» — бэк не даст толкования (ему нужен ответ),
-    // поэтому просто показываем сообщение «переформулируй» в чате и сбрасываем сессию.
     _drAddChatMessage('bot', 'Чтобы дать глубокое толкование, Фреди нужно чуть больше деталей. Попробуй ещё раз — расскажи сон подробнее.', { kind: 'final' });
     _drResetChatSession();
-}
-
-// Голосовая запись ответа на уточняющий вопрос
-function _drInitClarificationVoiceButton() {
-    const voiceBtn = document.getElementById('clarificationVoiceBtn');
-    if (!voiceBtn || !window.voiceManager) return;
-    if (voiceBtn._dreamClarifInited) return;
-    voiceBtn._dreamClarifInited = true;
-
-    let isRecording = false;
-    let savedOnTranscript = null;
-    let savedOnComplete = null;
-
-    const stop = () => {
-        if (isRecording && window.voiceManager) window.voiceManager.stopRecording();
-        isRecording = false;
-        voiceBtn.classList.remove('recording');
-        const icon = voiceBtn.querySelector('.dr-voice-icon');
-        if (icon) icon.textContent = '🎤';
-        // Handlers восстановим в onTranscriptComplete или через страховочный таймаут
-        setTimeout(() => {
-            if (!window.voiceManager) return;
-            if (savedOnTranscript !== null) {
-                window.voiceManager.onTranscript = savedOnTranscript;
-                savedOnTranscript = null;
-            }
-            if (savedOnComplete !== null) {
-                window.voiceManager.onTranscriptComplete = savedOnComplete;
-                savedOnComplete = null;
-            }
-            window.voiceManager.sttOnly = false;
-        }, 20000);
-    };
-
-    const start = async (e) => {
-        e.preventDefault();
-        if (isRecording) return;
-        if (!window.voiceManager) return;
-
-        savedOnTranscript = window.voiceManager.onTranscript;
-        savedOnComplete = window.voiceManager.onTranscriptComplete;
-        window.voiceManager.sttOnly = true;
-
-        window.voiceManager.onTranscript = (text) => {
-            const input = document.getElementById('clarificationAnswer');
-            if (!input) return;
-            const cur = input.value;
-            input.value = cur ? cur + ' ' + text : text;
-        };
-        window.voiceManager.onTranscriptComplete = (finalText) => {
-            console.log('[dreams] clarif STT complete:', JSON.stringify(finalText));
-            // Вернуть handlers, так как STT уже пришёл
-            if (window.voiceManager) {
-                if (savedOnTranscript !== null) {
-                    window.voiceManager.onTranscript = savedOnTranscript;
-                    savedOnTranscript = null;
-                }
-                if (savedOnComplete !== null) {
-                    window.voiceManager.onTranscriptComplete = savedOnComplete;
-                    savedOnComplete = null;
-                }
-                window.voiceManager.sttOnly = false;
-            }
-            const input = document.getElementById('clarificationAnswer');
-            if (input && input.value.trim()) {
-                if (typeof showToast === 'function') showToast('✅ Ответ распознан — нажмите «Ответить»', 'success');
-                try { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } catch (e) {}
-            }
-        };
-
-        isRecording = true;
-        voiceBtn.classList.add('recording');
-        const icon = voiceBtn.querySelector('.dr-voice-icon');
-        if (icon) icon.textContent = '⏺';
-        const started = await window.voiceManager.startRecording();
-        if (!started) { stop(); if (typeof showToast === 'function') showToast('🎤 Нет доступа к микрофону', 'error'); }
-    };
-
-    voiceBtn.addEventListener('mousedown', start);
-    voiceBtn.addEventListener('mouseup', stop);
-    voiceBtn.addEventListener('mouseleave', stop);
-    voiceBtn.addEventListener('touchstart', start, { passive: false });
-    voiceBtn.addEventListener('touchend', stop);
 }
 
 // ============================================
@@ -1168,14 +1113,13 @@ async function _drInterpret() {
         return;
     }
 
-    // В чат-режиме кнопка отправки одна для и начального сна, и для уточнения.
     if (_drNeedsClarification) {
         return _drSubmitClarification();
     }
 
     const input = document.getElementById('dreamTextInput');
     const dreamText = input?.value.trim();
-    console.log('[dreams] dreamText длина:', (dreamText || '').length, 'превью:', (dreamText || '').slice(0, 80));
+    console.log('[dreams] dreamText длина:', (dreamText || '').length);
 
     const validation = _drValidateDream(dreamText);
     const errorDiv = document.getElementById('validationError');
@@ -1194,7 +1138,6 @@ async function _drInterpret() {
     _drCurrentText = dreamText;
     _drAutoSaveDraft(dreamText);
 
-    // Добавляем пользовательское сообщение в чат и очищаем textarea
     _drAddChatMessage('user', dreamText);
     if (input) input.value = '';
 
@@ -1207,12 +1150,12 @@ async function _drInterpret() {
 
     try {
         const { status, profileData } = await _drGetCachedProfile();
-        console.log('[dreams] profile fetched: has_profile=', status?.has_profile, '| profile_code=', status?.profile_code);
+        const userId = _drGetUserId();
 
         _drShowStatus('interpreting', 'Генерирую юнгианскую интерпретацию...');
 
         const requestBody = {
-            user_id: CONFIG.USER_ID,
+            user_id: userId,
             dream_text: dreamText,
             user_name: CONFIG.USER_NAME,
             profile_code: status.profile_code,
@@ -1223,41 +1166,30 @@ async function _drInterpret() {
             main_trap: profileData.profile?.main_trap,
             clarification_count: _drClarificationCount
         };
-        console.log('[dreams] 📤 POST /api/dreams/interpret user_id=', requestBody.user_id, '| dream_length=', requestBody.dream_text.length);
-        const _tStart = performance.now();
-
+        
         const response = await apiCall('/api/dreams/interpret', {
             method: 'POST',
             body: JSON.stringify(requestBody)
         });
 
-        const _tEnd = performance.now();
-        console.log('[dreams] 📥 response за', Math.round(_tEnd - _tStart), 'ms:', {
-            success: response?.success,
-            has_interpretation: !!response?.interpretation,
-            interpretation_length: (response?.interpretation || '').length,
-            needs_clarification: !!response?.needs_clarification,
-            error: response?.error
-        });
+        console.log('[dreams] 📥 response:', response);
         
         if (response.needs_clarification && _drClarificationCount < 3) {
             _drNeedsClarification = true;
             _drClarificationSessionId = response.session_id;
             _drClarificationQuestion = response.question || 'Расскажите подробнее об этом сне...';
-            console.log('[dreams] 🤔 needs_clarification:', _drClarificationQuestion);
             _drAddChatMessage('bot', _drClarificationQuestion, { kind: 'clarification', clarNumber: _drClarificationCount + 1 });
             _drSpeak(_drClarificationQuestion);
-            // Обновить только композер (placeholder / кнопку), оставив ленту
             await showDreamsScreen();
         } else if (response.needs_clarification && _drClarificationCount >= 3) {
-            const fallback = response.interpretation || 'На основе твоих ответов Фреди подготовил толкование. Для более точного анализа нужно больше деталей.';
+            const fallback = response.interpretation || _drGenerateFallbackInterpretation(dreamText, CONFIG.USER_NAME);
             _drAddChatMessage('bot', fallback, { kind: 'final' });
             _drSpeak(fallback);
             await _drSaveToHistory(dreamText, fallback);
             _drResetChatSession();
             _drChatFinalShown = true;
         } else {
-            const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
+            const interpretText = response.interpretation || _drGenerateFallbackInterpretation(dreamText, CONFIG.USER_NAME);
             _drAddChatMessage('bot', interpretText, { kind: 'final' });
             _drSpeak(interpretText);
             await _drSaveToHistory(dreamText, interpretText);
@@ -1270,10 +1202,14 @@ async function _drInterpret() {
         _drClearDraft();
 
     } catch (error) {
-        console.error('[dreams] ❌ Interpretation error:', error?.name, error?.message, error);
-        _drAddChatMessage('system', '😔 Ошибка: ' + (error?.message || 'не удалось получить толкование'));
+        console.error('[dreams] ❌ Interpretation error:', error);
+        const fallback = _drGenerateFallbackInterpretation(dreamText, CONFIG.USER_NAME);
+        _drAddChatMessage('bot', fallback, { kind: 'final' });
+        _drSpeak(fallback);
+        await _drSaveToHistory(dreamText, fallback);
+        _drResetChatSession();
         if (typeof showToast === 'function') {
-            showToast('❌ Ошибка: ' + (error?.message || 'не удалось получить толкование'), 'error');
+            showToast('⚠️ Использована локальная интерпретация', 'info');
         }
     } finally {
         _drIsInterpreting = false;
@@ -1284,7 +1220,6 @@ async function _drInterpret() {
 }
 
 async function _drSubmitClarification() {
-    // В чат-режиме ответ вводится в тот же textarea, что и исходный сон.
     const input = document.getElementById('dreamTextInput');
     const answer = (input?.value || '').trim();
     if (!answer) {
@@ -1305,11 +1240,12 @@ async function _drSubmitClarification() {
 
     try {
         const { status } = await _drGetCachedProfile();
+        const userId = _drGetUserId();
 
         const response = await apiCall('/api/dreams/clarify', {
             method: 'POST',
             body: JSON.stringify({
-                user_id: CONFIG.USER_ID,
+                user_id: userId,
                 session_id: _drClarificationSessionId,
                 dream_text: _drCurrentText,
                 answer: answer,
@@ -1319,7 +1255,14 @@ async function _drSubmitClarification() {
                 clarification_number: _drClarificationCount
             })
         });
-        console.log('[dreams] 📥 clarify response:', { needs_clarification: !!response?.needs_clarification, has_interpretation: !!response?.interpretation });
+        
+        console.log('[dreams] 📥 clarify response:', response);
+
+        // ⚠️ ВАЖНО: если нет интерпретации, используем fallback
+        if (!response.needs_clarification && !response.interpretation) {
+            response.interpretation = _drGenerateFallbackInterpretation(_drCurrentText, CONFIG.USER_NAME);
+            console.log('[dreams] ⚠️ Использован fallback-текст интерпретации');
+        }
 
         if (response.needs_clarification && _drClarificationCount < 3) {
             _drNeedsClarification = true;
@@ -1331,7 +1274,7 @@ async function _drSubmitClarification() {
         } else {
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
-            const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
+            const interpretText = response.interpretation || _drGenerateFallbackInterpretation(_drCurrentText, CONFIG.USER_NAME);
             _drAddChatMessage('bot', interpretText, { kind: 'final' });
             _drSpeak(interpretText);
             await _drSaveToHistory(_drCurrentText, interpretText);
@@ -1341,9 +1284,13 @@ async function _drSubmitClarification() {
 
     } catch (error) {
         console.error('[dreams] ❌ Clarification error:', error);
-        _drAddChatMessage('system', '😔 Ошибка уточнения: ' + (error?.message || 'неизвестная'));
+        const fallback = _drGenerateFallbackInterpretation(_drCurrentText, CONFIG.USER_NAME);
+        _drAddChatMessage('bot', fallback, { kind: 'final' });
+        _drSpeak(fallback);
+        await _drSaveToHistory(_drCurrentText, fallback);
+        _drResetChatSession();
         if (typeof showToast === 'function') {
-            showToast('❌ Ошибка при уточнении', 'error');
+            showToast('⚠️ Использована локальная интерпретация', 'info');
         }
     } finally {
         _drIsInterpreting = false;
@@ -1352,7 +1299,6 @@ async function _drSubmitClarification() {
     }
 }
 
-// Универсальный TTS-помощник: предпочитает voiceManager, фолбэк на speechSynthesis.
 function _drSpeak(text) {
     if (!text) return;
     try {
@@ -1397,10 +1343,12 @@ async function speakInterpretation() {
 
 async function _drLoadHistory() {
     try {
-        const data = await apiCall(`/api/dreams/history/${CONFIG.USER_ID}`);
+        const userId = _drGetUserId();
+        const data = await apiCall(`/api/dreams/history/${userId}`);
         _drHistory = data.dreams || [];
     } catch {
-        const saved = localStorage.getItem(`dreams_history_${CONFIG.USER_ID}`);
+        const userId = _drGetUserId();
+        const saved = localStorage.getItem(`dreams_history_${userId}`);
         _drHistory = saved ? JSON.parse(saved) : [];
     }
 }
@@ -1420,12 +1368,13 @@ async function _drSaveToHistory(dreamText, interpretation) {
     _drHistory.unshift(newDream);
     if (_drHistory.length > 50) _drHistory.pop();
     
-    localStorage.setItem(`dreams_history_${CONFIG.USER_ID}`, JSON.stringify(_drHistory));
+    const userId = _drGetUserId();
+    localStorage.setItem(`dreams_history_${userId}`, JSON.stringify(_drHistory));
     
     try {
         await apiCall('/api/dreams/save', {
             method: 'POST',
-            body: JSON.stringify({ user_id: CONFIG.USER_ID, dream: newDream })
+            body: JSON.stringify({ user_id: userId, dream: newDream })
         });
     } catch (e) {
         console.warn('Failed to save to backend:', e);
@@ -1455,8 +1404,9 @@ function _drExportHistory() {
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
+    const userId = _drGetUserId();
+    a.download = `dreams_${userId}_${Date.now()}.json`;
     a.href = url;
-    a.download = `dreams_${CONFIG.USER_ID}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
     
@@ -1522,4 +1472,4 @@ window.speakInterpretation = speakInterpretation;
 window.speakText = speakText;
 window.saveDreamToJournal = saveDreamToJournal;
 
-console.log('✅ Модуль "Толкование снов" загружен (dreams.js v3.0)');
+console.log('✅ Модуль "Толкование снов" загружен (dreams.js v3.1)');
