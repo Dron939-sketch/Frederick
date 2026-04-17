@@ -1168,6 +1168,15 @@ async function _drInterpret() {
         return;
     }
 
+    // Защита: запись ещё идёт — нельзя отправлять (в textarea пустой/старый текст).
+    if (window.voiceManager && window.voiceManager.isRecording) {
+        console.warn('[dreams] 🎙 recording in progress — ignore send');
+        if (typeof showToast === 'function') {
+            showToast('🎙 Сначала отпусти кнопку записи', 'info');
+        }
+        return;
+    }
+
     // В чат-режиме кнопка отправки одна для и начального сна, и для уточнения.
     if (_drNeedsClarification) {
         return _drSubmitClarification();
@@ -1256,8 +1265,17 @@ async function _drInterpret() {
             await _drSaveToHistory(dreamText, fallback);
             _drResetChatSession();
             _drChatFinalShown = true;
+        } else if (!response.interpretation) {
+            // Бэк вернул пустое толкование — не считаем это финалом. Просим переформулировать
+            // и остаёмся в clarify, чтобы пользователь мог добавить деталей.
+            const retry = 'Мне нужно чуть больше деталей. Попробуй рассказать сон подробнее — что происходило, что ты чувствовал?';
+            _drNeedsClarification = true;
+            _drClarificationQuestion = retry;
+            _drAddChatMessage('bot', retry, { kind: 'clarification', clarNumber: _drClarificationCount + 1 });
+            _drSpeak(retry);
+            await showDreamsScreen();
         } else {
-            const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
+            const interpretText = response.interpretation;
             _drAddChatMessage('bot', interpretText, { kind: 'final' });
             _drSpeak(interpretText);
             await _drSaveToHistory(dreamText, interpretText);
@@ -1328,10 +1346,20 @@ async function _drSubmitClarification() {
             _drAddChatMessage('bot', _drClarificationQuestion, { kind: 'clarification', clarNumber: _drClarificationCount + 1 });
             _drSpeak(_drClarificationQuestion);
             await showDreamsScreen();
+        } else if (!response.interpretation) {
+            // Бэк не смог сформулировать толкование — НЕ завершаем сессию,
+            // остаёмся в clarify, просим ответить подробнее.
+            const retry = 'Мне нужно чуть больше деталей, чтобы дать толкование. Попробуй рассказать подробнее — что ты чувствовал, кто ещё был во сне?';
+            _drClarificationCount = Math.max(0, _drClarificationCount - 1); // не засчитываем пустую итерацию
+            _drNeedsClarification = true;
+            _drClarificationQuestion = retry;
+            _drAddChatMessage('bot', retry, { kind: 'clarification', clarNumber: _drClarificationCount + 1 });
+            _drSpeak(retry);
+            await showDreamsScreen();
         } else {
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
-            const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
+            const interpretText = response.interpretation;
             _drAddChatMessage('bot', interpretText, { kind: 'final' });
             _drSpeak(interpretText);
             await _drSaveToHistory(_drCurrentText, interpretText);
