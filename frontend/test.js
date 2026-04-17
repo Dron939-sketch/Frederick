@@ -859,16 +859,36 @@ const Test = {
     },
 
         getMirrorCode() {
-        const ref = new URLSearchParams(window.location.search).get('ref');
+        // 1. URL query (?ref=mirror_XXX)
+        let ref = new URLSearchParams(window.location.search).get('ref');
+
+        // 2. URL hash (#ref=mirror_XXX) — страховка для Telegram WebView, срезающего query
+        if (!ref && window.location.hash) {
+            try {
+                const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+                ref = hashParams.get('ref');
+            } catch (e) {}
+        }
+
         if (ref && ref.startsWith('mirror_')) {
             const cleanCode = ref.replace(/^mirror_/, '');
-            localStorage.setItem('fredi_mirror_ref', cleanCode);
+            try { localStorage.setItem('fredi_mirror_ref', cleanCode); } catch (e) {}
+            try { sessionStorage.setItem('fredi_mirror_ref', cleanCode); } catch (e) {}
             return cleanCode;
         }
-        const stored = localStorage.getItem('fredi_mirror_ref');
-        if (stored) {
-            return stored.replace(/^mirror_/, '');
-        }
+
+        // 3. localStorage
+        try {
+            const stored = localStorage.getItem('fredi_mirror_ref');
+            if (stored) return stored.replace(/^mirror_/, '');
+        } catch (e) {}
+
+        // 4. sessionStorage — fallback при приват-режиме / очищенном localStorage
+        try {
+            const ssStored = sessionStorage.getItem('fredi_mirror_ref');
+            if (ssStored) return ssStored.replace(/^mirror_/, '');
+        } catch (e) {}
+
         return null;
     },
 
@@ -1659,12 +1679,19 @@ ${this.getStage5Interpretation()}
 
 window.Test = Test;
 
-// Автозапуск теста при ?ref=mirror_
+// Автозапуск теста при ?ref=mirror_ (query или #ref=... в hash для Telegram WebView)
 (function checkMirrorRef() {
     var ref = new URLSearchParams(window.location.search).get('ref');
+    if (!ref && window.location.hash) {
+        try {
+            var hp = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            ref = hp.get('ref');
+        } catch (e) {}
+    }
     if (ref && ref.startsWith('mirror_')) {
-        localStorage.setItem('fredi_mirror_ref', ref);
-        console.log('🪞 Mirror ref detected in URL:', ref);
+        try { localStorage.setItem('fredi_mirror_ref', ref); } catch (e) {}
+        try { sessionStorage.setItem('fredi_mirror_ref', ref); } catch (e) {}
+        console.log('🪞 Mirror ref detected:', ref);
         function waitAndStart() {
             if (typeof startTest === 'function') {
                 startTest();
