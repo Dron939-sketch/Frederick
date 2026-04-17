@@ -3514,11 +3514,12 @@ async def interpret_dream(request: Request):
         )
 
         if not result.get("needs_clarification"):
+            await user_repo.create_user_if_not_exists(user_id)
             async with db.get_connection() as conn:
                 await conn.execute("""
                     INSERT INTO fredi_dreams (user_id, dream_text, interpretation, created_at)
                     VALUES ($1, $2, $3, NOW())
-                """, user_id, dream_text[:2000], result["interpretation"])
+                """, int(user_id), dream_text[:2000], result["interpretation"])
 
         return {"success": True, **result}
 
@@ -3572,11 +3573,12 @@ async def clarify_dream(request: Request):
         )
 
         if not result.get("needs_clarification"):
+            await user_repo.create_user_if_not_exists(user_id)
             async with db.get_connection() as conn:
                 await conn.execute("""
                     INSERT INTO fredi_dreams (user_id, dream_text, interpretation, created_at)
                     VALUES ($1, $2, $3, NOW())
-                """, user_id, dream_text[:2000], result["interpretation"])
+                """, int(user_id), dream_text[:2000], result["interpretation"])
 
         return {"success": True, **result}
 
