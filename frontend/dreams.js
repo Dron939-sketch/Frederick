@@ -1175,15 +1175,17 @@ async function _drSubmitClarification() {
         } else {
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
-            
+            const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
+            console.log('[dreams] 📥 clarify final, has_interpretation:', !!response.interpretation, '| length:', (response.interpretation || '').length);
+
             if (resultDiv) {
-                const escapedText = _drEscapeHtml(response.interpretation);
+                const escapedText = _drEscapeHtml(interpretText);
                 resultDiv.innerHTML = _drRenderInterpretation(escapedText);
                 if (window.voiceManager && response.interpretation) {
                     await window.voiceManager.textToSpeech(response.interpretation, 'psychologist');
                 }
             }
-            await _drSaveToHistory(_drCurrentText, response.interpretation);
+            await _drSaveToHistory(_drCurrentText, interpretText);
             _drClarificationCount = 0;
         }
         
@@ -1233,13 +1235,14 @@ async function _drLoadHistory() {
 }
 
 async function _drSaveToHistory(dreamText, interpretation) {
+    const safeInterp = typeof interpretation === 'string' && interpretation.trim() ? interpretation : '';
     const newDream = {
         id: Date.now(),
         date: new Date().toLocaleDateString('ru-RU'),
         time: new Date().toLocaleTimeString('ru-RU'),
         text: dreamText,
-        interpretation: interpretation,
-        tags: _drExtractTags(interpretation),
+        interpretation: safeInterp,
+        tags: _drExtractTags(safeInterp),
         clarification_count: _drClarificationCount
     };
     
@@ -1260,11 +1263,11 @@ async function _drSaveToHistory(dreamText, interpretation) {
 
 function _drExtractTags(interpretation) {
     const tags = [];
+    const text = (typeof interpretation === 'string' ? interpretation : '').toLowerCase();
+    if (!text) return tags;
     const keywords = ['тревога', 'страх', 'радость', 'уверенность', 'отношения', 'работа', 'дом', 'путешествие'];
     for (const kw of keywords) {
-        if (interpretation.toLowerCase().includes(kw)) {
-            tags.push(kw);
-        }
+        if (text.includes(kw)) tags.push(kw);
     }
     return tags.slice(0, 3);
 }
