@@ -986,6 +986,22 @@ async def init_database_tables():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_user_devices (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                device_id TEXT NOT NULL UNIQUE,
+                fingerprint_hash TEXT NOT NULL,
+                fingerprint JSONB NOT NULL,
+                user_agent TEXT,
+                ip_address TEXT,
+                first_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_user_devices_user_id ON fredi_user_devices(user_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_user_devices_fp_hash ON fredi_user_devices(fingerprint_hash)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_user_devices_last_seen ON fredi_user_devices(last_seen DESC)")
         # Add columns to fredi_test_results that exist in bots
         for col, coltype in [
             ("deep_patterns", "JSONB"),
@@ -1349,6 +1365,182 @@ async def ping():
 # ============================================
 # API ЭНДПОИНТЫ
 # ============================================
+
+# ---------- ИДЕНТИФИКАЦИЯ УСТРОЙСТВА (fingerprint) ----------
+
+def _fp_hash(fingerprint: dict) -> str:
+    """Стабильный SHA-256 от отсортированного JSON fingerprint."""
+    import hashlib
+    try:
+        payload = json.dumps(fingerprint or {}, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        payload = str(fingerprint)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def _user_exists(conn, user_id: int) -> bool:
+    try:
+        row = await conn.fetchrow("SELECT 1 FROM fredi_users WHERE user_id = $1", int(user_id))
+        return row is not None
+    except Exception:
+        return False
+
+
+@app.post("/api/user/by-device")
+@limiter.limit("20/minute")
+async def user_by_device(request: Request):
+    """
+    Идентификация пользователя по устройству.
+    Возвращает BIGINT user_id — совместимо со всеми существующими FK.
+    Порядок поиска:
+      1) existing_user_id (хинт из localStorage) — если юзер существует, привязываем device к нему.
+      2) device_id → возвращаем связанного user_id.
+      3) fingerprint_hash → возвращаем (кросс-браузерный матч на том же устройстве).
+      4) иначе — создаём нового пользователя с user_id = Date.now()-ish (BIGINT).
+    """
+    try:
+        data = await request.json()
+        device_id = (data.get("device_id") or "").strip()
+        fingerprint = data.get("fingerprint") or {}
+        existing_user_id = data.get("existing_user_id")
+        user_agent = (fingerprint.get("userAgent") or request.headers.get("user-agent") or "")[:512]
+        client_ip = (request.client.host if request.client else None) or ""
+
+        if not device_id:
+            return {"success": False, "error": "device_id required"}
+
+        fp_hash = _fp_hash(fingerprint)
+        fp_json = json.dumps(fingerprint, default=str, ensure_ascii=False)
+
+        async with db.get_connection() as conn:
+            # (1) Хинт existing_user_id — миграция старых юзеров без потери данных.
+            if existing_user_id is not None:
+                try:
+                    hint_uid = int(existing_user_id)
+                    if hint_uid > 0 and await _user_exists(conn, hint_uid):
+                        # Привязываем (или обновляем) device_id к этому пользователю.
+                        await conn.execute("""
+                            INSERT INTO fredi_user_devices
+                                (user_id, device_id, fingerprint_hash, fingerprint, user_agent, ip_address, first_seen, last_seen)
+                            VALUES ($1, $2, $3, $4::jsonb, $5, $6, NOW(), NOW())
+                            ON CONFLICT (device_id) DO UPDATE SET
+                                user_id = EXCLUDED.user_id,
+                                fingerprint_hash = EXCLUDED.fingerprint_hash,
+                                fingerprint = EXCLUDED.fingerprint,
+                                user_agent = EXCLUDED.user_agent,
+                                ip_address = EXCLUDED.ip_address,
+                                last_seen = NOW()
+                        """, hint_uid, device_id, fp_hash, fp_json, user_agent, client_ip)
+                        await conn.execute(
+                            "UPDATE fredi_users SET last_activity = NOW() WHERE user_id = $1",
+                            hint_uid
+                        )
+                        logger.info(f"🔗 by-device: linked existing user {hint_uid} via hint → device {device_id}")
+                        return {
+                            "success": True,
+                            "user_id": hint_uid,
+                            "is_new": False,
+                            "device_id": device_id,
+                            "matched_by": "existing_hint"
+                        }
+                except (ValueError, TypeError):
+                    pass  # хинт не число — игнорируем, идём дальше
+
+            # (2) Поиск по device_id.
+            row = await conn.fetchrow(
+                "SELECT user_id FROM fredi_user_devices WHERE device_id = $1",
+                device_id
+            )
+            if row:
+                uid = int(row["user_id"])
+                # Обновляем last_seen и fingerprint (он мог слегка обновиться).
+                await conn.execute("""
+                    UPDATE fredi_user_devices
+                    SET fingerprint_hash = $2, fingerprint = $3::jsonb,
+                        user_agent = $4, ip_address = $5, last_seen = NOW()
+                    WHERE device_id = $1
+                """, device_id, fp_hash, fp_json, user_agent, client_ip)
+                await conn.execute(
+                    "UPDATE fredi_users SET last_activity = NOW() WHERE user_id = $1",
+                    uid
+                )
+                return {
+                    "success": True,
+                    "user_id": uid,
+                    "is_new": False,
+                    "device_id": device_id,
+                    "matched_by": "device_id"
+                }
+
+            # (3) Поиск по fingerprint_hash (кросс-браузерность на одном устройстве).
+            # Берём самую свежую запись; если давнее 30 дней — игнорируем (защита от коллизий).
+            row = await conn.fetchrow("""
+                SELECT user_id FROM fredi_user_devices
+                WHERE fingerprint_hash = $1 AND last_seen > NOW() - INTERVAL '30 days'
+                ORDER BY last_seen DESC LIMIT 1
+            """, fp_hash)
+            if row:
+                uid = int(row["user_id"])
+                await conn.execute("""
+                    INSERT INTO fredi_user_devices
+                        (user_id, device_id, fingerprint_hash, fingerprint, user_agent, ip_address, first_seen, last_seen)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, NOW(), NOW())
+                    ON CONFLICT (device_id) DO UPDATE SET last_seen = NOW()
+                """, uid, device_id, fp_hash, fp_json, user_agent, client_ip)
+                await conn.execute(
+                    "UPDATE fredi_users SET last_activity = NOW() WHERE user_id = $1",
+                    uid
+                )
+                logger.info(f"🔗 by-device: matched user {uid} by fingerprint → new device {device_id}")
+                return {
+                    "success": True,
+                    "user_id": uid,
+                    "is_new": False,
+                    "device_id": device_id,
+                    "matched_by": "fingerprint"
+                }
+
+            # (4) Ничего не найдено — создаём нового пользователя.
+            import time as _t
+            new_uid = int(_t.time() * 1000)  # как Date.now() на фронте
+            # Страховка от коллизии (маловероятно, но идемпотентно):
+            while await _user_exists(conn, new_uid):
+                new_uid += 1
+            await conn.execute("""
+                INSERT INTO fredi_users (user_id, created_at, last_activity)
+                VALUES ($1, NOW(), NOW())
+            """, new_uid)
+            await conn.execute("""
+                INSERT INTO fredi_user_devices
+                    (user_id, device_id, fingerprint_hash, fingerprint, user_agent, ip_address, first_seen, last_seen)
+                VALUES ($1, $2, $3, $4::jsonb, $5, $6, NOW(), NOW())
+                ON CONFLICT (device_id) DO NOTHING
+            """, new_uid, device_id, fp_hash, fp_json, user_agent, client_ip)
+            logger.info(f"🆕 by-device: created new user {new_uid} for device {device_id}")
+            return {
+                "success": True,
+                "user_id": new_uid,
+                "is_new": True,
+                "device_id": device_id,
+                "matched_by": "new"
+            }
+    except Exception as e:
+        logger.error(f"Error in /api/user/by-device: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/user/verify/{user_id}")
+@limiter.limit("60/minute")
+async def verify_user(request: Request, user_id: int):
+    """Проверяет существование пользователя (для хинта existing_user_id на фронте)."""
+    try:
+        async with db.get_connection() as conn:
+            exists = await _user_exists(conn, int(user_id))
+        return {"success": True, "exists": exists, "user_id": int(user_id)}
+    except Exception as e:
+        logger.error(f"verify_user error: {e}")
+        return {"success": False, "exists": False, "error": str(e)}
+
 
 # ---------- КОНТЕКСТ ----------
 @app.post("/api/save-context")
