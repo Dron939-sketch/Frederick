@@ -1504,7 +1504,100 @@ ${this.getStage5Interpretation()}
 
 ✅ Тест завершён! Собираю воедино результаты 5 этапов...`;
         this.addBotMessage(text, true);
+        this._showAILoader('AI составляет ваш психологический портрет', 'Анализ 5 этапов, подбор инсайтов и формирование рекомендаций. 20-40 секунд.');
         this.sendTestResultsToServer();
+    },
+
+    _showAILoader(title, subtitle) {
+        try { Test._injectLoaderStyles(); } catch (e) {}
+        let el = document.getElementById('test-ai-loader');
+        if (el) {
+            const t = el.querySelector('.test-ai-loader-title');
+            const s = el.querySelector('.test-ai-loader-sub');
+            if (t) t.textContent = '🧠 ' + (title || 'AI составляет ваш профиль');
+            if (s) s.textContent = subtitle || 'Это может занять 20-40 секунд. Не закрывайте страницу.';
+            el.style.display = 'flex';
+            return;
+        }
+        el = document.createElement('div');
+        el.id = 'test-ai-loader';
+        el.className = 'test-ai-loader-overlay';
+        el.innerHTML = `
+            <div class="test-ai-loader-box">
+                <div class="test-ai-loader-spinner"></div>
+                <div class="test-ai-loader-title">🧠 ${(title || 'AI составляет ваш профиль').replace(/</g,'&lt;')}</div>
+                <div class="test-ai-loader-sub">${(subtitle || 'Это может занять 20-40 секунд. Не закрывайте страницу.').replace(/</g,'&lt;')}</div>
+                <div class="test-ai-loader-dots"><span></span><span></span><span></span></div>
+            </div>
+        `;
+        document.body.appendChild(el);
+    },
+
+    _updateAILoader(title, subtitle) {
+        const el = document.getElementById('test-ai-loader');
+        if (!el) return;
+        if (title) {
+            const t = el.querySelector('.test-ai-loader-title');
+            if (t) t.textContent = '🧠 ' + title;
+        }
+        if (subtitle) {
+            const s = el.querySelector('.test-ai-loader-sub');
+            if (s) s.textContent = subtitle;
+        }
+    },
+
+    _hideAILoader() {
+        const el = document.getElementById('test-ai-loader');
+        if (el) el.remove();
+    },
+
+    _injectLoaderStyles() {
+        if (document.getElementById('test-ai-loader-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'test-ai-loader-styles';
+        style.textContent = `
+            @keyframes test-ai-spin { to { transform: rotate(360deg); } }
+            @keyframes test-ai-dot { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+            .test-ai-loader-overlay {
+                position: fixed; inset: 0; z-index: 99999;
+                display: flex; align-items: center; justify-content: center;
+                background: rgba(0,0,0,0.72);
+                backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            }
+            [data-theme="light"] .test-ai-loader-overlay { background: rgba(240,240,245,0.82); }
+            .test-ai-loader-box {
+                background: #1a1a1c; color: #fff;
+                border: 1px solid rgba(127,127,127,0.2);
+                border-radius: 20px; padding: 32px 28px;
+                max-width: 360px; width: calc(100% - 40px);
+                text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            }
+            [data-theme="light"] .test-ai-loader-box {
+                background: #fff; color: #1c1c1e;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            }
+            .test-ai-loader-spinner {
+                width: 64px; height: 64px; margin: 0 auto 20px;
+                border: 5px solid rgba(127,127,127,0.18);
+                border-top-color: #ff6b3b; border-radius: 50%;
+                animation: test-ai-spin 0.9s linear infinite;
+            }
+            .test-ai-loader-title {
+                font-size: 17px; font-weight: 700; margin-bottom: 8px;
+            }
+            .test-ai-loader-sub {
+                font-size: 13px; opacity: 0.7; line-height: 1.5; margin-bottom: 16px;
+            }
+            .test-ai-loader-dots { display: flex; justify-content: center; gap: 6px; }
+            .test-ai-loader-dots span {
+                width: 8px; height: 8px; border-radius: 50%;
+                background: #ff6b3b; display: inline-block;
+                animation: test-ai-dot 1.2s ease-in-out infinite;
+            }
+            .test-ai-loader-dots span:nth-child(2) { animation-delay: 0.15s; }
+            .test-ai-loader-dots span:nth-child(3) { animation-delay: 0.3s; }
+        `;
+        document.head.appendChild(style);
     },
 
     goToNextStage() { this.currentStage++; this.currentQuestionIndex=0; this.sendStageIntro(); },
@@ -1582,9 +1675,9 @@ ${this.getStage5Interpretation()}
     async fetchAIGeneratedProfile() {
         if (!this.userId) { this.showFinalProfileButtons(); return; }
 
-        // Show loading animation on first call
         if (this._aiProfileRetries === 0) {
             this.addBotMessage('🧠 Генерирую ваш персональный AI-профиль...\n\n⏳ Это займёт 15-30 секунд. Анализирую ответы всех 5 этапов...', true);
+            this._showAILoader('AI составляет ваш психологический портрет', 'Анализ 5 этапов, подбор инсайтов и формирование рекомендаций. 20-40 секунд.');
         }
 
         try {
@@ -1601,10 +1694,10 @@ ${this.getStage5Interpretation()}
                 const dots = '.'.repeat(Math.min(this._aiProfileRetries, 5));
                 const msgs = ['Анализирую ваши паттерны', 'Строю карту личности', 'Формирую инсайты', 'Почти готово'];
                 const hint = msgs[Math.min(this._aiProfileRetries - 1, msgs.length - 1)];
-                // Update last bot message text
                 const allMsgs = document.querySelectorAll('.test-message-bot .test-message-text');
                 const lastMsg = allMsgs[allMsgs.length - 1];
                 if (lastMsg) lastMsg.innerHTML = `🧠 ${hint}${dots}<br><br>⏳ Осталось совсем немного...`;
+                this._updateAILoader(hint + dots, 'Осталось совсем немного...');
                 setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
                 return;
             }
@@ -1614,6 +1707,7 @@ ${this.getStage5Interpretation()}
     },
 
     showFinalProfileButtons() {
+        this._hideAILoader();
         const p = this.calculateFinalProfile();
         const deep = this.deepPatterns||{attachment:'🤗 Надежный'};
         const sbD = {1:'Под давлением замираете',2:'Избегаете конфликтов',3:'Внешне соглашаетесь',4:'Внешне спокойны',5:'Умеете защищать',6:'Защищаете и используете силу'}[p.sbLevel]||'—';
