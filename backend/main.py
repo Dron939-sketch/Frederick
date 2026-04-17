@@ -4293,6 +4293,8 @@ async def register_mirror_friend(request: Request):
         friend_name = data.get("friend_name", "Друг")
         if not mirror_code or not friend_user_id:
             return {"success": False, "error": "mirror_code and friend_user_id required"}
+        if not mirror_code.startswith("mirror_"):
+            mirror_code = f"mirror_{mirror_code}"
         async with db.get_connection() as conn:
             result = await conn.execute(
                 "UPDATE fredi_mirrors SET friend_user_id = $1, friend_name = $2 "
@@ -4313,6 +4315,10 @@ async def complete_mirror(request: Request):
         mirror_code = data.get("mirror_code")
         if not mirror_code:
             return {"success": False, "error": "mirror_code обязателен"}
+        # Нормализация: фронт может прислать как "mirror_XXX", так и просто "XXX".
+        # В БД хранится с префиксом — приводим к каноническому виду.
+        if not mirror_code.startswith("mirror_"):
+            mirror_code = f"mirror_{mirror_code}"
         friend_user_id = data.get("friend_user_id")
         friend_vectors = data.get("friend_vectors", {})
         friend_deep_patterns = data.get("friend_deep_patterns", {})

@@ -278,7 +278,7 @@ class UserRepository:
             await self.create_user_if_not_exists(user_id)
             
             thought_id = await self.db.fetchval("""
-                INSERT INTO psychologist_thoughts (
+                INSERT INTO fredi_psychologist_thoughts (
                     user_id, test_result_id, thought_type, thought_text, thought_summary
                 ) VALUES ($1, $2, $3, $4, $5)
                 RETURNING id
@@ -293,7 +293,7 @@ class UserRepository:
         try:
             condition, value = self._get_id_condition(user_id)
             row = await self.db.fetchrow(f"""
-                SELECT thought_text FROM psychologist_thoughts
+                SELECT thought_text FROM fredi_psychologist_thoughts
                 WHERE {condition} AND thought_type = $2 AND is_active = TRUE
                 ORDER BY created_at DESC LIMIT 1
             """, value, thought_type)
@@ -307,7 +307,7 @@ class UserRepository:
             condition, value = self._get_id_condition(user_id)
             rows = await self.db.fetch(f"""
                 SELECT id, thought_type, thought_text, thought_summary, created_at
-                FROM psychologist_thoughts
+                FROM fredi_psychologist_thoughts
                 WHERE {condition} AND is_active = TRUE
                 ORDER BY created_at DESC LIMIT $2
             """, value, limit)
