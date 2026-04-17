@@ -873,10 +873,10 @@ function _drInitVoiceButton() {
         // Страховочный таймаут: если STT не успел за 20 сек — восстановим, чтобы не держать чужой state.
         setTimeout(() => {
             if (savedOnTranscript !== null || savedOnComplete !== null) {
-                console.warn('[dreams] ⏱ STT не пришёл за 20с — восстанавливаю обработчики по таймауту');
+                console.warn('[dreams] ⏱ STT не пришёл за 90с — восстанавливаю обработчики по таймауту');
                 restoreHandlers();
             }
-        }, 20000);
+        }, 90000);
     };
     
     const onPressStart = async (e) => {
