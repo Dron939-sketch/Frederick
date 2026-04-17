@@ -1075,11 +1075,19 @@ class VoiceManager {
                         method: 'POST', body: form
                     });
                     const data = await resp.json();
-                    if (data.text && this.onTranscript) {
-                        this.onTranscript(data.text);
+                    const text = data && data.text;
+                    console.log('[voice] STT-only response:', { ok: resp.ok, has_text: !!text, length: (text || '').length });
+                    if (text) {
+                        if (this.onTranscript) this.onTranscript(text);
+                        // Важно: вызываем и финал, чтобы UI показал тост/подсветку
+                        if (this.onTranscriptComplete) this.onTranscriptComplete(text);
+                    } else {
+                        // Пусть UI покажет «не удалось распознать» через onTranscriptComplete с пустой строкой.
+                        if (this.onTranscriptComplete) this.onTranscriptComplete('');
                     }
                 } catch(e) {
-                    console.warn('STT-only error:', e);
+                    console.warn('[voice] STT-only error:', e);
+                    if (this.onTranscriptComplete) this.onTranscriptComplete('');
                 }
             }
         };
