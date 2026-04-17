@@ -17,6 +17,11 @@ let _drActiveTab = 'record';
 let _drIsInterpreting = false;
 let _drDraftSaveTimer = null;
 
+// Чат-сессия: массив сообщений в одном окне. Сбрасывается после финального толкования.
+// { role: 'user' | 'bot' | 'system', text, ts }
+let _drChatSession = [];
+let _drChatFinalShown = false;
+
 // Кэш профиля
 let _drProfileCache = {
     data: null,
@@ -384,6 +389,106 @@ function _drInjectStyles() {
         .dr-btn-pulse {
             animation: drBtnPulse 1s ease-in-out 3;
         }
+
+        /* ===== Чат-интерфейс ===== */
+        .dr-chat-wrap {
+            display: flex; flex-direction: column; gap: 16px;
+            min-height: 60vh;
+        }
+        .dr-chat-log {
+            background: rgba(127,127,127,0.04);
+            border: 1px solid rgba(127,127,127,0.14);
+            border-radius: 20px;
+            padding: 20px;
+            min-height: 40vh;
+            max-height: 60vh;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+        [data-theme="light"] .dr-chat-log {
+            background: rgba(127,127,127,0.05);
+        }
+        .dr-chat-welcome {
+            text-align: center; padding: 24px 12px;
+            color: var(--text-primary);
+        }
+        .dr-chat-system {
+            text-align: center; color: var(--text-secondary); font-size: 12px;
+            padding: 8px 14px; margin: 8px auto; max-width: 70%;
+            background: rgba(127,127,127,0.08); border-radius: 14px;
+        }
+        .dr-chat-row {
+            display: flex; gap: 10px; margin: 12px 0; align-items: flex-start;
+        }
+        .dr-chat-row.is-user { flex-direction: row-reverse; }
+        .dr-chat-avatar {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: rgba(127,127,127,0.1);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; flex-shrink: 0;
+        }
+        .dr-chat-row.is-user .dr-chat-avatar { background: linear-gradient(135deg, #ff6b3b33, #ff3b3b22); }
+        .dr-chat-bubble {
+            max-width: min(78%, 560px);
+            background: rgba(127,127,127,0.1);
+            border: 1px solid rgba(127,127,127,0.14);
+            border-radius: 18px; padding: 10px 14px;
+            color: var(--text-primary);
+            line-height: 1.55; font-size: 14px;
+        }
+        .dr-chat-row.is-user .dr-chat-bubble {
+            background: linear-gradient(135deg, rgba(255,107,59,0.18), rgba(255,59,59,0.08));
+            border-color: rgba(255,107,59,0.28);
+        }
+        .dr-chat-label {
+            font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;
+        }
+        .dr-chat-text { white-space: pre-wrap; word-break: break-word; }
+        .dr-bubble-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+        .dr-bubble-action {
+            padding: 4px 10px; border-radius: 20px;
+            background: rgba(127,127,127,0.12);
+            border: 1px solid rgba(127,127,127,0.2);
+            color: var(--text-primary);
+            cursor: pointer; font-size: 12px; font-family: inherit;
+            transition: transform 0.12s ease, background 0.2s ease;
+        }
+        .dr-bubble-action:hover { background: rgba(127,127,127,0.18); }
+        .dr-bubble-action:active { transform: scale(0.95); }
+
+        .dr-chat-composer {
+            position: sticky; bottom: 0;
+            background: rgba(127,127,127,0.06);
+            border: 1px solid rgba(127,127,127,0.18);
+            border-radius: 20px;
+            backdrop-filter: blur(6px);
+        }
+        [data-theme="light"] .dr-chat-composer {
+            background: rgba(255,255,255,0.85);
+            border-color: rgba(0,0,0,0.08);
+        }
+        .dr-textarea-chat {
+            flex: 1; margin: 0 !important; min-height: 52px; max-height: 150px;
+            border-radius: 16px;
+        }
+        .dr-voice-btn-compact {
+            width: 52px; height: 52px; border-radius: 50%;
+            margin: 0 !important; flex-shrink: 0;
+        }
+        .dr-btn-send {
+            width: 52px; height: 52px; border-radius: 50%;
+            padding: 0 !important;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+            background: linear-gradient(135deg, #ff6b3b, #ff3b3b);
+            border: none; color: #fff;
+            flex-shrink: 0;
+        }
+        .dr-btn-send.loading .btn-text { display: none; }
+        .dr-btn-send.loading .btn-loader { display: inline-block; }
+        .dr-btn-small {
+            padding: 6px 12px; font-size: 11px; border-radius: 20px;
+        }
     `;
     document.head.appendChild(style);
 }
@@ -532,67 +637,115 @@ function _drRenderRecordTab(completed) {
         `;
     }
 
-    if (_drNeedsClarification) {
-        const maxClarifications = 3;
-        return `
-            <div class="dr-record-card">
-                <div style="font-size: 48px; margin-bottom: 8px;">🤔</div>
-                <h2>Уточняющий вопрос</h2>
-                <div class="dr-clarification-card">
-                    <div class="clarification-progress">
-                        Уточнение ${_drClarificationCount + 1}/${maxClarifications}
-                    </div>
-                    <div class="dr-clarification-q" id="clarificationQuestion">${_drEscapeHtml(_drClarificationQuestion) || 'Расскажите подробнее об этом сне...'}</div>
-                    <button type="button" class="dr-speak-question-btn" id="speakQuestionBtn" title="Озвучить вопрос ещё раз">🔊 Озвучить вопрос</button>
-                    <button class="dr-voice-btn" id="clarificationVoiceBtn" type="button" title="Записать голосовой ответ" style="width:72px;height:72px;margin:16px auto 8px;">
-                        <span class="dr-voice-icon" style="font-size:32px;">🎤</span>
+    const draftText = _drLoadDraft();
+    const displayText = draftText || _drCurrentText;
+
+    const canSkip = _drChatSession.some(m => m.role === 'bot' && m.kind === 'clarification');
+    const isClarification = _drNeedsClarification;
+    const placeholder = isClarification
+        ? 'Напиши ответ на вопрос Фреди…'
+        : 'Опишите ваш сон максимально подробно…';
+    const composerHint = isClarification
+        ? '🎤 Нажмите и удерживайте кнопку, чтобы ответить голосом'
+        : '🎤 Нажмите и удерживайте кнопку, чтобы надиктовать сон, или напишите его ниже';
+    const sendLabel = isClarification ? '📤 Ответить' : '🔮 Толковать сон';
+
+    return `
+        <div class="dr-chat-wrap">
+            <div class="dr-chat-log" id="drChatLog">
+                ${_drRenderChatMessages()}
+            </div>
+
+            <div class="dr-chat-composer dr-record-card" style="padding:16px;">
+                <div id="validationError" class="error-message" style="display: none;"></div>
+                <div style="display:flex;align-items:flex-end;gap:10px;">
+                    <button class="dr-voice-btn dr-voice-btn-compact" id="dreamVoiceBtn" title="Нажмите и удерживайте для записи">
+                        <span class="dr-voice-icon" style="font-size:28px;">🎤</span>
                     </button>
-                    <div style="font-size:11px;color:var(--text-secondary);text-align:center;margin-bottom:12px;">
-                        Нажмите и удерживайте для записи ответа голосом
-                    </div>
-                    <textarea id="clarificationAnswer" class="dr-clarification-input" rows="3" placeholder="Или напишите свой ответ здесь..."></textarea>
-                    <div style="display:flex;gap:12px;margin-top:16px">
-                        <button class="dr-btn" id="submitClarificationBtn">📤 Ответить</button>
-                        <button class="dr-btn dr-btn-ghost" id="skipClarificationBtn">⏭️ Пропустить</button>
+                    <textarea id="dreamTextInput" class="dr-textarea dr-textarea-chat" rows="3" placeholder="${placeholder}">${_drEscapeHtml(displayText)}</textarea>
+                    <button class="dr-btn dr-btn-send" id="interpretDreamBtn" title="${sendLabel}">
+                        <span class="btn-text">${isClarification ? '📤' : '🔮'}</span>
+                        <span class="btn-loader">⏳</span>
+                    </button>
+                </div>
+                <div class="draft-indicator" id="draftIndicator"></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px;flex-wrap:wrap;">
+                    <span style="font-size:11px;color:var(--text-secondary);">${composerHint}</span>
+                    <div style="display:flex;gap:8px;">
+                        ${canSkip ? '<button class="dr-btn dr-btn-ghost dr-btn-small" id="skipClarificationBtn" title="Пропустить уточнения">⏭️ Пропустить</button>' : ''}
+                        <button class="dr-btn dr-btn-ghost dr-btn-small" id="newChatBtn" title="Начать новый сон">🔄 Новый сон</button>
+                        ${_drHistory.length ? '<button class="dr-btn dr-btn-ghost dr-btn-small" id="exportHistoryBtn" title="Экспорт истории">📥</button>' : ''}
                     </div>
                 </div>
             </div>
-            <div id="interpretationResult"></div>
+        </div>
+        <div id="interpretationResult" style="display:none"></div>
+    `;
+}
+
+function _drRenderChatMessages() {
+    if (_drChatSession.length === 0) {
+        return `
+            <div class="dr-chat-welcome">
+                <div style="font-size:56px;margin-bottom:12px;">🌙</div>
+                <h2 style="margin:0 0 8px 0;">Расскажите свой сон</h2>
+                <p style="color:var(--text-secondary);max-width:480px;margin:0 auto;line-height:1.5;">
+                    Нажмите и удерживайте 🎤 ниже, чтобы надиктовать сон голосом, или наберите текст.
+                    Фреди может задать пару уточнений — отвечайте так же: голосом или текстом.
+                    Ответ появится прямо в этой ленте.
+                </p>
+            </div>
         `;
     }
+    return _drChatSession.map((m, i) => _drRenderChatBubble(m, i)).join('');
+}
 
-    const draftText = _drLoadDraft();
-    const displayText = draftText || _drCurrentText;
-    
+function _drRenderChatBubble(msg, idx) {
+    const role = msg.role || 'bot';
+    const isUser = role === 'user';
+    const isSystem = role === 'system';
+    if (isSystem) {
+        return `<div class="dr-chat-system">${_drEscapeHtml(msg.text)}</div>`;
+    }
+    const avatar = isUser ? '👤' : '🌙';
+    const label = isUser ? 'Вы' : (msg.kind === 'clarification' ? `Фреди · уточнение ${msg.clarNumber || ''}/3` : 'Фреди');
+    const text = _drEscapeHtml(msg.text || '');
+    const actions = !isUser && msg.text
+        ? `<div class="dr-bubble-actions">
+               <button class="dr-bubble-action" data-speak="${idx}" title="Озвучить">🔊</button>
+           </div>`
+        : '';
     return `
-        <div class="dr-record-card">
-            <div style="font-size: 48px; margin-bottom: 8px;">🌙</div>
-            <h2>Расскажите свой сон</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 20px;">Нажмите и удерживайте кнопку, чтобы надиктовать сон голосом, или напишите его ниже</p>
-
-            <button class="dr-voice-btn" id="dreamVoiceBtn">
-                <span class="dr-voice-icon" style="font-size: 48px;">🎤</span>
-            </button>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 20px;">Нажмите и удерживайте для записи</div>
-
-            <textarea id="dreamTextInput" class="dr-textarea" placeholder="Опишите ваш сон максимально подробно...&#10;&#10;Что происходило?&#10;Кто был во сне?&#10;Какие были эмоции?&#10;Какие цвета, звуки, запахи?">${_drEscapeHtml(displayText)}</textarea>
-            <div class="draft-indicator" id="draftIndicator"></div>
-
-            <div id="validationError" class="error-message" style="display: none;"></div>
-
-            <div class="dr-hint" style="text-align:center;font-size:12px;color:var(--text-secondary);margin-top:-6px;margin-bottom:8px;">
-                📝 После записи голоса текст появится в поле выше — проверь и нажми «Толковать сон»
-            </div>
-            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
-                <button class="dr-btn" id="interpretDreamBtn">
-                    <span class="btn-text">🔮 Толковать сон</span>
-                    <span class="btn-loader">⏳</span>
-                </button>
-                <button class="dr-btn dr-btn-ghost" id="exportHistoryBtn" style="${_drHistory.length === 0 ? 'display:none' : ''}">📥 Экспорт истории</button>
+        <div class="dr-chat-row ${isUser ? 'is-user' : 'is-bot'}">
+            <div class="dr-chat-avatar">${avatar}</div>
+            <div class="dr-chat-bubble">
+                <div class="dr-chat-label">${label}</div>
+                <div class="dr-chat-text">${text.replace(/\n/g, '<br>')}</div>
+                ${actions}
             </div>
         </div>
-        <div id="interpretationResult"></div>
     `;
+}
+
+function _drAddChatMessage(role, text, extra) {
+    _drChatSession.push(Object.assign({ role, text, ts: Date.now() }, extra || {}));
+    const log = document.getElementById('drChatLog');
+    if (log) {
+        log.innerHTML = _drRenderChatMessages();
+        // Прокрутка к последнему сообщению
+        log.scrollTop = log.scrollHeight;
+    }
+}
+
+function _drResetChatSession() {
+    _drChatSession = [];
+    _drChatFinalShown = false;
+    _drNeedsClarification = false;
+    _drClarificationQuestion = '';
+    _drClarificationCount = 0;
+    _drClarificationSessionId = null;
+    _drCurrentText = '';
+    _drClearDraft();
 }
 
 function _drRenderHistoryTab(completed) {
@@ -866,52 +1019,56 @@ function _drInitButtons() {
         exportBtn.addEventListener('click', () => _drExportHistory());
     }
     
-    const submitBtn = document.getElementById('submitClarificationBtn');
     const skipBtn = document.getElementById('skipClarificationBtn');
-    
-    if (submitBtn) {
-        submitBtn.addEventListener('click', () => _drSubmitClarification());
-    }
-    
     if (skipBtn) {
-        skipBtn.addEventListener('click', () => {
+        skipBtn.addEventListener('click', async () => {
+            _drAddChatMessage('system', '⏭️ Ты пропустил уточнения. Фреди попытается дать толкование на основе уже сказанного.');
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
+            _drClarificationCount = 3;
+            await _drInterpretFinalFallback();
+        });
+    }
+
+    const newChatBtn = document.getElementById('newChatBtn');
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', () => {
+            _drResetChatSession();
             showDreamsScreen();
         });
     }
 
-    // Голосовая связка для уточняющего вопроса
-    const speakQBtn = document.getElementById('speakQuestionBtn');
-    if (speakQBtn) {
-        speakQBtn.addEventListener('click', async () => {
-            if (!_drClarificationQuestion) return;
-            try {
-                if (window.voiceManager && window.voiceManager.textToSpeech) {
-                    await window.voiceManager.textToSpeech(_drClarificationQuestion, 'psychologist');
-                } else if ('speechSynthesis' in window) {
-                    const u = new SpeechSynthesisUtterance(_drClarificationQuestion);
-                    u.lang = 'ru-RU';
-                    speechSynthesis.speak(u);
-                }
-            } catch (e) { console.warn('[dreams] speak question failed:', e); }
+    // Отправка по Enter (Shift+Enter = новая строка)
+    const ta = document.getElementById('dreamTextInput');
+    if (ta && !ta._drEnterBound) {
+        ta._drEnterBound = true;
+        ta.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                _drInterpret();
+            }
         });
     }
 
-    _drInitClarificationVoiceButton();
-
-    // Авто-озвучка вопроса при появлении (один раз на один вопрос)
-    if (_drNeedsClarification && _drClarificationQuestion && !_drLastSpokenQuestion) {
-        _drLastSpokenQuestion = _drClarificationQuestion;
-        setTimeout(async () => {
-            try {
-                if (window.voiceManager && window.voiceManager.textToSpeech) {
-                    await window.voiceManager.textToSpeech(_drClarificationQuestion, 'psychologist');
-                }
-            } catch (e) { console.warn('[dreams] auto-speak failed:', e); }
-        }, 400);
+    // «Озвучить» у каждого сообщения бота
+    const log = document.getElementById('drChatLog');
+    if (log && !log._drSpeakBound) {
+        log._drSpeakBound = true;
+        log.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-speak]');
+            if (!btn) return;
+            const idx = Number(btn.getAttribute('data-speak'));
+            const msg = _drChatSession[idx];
+            if (msg && msg.text) _drSpeak(msg.text);
+        });
     }
-    if (!_drNeedsClarification) _drLastSpokenQuestion = '';
+}
+
+async function _drInterpretFinalFallback() {
+    // Если пользователь нажал «Пропустить» — бэк не даст толкования (ему нужен ответ),
+    // поэтому просто показываем сообщение «переформулируй» в чате и сбрасываем сессию.
+    _drAddChatMessage('bot', 'Чтобы дать глубокое толкование, Фреди нужно чуть больше деталей. Попробуй ещё раз — расскажи сон подробнее.', { kind: 'final' });
+    _drResetChatSession();
 }
 
 // Голосовая запись ответа на уточняющий вопрос
@@ -1002,13 +1159,18 @@ function _drInitClarificationVoiceButton() {
 // ============================================
 
 async function _drInterpret() {
-    console.log('[dreams] 🔮 _drInterpret START');
+    console.log('[dreams] 🔮 _drInterpret START | clarification?', _drNeedsClarification);
     if (_drIsInterpreting) {
         console.warn('[dreams] уже выполняется — игнор');
         if (typeof showToast === 'function') {
             showToast('⏳ Интерпретация уже выполняется...', 'info');
         }
         return;
+    }
+
+    // В чат-режиме кнопка отправки одна для и начального сна, и для уточнения.
+    if (_drNeedsClarification) {
+        return _drSubmitClarification();
     }
 
     const input = document.getElementById('dreamTextInput');
@@ -1032,15 +1194,16 @@ async function _drInterpret() {
     _drCurrentText = dreamText;
     _drAutoSaveDraft(dreamText);
 
-    const resultDiv = document.getElementById('interpretationResult');
+    // Добавляем пользовательское сообщение в чат и очищаем textarea
+    _drAddChatMessage('user', dreamText);
+    if (input) input.value = '';
+
     const interpretBtn = document.getElementById('interpretDreamBtn');
 
     _drIsInterpreting = true;
     if (interpretBtn) interpretBtn.classList.add('loading');
 
-    _drShowStatus('interpreting', 'Фреди анализирует символику вашего сна...');
     _drShowAIOverlay('Фреди толкует твой сон', 'Анализ символов, архетипов и связи с твоим профилем. 20-40 секунд.');
-    if (resultDiv) resultDiv.innerHTML = '';
 
     try {
         const { status, profileData } = await _drGetCachedProfile();
@@ -1078,50 +1241,37 @@ async function _drInterpret() {
         });
         
         if (response.needs_clarification && _drClarificationCount < 3) {
-            _drShowStatus(null);
             _drNeedsClarification = true;
             _drClarificationSessionId = response.session_id;
             _drClarificationQuestion = response.question || 'Расскажите подробнее об этом сне...';
             console.log('[dreams] 🤔 needs_clarification:', _drClarificationQuestion);
+            _drAddChatMessage('bot', _drClarificationQuestion, { kind: 'clarification', clarNumber: _drClarificationCount + 1 });
+            _drSpeak(_drClarificationQuestion);
+            // Обновить только композер (placeholder / кнопку), оставив ленту
             await showDreamsScreen();
         } else if (response.needs_clarification && _drClarificationCount >= 3) {
-            _drShowStatus(null);
-            if (resultDiv) {
-                const escapedText = _drEscapeHtml(response.interpretation || 'На основе ваших ответов Фреди подготовил толкование, но для более точного анализа нужно больше деталей.');
-                resultDiv.innerHTML = _drRenderInterpretation(escapedText);
-                if (window.voiceManager && response.interpretation) {
-                    await window.voiceManager.textToSpeech(response.interpretation, 'psychologist');
-                }
-            }
-            await _drSaveToHistory(dreamText, response.interpretation || '');
-            _drNeedsClarification = false;
-            _drClarificationQuestion = '';
-            _drClarificationCount = 0;
+            const fallback = response.interpretation || 'На основе твоих ответов Фреди подготовил толкование. Для более точного анализа нужно больше деталей.';
+            _drAddChatMessage('bot', fallback, { kind: 'final' });
+            _drSpeak(fallback);
+            await _drSaveToHistory(dreamText, fallback);
+            _drResetChatSession();
+            _drChatFinalShown = true;
         } else {
-            _drShowStatus(null);
             const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
-            if (resultDiv) {
-                const escapedText = _drEscapeHtml(interpretText);
-                resultDiv.innerHTML = _drRenderInterpretation(escapedText);
-                if (window.voiceManager && response.interpretation) {
-                    await window.voiceManager.textToSpeech(response.interpretation, 'psychologist');
-                }
-            }
+            _drAddChatMessage('bot', interpretText, { kind: 'final' });
+            _drSpeak(interpretText);
             await _drSaveToHistory(dreamText, interpretText);
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
             _drClarificationCount = 0;
+            _drChatFinalShown = true;
         }
 
         _drClearDraft();
 
     } catch (error) {
-        _drShowStatus(null);
         console.error('[dreams] ❌ Interpretation error:', error?.name, error?.message, error);
-        if (resultDiv) {
-            const msg = (error && error.message) ? _drEscapeHtml(error.message) : 'Не удалось получить толкование. Попробуйте ещё раз.';
-            resultDiv.innerHTML = `<div class="dr-interpretation"><div class="dr-interpretation-text">😔 ${msg}</div></div>`;
-        }
+        _drAddChatMessage('system', '😔 Ошибка: ' + (error?.message || 'не удалось получить толкование'));
         if (typeof showToast === 'function') {
             showToast('❌ Ошибка: ' + (error?.message || 'не удалось получить толкование'), 'error');
         }
@@ -1134,24 +1284,28 @@ async function _drInterpret() {
 }
 
 async function _drSubmitClarification() {
-    const answer = document.getElementById('clarificationAnswer')?.value.trim();
+    // В чат-режиме ответ вводится в тот же textarea, что и исходный сон.
+    const input = document.getElementById('dreamTextInput');
+    const answer = (input?.value || '').trim();
     if (!answer) {
         if (typeof showToast === 'function') {
             showToast('📝 Напишите ответ на вопрос', 'error');
         }
         return;
     }
-    
-    const resultDiv = document.getElementById('interpretationResult');
-    if (resultDiv) {
-        resultDiv.innerHTML = `<div class="dr-loading"><div class="dr-spinner">🌙</div><div>Фреди уточняет толкование...</div></div>`;
-    }
-    
+
+    _drAddChatMessage('user', answer);
+    if (input) input.value = '';
+
     _drClarificationCount++;
-    
+    const interpretBtn = document.getElementById('interpretDreamBtn');
+    _drIsInterpreting = true;
+    if (interpretBtn) interpretBtn.classList.add('loading');
+    _drShowAIOverlay('Фреди анализирует твой ответ', 'Ждём следующий вопрос или толкование. 10-30 секунд.');
+
     try {
         const { status } = await _drGetCachedProfile();
-        
+
         const response = await apiCall('/api/dreams/clarify', {
             method: 'POST',
             body: JSON.stringify({
@@ -1165,36 +1319,53 @@ async function _drSubmitClarification() {
                 clarification_number: _drClarificationCount
             })
         });
-        
+        console.log('[dreams] 📥 clarify response:', { needs_clarification: !!response?.needs_clarification, has_interpretation: !!response?.interpretation });
+
         if (response.needs_clarification && _drClarificationCount < 3) {
             _drNeedsClarification = true;
             _drClarificationSessionId = response.session_id;
             _drClarificationQuestion = response.question || 'Расскажите подробнее...';
-            console.log('[dreams] 🤔 needs_clarification (follow-up):', _drClarificationQuestion);
+            _drAddChatMessage('bot', _drClarificationQuestion, { kind: 'clarification', clarNumber: _drClarificationCount + 1 });
+            _drSpeak(_drClarificationQuestion);
             await showDreamsScreen();
         } else {
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
             const interpretText = response.interpretation || 'Фреди не смог сформировать толкование. Попробуйте переформулировать сон подробнее.';
-            console.log('[dreams] 📥 clarify final, has_interpretation:', !!response.interpretation, '| length:', (response.interpretation || '').length);
-
-            if (resultDiv) {
-                const escapedText = _drEscapeHtml(interpretText);
-                resultDiv.innerHTML = _drRenderInterpretation(escapedText);
-                if (window.voiceManager && response.interpretation) {
-                    await window.voiceManager.textToSpeech(response.interpretation, 'psychologist');
-                }
-            }
+            _drAddChatMessage('bot', interpretText, { kind: 'final' });
+            _drSpeak(interpretText);
             await _drSaveToHistory(_drCurrentText, interpretText);
             _drClarificationCount = 0;
+            _drChatFinalShown = true;
         }
-        
+
     } catch (error) {
-        console.error('Clarification error:', error);
+        console.error('[dreams] ❌ Clarification error:', error);
+        _drAddChatMessage('system', '😔 Ошибка уточнения: ' + (error?.message || 'неизвестная'));
         if (typeof showToast === 'function') {
             showToast('❌ Ошибка при уточнении', 'error');
         }
+    } finally {
+        _drIsInterpreting = false;
+        if (interpretBtn) interpretBtn.classList.remove('loading');
+        _drHideAIOverlay();
     }
+}
+
+// Универсальный TTS-помощник: предпочитает voiceManager, фолбэк на speechSynthesis.
+function _drSpeak(text) {
+    if (!text) return;
+    try {
+        if (window.voiceManager && window.voiceManager.textToSpeech) {
+            window.voiceManager.textToSpeech(text, 'psychologist').catch(e => console.warn('[dreams] TTS failed:', e));
+            return;
+        }
+        if ('speechSynthesis' in window) {
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'ru-RU';
+            speechSynthesis.speak(u);
+        }
+    } catch (e) { console.warn('[dreams] _drSpeak error:', e); }
 }
 
 function _drRenderInterpretation(text) {
