@@ -1650,6 +1650,35 @@ window.addEventListener('beforeinstallprompt', (e) => {
 // ============================================
 // КНОПКА ПОДЕЛИТЬСЯ ССЫЛКОЙ (встраиваемая версия, напр. Telegram-miniapp)
 // ============================================
+// ============================================
+// БЕЙДЖ НЕПРОЧИТАННЫХ СООБЩЕНИЙ (запускаем при старте)
+// ============================================
+// Лениво подгружаем messages.js и сразу стартуем поллинг, чтобы цифра
+// у пункта «Сообщения» в сайдбаре появлялась без захода на экран.
+function initMessagesBadgePoller() {
+    if (window._msBadgePollerStarted) return;
+    window._msBadgePollerStarted = true;
+
+    const start = () => {
+        if (typeof window.initMessagesBadge === 'function') {
+            try { window.initMessagesBadge(); } catch (e) { console.warn('initMessagesBadge failed:', e); }
+        }
+    };
+
+    if (typeof window.initMessagesBadge === 'function') {
+        start();
+        return;
+    }
+
+    // Подгружаем messages.js в фоне
+    const s = document.createElement('script');
+    s.src = 'messages.js';
+    s.async = true;
+    s.onload = start;
+    s.onerror = () => console.warn('messages.js load failed — badge poller inactive');
+    document.head.appendChild(s);
+}
+
 function initShareBtn() {
     const btn = document.getElementById('shareBtn');
     if (!btn || btn._fShareInited) return;
@@ -1883,6 +1912,7 @@ async function init() {
     initMobileMenu();
     initTopMenu();
     initShareBtn();
+    initMessagesBadgePoller();
     await initVoice();
 
     // Проверяем имя пользователя

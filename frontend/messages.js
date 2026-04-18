@@ -1102,6 +1102,7 @@ async function showMessagesScreen() {
 // ============================================
 window.showMessagesScreen  = showMessagesScreen;
 window.updateMessagesBadge = _updateBadge;
+window.initMessagesBadge   = _initBadge;
 window.openChat            = _openChat;
 window.messagesState       = _msState;
 
