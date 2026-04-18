@@ -31,6 +31,72 @@ const CONFIG = {
 
 window.CONFIG = CONFIG;
 
+// ============================================
+// ГЛОБАЛЬНАЯ ИДЕНТИФИКАЦИЯ ПОЛЬЗОВАТЕЛЯ
+// Единая функция для всех модулей (mirrors, anchors, meter, test)
+// ============================================
+window.getUserId = function () {
+    let userId = null;
+
+    // 1. CONFIG.USER_ID — основной источник (localStorage + cookie + parseInt fallback)
+    try {
+        const cid = CONFIG?.USER_ID;
+        if (cid && String(cid) !== 'null' && String(cid) !== 'undefined') userId = cid;
+    } catch (e) {}
+
+    // 2. PERMANENT_USER_ID (если где-то выставлен)
+    if (!userId && window.PERMANENT_USER_ID && String(window.PERMANENT_USER_ID) !== 'null') {
+        userId = window.PERMANENT_USER_ID;
+    }
+
+    // 3. window.USER_ID (legacy)
+    if (!userId && window.USER_ID && String(window.USER_ID) !== 'null' && String(window.USER_ID) !== 'undefined') {
+        userId = window.USER_ID;
+    }
+
+    // 4. localStorage fallbacks
+    if (!userId) {
+        try {
+            const lsId = localStorage.getItem('fredi_user_id');
+            if (lsId && lsId !== 'null' && lsId !== 'undefined') userId = lsId;
+            if (!userId) {
+                const permId = localStorage.getItem('fredi_permanent_user_id');
+                if (permId && permId !== 'null') userId = permId;
+            }
+        } catch (e) {}
+    }
+
+    // 5. sessionStorage (переживает редиректы в Telegram WebView)
+    if (!userId) {
+        try {
+            const ssId = sessionStorage.getItem('fredi_user_id');
+            if (ssId && ssId !== 'null') userId = ssId;
+        } catch (e) {}
+    }
+
+    // 6. Cookie
+    if (!userId) {
+        const m = document.cookie.match(/(?:^|; )fredi_uid=([^;]*)/);
+        if (m) userId = decodeURIComponent(m[1]);
+    }
+
+    // 7. Крайний fallback — временный ID
+    if (!userId || userId === 'null' || userId === 'undefined') {
+        userId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        try { localStorage.setItem('fredi_user_id', userId); } catch (e) {}
+        try { sessionStorage.setItem('fredi_user_id', userId); } catch (e) {}
+        console.warn('⚠️ [Auth] Сгенерирован временный USER_ID:', userId);
+    }
+
+    // Синхронизация всех хранилищ (на случай приват-режима / sandbox)
+    try { localStorage.setItem('fredi_user_id', userId); } catch (e) {}
+    try { sessionStorage.setItem('fredi_user_id', userId); } catch (e) {}
+
+    return userId;
+};
+
+console.log('✅ [Auth] window.getUserId инициализирован');
+
 // Кроссбраузерное копирование в буфер обмена
 function copyToClipboard(text) {
     if (navigator.clipboard && window.isSecureContext) {
@@ -127,9 +193,14 @@ async function apiCall(endpoint, options = {}) {
         return _inflightRequests.get(key);
     }
 
+    // AI-эндпоинты генерируют ответ до 30-45 сек (DeepSeek/GPT), расширяем таймаут.
+    const isAIEndpoint = /\/api\/(ai\/|ai_|hypno|dreams|emotions|tales|relationships|interests|doubles|weekend|brand|hormones|goals|habits|motivation|strategy|healing|confinement|skill|practices|challenges|psychologist|morning|freshthought|meditation|analysis)/i.test(endpoint);
+    const defaultTimeout = isAIEndpoint ? 60000 : 15000;
+    const timeoutMs = options.timeout || defaultTimeout;
+
     const promise = (async () => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000); // 15 сек таймаут
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
             const response = await fetch(url, {
@@ -144,7 +215,7 @@ async function apiCall(endpoint, options = {}) {
         } catch (error) {
             clearTimeout(timeout);
             if (error.name === 'AbortError') {
-                console.error(`API timeout: ${endpoint}`);
+                console.error(`API timeout (${timeoutMs}ms): ${endpoint}`);
                 throw new Error('Сервер не отвечает. Попробуйте позже.');
             }
             console.error(`API Error: ${endpoint}`, error);

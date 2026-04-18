@@ -385,6 +385,97 @@ let userAnchors = [];
 let currentAnchorView = 'list';
 let anchorWizardStep = 0;
 let anchorWizardData = {};
+
+const AN_REC_CACHE_KEY = 'anchors_rec_cache_v1';
+const AN_REC_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 дней
+
+function _anHashVectors(vectors) {
+    if (!vectors) return '0';
+    return ['СБ', 'ТФ', 'УБ', 'ЧВ'].map(k => `${k}${vectors[k] ?? '-'}`).join('_');
+}
+
+function _anGetCachedRecommendations(vectors) {
+    try {
+        const raw = localStorage.getItem(AN_REC_CACHE_KEY);
+        if (!raw) return null;
+        const cache = JSON.parse(raw);
+        const hash = _anHashVectors(vectors);
+        if (cache.hash !== hash) return null;
+        if (!cache.ts || (Date.now() - cache.ts) > AN_REC_CACHE_TTL_MS) return null;
+        return cache.data;
+    } catch (e) {
+        return null;
+    }
+}
+
+function _anSetCachedRecommendations(vectors, data) {
+    try {
+        localStorage.setItem(AN_REC_CACHE_KEY, JSON.stringify({
+            hash: _anHashVectors(vectors),
+            ts: Date.now(),
+            data
+        }));
+    } catch (e) {
+        console.warn('Не удалось сохранить кеш рекомендаций:', e);
+    }
+}
+
+function _anClearRecommendationsCache() {
+    try { localStorage.removeItem(AN_REC_CACHE_KEY); } catch (e) {}
+}
+
+// Безопасное получение USER_ID для вызовов API этого модуля
+function _anGetUserId() {
+    if (typeof window.getUserId === 'function') return window.getUserId();
+    if (window.CONFIG?.USER_ID) return window.CONFIG.USER_ID;
+    try {
+        const id = localStorage.getItem('fredi_user_id');
+        if (id && id !== 'null') return id;
+    } catch (e) {}
+    return Date.now();
+}
+
+const TRIGGER_SUGGESTIONS = {
+    auditory: {
+        _default: ['Я спокоен', 'Я силён', 'Я готов', 'Я в потоке'],
+        calm: ['Я спокоен', 'Дыши медленно', 'Всё хорошо', 'Тишина'],
+        confidence: ['Я силён', 'Я уверен', 'Я готов', 'Всё получится'],
+        focus: ['Фокус', 'Только сейчас', 'Ясность', 'Я здесь'],
+        energy: ['Вперёд!', 'Энергия', 'Поехали', 'Огонь'],
+        love: ['Я люблю', 'Я открыт', 'Тепло', 'Сердце'],
+        gratitude: ['Спасибо', 'Я благодарен', 'Ценю это', 'Дар'],
+        safety: ['Я в безопасности', 'Я защищён', 'Спокойно', 'Дом'],
+        joy: ['Радость', 'Лёгкость', 'Улыбаюсь', 'Счастье'],
+        grounding: ['Здесь и сейчас', 'Я в теле', 'Корни', 'Земля'],
+        action: ['Делаю!', 'Сейчас', 'Начинаю', 'Первый шаг']
+    },
+    kinesthetic: {
+        _default: ['Сжать кулак', 'Ладонь на грудь', 'Глубокий вдох', 'Скрестить пальцы'],
+        calm: ['Ладонь на грудь', 'Глубокий выдох', 'Расслабить плечи', 'Мягкий вдох'],
+        confidence: ['Сжать кулак', 'Развернуть плечи', 'Поднять подбородок', 'Поза супермена'],
+        focus: ['Сжать пальцы в замок', 'Прижать большой палец', 'Вдох-выдох', 'Щелчок пальцами'],
+        energy: ['Хлопок в ладоши', 'Прыжок', 'Потрясти руками', 'Активная поза'],
+        love: ['Рука к сердцу', 'Обнять себя', 'Улыбка', 'Тёплое касание'],
+        gratitude: ['Ладони вместе', 'Поклон', 'Касание сердца', 'Прижать к груди'],
+        safety: ['Скрестить руки', 'Обнять колени', 'Спина к стене', 'Закрыть глаза'],
+        joy: ['Улыбнуться широко', 'Взмах руками', 'Потянуться', 'Танцевальный жест'],
+        grounding: ['Ступни в пол', 'Ладони на колени', 'Медленный шаг', 'Потрогать предмет'],
+        action: ['Хлопок', 'Щелчок пальцами', 'Старт-поза', 'Удар кулаком в ладонь']
+    },
+    visual: {
+        _default: ['Представить щит света', 'Образ огня', 'Любимое место', 'Символ силы'],
+        calm: ['Океан на закате', 'Тихий свет', 'Спокойное небо', 'Снежный лес'],
+        confidence: ['Щит света', 'Образ героя', 'Золотой столб', 'Лев'],
+        focus: ['Луч света', 'Лазерная точка', 'Туннель', 'Цель в прицеле'],
+        energy: ['Пламя', 'Молния', 'Восход солнца', 'Волна'],
+        love: ['Сердце-свет', 'Объятие', 'Тёплый огонь', 'Цветы'],
+        gratitude: ['Свет в груди', 'Букет', 'Улыбка близкого', 'Солнечный луч'],
+        safety: ['Дом', 'Кокон света', 'Купол', 'Ангел-хранитель'],
+        joy: ['Солнце', 'Радуга', 'Детский смех', 'Фейерверк'],
+        grounding: ['Дерево с корнями', 'Горы', 'Якорь', 'Камень'],
+        action: ['Стрела', 'Ракета взлетает', 'Дверь открывается', 'Финишная лента']
+    }
+};
 let reimprintingStep = 0;
 let reimprintingData = {};
 let diagnosticAnswers = {};
@@ -401,6 +492,33 @@ let selectedStimuli = [];
 function _anEscapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function _anShowAILoader(title = 'AI создаёт инструкцию', subtitle = 'Это может занять 15-45 секунд. Не закрывайте страницу.') {
+    let el = document.getElementById('an-ai-loader');
+    if (el) {
+        el.querySelector('.an-ai-loader-title').textContent = '🧠 ' + title;
+        el.querySelector('.an-ai-loader-sub').textContent = subtitle;
+        el.style.display = 'flex';
+        return;
+    }
+    el = document.createElement('div');
+    el.id = 'an-ai-loader';
+    el.className = 'an-ai-loader-overlay';
+    el.innerHTML = `
+        <div class="an-ai-loader-box">
+            <div class="an-ai-loader-spinner"></div>
+            <div class="an-ai-loader-title">🧠 ${_anEscapeHtml(title)}</div>
+            <div class="an-ai-loader-sub">${_anEscapeHtml(subtitle)}</div>
+            <div class="an-ai-loader-dots"><span></span><span></span><span></span></div>
+        </div>
+    `;
+    document.body.appendChild(el);
+}
+
+function _anHideAILoader() {
+    const el = document.getElementById('an-ai-loader');
+    if (el) el.remove();
 }
 
 function _anShowToast(msg, type = 'success') {
@@ -494,11 +612,120 @@ function getRecommendedState(combinationKey) {
 // ============================================
 
 async function generatePersonalizedRecommendation(combo, vectors, situationType = 'self') {
-    const situation = ANCHORS_CONFIG.situations[situationType]?.scenarios || {};
-    const actionTemplate = combo.actions?.[situationType] || combo.actions?.self;
-    
-    if (!actionTemplate) return null;
-    
+    const situationName = ANCHORS_CONFIG.situations[situationType]?.name || 'повседневной жизни';
+    const stateName = ANCHORS_CONFIG.states[getRecommendedState(combo.key)]?.name || 'спокойствие';
+
+    try {
+        const prompt = `Ты — психолог-эксперт по НЛП и ресурсным состояниям.
+
+У пользователя диагностирована проблема: "${combo.name}"
+Описание: ${combo.description}
+
+Его психологические векторы (по шкале 1-6, где 1-2 низкий, 3-4 средний, 5-6 высокий):
+- СБ (Самооценка/Безопасность): ${vectors.СБ}/6
+- ТФ (Тревожность/Финансы): ${vectors.ТФ}/6
+- УБ (Убеждения/Мышление): ${vectors.УБ}/6
+- ЧВ (Чувствительность/Отношения): ${vectors.ЧВ}/6
+
+Актуальная ситуация: ${situationName}
+
+Создай ПЕРСОНАЛЬНУЮ рекомендацию для этого пользователя.
+
+Требования:
+1. Конкретное действие на ЗАВТРА (выполнимое за 5-10 минут, без специальных условий)
+2. Триггер-фраза (короткая фраза от первого лица, 3-7 слов)
+3. Аффирмация (вдохновляющая фраза от первого лица, 10-15 слов)
+4. Рекомендуемое состояние (ОДНО из: calm, confidence, safety, grounding, action, love)
+
+Учитывай значения векторов:
+- Если СБ низкий (1-2) — добавь поддержку самооценки
+- Если ТФ низкий (1-2) — добавь про деньги и контроль
+- Если УБ высокий (5-6) — используй логические аргументы
+- Если ЧВ низкий (1-2) — добавь про эмоции и чувства
+
+Верни ТОЛЬКО JSON без пояснений:
+{
+    "action": "...",
+    "trigger": "...",
+    "affirmation": "...",
+    "state": "..."
+}`;
+
+        const response = await apiCall('/api/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: CONFIG.USER_ID,
+                prompt: prompt,
+                max_tokens: 500,
+                temperature: 0.8
+            })
+        });
+
+        if (response.success && response.content) {
+            const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const aiData = JSON.parse(jsonMatch[0]);
+                console.log('🤖 AI-рекомендация сгенерирована:', aiData);
+
+                return {
+                    id: combo.key,
+                    name: combo.name,
+                    icon: combo.icon,
+                    description: combo.description,
+                    severity: getSeverityLevel(vectors),
+                    situation: situationType,
+                    state: aiData.state || getRecommendedState(combo.key),
+                    trigger: aiData.trigger,
+                    affirmation: aiData.affirmation,
+                    action: aiData.action,
+                    phrase: aiData.affirmation
+                };
+            }
+        }
+        throw new Error('AI не вернул JSON');
+
+    } catch (error) {
+        console.warn('AI-генерация не удалась, используем fallback:', error);
+        return getFallbackRecommendation(combo, vectors, situationType);
+    }
+}
+
+function getFallbackRecommendation(combo, vectors, situationType = 'self') {
+    const fallbacks = {
+        'conflict_avoidance': {
+            action: 'Завтра в конфликтной ситуации сделай паузу на 3 секунды, глубоко вдохни и скажи: «Мне нужно 10 секунд, чтобы подумать»',
+            trigger: 'Я выбираю свою реакцию',
+            affirmation: 'Мои чувства имеют значение, я могу их выражать, не разрушая отношения',
+            state: 'safety'
+        },
+        'financial_chaos': {
+            action: 'Завтра запиши ВСЕ свои траты в блокнот или телефон. Просто записывай, без осуждения',
+            trigger: 'Я вижу свои деньги',
+            affirmation: 'Каждая записанная копейка — это шаг к финансовой свободе',
+            state: 'grounding'
+        },
+        'analytical_coldness': {
+            action: 'Завтра в разговоре задай собеседнику 3 вопроса о чувствах: «Как ты? Что чувствуешь? Что для тебя важно?»',
+            trigger: 'Я замечаю эмоции',
+            affirmation: 'Я учусь чувствовать — это делает меня сильнее, а не слабее',
+            state: 'love'
+        },
+        'burnout': {
+            action: 'Завтра сделай самое нелюбимое дело ровно 5 минут. Поставь таймер и остановись, когда прозвенит',
+            trigger: 'Всего 5 минут',
+            affirmation: 'Я могу сделать что угодно, если это всего на 5 минут',
+            state: 'calm'
+        },
+        'leader_empath': {
+            action: 'Завтра перед важным решением спроси команду: «А как вы видите эту ситуацию?»',
+            trigger: 'Я слышу и веду',
+            affirmation: 'Моя сила — в умении слушать и вдохновлять',
+            state: 'action'
+        }
+    };
+
+    const fb = fallbacks[combo.key] || fallbacks['conflict_avoidance'];
+
     return {
         id: combo.key,
         name: combo.name,
@@ -506,15 +733,11 @@ async function generatePersonalizedRecommendation(combo, vectors, situationType 
         description: combo.description,
         severity: getSeverityLevel(vectors),
         situation: situationType,
-        action: {
-            title: actionTemplate.title,
-            description: actionTemplate.description,
-            trigger: actionTemplate.trigger
-        },
-        affirmation: actionTemplate.phrase,
-        phrase: actionTemplate.phrase,
-        state: getRecommendedState(combo.key),
-        trigger: actionTemplate.trigger
+        state: fb.state,
+        trigger: fb.trigger,
+        affirmation: fb.affirmation,
+        action: fb.action,
+        phrase: fb.affirmation
     };
 }
 
@@ -587,26 +810,46 @@ function getFallbackRecommendations() {
 // ПОЛУЧЕНИЕ РЕКОМЕНДАЦИЙ НА ОСНОВЕ ПРОФИЛЯ
 // ============================================
 
-async function getProfileBasedRecommendations() {
+async function getProfileBasedRecommendations({ forceRefresh = false } = {}) {
     try {
         const status = await getUserStatus();
-        if (!status.has_profile) return getFallbackRecommendations();
-        
-        const vectors = status.vectors || {};
-        const combinations = analyzeVectorCombinations(vectors);
-        
-        if (combinations.length === 0) {
-            const strengthening = getStrengtheningRecommendations(vectors);
-            if (strengthening.length > 0) return strengthening;
+        if (!status.has_profile) {
+            console.log('Нет профиля, возвращаем fallback-рекомендации');
             return getFallbackRecommendations();
         }
-        
+
+        const vectors = status.vectors || {};
+
+        if (!forceRefresh) {
+            const cached = _anGetCachedRecommendations(vectors);
+            if (cached && cached.length) {
+                console.log(`✅ Рекомендации из кеша (${cached.length} шт.)`);
+                return cached;
+            }
+        }
+
+        const combinations = analyzeVectorCombinations(vectors);
+
+        console.log('Найдены комбинации векторов:', combinations.map(c => c.name));
+
+        if (combinations.length === 0) {
+            console.log('Нет проблемных комбинаций, проверяем сильные стороны');
+            const strengthening = getStrengtheningRecommendations(vectors);
+            if (strengthening.length > 0) {
+                _anSetCachedRecommendations(vectors, strengthening);
+                return strengthening;
+            }
+            return getFallbackRecommendations();
+        }
+
         const recommendations = [];
-        
+
         for (const combo of combinations) {
             const situationType = detectSituationType(vectors, combo);
+            console.log(`Генерируем рекомендацию для ${combo.name} (ситуация: ${situationType})`);
+
             const rec = await generatePersonalizedRecommendation(combo, vectors, situationType);
-            
+
             if (rec) {
                 recommendations.push({
                     id: rec.id,
@@ -614,19 +857,21 @@ async function getProfileBasedRecommendations() {
                     description: rec.description,
                     icon: rec.icon,
                     state: rec.state,
-                    trigger: rec.action.trigger,
+                    trigger: rec.trigger,
                     phrase: rec.phrase,
                     affirmation: rec.affirmation,
-                    action: rec.action.description,
+                    action: rec.action,
                     severity: rec.severity
                 });
             }
         }
-        
+
+        console.log(`Сгенерировано ${recommendations.length} рекомендаций`);
+        if (recommendations.length) _anSetCachedRecommendations(vectors, recommendations);
         return recommendations;
-        
+
     } catch (e) {
-        console.warn('Failed to get recommendations:', e);
+        console.error('Ошибка в getProfileBasedRecommendations:', e);
         return getFallbackRecommendations();
     }
 }
@@ -745,10 +990,32 @@ async function startGuidedActivation(anchor) {
 // ГЕНЕРАЦИЯ PDF ИНСТРУКЦИИ
 // ============================================
 
+function _anParseSteps(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(x => x != null && String(x).trim() !== '');
+    if (typeof raw === 'object') {
+        if (Array.isArray(raw.steps)) return raw.steps;
+        return [];
+    }
+    if (typeof raw !== 'string') return [];
+    const s = raw.trim();
+    if (!s || s === '[]' || s === 'null' || s === 'undefined') return [];
+    try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed.filter(x => x != null && String(x).trim() !== '');
+        if (parsed && Array.isArray(parsed.steps)) return parsed.steps;
+    } catch (e) {
+        // Бэкенд мог отдать строку с переносами — парсим построчно
+    }
+    return s.split(/\r?\n+/).map(x => x.replace(/^[\s\-\*\d\.\)]+/, '').trim()).filter(Boolean);
+}
+
 async function generateInstructionPDF(anchor) {
     const state = ANCHORS_CONFIG.states[anchor.state];
     const userName = localStorage.getItem('fredi_user_name') || 'Пользователь';
     const today = new Date().toLocaleDateString('ru-RU');
+    const parsedSteps = _anParseSteps(anchor.instruction_steps);
+    console.log('📄 PDF steps:', parsedSteps.length, '| raw type:', typeof anchor.instruction_steps);
     
     let stimuliHtml = '';
     if (anchor.recommended_stimuli) {
@@ -812,21 +1079,16 @@ async function generateInstructionPDF(anchor) {
             
             <div class="section">
                 <div class="section-title">📋 ПОШАГОВАЯ ИНСТРУКЦИЯ</div>
-                ${anchor.instruction_steps ? (() => {
-                    try {
-                        const steps = JSON.parse(anchor.instruction_steps);
-                        return steps.map((step, i) => `
-                            <div class="step">
-                                <span class="step-num">${i+1}</span>
-                                <span>${step}</span>
-                            </div>
-                        `).join('');
-                    } catch(e) { return ''; }
-                })() : `
+                ${parsedSteps.length ? parsedSteps.map((step, i) => `
+                    <div class="step">
+                        <span class="step-num">${i+1}</span>
+                        <span>${_anEscapeHtml(String(step))}</span>
+                    </div>
+                `).join('') : `
                     <div class="step"><span class="step-num">1</span> Найдите спокойное место, где вас никто не побеспокоит</div>
-                    <div class="step"><span class="step-num">2</span> Вспомните ситуацию, когда вы чувствовали ${state?.name.toLowerCase()}</div>
+                    <div class="step"><span class="step-num">2</span> Вспомните ситуацию, когда вы чувствовали ${state?.name?.toLowerCase() || anchor.state}</div>
                     <div class="step"><span class="step-num">3</span> Доведите это ощущение до пика (30-60 секунд)</div>
-                    <div class="step"><span class="step-num">4</span> В момент пика скажите/сделайте: <strong>«${anchor.trigger || anchor.phrase}»</strong></div>
+                    <div class="step"><span class="step-num">4</span> В момент пика скажите/сделайте: <strong>«${_anEscapeHtml(anchor.trigger || anchor.phrase || '')}»</strong></div>
                     <div class="step"><span class="step-num">5</span> Сбросьте состояние (встаньте, отвлекитесь)</div>
                     <div class="step"><span class="step-num">6</span> Повторите шаги 2-5 ещё 4-5 раз для закрепления</div>
                 `}
@@ -1289,6 +1551,21 @@ async function showAnchorsScreen() {
             tab.classList.add('active');
         });
     });
+
+    const suggestionsBox = document.getElementById('triggerSuggestions');
+    if (suggestionsBox) {
+        suggestionsBox.addEventListener('click', (e) => {
+            const chip = e.target.closest('.trigger-chip');
+            if (!chip) return;
+            window.anchorWizardPickTrigger(chip.dataset.trigger);
+            suggestionsBox.querySelectorAll('.trigger-chip').forEach(c => {
+                c.style.background = 'rgba(255,107,59,0.1)';
+                c.style.fontWeight = 'normal';
+            });
+            chip.style.background = 'rgba(255,107,59,0.3)';
+            chip.style.fontWeight = '600';
+        });
+    }
 }
 
 // ============================================
@@ -1363,10 +1640,13 @@ function showInstructionDetail(anchorId) {
     if (!anchor) return;
     
     const state = ANCHORS_CONFIG.states[anchor.state];
-    let steps = [];
-    try { steps = JSON.parse(anchor.instruction_steps || '[]'); } catch(e) {}
+    const steps = _anParseSteps(anchor.instruction_steps);
     let stimuli = [];
-    try { stimuli = JSON.parse(anchor.recommended_stimuli || '[]'); } catch(e) {}
+    if (Array.isArray(anchor.recommended_stimuli)) {
+        stimuli = anchor.recommended_stimuli;
+    } else {
+        try { stimuli = JSON.parse(anchor.recommended_stimuli || '[]'); } catch(e) {}
+    }
     
     const container = document.getElementById('screenContainer');
     if (!container) return;
@@ -1431,67 +1711,203 @@ function startGuidedActivationFromAnchor(anchorId) {
 // РЕНДЕР ПОДБОРА (ВАУ-ЭФФЕКТ!)
 // ============================================
 
-async function renderAdvancedRecommendations() {
-    const recommendations = await getProfileBasedRecommendations();
-    
+function _anRenderRecsLoader() {
+    return `
+        <div class="an-rec-loader">
+            <div class="an-spinner"></div>
+            <div class="an-rec-loader-title">🧠 AI анализирует ваш профиль…</div>
+            <div class="an-rec-loader-sub">Подбираем персональные рекомендации под ваши векторы. Это может занять до 30 секунд.</div>
+            <div class="an-rec-skeleton">
+                <div class="an-skel-card"></div>
+                <div class="an-skel-card"></div>
+                <div class="an-skel-card"></div>
+            </div>
+        </div>
+    `;
+}
+
+function _anRenderRecsCards(recommendations, { fromCache = false } = {}) {
     if (!recommendations.length) {
         return `
             <div style="text-align: center; padding: 60px 20px;">
                 <div style="font-size: 64px; margin-bottom: 16px;">🎲</div>
-                <h3>Нет персональных рекомендаций</h3>
+                <h3 style="color:var(--text-primary);">Нет персональных рекомендаций</h3>
                 <p style="color: var(--text-secondary);">Пройдите психологический тест, чтобы получить инструкции под ваш профиль</p>
-                <button class="action-btn" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px; background: #ff6b3b; border: none; border-radius: 30px; color: white; cursor: pointer;">📊 Пройти тест</button>
+                <button class="action-btn" onclick="startTest()" style="padding: 12px 24px; margin-top: 16px; background: #ff6b3b; border: none; border-radius: 30px; color: #fff; cursor: pointer;">📊 Пройти тест</button>
             </div>
         `;
     }
-    
+
     let html = `
-        <div class="recommendations-header" style="text-align:center;margin-bottom:24px;">
-            <div style="display:inline-block;font-size:10px;background:rgba(255,107,59,0.2);padding:4px 12px;border-radius:20px;color:#ff6b3b;margin-bottom:12px;">🧠 AI-АНАЛИЗ</div>
-            <div style="font-size:22px;font-weight:700;color:white;margin-bottom:8px;">Ваш персональный план развития</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.4);">На основе анализа ваших психологических векторов</div>
+        <div class="an-recs-header">
+            <div class="an-recs-badge">🧠 AI-АНАЛИЗ${fromCache ? ' · ИЗ КЕША' : ''}</div>
+            <div class="an-recs-title">Ваш персональный план развития</div>
+            <div class="an-recs-sub">На основе анализа ваших психологических векторов</div>
         </div>
     `;
-    
+
     for (const rec of recommendations) {
-        const severityColor = rec.severity === 'critical' ? '#ff4444' : rec.severity === 'moderate' ? '#ffaa44' : rec.severity === 'strength' ? '#44aa44' : '#44aa44';
+        const severityColor = rec.severity === 'critical' ? '#ff4444' : rec.severity === 'moderate' ? '#ffaa44' : '#44aa44';
         const severityText = rec.severity === 'critical' ? '🔴 КРИТИЧЕСКИ ВАЖНО' : rec.severity === 'moderate' ? '🟡 РЕКОМЕНДУЕТСЯ' : rec.severity === 'strength' ? '🟢 ВАША СИЛА' : '🟢 ДЛЯ РОСТА';
-        
+
         html += `
-            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-left:4px solid ${severityColor};border-radius:20px;padding:20px;margin-bottom:16px;transition:all0.3s ease;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div class="an-rec-card" style="border-left-color:${severityColor};">
+                <div class="an-rec-row">
                     <div style="font-size:32px;">${rec.icon || '🎯'}</div>
-                    <div style="font-size:10px;padding:4px 10px;border-radius:20px;font-weight:600;background:${severityColor}20;color:${severityColor};">${severityText}</div>
+                    <div class="an-rec-severity" style="background:${severityColor}20;color:${severityColor};">${severityText}</div>
                 </div>
-                <div style="font-size:18px;font-weight:700;color:white;margin-bottom:8px;">${rec.name}</div>
-                <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:16px;line-height:1.5;">${rec.description}</div>
-                
-                <div style="display:flex;gap:12px;margin-bottom:16px;padding:12px;background:rgba(255,255,255,0.02);border-radius:12px;">
+                <div class="an-rec-name">${_anEscapeHtml(rec.name)}</div>
+                <div class="an-rec-desc">${_anEscapeHtml(rec.description)}</div>
+
+                <div class="an-rec-block">
                     <div style="font-size:20px;flex-shrink:0;">🎯</div>
                     <div style="flex:1;">
-                        <div style="font-size:10px;color:#ff6b3b;text-transform:uppercase;margin-bottom:6px;">Конкретное действие на завтра</div>
-                        <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.5;margin-bottom:6px;">${rec.action || rec.description}</div>
-                        <div style="font-size:11px;color:rgba(255,255,255,0.4);">⚡ Триггер: ${rec.trigger}</div>
+                        <div class="an-rec-block-label">Конкретное действие на завтра</div>
+                        <div class="an-rec-block-text">${_anEscapeHtml(rec.action || rec.description)}</div>
+                        <div class="an-rec-block-hint">⚡ Триггер: ${_anEscapeHtml(rec.trigger)}</div>
                     </div>
                 </div>
-                
-                <div style="display:flex;gap:12px;margin-bottom:16px;padding:12px;background:rgba(255,255,255,0.02);border-radius:12px;">
+
+                <div class="an-rec-block">
                     <div style="font-size:20px;flex-shrink:0;">💭</div>
                     <div style="flex:1;">
-                        <div style="font-size:10px;color:#ff6b3b;text-transform:uppercase;margin-bottom:6px;">Персональная аффирмация</div>
-                        <div style="font-size:14px;color:#ff6b3b;font-style:italic;line-height:1.5;">«${rec.affirmation || rec.phrase}»</div>
+                        <div class="an-rec-block-label">Персональная аффирмация</div>
+                        <div class="an-rec-affirm">«${_anEscapeHtml(rec.affirmation || rec.phrase)}»</div>
                     </div>
                 </div>
-                
+
                 <div style="display:flex;gap:10px;margin-top:16px;">
-                    <button class="create-btn" onclick="quickCreateAnchorFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}', '${(rec.phrase || rec.affirmation || '').replace(/'/g, "\\'")}')" style="flex:1;padding:10px;border-radius:30px;font-size:12px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#ff6b3b,#ff3b3b);border:none;color:white;">✨ Создать инструкцию</button>
-                    <button class="guide-btn" onclick="startGuidedFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}')" style="flex:1;padding:10px;border-radius:30px;font-size:12px;font-weight:600;cursor:pointer;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.8);">🎧 Guided-медитация</button>
+                    <button class="an-btn-cta" onclick="quickCreateAnchorFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}', '${(rec.phrase || rec.affirmation || '').replace(/'/g, "\\'")}')">✨ Создать инструкцию</button>
+                    <button class="an-btn-ghost" onclick="startGuidedFromRecommendation('${rec.state}', '${rec.name.replace(/'/g, "\\'")}', '${rec.trigger.replace(/'/g, "\\'")}')">🎧 Guided-медитация</button>
                 </div>
             </div>
         `;
     }
-    
+
+    html += `
+        <div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;">
+            <button class="an-btn-primary-wide" onclick="createAllRecommendations()">
+                ⚡ Создать все инструкции сразу (${recommendations.length})
+            </button>
+            <button class="an-btn-refresh" onclick="refreshRecommendations()" title="Пересоздать рекомендации через AI">
+                🔄 Обновить
+            </button>
+        </div>
+    `;
+
     return html;
+}
+
+async function renderAdvancedRecommendations({ forceRefresh = false } = {}) {
+    try {
+        const status = await getUserStatus();
+        if (status?.has_profile && status.vectors && !forceRefresh) {
+            const cached = _anGetCachedRecommendations(status.vectors);
+            if (cached && cached.length) {
+                return _anRenderRecsCards(cached, { fromCache: true });
+            }
+        }
+    } catch (e) { /* noop */ }
+
+    setTimeout(async () => {
+        try {
+            const recommendations = await getProfileBasedRecommendations({ forceRefresh });
+            const body = document.getElementById('anBody');
+            if (!body) return;
+            if (currentAnchorView !== 'recommend') return;
+            body.innerHTML = _anRenderRecsCards(recommendations, { fromCache: false });
+        } catch (err) {
+            console.error('renderAdvancedRecommendations async error:', err);
+            const body = document.getElementById('anBody');
+            if (body && currentAnchorView === 'recommend') {
+                body.innerHTML = _anRenderRecsCards(getFallbackRecommendations(), { fromCache: false });
+            }
+        }
+    }, 0);
+
+    return _anRenderRecsLoader();
+}
+
+window.refreshRecommendations = async () => {
+    _anClearRecommendationsCache();
+    const body = document.getElementById('anBody');
+    if (body) body.innerHTML = _anRenderRecsLoader();
+    try {
+        const recommendations = await getProfileBasedRecommendations({ forceRefresh: true });
+        if (body && currentAnchorView === 'recommend') {
+            body.innerHTML = _anRenderRecsCards(recommendations, { fromCache: false });
+        }
+    } catch (err) {
+        console.error('refreshRecommendations error:', err);
+        if (body && currentAnchorView === 'recommend') {
+            body.innerHTML = _anRenderRecsCards(getFallbackRecommendations(), { fromCache: false });
+        }
+    }
+};
+
+async function createAllRecommendations() {
+    console.log('📦 Создание всех рекомендаций...');
+    _anShowAILoader('AI создаёт все инструкции', 'Собираем шаги и сохраняем по одному якорю. Это займёт 30-60 секунд.');
+
+    const recommendations = await getProfileBasedRecommendations();
+
+    if (!recommendations.length) {
+        _anHideAILoader();
+        _anShowToast('❌ Нет рекомендаций для создания', 'error');
+        return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const rec of recommendations) {
+        const steps = [
+            `Найдите спокойное место, где вас никто не побеспокоит`,
+            `Сделайте 3 глубоких вдоха и выдоха`,
+            rec.action || `Сделайте: ${rec.trigger}`,
+            `В момент, когда почувствуете нужное состояние, активируйте триггер: "${rec.trigger}"`,
+            `Скажите про себя аффирмацию: «${rec.affirmation || rec.phrase}»`,
+            `Сбросьте состояние (встаньте, отвлекитесь)`,
+            `Повторите 3-5 раз для закрепления`,
+            `Проверьте: активируйте триггер — должно приходить состояние`
+        ];
+
+        const anchorToSave = {
+            user_id: CONFIG.USER_ID,
+            name: rec.name,
+            state: rec.state,
+            source: 'ai_recommendation',
+            source_detail: rec.id,
+            modality: 'auditory',
+            trigger: rec.trigger,
+            phrase: rec.affirmation || rec.phrase,
+            icon: rec.icon || '🎯',
+            state_icon: ANCHORS_CONFIG.states[rec.state]?.icon || '😌',
+            state_name: ANCHORS_CONFIG.states[rec.state]?.name || rec.state,
+            instruction_steps: JSON.stringify(steps)
+        };
+
+        const success = await saveAnchor(anchorToSave);
+        if (success) {
+            successCount++;
+            console.log(`✅ Создана инструкция: ${rec.name}`);
+        } else {
+            failCount++;
+            console.error(`❌ Ошибка создания: ${rec.name}`);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    _anHideAILoader();
+    if (successCount > 0) {
+        _anShowToast(`✅ Создано ${successCount} инструкций${failCount > 0 ? `, ${failCount} ошибок` : ''}`, successCount === recommendations.length ? 'success' : 'info');
+        await loadUserAnchors();
+        currentAnchorView = 'list';
+        showAnchorsScreen();
+    } else {
+        _anShowToast('❌ Не удалось создать инструкции', 'error');
+    }
 }
 
 // ============================================
@@ -1588,6 +2004,14 @@ function renderAnchorWizard() {
     
     // Шаг 2: выбор триггера (ИСПРАВЛЕНО - сохраняем в data)
     if (step === 2) {
+        const modality = data.modality || 'auditory';
+        const state = data.state;
+        const modalitySuggestions = TRIGGER_SUGGESTIONS[modality] || {};
+        const suggestions = modalitySuggestions[state] || modalitySuggestions._default || [];
+        const suggestionsHtml = suggestions.map(s => {
+            const safe = _anEscapeHtml(s);
+            return `<button type="button" class="trigger-chip" data-trigger="${safe}" style="background:rgba(255,107,59,0.1);border:1px solid rgba(255,107,59,0.3);border-radius:20px;padding:8px 14px;color:#ff6b3b;cursor:pointer;font-size:13px;">${safe}</button>`;
+        }).join('');
         return `
             <div class="wizard-step" style="background:rgba(224,224,224,0.05);border-radius:20px;padding:24px;margin-top:20px;">
                 <h3>➕ Создание инструкции</h3>
@@ -1612,8 +2036,14 @@ function renderAnchorWizard() {
                         </div>
                     </div>
                 </div>
+                ${suggestions.length ? `
+                <div style="margin-top: 16px;">
+                    <label style="display: block; margin-bottom: 8px; font-size:13px; color: var(--text-secondary);">Предложенные варианты (нажмите, чтобы выбрать):</label>
+                    <div id="triggerSuggestions" style="display:flex;flex-wrap:wrap;gap:8px;">${suggestionsHtml}</div>
+                </div>
+                ` : ''}
                 <div style="margin-top: 20px;">
-                    <label style="display: block; margin-bottom: 8px;">Введите ваш триггер:</label>
+                    <label style="display: block; margin-bottom: 8px;">Или введите свой триггер:</label>
                     <input type="text" id="triggerInput" placeholder="Например: «Я спокоен» или сжать кулак" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.2); color: white; box-sizing:border-box;" value="${_anEscapeHtml(data.trigger || '')}">
                 </div>
                 <button class="anchor-btn fire-btn" style="margin-top: 20px; width: 100%; padding:12px; background:#ff6b3b; border:none; border-radius:30px; color:white; cursor:pointer;" onclick="anchorWizardSaveTrigger()">Далее →</button>
@@ -1718,6 +2148,14 @@ window.anchorWizardSelectModality = (modality) => {
     showAnchorsScreen();
 };
 
+window.anchorWizardPickTrigger = (text) => {
+    if (!text) return;
+    anchorWizardData.trigger = text;
+    const input = document.getElementById('triggerInput');
+    if (input) input.value = text;
+    console.log('✅ Триггер выбран из предложенных:', text);
+};
+
 window.anchorWizardNext = () => {
     const sourceDetail = document.getElementById('sourceDetail');
     if (sourceDetail) {
@@ -1746,34 +2184,197 @@ window.anchorWizardComplete = async () => {
     if (nameInput && nameInput.value.trim()) {
         anchorWizardData.name = nameInput.value.trim();
     }
-    
+
     if (!anchorWizardData.name) {
         anchorWizardData.name = `${ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state} (${ANCHORS_CONFIG.sources[anchorWizardData.source]?.name || anchorWizardData.source})`;
     }
-    
+
     if (!anchorWizardData.trigger?.trim()) {
         _anShowToast('❌ Не указан триггер. Вернитесь на шаг 2', 'error');
         anchorWizardStep = 2;
         showAnchorsScreen();
         return;
     }
-    
+
     const customStimulus = document.getElementById('customStimulus')?.value.trim();
     if (customStimulus) {
         selectedStimuli.push(customStimulus);
     }
-    
-    const steps = [
-        `Найдите спокойное место, где вас никто не побеспокоит`,
-        `Сделайте 3 глубоких вдоха и выдоха`,
-        `Вспомните ситуацию, когда вы чувствовали ${ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state}`,
-        `Доведите это ощущение до пика (30-60 секунд)`,
-        `В момент пика сделайте триггер: "${anchorWizardData.trigger}"`,
-        `Сбросьте состояние (встаньте, отвлекитесь)`,
-        `Повторите шаги 3-6 ещё 4-5 раз для закрепления`,
-        `Проверьте: активируйте триггер — должно приходить состояние`
-    ];
-    
+
+    // Блокируем кнопку сохранения и показываем оверлей
+    _anShowAILoader('AI составляет вашу инструкцию', 'Анализ источника, подбор шагов и закрепление триггера. Обычно 15-40 секунд.');
+
+    // ========== AI-ГЕНЕРАЦИЯ ИНСТРУКЦИИ ==========
+    let steps = [];
+    let instructionDescription = '';
+
+    try {
+        let prompt = '';
+        const userName = localStorage.getItem('fredi_user_name') || 'Пользователь';
+        const stateName = ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state;
+
+        switch (anchorWizardData.source) {
+            case 'movie':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе фильма.
+
+ИНФОРМАЦИЯ:
+- Фильм/сцена: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Каждый шаг — одно предложение
+3. Укажи конкретный момент в фильме (временную метку или описание сцены)
+4. Объясни, как войти в состояние
+5. Объясни, когда именно активировать триггер (в момент пика)
+6. Добавь шаг на сброс состояния
+7. Добавь шаг на проверку якоря
+8. Пиши на русском, обращайся на "ты"
+9. Не используй эмодзи, только текст
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            case 'music':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе музыки.
+
+ИНФОРМАЦИЯ:
+- Трек: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Укажи, что лучше использовать наушники
+3. Укажи момент трека, где наступает пик эмоций
+4. Объясни, когда именно активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            case 'metaphor':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе метафоры.
+
+ИНФОРМАЦИЯ:
+- Метафора: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Опиши, как визуализировать метафору
+3. Добавь работу с телом (ощущения)
+4. Объясни, когда активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            case 'body':
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе телесной практики.
+
+ИНФОРМАЦИЯ:
+- Практика: ${anchorWizardData.sourceDetail}
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Опиши конкретные движения или позы
+3. Объясни, какие ощущения должны возникнуть
+4. Объясни, когда активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+
+            default:
+                prompt = `Ты — эксперт по НЛП-якорям. Напиши пошаговую инструкцию для установки якоря на основе личного воспоминания.
+
+ИНФОРМАЦИЯ:
+- Целевое состояние: ${stateName}
+- Триггер (якорь): "${anchorWizardData.trigger}"
+- Имя пользователя: ${userName}
+
+ТРЕБОВАНИЯ К ИНСТРУКЦИИ:
+1. Напиши 7-8 шагов
+2. Объясни, как найти подходящее воспоминание
+3. Объясни, как усилить ощущение до пика
+4. Объясни, когда активировать триггер
+5. Добавь шаг на сброс состояния
+6. Добавь шаг на проверку якоря
+7. Пиши на русском, обращайся на "ты"
+
+ФОРМАТ ОТВЕТА (только JSON):
+{
+    "steps": ["шаг 1", "шаг 2", "шаг 3", "шаг 4", "шаг 5", "шаг 6", "шаг 7", "шаг 8"]
+}`;
+                break;
+        }
+
+        const response = await apiCall('/api/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: CONFIG.USER_ID,
+                prompt: prompt,
+                max_tokens: 800,
+                temperature: 0.8
+            })
+        });
+
+        if (response.success && response.content) {
+            const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const data = JSON.parse(jsonMatch[0]);
+                steps = data.steps;
+                instructionDescription = data.description || '';
+                console.log('✅ AI-инструкция сгенерирована', steps);
+            } else {
+                throw new Error('No JSON in response');
+            }
+        } else {
+            throw new Error('AI generation failed');
+        }
+
+    } catch (error) {
+        console.warn('AI generation failed, using fallback:', error);
+        const stateName = ANCHORS_CONFIG.states[anchorWizardData.state]?.name || anchorWizardData.state;
+        steps = [
+            `Найдите спокойное место, где вас никто не побеспокоит`,
+            `Сделайте 3 глубоких вдоха и выдоха`,
+            `Вспомните ситуацию, когда вы чувствовали ${stateName}`,
+            `Доведите это ощущение до пика (30-60 секунд)`,
+            `В момент пика сделайте триггер: "${anchorWizardData.trigger}"`,
+            `Сбросьте состояние (встаньте, отвлекитесь)`,
+            `Повторите шаги 3-6 ещё 4-5 раз для закрепления`,
+            `Проверьте: активируйте триггер — должно приходить состояние`
+        ];
+    }
+
     const anchorToSave = {
         user_id: CONFIG.USER_ID,
         name: anchorWizardData.name,
@@ -1789,8 +2390,9 @@ window.anchorWizardComplete = async () => {
         instruction_steps: JSON.stringify(steps),
         recommended_stimuli: JSON.stringify(selectedStimuli)
     };
-    
+
     const success = await saveAnchor(anchorToSave);
+    _anHideAILoader();
     if (success) {
         _anShowToast('✅ Инструкция успешно создана!', 'success');
         _anPlayBeep();
@@ -1943,6 +2545,8 @@ window.quickCreateAnchor = async (state, name, trigger, phrase) => {
         _anShowToast('❌ Ошибка создания', 'error');
     }
 };
+
+window.createAllRecommendations = createAllRecommendations;
 
 window.quickCreateAnchorFromRecommendation = async (state, name, trigger, phrase) => {
     await window.quickCreateAnchor(state, name, trigger, phrase);
@@ -2117,6 +2721,170 @@ function _anInjectStyles() {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.2); }
         }
+
+        /* ===== ПОДБОР: лоадер и карточки (theme-aware) ===== */
+        @keyframes an-spin { to { transform: rotate(360deg); } }
+        @keyframes an-skel-shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .an-rec-loader {
+            display: flex; flex-direction: column; align-items: center; padding: 40px 20px;
+            text-align: center;
+        }
+        .an-spinner {
+            width: 56px; height: 56px;
+            border: 4px solid rgba(127,127,127,0.18);
+            border-top-color: #ff6b3b;
+            border-radius: 50%;
+            animation: an-spin 0.9s linear infinite;
+            margin-bottom: 18px;
+        }
+        .an-rec-loader-title {
+            font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;
+        }
+        .an-rec-loader-sub {
+            font-size: 13px; color: var(--text-secondary); max-width: 360px; line-height: 1.5; margin-bottom: 24px;
+        }
+        .an-rec-skeleton { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 12px; }
+        .an-skel-card {
+            height: 96px; border-radius: 18px;
+            background: linear-gradient(90deg,
+                rgba(127,127,127,0.08) 0%,
+                rgba(127,127,127,0.18) 50%,
+                rgba(127,127,127,0.08) 100%);
+            background-size: 200% 100%;
+            animation: an-skel-shimmer 1.4s ease-in-out infinite;
+            border: 1px solid rgba(127,127,127,0.08);
+        }
+
+        .an-recs-header { text-align:center; margin-bottom:24px; }
+        .an-recs-badge {
+            display:inline-block; font-size:10px;
+            background:rgba(255,107,59,0.18); color:#ff6b3b;
+            padding:4px 12px; border-radius:20px; margin-bottom:12px; font-weight: 600;
+        }
+        .an-recs-title { font-size:22px; font-weight:700; color: var(--text-primary); margin-bottom:8px; }
+        .an-recs-sub { font-size:12px; color: var(--text-secondary); }
+
+        .an-rec-card {
+            background: rgba(127,127,127,0.06);
+            border: 1px solid rgba(127,127,127,0.14);
+            border-left: 4px solid #44aa44;
+            border-radius: 20px; padding: 20px; margin-bottom: 16px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .an-rec-card:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+        .an-rec-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+        .an-rec-severity { font-size:10px; padding:4px 10px; border-radius:20px; font-weight:600; }
+        .an-rec-name { font-size:18px; font-weight:700; color: var(--text-primary); margin-bottom:8px; }
+        .an-rec-desc { font-size:13px; color: var(--text-secondary); margin-bottom:16px; line-height:1.5; }
+        .an-rec-block {
+            display:flex; gap:12px; margin-bottom:12px; padding:12px;
+            background: rgba(127,127,127,0.05); border-radius: 12px;
+        }
+        .an-rec-block-label { font-size:10px; color:#ff6b3b; text-transform:uppercase; margin-bottom:6px; font-weight: 600; letter-spacing: 0.4px; }
+        .an-rec-block-text { font-size:13px; color: var(--text-primary); line-height:1.5; margin-bottom:6px; }
+        .an-rec-block-hint { font-size:11px; color: var(--text-secondary); }
+        .an-rec-affirm { font-size:14px; color:#ff6b3b; font-style:italic; line-height:1.5; }
+
+        .an-btn-cta {
+            flex:1; padding:10px; border-radius:30px; font-size:12px; font-weight:600;
+            cursor:pointer; background:linear-gradient(135deg,#ff6b3b,#ff3b3b);
+            border:none; color:#fff;
+        }
+        .an-btn-ghost {
+            flex:1; padding:10px; border-radius:30px; font-size:12px; font-weight:600;
+            cursor:pointer; background: rgba(127,127,127,0.08);
+            border: 1px solid rgba(127,127,127,0.18); color: var(--text-primary);
+        }
+        .an-btn-primary-wide {
+            flex: 1 1 240px; padding: 14px;
+            background: linear-gradient(135deg, rgba(255,107,59,0.22), rgba(255,59,59,0.10));
+            border: 1px solid rgba(255,107,59,0.35); border-radius: 40px; color: #ff6b3b;
+            font-weight: 600; cursor: pointer; font-family: inherit; font-size: 14px;
+        }
+        .an-btn-refresh {
+            padding: 14px 20px; background: rgba(127,127,127,0.08);
+            border: 1px solid rgba(127,127,127,0.20); border-radius: 40px;
+            color: var(--text-primary); font-weight: 600; cursor: pointer;
+            font-family: inherit; font-size: 14px;
+        }
+        .an-btn-refresh:hover { background: rgba(127,127,127,0.14); }
+
+        [data-theme="light"] .an-rec-card { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        [data-theme="light"] .an-rec-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.10); }
+
+        /* ===== Оверлей AI-генерации (полноэкранный) ===== */
+        @keyframes an-ai-dot { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1.0); opacity: 1; } }
+        .an-ai-loader-overlay {
+            position: fixed; inset: 0; z-index: 99999;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.72);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            animation: an-fade-in 0.25s ease;
+        }
+        [data-theme="light"] .an-ai-loader-overlay { background: rgba(240,240,245,0.82); }
+        @keyframes an-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .an-ai-loader-box {
+            background: #1a1a1c; color: var(--text-primary);
+            border: 1px solid rgba(127,127,127,0.2);
+            border-radius: 20px; padding: 32px 28px;
+            max-width: 360px; width: calc(100% - 40px);
+            text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        [data-theme="light"] .an-ai-loader-box {
+            background: #ffffff; color: #1c1c1e;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+        .an-ai-loader-spinner {
+            width: 64px; height: 64px; margin: 0 auto 20px;
+            border: 5px solid rgba(127,127,127,0.18);
+            border-top-color: #ff6b3b;
+            border-radius: 50%;
+            animation: an-spin 0.9s linear infinite;
+        }
+        .an-ai-loader-title {
+            font-size: 17px; font-weight: 700;
+            color: var(--text-primary); margin-bottom: 8px;
+        }
+        [data-theme="light"] .an-ai-loader-title { color: #1c1c1e; }
+        .an-ai-loader-sub {
+            font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+            margin-bottom: 16px;
+        }
+        [data-theme="light"] .an-ai-loader-sub { color: #5a5a5e; }
+        .an-ai-loader-dots { display: flex; justify-content: center; gap: 6px; }
+        .an-ai-loader-dots span {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ff6b3b; display: inline-block;
+            animation: an-ai-dot 1.2s ease-in-out infinite;
+        }
+        .an-ai-loader-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .an-ai-loader-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+        /* ===== Анимация нажатия кнопок в конструкторе/визарде/подборе ===== */
+        .anchor-btn, .fire-btn, .an-btn-primary, .an-btn-cta, .an-btn-ghost,
+        .an-btn-refresh, .an-btn-primary-wide, .wizard-option, .trigger-chip,
+        .mirror-copy-btn, .mirror-action-btn, .create-btn, .guide-btn, .delete-btn, .pdf-btn,
+        .an-tab, .answer-btn, button.action-btn {
+            transition: transform 0.12s ease, background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            -webkit-tap-highlight-color: rgba(255,107,59,0.12);
+        }
+        .anchor-btn:active, .fire-btn:active, .an-btn-primary:active, .an-btn-cta:active,
+        .an-btn-ghost:active, .an-btn-refresh:active, .an-btn-primary-wide:active,
+        .wizard-option:active, .trigger-chip:active,
+        .mirror-copy-btn:active, .mirror-action-btn:active,
+        .create-btn:active, .guide-btn:active, .delete-btn:active, .pdf-btn:active,
+        .an-tab:active, .answer-btn:active, button.action-btn:active {
+            transform: scale(0.97);
+        }
+        .wizard-option:hover, .trigger-chip:hover {
+            border-color: rgba(255,107,59,0.45);
+            background: rgba(255,107,59,0.07);
+        }
+        .fire-btn:hover { filter: brightness(1.08); }
     `;
     document.head.appendChild(style);
 }
@@ -2132,4 +2900,4 @@ window.exportInstructionToPDF = exportInstructionToPDF;
 window.startGuidedActivationFromAnchor = startGuidedActivationFromAnchor;
 window.showInstructionDetail = showInstructionDetail;
 
-console.log('✅ Модуль "Библиотека состояний" загружен (anchors.js v4.0)');
+console.log('✅ Модуль "Библиотека состояний" загружен (anchors.js v4.1)');

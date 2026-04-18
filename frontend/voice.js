@@ -1053,6 +1053,10 @@ class VoiceManager {
 
         this._rec.onRecordingStart = () => {
             this.isRecording = true;
+            // Захватываем sttOnly на момент старта записи, чтобы внешний код не мог
+            // мутировать флаг в процессе (например, через restoreHandlers по таймауту).
+            this._sttOnlyLocked = !!this.sttOnly;
+            console.log('[voice] 🎙️ start recording | sttOnly locked =', this._sttOnlyLocked);
             this._status('recording');
             if (this.onRecordingStart) this.onRecordingStart();
         };
@@ -1060,12 +1064,13 @@ class VoiceManager {
         this._rec.onRecordingStop = async (blob) => {
             this.isRecording = false;
             this._status('idle');
+            // Берём флаг, захваченный при старте — он гарантированно не меняется.
+            const useSttOnly = (typeof this._sttOnlyLocked === 'boolean') ? this._sttOnlyLocked : !!this.sttOnly;
+            console.log('[voice] ⏹ stop recording | sttOnly effective =', useSttOnly, '| current sttOnly =', this.sttOnly);
             if (this.onRecordingStop) this.onRecordingStop(blob);
-            if (blob && !this.sttOnly) {
-                // Длительность уже проверена в VoiceRecorder.stop() —
-                // если blob есть, значит запись валидная
+            if (blob && !useSttOnly) {
                 await this._transport.sendAudio(blob);
-            } else if (blob && this.sttOnly) {
+            } else if (blob && useSttOnly) {
                 // STT only: отправляем на распознавание без AI
                 try {
                     const form = new FormData();
@@ -1075,11 +1080,19 @@ class VoiceManager {
                         method: 'POST', body: form
                     });
                     const data = await resp.json();
-                    if (data.text && this.onTranscript) {
-                        this.onTranscript(data.text);
+                    const text = data && data.text;
+                    console.log('[voice] STT-only response:', { ok: resp.ok, has_text: !!text, length: (text || '').length });
+                    if (text) {
+                        if (this.onTranscript) this.onTranscript(text);
+                        // Важно: вызываем и финал, чтобы UI показал тост/подсветку
+                        if (this.onTranscriptComplete) this.onTranscriptComplete(text);
+                    } else {
+                        // Пусть UI покажет «не удалось распознать» через onTranscriptComplete с пустой строкой.
+                        if (this.onTranscriptComplete) this.onTranscriptComplete('');
                     }
                 } catch(e) {
-                    console.warn('STT-only error:', e);
+                    console.warn('[voice] STT-only error:', e);
+                    if (this.onTranscriptComplete) this.onTranscriptComplete('');
                 }
             }
         };

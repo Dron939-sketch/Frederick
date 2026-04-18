@@ -1,9 +1,55 @@
 // ============================================
 // 🪞 ЗЕРКАЛА / ОТРАЖЕНИЯ
-// Версия 3.1 — компактные карточки, краткий профиль от ИИ
+// Версия 3.3 — унификация USER_ID + mobile/Telegram WebView / PWA / private-mode fallback
 // ============================================
 
 const API_BASE = window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+
+// ============================================
+// БЕЗОПАСНОЕ ПОЛУЧЕНИЕ USER_ID (ДЛЯ МОБИЛЬНЫХ УСТРОЙСТВ)
+// ============================================
+function getSafeUserId() {
+    let userId = null;
+    
+    // 1. Из CONFIG (основной источник)
+    if (window.CONFIG?.USER_ID && window.CONFIG.USER_ID !== 'null' && window.CONFIG.USER_ID !== 'undefined') {
+        userId = window.CONFIG.USER_ID;
+    }
+    // 2. Из PERMANENT_USER_ID
+    else if (window.PERMANENT_USER_ID && window.PERMANENT_USER_ID !== 'null') {
+        userId = window.PERMANENT_USER_ID;
+    }
+    // 3. Из window.USER_ID
+    else if (window.USER_ID && window.USER_ID !== 'null' && window.USER_ID !== 'undefined') {
+        userId = window.USER_ID;
+    }
+    // 4. Из localStorage
+    else {
+        try {
+            const lsId = localStorage.getItem('fredi_user_id');
+            if (lsId && lsId !== 'null' && lsId !== 'undefined') {
+                userId = lsId;
+            } else {
+                const permId = localStorage.getItem('fredi_permanent_user_id');
+                if (permId && permId !== 'null') {
+                    userId = permId;
+                }
+            }
+        } catch(e) {}
+    }
+    
+    // 5. Если всё равно null — генерируем временный ID
+    if (!userId || userId === 'null' || userId === 'undefined') {
+        userId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        try {
+            localStorage.setItem('fredi_user_id', userId);
+        } catch(e) {}
+        console.warn('🪞 Временный ID:', userId);
+    }
+    
+    console.log('🪞 getSafeUserId результат:', userId, 'тип:', typeof userId);
+    return userId;
+}
 
 // ============================================
 // ЛОГГЕР
@@ -485,7 +531,10 @@ async function showReflectionsTab(container) {
         
         if (!data) {
             log.debug('Mirrors', 'Fetching reflections from API');
-            data = await apiGetReflections(window.USER_ID);
+            // ✅ ИСПРАВЛЕНО: используем безопасное получение ID
+            const userId = getSafeUserId();
+            log.info('Mirrors', 'Using userId for reflections:', userId);
+            data = await apiGetReflections(userId);
             _setCachedReflections(data);
         } else {
             log.debug('Mirrors', 'Using cached reflections');
@@ -718,7 +767,15 @@ async function generateMirrorLink(mirrorType) {
         </div>`;
 
     try {
-        const data = await apiCreateMirror(window.USER_ID, mirrorType);
+        // ✅ ИСПРАВЛЕНО: используем безопасное получение ID
+        const userId = getSafeUserId();
+        console.log('🪞 generateMirrorLink userId:', userId);
+        
+        if (!userId || userId === 'null' || userId === 'undefined') {
+            throw new Error('Не удалось определить пользователя. Обновите страницу.');
+        }
+        
+        const data = await apiCreateMirror(userId, mirrorType);
         if (!data.success) throw new Error(data.error || 'Ошибка создания зеркала');
 
         const link = data.link;
@@ -829,7 +886,6 @@ async function showFriendProfile(ref) {
     const date = ref.completed_at ? new Date(ref.completed_at).toLocaleDateString('ru') : '';
     const mirrorCode = ref.mirror_code || '';
     
-    // Загружаем краткий профиль от ИИ
     let briefProfile = null;
     if (mirrorCode) {
         briefProfile = await loadBriefProfile(mirrorCode);
@@ -1174,4 +1230,4 @@ window.showMirrorDebugLogs = function() {
     }
 };
 
-console.log('✅ mirrors.js v3.1 загружен (компактные карточки, краткий профиль от ИИ)');
+console.log('✅ mirrors.js v3.2 загружен (исправлена идентификация пользователя)');

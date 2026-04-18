@@ -859,16 +859,36 @@ const Test = {
     },
 
         getMirrorCode() {
-        const ref = new URLSearchParams(window.location.search).get('ref');
+        // 1. URL query (?ref=mirror_XXX)
+        let ref = new URLSearchParams(window.location.search).get('ref');
+
+        // 2. URL hash (#ref=mirror_XXX) — страховка для Telegram WebView, срезающего query
+        if (!ref && window.location.hash) {
+            try {
+                const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+                ref = hashParams.get('ref');
+            } catch (e) {}
+        }
+
         if (ref && ref.startsWith('mirror_')) {
             const cleanCode = ref.replace(/^mirror_/, '');
-            localStorage.setItem('fredi_mirror_ref', cleanCode);
+            try { localStorage.setItem('fredi_mirror_ref', cleanCode); } catch (e) {}
+            try { sessionStorage.setItem('fredi_mirror_ref', cleanCode); } catch (e) {}
             return cleanCode;
         }
-        const stored = localStorage.getItem('fredi_mirror_ref');
-        if (stored) {
-            return stored.replace(/^mirror_/, '');
-        }
+
+        // 3. localStorage
+        try {
+            const stored = localStorage.getItem('fredi_mirror_ref');
+            if (stored) return stored.replace(/^mirror_/, '');
+        } catch (e) {}
+
+        // 4. sessionStorage — fallback при приват-режиме / очищенном localStorage
+        try {
+            const ssStored = sessionStorage.getItem('fredi_mirror_ref');
+            if (ssStored) return ssStored.replace(/^mirror_/, '');
+        } catch (e) {}
+
         return null;
     },
 
@@ -1484,7 +1504,100 @@ ${this.getStage5Interpretation()}
 
 ✅ Тест завершён! Собираю воедино результаты 5 этапов...`;
         this.addBotMessage(text, true);
+        this._showAILoader('AI составляет ваш психологический портрет', 'Анализ 5 этапов, подбор инсайтов и формирование рекомендаций. 20-40 секунд.');
         this.sendTestResultsToServer();
+    },
+
+    _showAILoader(title, subtitle) {
+        try { Test._injectLoaderStyles(); } catch (e) {}
+        let el = document.getElementById('test-ai-loader');
+        if (el) {
+            const t = el.querySelector('.test-ai-loader-title');
+            const s = el.querySelector('.test-ai-loader-sub');
+            if (t) t.textContent = '🧠 ' + (title || 'AI составляет ваш профиль');
+            if (s) s.textContent = subtitle || 'Это может занять 20-40 секунд. Не закрывайте страницу.';
+            el.style.display = 'flex';
+            return;
+        }
+        el = document.createElement('div');
+        el.id = 'test-ai-loader';
+        el.className = 'test-ai-loader-overlay';
+        el.innerHTML = `
+            <div class="test-ai-loader-box">
+                <div class="test-ai-loader-spinner"></div>
+                <div class="test-ai-loader-title">🧠 ${(title || 'AI составляет ваш профиль').replace(/</g,'&lt;')}</div>
+                <div class="test-ai-loader-sub">${(subtitle || 'Это может занять 20-40 секунд. Не закрывайте страницу.').replace(/</g,'&lt;')}</div>
+                <div class="test-ai-loader-dots"><span></span><span></span><span></span></div>
+            </div>
+        `;
+        document.body.appendChild(el);
+    },
+
+    _updateAILoader(title, subtitle) {
+        const el = document.getElementById('test-ai-loader');
+        if (!el) return;
+        if (title) {
+            const t = el.querySelector('.test-ai-loader-title');
+            if (t) t.textContent = '🧠 ' + title;
+        }
+        if (subtitle) {
+            const s = el.querySelector('.test-ai-loader-sub');
+            if (s) s.textContent = subtitle;
+        }
+    },
+
+    _hideAILoader() {
+        const el = document.getElementById('test-ai-loader');
+        if (el) el.remove();
+    },
+
+    _injectLoaderStyles() {
+        if (document.getElementById('test-ai-loader-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'test-ai-loader-styles';
+        style.textContent = `
+            @keyframes test-ai-spin { to { transform: rotate(360deg); } }
+            @keyframes test-ai-dot { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+            .test-ai-loader-overlay {
+                position: fixed; inset: 0; z-index: 99999;
+                display: flex; align-items: center; justify-content: center;
+                background: rgba(0,0,0,0.72);
+                backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            }
+            [data-theme="light"] .test-ai-loader-overlay { background: rgba(240,240,245,0.82); }
+            .test-ai-loader-box {
+                background: #1a1a1c; color: #fff;
+                border: 1px solid rgba(127,127,127,0.2);
+                border-radius: 20px; padding: 32px 28px;
+                max-width: 360px; width: calc(100% - 40px);
+                text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            }
+            [data-theme="light"] .test-ai-loader-box {
+                background: #fff; color: #1c1c1e;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            }
+            .test-ai-loader-spinner {
+                width: 64px; height: 64px; margin: 0 auto 20px;
+                border: 5px solid rgba(127,127,127,0.18);
+                border-top-color: #ff6b3b; border-radius: 50%;
+                animation: test-ai-spin 0.9s linear infinite;
+            }
+            .test-ai-loader-title {
+                font-size: 17px; font-weight: 700; margin-bottom: 8px;
+            }
+            .test-ai-loader-sub {
+                font-size: 13px; opacity: 0.7; line-height: 1.5; margin-bottom: 16px;
+            }
+            .test-ai-loader-dots { display: flex; justify-content: center; gap: 6px; }
+            .test-ai-loader-dots span {
+                width: 8px; height: 8px; border-radius: 50%;
+                background: #ff6b3b; display: inline-block;
+                animation: test-ai-dot 1.2s ease-in-out infinite;
+            }
+            .test-ai-loader-dots span:nth-child(2) { animation-delay: 0.15s; }
+            .test-ai-loader-dots span:nth-child(3) { animation-delay: 0.3s; }
+        `;
+        document.head.appendChild(style);
     },
 
     goToNextStage() { this.currentStage++; this.currentQuestionIndex=0; this.sendStageIntro(); },
@@ -1513,12 +1626,13 @@ ${this.getStage5Interpretation()}
     },
 
     async completeMirrorIfReferred(profile, deep) {
-    const mirrorCode = this.getMirrorCode();
-    if (!mirrorCode) return;
-    
-    // ✅ Убираем префикс 'mirror_' если есть
-    const cleanCode = mirrorCode.replace(/^mirror_/, '');
-    
+    const raw = this.getMirrorCode();
+    if (!raw) return;
+
+    // Единый канонический формат: всегда с префиксом 'mirror_'.
+    // Бэкенд нормализует оба варианта (#78), но мы шлём канонический для чистоты.
+    const canonicalCode = String(raw).startsWith('mirror_') ? String(raw) : `mirror_${raw}`;
+
     try {
         const vectors = {
             'СБ': profile.sbLevel || 3,
@@ -1526,13 +1640,12 @@ ${this.getStage5Interpretation()}
             'УБ': profile.ubLevel || 3,
             'ЧВ': profile.chvLevel || 3
         };
-        
-        // ✅ Отправляем cleanCode (БЕЗ префикса mirror_)
+
         const response = await fetch(TEST_API_BASE_URL + '/api/mirrors/complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                mirror_code: cleanCode,  // ← БЕЗ mirror_!
+                mirror_code: canonicalCode,
                 friend_user_id: this.userId,
                 friend_name: this.context?.name || localStorage.getItem('fredi_user_name') || 'Друг',
                 friend_profile_code: profile?.displayName || null,
@@ -1548,8 +1661,9 @@ ${this.getStage5Interpretation()}
         console.log('🪞 Mirror complete response:', result);
         
         if (result.success && result.activated) {
-            localStorage.removeItem('fredi_mirror_ref');
-            console.log('🪞 Зеркало активировано:', cleanCode);
+            try { localStorage.removeItem('fredi_mirror_ref'); } catch (e) {}
+            try { sessionStorage.removeItem('fredi_mirror_ref'); } catch (e) {}
+            console.log('🪞 Зеркало активировано:', canonicalCode);
         } else {
             console.warn('🪞 Зеркало не активировано:', result);
         }
@@ -1561,9 +1675,9 @@ ${this.getStage5Interpretation()}
     async fetchAIGeneratedProfile() {
         if (!this.userId) { this.showFinalProfileButtons(); return; }
 
-        // Show loading animation on first call
         if (this._aiProfileRetries === 0) {
             this.addBotMessage('🧠 Генерирую ваш персональный AI-профиль...\n\n⏳ Это займёт 15-30 секунд. Анализирую ответы всех 5 этапов...', true);
+            this._showAILoader('AI составляет ваш психологический портрет', 'Анализ 5 этапов, подбор инсайтов и формирование рекомендаций. 20-40 секунд.');
         }
 
         try {
@@ -1580,10 +1694,10 @@ ${this.getStage5Interpretation()}
                 const dots = '.'.repeat(Math.min(this._aiProfileRetries, 5));
                 const msgs = ['Анализирую ваши паттерны', 'Строю карту личности', 'Формирую инсайты', 'Почти готово'];
                 const hint = msgs[Math.min(this._aiProfileRetries - 1, msgs.length - 1)];
-                // Update last bot message text
                 const allMsgs = document.querySelectorAll('.test-message-bot .test-message-text');
                 const lastMsg = allMsgs[allMsgs.length - 1];
                 if (lastMsg) lastMsg.innerHTML = `🧠 ${hint}${dots}<br><br>⏳ Осталось совсем немного...`;
+                this._updateAILoader(hint + dots, 'Осталось совсем немного...');
                 setTimeout(() => this.fetchAIGeneratedProfile(), 3000);
                 return;
             }
@@ -1593,6 +1707,7 @@ ${this.getStage5Interpretation()}
     },
 
     showFinalProfileButtons() {
+        this._hideAILoader();
         const p = this.calculateFinalProfile();
         const deep = this.deepPatterns||{attachment:'🤗 Надежный'};
         const sbD = {1:'Под давлением замираете',2:'Избегаете конфликтов',3:'Внешне соглашаетесь',4:'Внешне спокойны',5:'Умеете защищать',6:'Защищаете и используете силу'}[p.sbLevel]||'—';
@@ -1659,12 +1774,19 @@ ${this.getStage5Interpretation()}
 
 window.Test = Test;
 
-// Автозапуск теста при ?ref=mirror_
+// Автозапуск теста при ?ref=mirror_ (query или #ref=... в hash для Telegram WebView)
 (function checkMirrorRef() {
     var ref = new URLSearchParams(window.location.search).get('ref');
+    if (!ref && window.location.hash) {
+        try {
+            var hp = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            ref = hp.get('ref');
+        } catch (e) {}
+    }
     if (ref && ref.startsWith('mirror_')) {
-        localStorage.setItem('fredi_mirror_ref', ref);
-        console.log('🪞 Mirror ref detected in URL:', ref);
+        try { localStorage.setItem('fredi_mirror_ref', ref); } catch (e) {}
+        try { sessionStorage.setItem('fredi_mirror_ref', ref); } catch (e) {}
+        console.log('🪞 Mirror ref detected:', ref);
         function waitAndStart() {
             if (typeof startTest === 'function') {
                 startTest();
