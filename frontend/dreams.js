@@ -652,11 +652,12 @@ function _drRenderRecordTab(completed) {
         `;
     }
 
+    const isClarification = _drNeedsClarification;
     const draftText = _drLoadDraft();
-    const displayText = draftText || _drCurrentText;
+    // В режиме уточнений composer всегда пустой — иначе останется текст прошлого ответа/сна
+    const displayText = isClarification ? '' : (draftText || _drCurrentText);
 
     const canSkip = _drChatSession.some(m => m.role === 'bot' && m.kind === 'clarification');
-    const isClarification = _drNeedsClarification;
     const placeholder = isClarification
         ? 'Напиши ответ на вопрос Фреди…'
         : 'Опишите ваш сон максимально подробно…';
@@ -1280,7 +1281,6 @@ async function _drInterpret() {
         } else if (response.needs_clarification && _drClarificationCount >= 3) {
             const fallback = response.interpretation || 'На основе твоих ответов Фреди подготовил толкование. Для более точного анализа нужно больше деталей.';
             _drAddChatMessage('bot', fallback, { kind: 'final' });
-            _drSpeak(fallback);
             await _drSaveToHistory(dreamText, fallback);
             _drResetChatSession();
             _drChatFinalShown = true;
@@ -1296,7 +1296,6 @@ async function _drInterpret() {
         } else {
             const interpretText = response.interpretation;
             _drAddChatMessage('bot', interpretText, { kind: 'final' });
-            _drSpeak(interpretText);
             await _drSaveToHistory(dreamText, interpretText);
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
@@ -1380,7 +1379,6 @@ async function _drSubmitClarification() {
             _drClarificationQuestion = '';
             const interpretText = response.interpretation;
             _drAddChatMessage('bot', interpretText, { kind: 'final' });
-            _drSpeak(interpretText);
             await _drSaveToHistory(_drCurrentText, interpretText);
             _drClarificationCount = 0;
             _drChatFinalShown = true;
