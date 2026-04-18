@@ -3452,6 +3452,18 @@ async def generate_thought(request: Request):
 
 dream_service = None
 
+# In-memory session store for multi-round dream clarifications
+_dream_sessions: Dict[str, Dict[str, Any]] = {}
+_DREAM_SESSION_TTL = timedelta(hours=1)
+
+
+def _dream_session_cleanup() -> None:
+    now = datetime.now()
+    expired = [sid for sid, s in _dream_sessions.items() if s.get("expires", now) < now]
+    for sid in expired:
+        _dream_sessions.pop(sid, None)
+
+
 @app.post("/api/dreams/interpret")
 @limiter.limit("10/minute")
 async def interpret_dream(request: Request):
@@ -3510,10 +3522,23 @@ async def interpret_dream(request: Request):
             thinking_level=thinking_level,
             vectors=vectors,
             key_characteristic=key_characteristic,
-            main_trap=main_trap
+            main_trap=main_trap,
+            clarifications=[]
         )
 
-        if not result.get("needs_clarification"):
+        _dream_session_cleanup()
+
+        if result.get("needs_clarification"):
+            sid = result.get("session_id") or f"{user_id}_{int(datetime.now().timestamp())}"
+            _dream_sessions[sid] = {
+                "user_id": int(user_id),
+                "dream_text": dream_text,
+                "clarifications": [],
+                "last_question": result.get("question") or "",
+                "expires": datetime.now() + _DREAM_SESSION_TTL,
+            }
+            result["session_id"] = sid
+        else:
             await user_repo.create_user_if_not_exists(user_id)
             async with db.get_connection() as conn:
                 await conn.execute("""
@@ -3531,18 +3556,40 @@ async def interpret_dream(request: Request):
 @app.post("/api/dreams/clarify")
 @limiter.limit("10/minute")
 async def clarify_dream(request: Request):
-    """Уточнение сна после дополнительных вопросов"""
+    """Уточнение сна после дополнительных вопросов (многораундовое)"""
     try:
         data = await request.json()
         user_id = data.get("user_id")
         session_id = data.get("session_id")
-        answer = data.get("answer", "").strip()
-        dream_text = data.get("dream_text", "")
+        answer = (data.get("answer") or "").strip()
+        dream_text_req = data.get("dream_text", "") or ""
 
         if not user_id or not session_id:
             return {"success": False, "error": "user_id and session_id required"}
-        if not dream_text:
-            return {"success": False, "error": "dream_text required for clarification"}
+        if not answer:
+            return {"success": False, "error": "answer required"}
+
+        _dream_session_cleanup()
+        session = _dream_sessions.get(session_id)
+
+        if session is None:
+            if not dream_text_req:
+                return {"success": False, "error": "session not found and dream_text missing"}
+            session = {
+                "user_id": int(user_id),
+                "dream_text": dream_text_req,
+                "clarifications": [],
+                "last_question": "",
+                "expires": datetime.now() + _DREAM_SESSION_TTL,
+            }
+            _dream_sessions[session_id] = session
+
+        dream_text = session.get("dream_text") or dream_text_req
+        history: List[Dict[str, str]] = list(session.get("clarifications") or [])
+        history.append({
+            "question": session.get("last_question") or "Расскажи подробнее.",
+            "answer": answer,
+        })
 
         profile = await user_repo.get_profile(user_id) or {}
         context = await context_repo.get(user_id) or {}
@@ -3569,28 +3616,32 @@ async def clarify_dream(request: Request):
             perception_type=profile.get('perception_type'),
             thinking_level=profile.get('thinking_level'),
             vectors=vectors,
-            clarification_answer=answer
+            clarifications=history,
         )
 
-        # ========== ДОБАВЛЕННЫЙ FALLBACK ==========
-        # Если не нужны уточнения, но нет интерпретации — генерируем fallback
-        if not result.get("needs_clarification") and not result.get("interpretation"):
-            user_name = context.get('name', 'друг')
-            result["interpretation"] = f"""🌙 {user_name}, твой сон говорит о глубоких внутренних переживаниях.
+        if result.get("needs_clarification"):
+            session["clarifications"] = history
+            session["last_question"] = result.get("question") or ""
+            session["expires"] = datetime.now() + _DREAM_SESSION_TTL
+            result["session_id"] = session_id
+        else:
+            if not result.get("interpretation"):
+                user_name = context.get('name', 'друг')
+                result["interpretation"] = f"""🌙 {user_name}, твой сон говорит о глубоких внутренних переживаниях.
 
 Символика сна указывает на поиск свободы и новых впечатлений. Обрати внимание на свои чувства — они подскажут, что действительно важно для тебя сейчас.
 
 Рекомендую в ближайшие дни записывать свои сны и наблюдать за повторяющимися образами. Это поможет лучше понять себя."""
-            logger.info(f"✨ Сгенерирован fallback-ответ для сна пользователя {user_id}")
-        # ========== КОНЕЦ БЛОКА ==========
+                logger.info(f"✨ Сгенерирован fallback-ответ для сна пользователя {user_id}")
 
-        if not result.get("needs_clarification"):
             await user_repo.create_user_if_not_exists(user_id)
             async with db.get_connection() as conn:
                 await conn.execute("""
                     INSERT INTO fredi_dreams (user_id, dream_text, interpretation, created_at)
                     VALUES ($1, $2, $3, NOW())
                 """, int(user_id), dream_text[:2000], result["interpretation"])
+
+            _dream_sessions.pop(session_id, None)
 
         return {"success": True, **result}
 

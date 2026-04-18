@@ -6,7 +6,7 @@ dream_service.py — Юнгианская интерпретация снов с
 
 import logging
 import re
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,8 @@ class DreamInterpretationService:
         """
         self.ai_service = ai_service
     
+    MAX_CLARIFICATIONS = 3
+
     async def interpret_dream(
         self,
         user_id: int,
@@ -33,20 +35,23 @@ class DreamInterpretationService:
         vectors: Optional[Dict[str, float]] = None,
         key_characteristic: Optional[str] = None,
         main_trap: Optional[str] = None,
-        clarification_answer: Optional[str] = None
+        clarification_answer: Optional[str] = None,
+        clarifications: Optional[List[Dict[str, str]]] = None
     ) -> Dict[str, Any]:
         """
-        Основной метод интерпретации сна
-        
-        Returns:
-            Dict с полями:
-            - needs_clarification: bool
-            - session_id: str (если нужны уточнения)
-            - question: str (если нужны уточнения)
-            - interpretation: str (если не нужны уточнения)
+        Интерпретация сна с поддержкой многораундовых уточнений.
+
+        Args:
+            dream_text — исходный текст сна.
+            clarifications — накопленная история Q&A [{'question': ..., 'answer': ...}, ...].
+                             Если не задано, но есть clarification_answer — из него делается псевдо-запись
+                             (обратная совместимость со старыми вызовами).
+
+        Returns одно из двух:
+            - {'needs_clarification': True, 'session_id', 'question', 'clarification_number': int}
+            - {'needs_clarification': False, 'interpretation': str}
         """
-        
-        # Формируем контекст профиля
+
         profile_context = self._build_profile_context(
             profile_code=profile_code,
             perception_type=perception_type,
@@ -55,26 +60,35 @@ class DreamInterpretationService:
             key_characteristic=key_characteristic,
             main_trap=main_trap
         )
-        
-        # Проверяем, нужны ли уточняющие вопросы
-        needs_clarification, question = self._check_needs_clarification(dream_text)
-        
-        if needs_clarification and not clarification_answer:
+
+        # Backward-compat: если получен одиночный ответ, но нет истории — сформируем её из _check_needs_clarification
+        history: List[Dict[str, str]] = list(clarifications or [])
+        if clarification_answer and not history:
+            _, inferred_q = self._check_needs_clarification(dream_text)
+            history.append({
+                "question": inferred_q or "Расскажи подробнее.",
+                "answer": clarification_answer
+            })
+
+        # Если уже достаточно контекста или лимит уточнений достигнут — в AI.
+        next_q = self._next_question(dream_text, history)
+
+        if next_q and len(history) < self.MAX_CLARIFICATIONS:
             return {
                 "needs_clarification": True,
                 "session_id": f"{user_id}_{int(datetime.now().timestamp())}",
-                "question": question
+                "question": next_q,
+                "clarification_number": len(history) + 1,
+                "max_clarifications": self.MAX_CLARIFICATIONS
             }
-        
-        # Формируем промпт для AI
+
         prompt = self._build_interpretation_prompt(
             dream_text=dream_text,
             user_name=user_name,
             profile_context=profile_context,
-            has_clarification=bool(clarification_answer),
-            clarification_answer=clarification_answer
+            clarifications=history
         )
-        
+
         try:
             interpretation = await self.ai_service._call_deepseek(
                 system_prompt=self._get_system_prompt(),
@@ -82,21 +96,85 @@ class DreamInterpretationService:
                 max_tokens=800,
                 temperature=0.75
             )
-            
-            # Очищаем ответ
-            interpretation = self._clean_response(interpretation)
-            
+            # Защита от пустого ответа DeepSeek
+            if not interpretation or not str(interpretation).strip():
+                logger.warning(f"DeepSeek returned empty for user {user_id} — using fallback")
+                interpretation = self._get_fallback_interpretation(dream_text, user_name)
+            else:
+                interpretation = self._clean_response(interpretation)
+
             return {
                 "needs_clarification": False,
                 "interpretation": interpretation
             }
-            
+
         except Exception as e:
             logger.error(f"AI interpretation failed for user {user_id}: {e}")
             return {
                 "needs_clarification": False,
                 "interpretation": self._get_fallback_interpretation(dream_text, user_name)
             }
+
+    def _next_question(
+        self,
+        dream_text: str,
+        clarifications: List[Dict[str, str]]
+    ) -> Optional[str]:
+        """
+        Определяет следующий уточняющий вопрос на основе всех накопленных данных.
+        Возвращает None, если контекста уже достаточно или достигнут лимит раундов.
+        """
+        if len(clarifications) >= self.MAX_CLARIFICATIONS:
+            return None
+
+        # Собираем всё сказанное
+        pool_parts = [dream_text] + [c.get("answer", "") for c in clarifications]
+        pool = " ".join(pool_parts).strip()
+        pool_lower = pool.lower()
+        word_count = len(pool.split())
+
+        # Какие вопросы уже задавали (не спрашиваем повторно)
+        asked = {(c.get("question") or "").strip().lower() for c in clarifications}
+
+        def ask(q: str) -> Optional[str]:
+            return None if q.strip().lower() in asked else q
+
+        # Слишком мало слов суммарно
+        if word_count < 30:
+            q = ask("Расскажи немного подробнее: что происходило во сне, какие были события?")
+            if q:
+                return q
+
+        # Нет эмоций
+        emotions = ["груст", "радост", "страх", "гнев", "тревог", "спокой", "волнен", "счасть", "обид", "стыд",
+                    "любов", "ненавис", "удивл", "ужас", "уютн", "одиноч"]
+        if not any(e in pool_lower for e in emotions):
+            q = ask("Какие эмоции ты испытывал во сне? Это очень важно для понимания.")
+            if q:
+                return q
+
+        # Нет персонажей (кроме самого пользователя)
+        persons = ["друг", "подруг", "мама", "папа", "женщин", "мужчин", "ребёнк", "ребенк",
+                   "знаком", "человек", "люди", "семь", "брат", "сестр"]
+        has_only_self = "я " in pool_lower or pool_lower.startswith("я") or "мне " in pool_lower
+        if not any(p in pool_lower for p in persons) and not has_only_self:
+            q = ask("Кто был в твоём сне? Даже если ты был один — это тоже важно.")
+            if q:
+                return q
+
+        # Детали/символы после первого раунда
+        if len(clarifications) >= 1 and word_count < 80:
+            q = ask("Какие детали запомнились ярче всего — цвета, звуки, места, предметы?")
+            if q:
+                return q
+
+        # Связь с жизнью после второго
+        if len(clarifications) >= 2:
+            q = ask("Есть ли в твоей реальной жизни сейчас ситуация, которая напоминает этот сон?")
+            if q:
+                return q
+
+        return None
     
     def _get_system_prompt(self) -> str:
         """Системный промпт для AI"""
@@ -179,13 +257,24 @@ class DreamInterpretationService:
         dream_text: str,
         user_name: str,
         profile_context: str,
+        clarifications: Optional[List[Dict[str, str]]] = None,
         has_clarification: bool = False,
         clarification_answer: Optional[str] = None
     ) -> str:
         """Формирует промпт для AI"""
-        
+
         clarification_part = ""
-        if has_clarification and clarification_answer:
+        if clarifications:
+            lines = []
+            for i, qa in enumerate(clarifications, 1):
+                q = (qa.get("question") or "").strip()
+                a = (qa.get("answer") or "").strip()
+                if not a:
+                    continue
+                lines.append(f"Уточнение {i}:\nВопрос: {q}\nОтвет: {a}")
+            if lines:
+                clarification_part = "\nДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ОТ ПОЛЬЗОВАТЕЛЯ:\n" + "\n\n".join(lines) + "\n"
+        elif has_clarification and clarification_answer:
             clarification_part = f"""
 ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ОТ ПОЛЬЗОВАТЕЛЯ:
 {clarification_answer}
