@@ -56,6 +56,47 @@
             .st-profile-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(224,224,224,0.06);font-size:13px}
             .st-profile-label{color:var(--text-secondary)}
             .st-profile-value{color:var(--text-primary);font-weight:500}
+
+            /* ===== Profile editor ===== */
+            .st-prof-head{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+            .st-prof-avatar{width:72px;height:72px;border-radius:50%;background:rgba(224,224,224,0.08);border:1px solid rgba(224,224,224,0.18);display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--text-secondary);overflow:hidden;flex-shrink:0}
+            .st-prof-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+            .st-prof-photo-actions{display:flex;flex-direction:column;gap:6px}
+            .st-prof-btn{padding:7px 12px;border-radius:20px;font-size:11px;font-weight:500;font-family:inherit;cursor:pointer;background:rgba(224,224,224,0.08);border:1px solid rgba(224,224,224,0.2);color:var(--text-primary);touch-action:manipulation;text-align:center}
+            .st-prof-btn:hover{background:rgba(224,224,224,0.14)}
+            .st-prof-btn.danger{color:rgba(255,140,140,0.85)}
+            .st-prof-btn.primary{background:linear-gradient(135deg,rgba(155,140,255,0.35),rgba(155,140,255,0.18));border-color:rgba(155,140,255,0.55);color:var(--text-primary)}
+
+            .st-prof-field{display:flex;flex-direction:column;gap:6px;padding:12px 0;border-bottom:1px solid rgba(224,224,224,0.06)}
+            .st-prof-field-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+            .st-prof-field-label{font-size:11px;color:var(--text-secondary);font-weight:600;letter-spacing:0.2px;text-transform:uppercase}
+            .st-prof-input{padding:10px 12px;border-radius:10px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.15);color:var(--text-primary);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box;width:100%}
+            .st-prof-input:focus{border-color:rgba(155,140,255,0.45)}
+            .st-prof-textarea{resize:none;min-height:70px;line-height:1.5}
+            .st-prof-priv{display:inline-flex;gap:2px;background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.1);border-radius:18px;padding:2px}
+            .st-prof-priv button{padding:4px 8px;border-radius:14px;border:none;background:transparent;color:var(--text-secondary);cursor:pointer;font-family:inherit;font-size:11px;transition:background 0.15s;line-height:1}
+            .st-prof-priv button.active{background:rgba(155,140,255,0.35);color:var(--text-primary)}
+            .st-prof-priv button:hover:not(.active){background:rgba(224,224,224,0.06)}
+            .st-prof-footer{display:flex;gap:8px;margin-top:16px}
+            .st-prof-save{flex:1;padding:12px;border-radius:24px;border:1px solid rgba(155,140,255,0.5);background:linear-gradient(135deg,rgba(155,140,255,0.4),rgba(155,140,255,0.2));color:var(--text-primary);font-weight:600;font-family:inherit;font-size:13px;cursor:pointer}
+            .st-prof-save:disabled{opacity:0.5;cursor:not-allowed}
+
+            /* Inbox */
+            .st-inbox-block{margin-top:18px;padding-top:14px;border-top:1px dashed rgba(224,224,224,0.12)}
+            .st-inbox-title{font-size:12px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase;color:var(--text-secondary);margin-bottom:10px}
+            .st-inbox-empty{font-size:11px;color:var(--text-secondary);font-style:italic}
+            .st-inbox-item{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.1);margin-bottom:8px;font-size:12px}
+            .st-inbox-text{flex:1;line-height:1.3}
+            .st-inbox-actions{display:flex;gap:6px;flex-shrink:0}
+            .st-inbox-actions button{padding:6px 10px;border-radius:16px;border:1px solid rgba(224,224,224,0.18);background:rgba(224,224,224,0.05);color:var(--text-primary);font-family:inherit;font-size:11px;cursor:pointer}
+            .st-inbox-actions .btn-grant{background:rgba(120,200,140,0.2);border-color:rgba(120,200,140,0.4);color:#7cc874}
+            .st-inbox-actions .btn-deny{background:rgba(255,107,107,0.15);border-color:rgba(255,107,107,0.35);color:#ff8a8a}
+
+            @media (max-width: 480px) {
+                .st-prof-head{flex-direction:column;align-items:flex-start}
+                .st-prof-photo-actions{flex-direction:row;gap:8px}
+                .st-prof-field-row{flex-direction:column;align-items:flex-start}
+            }
         `;
         document.head.appendChild(s);
     }
@@ -238,16 +279,286 @@
         }
 
         if (id === 'profile') {
-            var name = localStorage.getItem('fredi_user_name') || 'Не указано';
-            el.innerHTML = '<div class="st-hint">Информация о вашем аккаунте. Имя используется в обращениях Фреди.</div>' +
-                '<div class="st-profile-row"><span class="st-profile-label">Имя</span><span class="st-profile-value">' + name + '</span></div>' +
-                '<div class="st-profile-row"><span class="st-profile-label">User ID</span><span class="st-profile-value">' + (_uid() || '-') + '</span></div>' +
-                '<div class="st-profile-row" style="border-bottom:none"><span class="st-profile-label">Версия</span><span class="st-profile-value">Фреди v3.2</span></div>';
+            _renderProfileEditor(el);
         }
+    }
+
+    // ============================================
+    // PROFILE EDITOR
+    // ============================================
+    var _profile = null;
+    var _profileInbox = [];
+
+    var PROF_FIELDS = [
+        { id:'name',       label:'Имя',           type:'text',     placeholder:'Как к тебе обращаться' },
+        { id:'age',        label:'Возраст',       type:'number',   placeholder:'25' },
+        { id:'city',       label:'Город',         type:'text',     placeholder:'Москва' },
+        { id:'bio',        label:'О себе',        type:'textarea', placeholder:'Пара строк о тебе (до 150 знаков)', max:150 },
+        { id:'occupation', label:'Род занятий',   type:'text',     placeholder:'Дизайнер, врач, предприниматель…' },
+        { id:'telegram',   label:'Telegram',      type:'text',     placeholder:'@username' },
+        { id:'instagram',  label:'Instagram',     type:'text',     placeholder:'@username' },
+        { id:'phone',      label:'Телефон',       type:'tel',      placeholder:'+7 999 000-00-00' },
+        { id:'email',      label:'Email',         type:'email',    placeholder:'you@mail.com' }
+    ];
+    var PROF_PRIV_LABEL = { public:'🌐 Публично', chat:'💬 В чате', request:'🔒 По запросу' };
+
+    async function _profileLoad() {
+        var uid = _uid(); if (!uid) return;
+        try {
+            var r = await fetch(_api() + '/api/profile/me?user_id=' + uid);
+            var d = await r.json();
+            if (d.success && d.profile) {
+                _profile = d.profile;
+                // Синхронизируем имя в localStorage для других модулей
+                if (d.profile.name) { try { localStorage.setItem('fredi_user_name', d.profile.name); } catch (e) {} }
+            }
+        } catch (e) { console.warn('profile load:', e); }
+        try {
+            var r2 = await fetch(_api() + '/api/profile/access/inbox?user_id=' + uid);
+            var d2 = await r2.json();
+            if (d2.success) _profileInbox = d2.requests || [];
+        } catch (e) { _profileInbox = []; }
+    }
+
+    function _profEsc(s) {
+        if (s == null) return '';
+        return String(s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function _profRenderField(f) {
+        var val = (_profile && _profile[f.id] != null) ? String(_profile[f.id]) : '';
+        var privacy = (_profile && _profile.privacy && _profile.privacy[f.id]) || 'public';
+        var input;
+        if (f.type === 'textarea') {
+            input = '<textarea class="st-prof-input st-prof-textarea" data-field="' + f.id + '"' +
+                (f.max ? ' maxlength="' + f.max + '"' : '') +
+                ' placeholder="' + _profEsc(f.placeholder||'') + '">' + _profEsc(val) + '</textarea>';
+        } else {
+            input = '<input class="st-prof-input" data-field="' + f.id + '" type="' + f.type + '"' +
+                ' value="' + _profEsc(val) + '" placeholder="' + _profEsc(f.placeholder||'') + '">';
+        }
+        var privBtns = ['public','chat','request'].map(function(p) {
+            return '<button type="button" data-priv-field="' + f.id + '" data-priv="' + p + '" class="' +
+                (privacy === p ? 'active' : '') + '" title="' + PROF_PRIV_LABEL[p] + '">' +
+                (p === 'public' ? '🌐' : p === 'chat' ? '💬' : '🔒') +
+            '</button>';
+        }).join('');
+        return '<div class="st-prof-field" data-field-row="' + f.id + '">' +
+            '<div class="st-prof-field-row">' +
+                '<div class="st-prof-field-label">' + f.label + '</div>' +
+                '<div class="st-prof-priv">' + privBtns + '</div>' +
+            '</div>' +
+            input +
+        '</div>';
+    }
+
+    function _profRenderInbox() {
+        if (!_profileInbox.length) {
+            return '<div class="st-inbox-block"><div class="st-inbox-title">🔔 Входящие запросы</div><div class="st-inbox-empty">Нет новых запросов.</div></div>';
+        }
+        var items = _profileInbox.map(function(req) {
+            var label = PROF_FIELDS.find(function(x){ return x.id === req.field; });
+            var fieldName = label ? label.label : req.field;
+            return '<div class="st-inbox-item" data-inbox-id="' + req.id + '">' +
+                '<div class="st-inbox-text"><b>' + _profEsc(req.requester_name) + '</b> запрашивает доступ к полю «' + _profEsc(fieldName) + '»</div>' +
+                '<div class="st-inbox-actions">' +
+                    '<button class="btn-grant" data-resolve="granted" data-id="' + req.id + '">✓ Дать</button>' +
+                    '<button class="btn-deny"  data-resolve="denied"  data-id="' + req.id + '">✗ Нет</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+        return '<div class="st-inbox-block"><div class="st-inbox-title">🔔 Входящие запросы (' + _profileInbox.length + ')</div>' + items + '</div>';
+    }
+
+    function _renderProfileEditor(el) {
+        el.innerHTML = '<div class="st-hint">Загружаю профиль…</div>';
+        _profileLoad().then(function(){
+            var photo = _profile && _profile.photo ? _profile.photo : '';
+            var photoPrivacy = (_profile && _profile.privacy && _profile.privacy.photo) || 'public';
+            var photoPrivBtns = ['public','chat','request'].map(function(p) {
+                return '<button type="button" data-priv-field="photo" data-priv="' + p + '" class="' +
+                    (photoPrivacy === p ? 'active' : '') + '" title="' + PROF_PRIV_LABEL[p] + '">' +
+                    (p === 'public' ? '🌐' : p === 'chat' ? '💬' : '🔒') +
+                '</button>';
+            }).join('');
+
+            el.innerHTML =
+                '<div class="st-hint">Личный профиль. Каждое поле можно сделать публичным, показывать только в чате или открывать по запросу.</div>' +
+                '<div class="st-prof-head">' +
+                    '<div class="st-prof-avatar" id="stProfAvatar">' +
+                        (photo ? '<img src="' + _profEsc(photo) + '" alt="avatar">' : '👤') +
+                    '</div>' +
+                    '<div class="st-prof-photo-actions">' +
+                        '<button class="st-prof-btn primary" id="stProfUpload">📷 ' + (photo ? 'Заменить фото' : 'Загрузить фото') + '</button>' +
+                        (photo ? '<button class="st-prof-btn danger" id="stProfRemove">🗑 Удалить</button>' : '') +
+                        '<div class="st-prof-priv" style="align-self:flex-start">' + photoPrivBtns + '</div>' +
+                    '</div>' +
+                    '<input type="file" id="stProfFile" accept="image/png,image/jpeg,image/webp" style="display:none">' +
+                '</div>' +
+                PROF_FIELDS.map(_profRenderField).join('') +
+                '<div class="st-prof-footer">' +
+                    '<button class="st-prof-save" id="stProfSave">💾 Сохранить</button>' +
+                '</div>' +
+                '<div style="margin-top:12px;font-size:11px;color:var(--text-secondary);line-height:1.5;">' +
+                    'User ID: ' + (_uid() || '-') + ' · Фреди v3.2' +
+                '</div>' +
+                _profRenderInbox();
+
+            _wireProfileEditor(el);
+        }).catch(function(e){
+            console.warn('profile editor render:', e);
+            el.innerHTML = '<div class="st-hint">Не удалось загрузить профиль. Попробуйте позже.</div>';
+        });
+    }
+
+    function _wireProfileEditor(el) {
+        // Radio групп приватности
+        el.querySelectorAll('[data-priv-field]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var field = btn.getAttribute('data-priv-field');
+                var priv = btn.getAttribute('data-priv');
+                el.querySelectorAll('[data-priv-field="' + field + '"]').forEach(function(b) {
+                    b.classList.toggle('active', b === btn);
+                });
+                if (!_profile) _profile = {};
+                if (!_profile.privacy) _profile.privacy = {};
+                _profile.privacy[field] = priv;
+            });
+        });
+
+        // Загрузка фото
+        var fileInput = el.querySelector('#stProfFile');
+        var uploadBtn = el.querySelector('#stProfUpload');
+        if (uploadBtn && fileInput) {
+            uploadBtn.addEventListener('click', function(){ fileInput.click(); });
+            fileInput.addEventListener('change', async function(e) {
+                var file = e.target.files && e.target.files[0];
+                if (!file) return;
+                try {
+                    var dataUrl = await _profResizePhoto(file);
+                    if (!_profile) _profile = {};
+                    _profile.photo = dataUrl;
+                    var avatarEl = el.querySelector('#stProfAvatar');
+                    if (avatarEl) avatarEl.innerHTML = '<img src="' + _profEsc(dataUrl) + '" alt="avatar">';
+                    _toast('Фото обновлено — не забудь нажать «Сохранить»', 'info');
+                } catch (err) {
+                    console.warn('photo resize:', err);
+                    _toast('Не удалось обработать фото', 'error');
+                }
+            });
+        }
+
+        var removeBtn = el.querySelector('#stProfRemove');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function() {
+                if (!_profile) _profile = {};
+                _profile.photo = null;
+                var avatarEl = el.querySelector('#stProfAvatar');
+                if (avatarEl) avatarEl.innerHTML = '👤';
+                _toast('Фото помечено на удаление — нажми «Сохранить»', 'info');
+            });
+        }
+
+        // Сохранить
+        var saveBtn = el.querySelector('#stProfSave');
+        if (saveBtn) saveBtn.addEventListener('click', async function() {
+            saveBtn.disabled = true;
+            saveBtn.textContent = '⏳ Сохраняем…';
+            try {
+                var fields = {};
+                PROF_FIELDS.forEach(function(f) {
+                    var input = el.querySelector('[data-field="' + f.id + '"]');
+                    if (input) fields[f.id] = input.value.trim();
+                });
+                var body = {
+                    user_id: _uid(),
+                    fields: fields,
+                    privacy: (_profile && _profile.privacy) || {},
+                };
+                if (_profile && 'photo' in _profile) body.photo = _profile.photo;
+                var r = await fetch(_api() + '/api/profile/me', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify(body)
+                });
+                var d = await r.json();
+                if (d.success) {
+                    _profile = d.profile;
+                    if (d.profile.name) { try { localStorage.setItem('fredi_user_name', d.profile.name); } catch(e){} }
+                    _toast('✅ Сохранено', 'success');
+                } else {
+                    _toast('❌ ' + (d.error || 'Ошибка'), 'error');
+                }
+            } catch (e) {
+                _toast('❌ Ошибка сети', 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '💾 Сохранить';
+            }
+        });
+
+        // Inbox resolve
+        el.querySelectorAll('[data-resolve]').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var id = btn.getAttribute('data-id');
+                var status = btn.getAttribute('data-resolve');
+                btn.disabled = true;
+                try {
+                    var r = await fetch(_api() + '/api/profile/access/' + id + '/resolve', {
+                        method:'POST', headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({ user_id: _uid(), status: status })
+                    });
+                    var d = await r.json();
+                    if (d.success) {
+                        _profileInbox = _profileInbox.filter(function(x){ return String(x.id) !== String(id); });
+                        var item = el.querySelector('[data-inbox-id="' + id + '"]');
+                        if (item) item.remove();
+                        _toast(status === 'granted' ? '✓ Доступ выдан' : 'Отказано', 'info');
+                    } else {
+                        _toast('❌ ' + (d.error || 'Ошибка'), 'error');
+                    }
+                } catch (e) {
+                    _toast('❌ Ошибка сети', 'error');
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+        });
+    }
+
+    // Ресайз + сжатие фото до 400x400 JPEG ~80%
+    function _profResizePhoto(file) {
+        return new Promise(function(resolve, reject) {
+            if (!file || !file.type || file.type.indexOf('image/') !== 0) {
+                return reject(new Error('not image'));
+            }
+            var reader = new FileReader();
+            reader.onerror = function(){ reject(new Error('read failed')); };
+            reader.onload = function(e) {
+                var img = new Image();
+                img.onload = function() {
+                    var side = Math.min(img.width, img.height);
+                    var sx = (img.width - side) / 2;
+                    var sy = (img.height - side) / 2;
+                    var size = 400;
+                    var canvas = document.createElement('canvas');
+                    canvas.width = size; canvas.height = size;
+                    var ctx = canvas.getContext('2d');
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+                    resolve(canvas.toDataURL('image/jpeg', 0.82));
+                };
+                img.onerror = function() { reject(new Error('image decode failed')); };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
     }
 
     async function showSettingsScreen() { _renderSettings(); await _loadSettings(); _renderSettings(); }
 
     window.showSettingsScreen = showSettingsScreen;
-    console.log('settings.js v3.2 loaded');
+    console.log('settings.js v3.3 loaded');
 })();

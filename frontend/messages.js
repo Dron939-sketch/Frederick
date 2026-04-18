@@ -872,11 +872,17 @@ async function _openChat(chatId) {
 
     _msInjectStyles();
 
+    const partnerPhoto = chat?.partnerPhoto || '';
+    const partnerAvatarHtml = partnerPhoto
+        ? `<img src="${_msEsc(partnerPhoto)}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+        : `<div class="ms-chat-avatar" style="width:36px;height:36px;border-radius:50%;background:rgba(155,140,255,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${chat?.partnerGender==='female'?'👩':(chat?.partnerGender==='male'?'👨':'👤')}</div>`;
+
     container.innerHTML = `
         <div class="ms-chat-screen" id="msChatScreen">
             <div class="ms-chat-header">
                 <button class="back-btn" id="msChatBack" style="margin:0;padding:8px 16px;font-size:13px">◀️</button>
-                <div class="ms-chat-header-info">
+                ${partnerAvatarHtml}
+                <div class="ms-chat-header-info" id="msChatHeaderInfo" style="cursor:pointer" title="Профиль собеседника">
                     <div class="ms-chat-header-name">
                         ${_msEsc(chat?.partnerName||'Собеседник')}${chat?.partnerAge?', '+chat.partnerAge:''}
                     </div>
@@ -912,6 +918,12 @@ async function _openChat(chatId) {
     }, 80);
 
     document.getElementById('msChatBack').onclick = () => _renderMain();
+
+    // Клик по шапке → sheet профиля собеседника
+    const headerInfo = document.getElementById('msChatHeaderInfo');
+    if (headerInfo && chat?.partnerId) {
+        headerInfo.addEventListener('click', () => _msOpenProfileSheet(chat.partnerId, chat.partnerName || 'Собеседник'));
+    }
 
     // Отправка: оптимистичный UI (✓ сразу, потом ✓✓ после ACK, голубые ✓✓ когда прочитано)
     const send = async () => {
@@ -1095,6 +1107,116 @@ async function showMessagesScreen() {
 
     _msInjectStyles();
     _renderMain();
+}
+
+// ============================================
+// PROFILE SHEET (показывает профиль собеседника с учётом приватности)
+// ============================================
+async function _msOpenProfileSheet(ownerId, ownerName) {
+    const me = _msUserId();
+    if (!me || !ownerId) return;
+
+    const FIELD_LABELS = {
+        photo:'Фото', name:'Имя', age:'Возраст', gender:'Пол', city:'Город',
+        bio:'О себе', occupation:'Род занятий', telegram:'Telegram',
+        instagram:'Instagram', phone:'Телефон', email:'Email'
+    };
+    const VIS_ICON = { public:'🌐', chat:'💬', request:'🔒' };
+
+    // Удаляем прошлый sheet если открыт
+    document.getElementById('msProfileSheet')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'msProfileSheet';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:9500;display:flex;align-items:flex-end;justify-content:center;padding:16px';
+    overlay.innerHTML = `<div id="msProfileCard" style="background:var(--carbon-fiber,#1a1a1a);border:1px solid rgba(224,224,224,0.18);border-radius:20px 20px 10px 10px;width:100%;max-width:480px;max-height:80vh;overflow-y:auto;padding:20px 18px;color:var(--text-primary);font-family:inherit">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="font-size:16px;font-weight:700">${_msEsc(ownerName)}</div>
+            <button id="msProfSheetClose" style="background:transparent;border:none;color:var(--text-secondary);font-size:22px;cursor:pointer;line-height:1">×</button>
+        </div>
+        <div id="msProfSheetBody"><div style="text-align:center;padding:24px;color:var(--text-secondary)">Загрузка…</div></div>
+    </div>`;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector('#msProfSheetClose').addEventListener('click', () => overlay.remove());
+    document.body.appendChild(overlay);
+
+    let resp;
+    try {
+        const r = await fetch(_msApi() + `/api/profile/view/${ownerId}?user_id=${me}`);
+        resp = await r.json();
+    } catch (e) {
+        overlay.querySelector('#msProfSheetBody').innerHTML = '<div style="padding:16px;color:var(--text-secondary)">Не удалось загрузить профиль</div>';
+        return;
+    }
+
+    if (!resp?.success) {
+        overlay.querySelector('#msProfSheetBody').innerHTML = '<div style="padding:16px;color:var(--text-secondary)">Профиль недоступен</div>';
+        return;
+    }
+
+    const fields = resp.fields || {};
+    const photoUrl = fields.photo?.value;
+    const orderedKeys = ['bio','occupation','age','city','telegram','instagram','phone','email'];
+
+    let rows = '';
+    orderedKeys.forEach(k => {
+        if (!(k in fields)) return;
+        const f = fields[k];
+        const label = FIELD_LABELS[k] || k;
+        const visIcon = VIS_ICON[f.visibility] || '';
+        let valueHtml;
+        if (f.locked) {
+            if (f.visibility === 'request') {
+                valueHtml = f.pending
+                    ? '<span style="color:var(--text-secondary);font-style:italic">⏳ запрос отправлен</span>'
+                    : `<button data-request="${k}" style="padding:4px 10px;border-radius:14px;border:1px solid rgba(155,140,255,0.45);background:rgba(155,140,255,0.14);color:var(--text-primary);font-family:inherit;font-size:11px;cursor:pointer">🔒 Запросить</button>`;
+            } else if (f.visibility === 'chat') {
+                valueHtml = '<span style="color:var(--text-secondary);font-style:italic">💬 откроется в чате</span>';
+            } else {
+                valueHtml = '<span style="color:var(--text-secondary)">—</span>';
+            }
+        } else {
+            valueHtml = f.value ? `<span style="color:var(--text-primary)">${_msEsc(String(f.value))}</span>` : '<span style="color:var(--text-secondary)">—</span>';
+        }
+        rows += `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(224,224,224,0.06);font-size:13px">
+            <div style="color:var(--text-secondary);font-size:12px">${visIcon} ${label}</div>
+            <div style="text-align:right;max-width:60%;word-break:break-word">${valueHtml}</div>
+        </div>`;
+    });
+
+    const photoHtml = photoUrl
+        ? `<img src="${_msEsc(photoUrl)}" alt="" style="width:88px;height:88px;border-radius:50%;object-fit:cover;display:block;margin:0 auto 14px;border:1px solid rgba(224,224,224,0.22)">`
+        : `<div style="width:88px;height:88px;border-radius:50%;margin:0 auto 14px;background:rgba(155,140,255,0.14);display:flex;align-items:center;justify-content:center;font-size:40px">👤</div>`;
+
+    overlay.querySelector('#msProfSheetBody').innerHTML = photoHtml + (rows || '<div style="padding:16px;color:var(--text-secondary)">Пока нет данных</div>');
+
+    // Обработчики «Запросить»
+    overlay.querySelectorAll('[data-request]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const field = btn.getAttribute('data-request');
+            btn.disabled = true;
+            btn.textContent = '⏳ Отправляем…';
+            try {
+                const r = await fetch(_msApi() + '/api/profile/access/request', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ user_id: me, owner_id: ownerId, field })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    btn.outerHTML = '<span style="color:var(--text-secondary);font-style:italic">⏳ запрос отправлен</span>';
+                    _msToast('🔒 Запрос отправлен', 'info');
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = '🔒 Запросить';
+                    _msToast('❌ ' + (d.error || 'Ошибка'), 'error');
+                }
+            } catch (e) {
+                btn.disabled = false;
+                btn.textContent = '🔒 Запросить';
+                _msToast('❌ Ошибка сети', 'error');
+            }
+        });
+    });
 }
 
 // ============================================

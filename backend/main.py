@@ -1012,6 +1012,29 @@ async def init_database_tables():
                 await conn.execute(f"ALTER TABLE fredi_test_results ADD COLUMN IF NOT EXISTS {col} {coltype}")
             except Exception:
                 pass
+
+        # ==== PROFILE / PRIVACY (idempotent) ====
+        try:
+            await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS profile_photo TEXT")
+            for col in ("bio", "occupation", "telegram", "instagram", "phone", "email"):
+                await conn.execute(f"ALTER TABLE fredi_user_contexts ADD COLUMN IF NOT EXISTS {col} TEXT")
+            await conn.execute("ALTER TABLE fredi_user_contexts ADD COLUMN IF NOT EXISTS privacy JSONB DEFAULT '{}'::jsonb")
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_profile_access (
+                    id SERIAL PRIMARY KEY,
+                    owner_id BIGINT NOT NULL,
+                    requester_id BIGINT NOT NULL,
+                    field_name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    resolved_at TIMESTAMPTZ,
+                    UNIQUE (owner_id, requester_id, field_name)
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_profile_access_owner_status ON fredi_profile_access(owner_id, status)")
+        except Exception as e:
+            logger.warning(f"profile/privacy migration warning: {e}")
+
         logger.info("✅ Все таблицы и индексы созданы")
 
 
@@ -3087,13 +3110,16 @@ async def get_chats(request: Request, user_id: int):
             rows = await conn.fetch("""
                 SELECT ch.id, ch.user_id_1, ch.user_id_2,
                        ch.last_message_text, ch.last_message_at, ch.created_at,
-                       c1.name as name_1, c1.age as age_1, c1.gender as gender_1,
-                       c2.name as name_2, c2.age as age_2, c2.gender as gender_2,
+                       c1.name as name_1, c1.age as age_1, c1.gender as gender_1, c1.privacy as priv_1,
+                       c2.name as name_2, c2.age as age_2, c2.gender as gender_2, c2.privacy as priv_2,
+                       u1.profile_photo as photo_1, u2.profile_photo as photo_2,
                        (SELECT COUNT(*) FROM fredi_chat_messages m
                         WHERE m.chat_id = ch.id AND m.sender_id != $1 AND m.is_read = FALSE) as unread
                 FROM fredi_chats ch
                 LEFT JOIN fredi_user_contexts c1 ON c1.user_id = ch.user_id_1
                 LEFT JOIN fredi_user_contexts c2 ON c2.user_id = ch.user_id_2
+                LEFT JOIN fredi_users u1          ON u1.user_id = ch.user_id_1
+                LEFT JOIN fredi_users u2          ON u2.user_id = ch.user_id_2
                 WHERE ch.user_id_1 = $1 OR ch.user_id_2 = $1
                 ORDER BY COALESCE(ch.last_message_at, ch.created_at) DESC
                 LIMIT 50
@@ -3107,6 +3133,10 @@ async def get_chats(request: Request, user_id: int):
             partner_name = (r["name_2"] if is_user1 else r["name_1"]) or "Пользователь"
             partner_age = r["age_2"] if is_user1 else r["age_1"]
             partner_gender = r["gender_2"] if is_user1 else r["gender_1"]
+            partner_photo_raw = r["photo_2"] if is_user1 else r["photo_1"]
+            partner_priv = _norm_privacy((r["priv_2"] if is_user1 else r["priv_1"]) or None)
+            # Фото доступно в чате для privacy == public или chat
+            partner_photo = partner_photo_raw if partner_priv.get("photo") in ("public", "chat") else None
 
             chats.append({
                 "id": r["id"],
@@ -3114,6 +3144,7 @@ async def get_chats(request: Request, user_id: int):
                 "partnerName": partner_name,
                 "partnerAge": partner_age,
                 "partnerGender": partner_gender,
+                "partnerPhoto": partner_photo,
                 "lastMessage": {"text": r["last_message_text"] or ""} if r["last_message_text"] else None,
                 "lastMessageAt": r["last_message_at"].isoformat() if r["last_message_at"] else None,
                 "unreadCount": r["unread"] or 0,
@@ -3332,7 +3363,7 @@ async def users_list(request: Request, limit: int = 200):
     try:
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
-                SELECT u.user_id, u.profile, c.name, c.age, c.city, c.gender
+                SELECT u.user_id, u.profile, u.profile_photo, c.name, c.age, c.city, c.gender, c.bio, c.privacy
                 FROM fredi_users u
                 LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
                 WHERE u.profile IS NOT NULL
@@ -3351,12 +3382,18 @@ async def users_list(request: Request, limit: int = 200):
         for r in rows:
             p = r['profile'] if isinstance(r['profile'], dict) else json.loads(r['profile'])
             bl = p.get('behavioral_levels', {})
+            priv = _norm_privacy(r['privacy'] if r['privacy'] else None)
+            # В списке отдаём фото/био только если приватность = public
+            photo = r['profile_photo'] if priv.get('photo') == 'public' else None
+            bio   = r['bio'] if priv.get('bio') == 'public' else None
             users.append({
                 'user_id': r['user_id'],
                 'name': r['name'] or f'User_{r["user_id"]}',
                 'age': r['age'],
                 'city': r['city'],
                 'gender': r['gender'],
+                'photo': photo,
+                'bio': bio,
                 'profile_code': p.get('display_name', ''),
                 'profile_type': p.get('perception_type', ''),
                 'vectors': {
@@ -4453,6 +4490,269 @@ async def log_event(user_id: int, event_type: str, event_data: Dict = None):
             """, user_id, event_type, json.dumps(event_data) if event_data else None)
     except Exception as e:
         logger.error(f"Error logging event for user {user_id}: {type(e).__name__}: {e}")
+
+
+# ============================================
+# ПРОФИЛЬ + ПРИВАТНОСТЬ
+# ============================================
+
+PROFILE_FIELDS = ("photo", "name", "age", "gender", "city", "bio",
+                  "occupation", "telegram", "instagram", "phone", "email")
+DEFAULT_PRIVACY = {
+    "photo": "public", "name": "public", "age": "public",
+    "gender": "public", "city": "public", "bio": "public",
+    "occupation": "chat", "telegram": "chat", "instagram": "chat",
+    "phone": "request", "email": "request",
+}
+
+
+def _norm_privacy(raw) -> dict:
+    out = dict(DEFAULT_PRIVACY)
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if k in out and v in ("public", "chat", "request"):
+                out[k] = v
+    return out
+
+
+async def _load_full_profile(conn, user_id: int) -> dict:
+    row_u = await conn.fetchrow("SELECT profile_photo FROM fredi_users WHERE user_id = $1", user_id)
+    row_c = await conn.fetchrow("""
+        SELECT name, age, gender, city, bio, occupation, telegram, instagram, phone, email, privacy
+        FROM fredi_user_contexts WHERE user_id = $1
+    """, user_id)
+    privacy = _norm_privacy(row_c["privacy"] if row_c and row_c["privacy"] else None)
+    data = {
+        "photo":      row_u["profile_photo"] if row_u else None,
+        "name":       row_c["name"] if row_c else None,
+        "age":        row_c["age"] if row_c else None,
+        "gender":     row_c["gender"] if row_c else None,
+        "city":       row_c["city"] if row_c else None,
+        "bio":        row_c["bio"] if row_c else None,
+        "occupation": row_c["occupation"] if row_c else None,
+        "telegram":   row_c["telegram"] if row_c else None,
+        "instagram":  row_c["instagram"] if row_c else None,
+        "phone":      row_c["phone"] if row_c else None,
+        "email":      row_c["email"] if row_c else None,
+        "privacy":    privacy,
+    }
+    return data
+
+
+async def _chat_exists(conn, a: int, b: int) -> bool:
+    row = await conn.fetchrow("""
+        SELECT 1 FROM fredi_chats
+        WHERE (user_id_1 = $1 AND user_id_2 = $2) OR (user_id_1 = $2 AND user_id_2 = $1)
+        LIMIT 1
+    """, a, b)
+    return row is not None
+
+
+@app.get("/api/profile/me")
+@limiter.limit("30/minute")
+async def profile_me(request: Request, user_id: int):
+    """Полный профиль текущего пользователя — для экрана настроек."""
+    try:
+        async with db.get_connection() as conn:
+            data = await _load_full_profile(conn, int(user_id))
+        return {"success": True, "profile": data}
+    except Exception as e:
+        logger.error(f"profile_me error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/profile/me")
+@limiter.limit("30/minute")
+async def profile_me_save(request: Request):
+    """Сохранить поля и/или privacy. user_id в body. Пустые поля принимаются (== null)."""
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id"))
+        fields = data.get("fields") or {}
+        privacy = data.get("privacy")
+        photo_data_url = data.get("photo")  # null = удалить, string = заменить, undefined = не трогать
+
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+
+        # Лимит на размер data-URL фото: ~220KB после base64 inflation
+        if isinstance(photo_data_url, str) and len(photo_data_url) > 300_000:
+            return {"success": False, "error": "photo too large (max ~200KB)"}
+
+        async with db.get_connection() as conn:
+            # Обеспечить существование пользователя и контекста
+            await conn.execute(
+                "INSERT INTO fredi_users (user_id, created_at, updated_at) VALUES ($1, NOW(), NOW()) "
+                "ON CONFLICT (user_id) DO NOTHING", user_id)
+            await conn.execute(
+                "INSERT INTO fredi_user_contexts (user_id) VALUES ($1) "
+                "ON CONFLICT (user_id) DO NOTHING", user_id)
+
+            if "photo" in data:
+                await conn.execute("UPDATE fredi_users SET profile_photo = $2 WHERE user_id = $1",
+                                   user_id, photo_data_url)
+
+            # Разрешённые поля для ввода
+            allowed = {"name", "age", "gender", "city", "bio", "occupation",
+                       "telegram", "instagram", "phone", "email"}
+            sets = []
+            values = [user_id]
+            for key, val in fields.items():
+                if key not in allowed:
+                    continue
+                values.append(val if val != "" else None)
+                sets.append(f"{key} = ${len(values)}")
+            if sets:
+                await conn.execute(
+                    f"UPDATE fredi_user_contexts SET {', '.join(sets)}, updated_at = NOW() WHERE user_id = $1",
+                    *values)
+
+            if isinstance(privacy, dict):
+                await conn.execute(
+                    "UPDATE fredi_user_contexts SET privacy = $2 WHERE user_id = $1",
+                    user_id, json.dumps(_norm_privacy(privacy)))
+
+            full = await _load_full_profile(conn, user_id)
+        return {"success": True, "profile": full}
+    except Exception as e:
+        logger.error(f"profile_me_save error: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/profile/view/{owner_id}")
+@limiter.limit("60/minute")
+async def profile_view(request: Request, owner_id: int, user_id: int):
+    """
+    Чужой профиль с учётом приватности и выданных доступов.
+    Возвращает поля + метаданные: каждое поле = {value, visibility, locked}.
+    """
+    try:
+        viewer = int(user_id)
+        if viewer == int(owner_id):
+            # Смотрит сам себя — отдаём всё
+            async with db.get_connection() as conn:
+                data = await _load_full_profile(conn, int(owner_id))
+            fields = {k: {"value": v, "visibility": data["privacy"].get(k, "public"), "locked": False}
+                      for k, v in data.items() if k != "privacy"}
+            return {"success": True, "owner_id": int(owner_id), "is_self": True, "fields": fields}
+
+        async with db.get_connection() as conn:
+            data = await _load_full_profile(conn, int(owner_id))
+            chat_ok = await _chat_exists(conn, viewer, int(owner_id))
+            granted_rows = await conn.fetch("""
+                SELECT field_name FROM fredi_profile_access
+                WHERE owner_id = $1 AND requester_id = $2 AND status = 'granted'
+            """, int(owner_id), viewer)
+            granted = {r["field_name"] for r in granted_rows}
+            pending_rows = await conn.fetch("""
+                SELECT field_name FROM fredi_profile_access
+                WHERE owner_id = $1 AND requester_id = $2 AND status = 'pending'
+            """, int(owner_id), viewer)
+            pending = {r["field_name"] for r in pending_rows}
+
+        fields = {}
+        for key, val in data.items():
+            if key == "privacy":
+                continue
+            visibility = data["privacy"].get(key, "public")
+            can_see = False
+            if visibility == "public":
+                can_see = True
+            elif visibility == "chat":
+                can_see = chat_ok
+            elif visibility == "request":
+                can_see = key in granted
+            fields[key] = {
+                "value": val if can_see else None,
+                "visibility": visibility,
+                "locked": not can_see,
+                "pending": key in pending,
+            }
+        return {"success": True, "owner_id": int(owner_id), "is_self": False,
+                "chat_exists": chat_ok, "fields": fields}
+    except Exception as e:
+        logger.error(f"profile_view error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/profile/access/request")
+@limiter.limit("30/minute")
+async def profile_access_request(request: Request):
+    """Попросить у owner_id доступ к полю field_name."""
+    try:
+        data = await request.json()
+        requester = int(data.get("user_id"))
+        owner = int(data.get("owner_id"))
+        field = (data.get("field") or "").strip()
+        if not requester or not owner or field not in DEFAULT_PRIVACY:
+            return {"success": False, "error": "invalid params"}
+        if requester == owner:
+            return {"success": False, "error": "cannot request own profile"}
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO fredi_profile_access (owner_id, requester_id, field_name, status)
+                VALUES ($1, $2, $3, 'pending')
+                ON CONFLICT (owner_id, requester_id, field_name)
+                DO UPDATE SET status = 'pending', resolved_at = NULL, created_at = NOW()
+                WHERE fredi_profile_access.status != 'granted'
+            """, owner, requester, field)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"profile_access_request error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/profile/access/inbox")
+@limiter.limit("60/minute")
+async def profile_access_inbox(request: Request, user_id: int):
+    """Входящие pending-запросы к моему профилю."""
+    try:
+        owner = int(user_id)
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT a.id, a.requester_id, a.field_name, a.status, a.created_at,
+                       c.name AS requester_name
+                FROM fredi_profile_access a
+                LEFT JOIN fredi_user_contexts c ON c.user_id = a.requester_id
+                WHERE a.owner_id = $1 AND a.status = 'pending'
+                ORDER BY a.created_at DESC
+                LIMIT 50
+            """, owner)
+        return {"success": True, "requests": [{
+            "id": r["id"],
+            "requester_id": r["requester_id"],
+            "requester_name": r["requester_name"] or f"User_{r['requester_id']}",
+            "field": r["field_name"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        } for r in rows]}
+    except Exception as e:
+        logger.error(f"profile_access_inbox error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/profile/access/{access_id}/resolve")
+@limiter.limit("60/minute")
+async def profile_access_resolve(request: Request, access_id: int):
+    """Одобрить/отклонить запрос. user_id в body — должен быть owner этого запроса."""
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id"))
+        status = (data.get("status") or "").strip()
+        if status not in ("granted", "denied"):
+            return {"success": False, "error": "status must be granted|denied"}
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow("SELECT owner_id FROM fredi_profile_access WHERE id = $1", access_id)
+            if not row or int(row["owner_id"]) != user_id:
+                return {"success": False, "error": "not found"}
+            await conn.execute("""
+                UPDATE fredi_profile_access
+                SET status = $2, resolved_at = NOW()
+                WHERE id = $1
+            """, access_id, status)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"profile_access_resolve error: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # ============================================
