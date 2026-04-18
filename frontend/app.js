@@ -710,7 +710,7 @@ function showFullContentScreen(title, content, contentType) {
     const emojiMap = {
         profile: '🧠', thoughts: '💭', goals: '🎯', questions: '❓',
         challenges: '🏆', doubles: '👥', weekend: '🎨', confinement: '🔐',
-        practices: '🧘', hypnosis: '🌙', tales: '🧿', anchors: '⚓', dreams: '🌙', confinement: '🔐'
+        practices: '🧘', hypnosis: '🌀', tales: '🧿', anchors: '⚓', dreams: '🌙', confinement: '🔐'
     };
     // Если content — уже HTML (содержит теги) — не прогоняем через форматтер
     const isHTML = typeof content === 'string' && /<[a-z][\s\S]*>/i.test(content);
@@ -1078,7 +1078,7 @@ async function showHypnosis() {
     container.innerHTML = `
         <div class="full-content-page">
             <button class="back-btn" id="backBtn">◀️ НАЗАД</button>
-            <div class="content-header"><div class="content-emoji">🌙</div><h1 class="content-title">Гипноз</h1></div>
+            <div class="content-header"><div class="content-emoji">🌀</div><h1 class="content-title">Гипноз</h1></div>
             <div class="content-body">
                 <div class="hypno-topics">
                     <button class="topic-btn" data-topic="тревога">Тревога</button>
@@ -1088,7 +1088,7 @@ async function showHypnosis() {
                     <button class="topic-btn" data-topic="вдохновение">Вдохновение</button>
                 </div>
                 <textarea class="hypno-input" id="hypnoInput" rows="3" placeholder="Напишите, что вас беспокоит..."></textarea>
-                <button class="action-btn primary-btn" id="processHypnoBtn">🌙 Получить гипнотический ответ</button>
+                <button class="action-btn primary-btn" id="processHypnoBtn">🌀 Получить гипнотический ответ</button>
                 <div id="hypnoResponse" style="margin-top:20px"></div>
                 <div class="practice-card" style="margin-top:20px">
                     <h3>🎧 ПОДДЕРЖКА</h3>
