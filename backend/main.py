@@ -3452,16 +3452,51 @@ async def generate_thought(request: Request):
 
 dream_service = None
 
-# In-memory session store for multi-round dream clarifications
-_dream_sessions: Dict[str, Dict[str, Any]] = {}
-_DREAM_SESSION_TTL = timedelta(hours=1)
+# Session store for multi-round dream clarifications.
+# Основной storage — Redis (TTL=1h). При недоступности Redis падаем на in-memory.
+_DREAM_SESSION_TTL_SECONDS = 3600
+_DREAM_SESSION_PREFIX = "dream_session:"
+_dream_sessions_mem: Dict[str, Dict[str, Any]] = {}
+_dream_sessions_mem_exp: Dict[str, datetime] = {}
 
 
-def _dream_session_cleanup() -> None:
+def _dream_session_cleanup_mem() -> None:
     now = datetime.now()
-    expired = [sid for sid, s in _dream_sessions.items() if s.get("expires", now) < now]
+    expired = [sid for sid, exp in _dream_sessions_mem_exp.items() if exp < now]
     for sid in expired:
-        _dream_sessions.pop(sid, None)
+        _dream_sessions_mem.pop(sid, None)
+        _dream_sessions_mem_exp.pop(sid, None)
+
+
+async def _dream_session_get(sid: str) -> Optional[Dict[str, Any]]:
+    if cache and cache.is_connected:
+        data = await cache.get(f"{_DREAM_SESSION_PREFIX}{sid}")
+        if data:
+            return data
+    _dream_session_cleanup_mem()
+    return _dream_sessions_mem.get(sid)
+
+
+async def _dream_session_set(sid: str, data: Dict[str, Any]) -> None:
+    payload = {
+        "user_id": data.get("user_id"),
+        "dream_text": data.get("dream_text", ""),
+        "clarifications": data.get("clarifications", []),
+        "last_question": data.get("last_question", ""),
+    }
+    stored = False
+    if cache and cache.is_connected:
+        stored = await cache.set(f"{_DREAM_SESSION_PREFIX}{sid}", payload, ttl=_DREAM_SESSION_TTL_SECONDS)
+    if not stored:
+        _dream_sessions_mem[sid] = payload
+        _dream_sessions_mem_exp[sid] = datetime.now() + timedelta(seconds=_DREAM_SESSION_TTL_SECONDS)
+
+
+async def _dream_session_delete(sid: str) -> None:
+    if cache and cache.is_connected:
+        await cache.delete(f"{_DREAM_SESSION_PREFIX}{sid}")
+    _dream_sessions_mem.pop(sid, None)
+    _dream_sessions_mem_exp.pop(sid, None)
 
 
 @app.post("/api/dreams/interpret")
@@ -3526,17 +3561,14 @@ async def interpret_dream(request: Request):
             clarifications=[]
         )
 
-        _dream_session_cleanup()
-
         if result.get("needs_clarification"):
             sid = result.get("session_id") or f"{user_id}_{int(datetime.now().timestamp())}"
-            _dream_sessions[sid] = {
+            await _dream_session_set(sid, {
                 "user_id": int(user_id),
                 "dream_text": dream_text,
                 "clarifications": [],
                 "last_question": result.get("question") or "",
-                "expires": datetime.now() + _DREAM_SESSION_TTL,
-            }
+            })
             result["session_id"] = sid
         else:
             await user_repo.create_user_if_not_exists(user_id)
@@ -3569,8 +3601,7 @@ async def clarify_dream(request: Request):
         if not answer:
             return {"success": False, "error": "answer required"}
 
-        _dream_session_cleanup()
-        session = _dream_sessions.get(session_id)
+        session = await _dream_session_get(session_id)
 
         if session is None:
             if not dream_text_req:
@@ -3580,9 +3611,8 @@ async def clarify_dream(request: Request):
                 "dream_text": dream_text_req,
                 "clarifications": [],
                 "last_question": "",
-                "expires": datetime.now() + _DREAM_SESSION_TTL,
             }
-            _dream_sessions[session_id] = session
+            await _dream_session_set(session_id, session)
 
         dream_text = session.get("dream_text") or dream_text_req
         history: List[Dict[str, str]] = list(session.get("clarifications") or [])
@@ -3622,7 +3652,7 @@ async def clarify_dream(request: Request):
         if result.get("needs_clarification"):
             session["clarifications"] = history
             session["last_question"] = result.get("question") or ""
-            session["expires"] = datetime.now() + _DREAM_SESSION_TTL
+            await _dream_session_set(session_id, session)
             result["session_id"] = session_id
         else:
             if not result.get("interpretation"):
@@ -3641,7 +3671,7 @@ async def clarify_dream(request: Request):
                     VALUES ($1, $2, $3, NOW())
                 """, int(user_id), dream_text[:2000], result["interpretation"])
 
-            _dream_sessions.pop(session_id, None)
+            await _dream_session_delete(session_id)
 
         return {"success": True, **result}
 

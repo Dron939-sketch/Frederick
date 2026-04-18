@@ -471,6 +471,32 @@ function _drInjectStyles() {
         .dr-bubble-action:hover { background: rgba(127,127,127,0.18); }
         .dr-bubble-action:active { transform: scale(0.95); }
 
+        /* Dream symbols inline highlighting + legend */
+        .dream-symbol {
+            color: #ffb871;
+            background: linear-gradient(180deg, transparent 60%, rgba(255,184,113,0.22) 60%);
+            padding: 0 2px;
+            border-radius: 3px;
+            cursor: help;
+            border-bottom: 1px dashed rgba(255,184,113,0.55);
+        }
+        .dream-symbols-legend {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            margin-top: 10px; padding-top: 10px;
+            border-top: 1px dashed rgba(127,127,127,0.18);
+        }
+        .dream-symbol-pill {
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            background: rgba(255,184,113,0.12);
+            color: #ffb871;
+            border: 1px solid rgba(255,184,113,0.28);
+            cursor: help;
+            user-select: none;
+        }
+        .dream-symbol-pill:hover { background: rgba(255,184,113,0.22); }
+
         .dr-chat-composer {
             position: sticky; bottom: 0;
             background: rgba(127,127,127,0.06);
@@ -725,7 +751,17 @@ function _drRenderChatBubble(msg, idx) {
     }
     const avatar = isUser ? '👤' : '🌙';
     const label = isUser ? 'Вы' : (msg.kind === 'clarification' ? `Фреди · уточнение ${msg.clarNumber || ''}/3` : 'Фреди');
-    const text = _drEscapeHtml(msg.text || '');
+    const escaped = _drEscapeHtml(msg.text || '');
+    const withSymbols = (!isUser && msg.kind === 'final' && Array.isArray(msg.symbols) && msg.symbols.length)
+        ? _drHighlightSymbols(escaped, msg.symbols)
+        : escaped;
+    const legend = (!isUser && msg.kind === 'final' && Array.isArray(msg.symbols) && msg.symbols.length)
+        ? `<div class="dream-symbols-legend">${msg.symbols.map(s => {
+                const name = _drEscapeHtml(s.name || '');
+                const meaning = _drEscapeHtml(s.meaning || name);
+                return `<span class="dream-symbol-pill" title="${meaning}">${name}</span>`;
+           }).join('')}</div>`
+        : '';
     const actions = !isUser && msg.text
         ? `<div class="dr-bubble-actions">
                <button class="dr-bubble-action" data-speak="${idx}" title="Озвучить">🔊</button>
@@ -736,11 +772,32 @@ function _drRenderChatBubble(msg, idx) {
             <div class="dr-chat-avatar">${avatar}</div>
             <div class="dr-chat-bubble">
                 <div class="dr-chat-label">${label}</div>
-                <div class="dr-chat-text">${text.replace(/\n/g, '<br>')}</div>
+                <div class="dr-chat-text">${withSymbols.replace(/\n/g, '<br>')}</div>
+                ${legend}
                 ${actions}
             </div>
         </div>
     `;
+}
+
+function _drHighlightSymbols(escapedText, symbols) {
+    if (!symbols || !symbols.length) return escapedText;
+    let out = escapedText;
+    symbols.forEach(s => {
+        const name = (s && s.name ? String(s.name) : '').trim();
+        if (!name) return;
+        const nameEsc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let re;
+        try {
+            re = new RegExp(`(?<![\\p{L}])(${nameEsc})(?![\\p{L}])`, 'giu');
+        } catch (e) {
+            // Fallback for engines without lookbehind
+            re = new RegExp(`\\b(${nameEsc})\\b`, 'gi');
+        }
+        const meaning = _drEscapeHtml(s.meaning || name);
+        out = out.replace(re, `<span class="dream-symbol" title="${meaning}">$1</span>`);
+    });
+    return out;
 }
 
 function _drAddChatMessage(role, text, extra) {
@@ -1280,8 +1337,8 @@ async function _drInterpret() {
             await showDreamsScreen();
         } else if (response.needs_clarification && _drClarificationCount >= 3) {
             const fallback = response.interpretation || 'На основе твоих ответов Фреди подготовил толкование. Для более точного анализа нужно больше деталей.';
-            _drAddChatMessage('bot', fallback, { kind: 'final' });
-            await _drSaveToHistory(dreamText, fallback);
+            _drAddChatMessage('bot', fallback, { kind: 'final', symbols: response.symbols, tags: response.tags });
+            await _drSaveToHistory(dreamText, fallback, { symbols: response.symbols, tags: response.tags });
             _drResetChatSession();
             _drChatFinalShown = true;
         } else if (!response.interpretation) {
@@ -1295,8 +1352,8 @@ async function _drInterpret() {
             await showDreamsScreen();
         } else {
             const interpretText = response.interpretation;
-            _drAddChatMessage('bot', interpretText, { kind: 'final' });
-            await _drSaveToHistory(dreamText, interpretText);
+            _drAddChatMessage('bot', interpretText, { kind: 'final', symbols: response.symbols, tags: response.tags });
+            await _drSaveToHistory(dreamText, interpretText, { symbols: response.symbols, tags: response.tags });
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
             _drClarificationCount = 0;
@@ -1378,8 +1435,8 @@ async function _drSubmitClarification() {
             _drNeedsClarification = false;
             _drClarificationQuestion = '';
             const interpretText = response.interpretation;
-            _drAddChatMessage('bot', interpretText, { kind: 'final' });
-            await _drSaveToHistory(_drCurrentText, interpretText);
+            _drAddChatMessage('bot', interpretText, { kind: 'final', symbols: response.symbols, tags: response.tags });
+            await _drSaveToHistory(_drCurrentText, interpretText, { symbols: response.symbols, tags: response.tags });
             _drClarificationCount = 0;
             _drChatFinalShown = true;
         }
@@ -1450,15 +1507,18 @@ async function _drLoadHistory() {
     }
 }
 
-async function _drSaveToHistory(dreamText, interpretation) {
+async function _drSaveToHistory(dreamText, interpretation, meta = {}) {
     const safeInterp = typeof interpretation === 'string' && interpretation.trim() ? interpretation : '';
+    const apiTags = Array.isArray(meta.tags) ? meta.tags.filter(t => typeof t === 'string' && t.trim()) : [];
+    const apiSymbols = Array.isArray(meta.symbols) ? meta.symbols.filter(s => s && s.name) : [];
     const newDream = {
         id: Date.now(),
         date: new Date().toLocaleDateString('ru-RU'),
         time: new Date().toLocaleTimeString('ru-RU'),
         text: dreamText,
         interpretation: safeInterp,
-        tags: _drExtractTags(safeInterp),
+        tags: apiTags.length ? apiTags.slice(0, 6) : _drExtractTags(safeInterp),
+        symbols: apiSymbols.slice(0, 5),
         clarification_count: _drClarificationCount
     };
     
