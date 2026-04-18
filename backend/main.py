@@ -21,7 +21,7 @@ import base64
 import re
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional, Dict, Any, List, Union, Tuple
 import signal
 import traceback
 
@@ -4752,6 +4752,219 @@ async def profile_access_resolve(request: Request, access_id: int):
         return {"success": True}
     except Exception as e:
         logger.error(f"profile_access_resolve error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# BRAND TRANSFORMATION — переход от текущего образа к желаемому
+# ============================================
+
+TARGET_IMAGES = {
+    "expert":      {"label": "Эксперт-гуру",            "examples": "Стив Джобс на презентации iPhone, доктор Хаус"},
+    "visionary":   {"label": "Лидер-визионер",          "examples": "Илон Маск, Тони Старк (Iron Man)"},
+    "charismatic": {"label": "Соблазнитель/харизматик", "examples": "Дон Дрейпер (Mad Men), Джеймс Бонд"},
+    "ally":        {"label": "Свой парень",             "examples": "Том Хэнкс, Форрест Гамп"},
+    "rebel":       {"label": "Бунтарь-новатор",         "examples": "Стив Джобс ранний, Курт Кобейн"},
+    "mentor":      {"label": "Заботливый наставник",    "examples": "Опра Уинфри, Робин Уильямс в \"Обществе мёртвых поэтов\""},
+}
+
+
+def _brand_transformation_prompt(current_archetype: str, current_desc: str,
+                                 target_label: str, target_examples: str,
+                                 user_name: str, profile_summary: str,
+                                 custom_target: Optional[str]) -> str:
+    target_block = (
+        f"ЦЕЛЕВОЙ ОБРАЗ: {target_label}.\n"
+        f"Примеры людей с таким образом: {target_examples}."
+    ) if not custom_target else (
+        f"ЦЕЛЕВОЙ ОБРАЗ описан пользователем своими словами:\n«{custom_target}»\n"
+        "Сначала кратко (1 предложение) перефразируй это в архетип."
+    )
+    return f"""Ты — Фреди, психолог-коуч по личному бренду.
+Пользователь: {user_name}
+ТЕКУЩИЙ АРХЕТИП: {current_archetype}.
+{current_desc}
+
+{target_block}
+
+ЗАДАЧА: построить план трансформации публичного образа от текущего к желаемому.
+План должен быть конкретным, без общих слов, и применимым к этому пользователю.
+
+ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА — строго JSON, без префикса ```json и без лишнего текста:
+{{
+  "summary": "1-2 предложения: что меняем и зачем",
+  "gap_analysis": [
+    {{
+      "axis": "outfit",
+      "axis_label": "Внешний вид",
+      "from": "как сейчас одевается / выглядит",
+      "to":   "как должен выглядеть для целевого образа",
+      "steps": ["конкретный шаг 1","шаг 2","шаг 3"]
+    }},
+    {{
+      "axis": "speech",
+      "axis_label": "Речь и манера",
+      "from": "как сейчас говорит",
+      "to":   "как должен говорить",
+      "steps": ["шаг 1","шаг 2","шаг 3"]
+    }},
+    {{
+      "axis": "environment",
+      "axis_label": "Окружение",
+      "from": "с кем сейчас общается / где бывает",
+      "to":   "куда выходит / с кем нужно",
+      "steps": ["конкретное место/мероприятие/клуб 1","2","3"]
+    }},
+    {{
+      "axis": "habits",
+      "axis_label": "Привычки",
+      "from": "что делает регулярно сейчас",
+      "to":   "какие новые ритуалы нужны",
+      "steps": ["шаг 1","2","3"]
+    }},
+    {{
+      "axis": "behavior",
+      "axis_label": "Поведение",
+      "from": "как ведёт себя в типичных ситуациях",
+      "to":   "как должен себя вести",
+      "steps": ["шаг 1","2","3"]
+    }}
+  ],
+  "weekly_plan": [
+    {{
+      "week": 1,
+      "focus": "тема недели",
+      "actions": [
+        {{"axis":"outfit","title":"конкретное действие","detail":"что именно сделать","time":"30 мин","priority":"high"}}
+      ]
+    }},
+    {{ "week": 2, "focus": "...", "actions": [ ... ] }},
+    {{ "week": 3, "focus": "...", "actions": [ ... ] }},
+    {{ "week": 4, "focus": "...", "actions": [ ... ] }}
+  ],
+  "support_rituals": {{
+    "daily":   ["ритуал 1","ритуал 2"],
+    "weekly":  ["ритуал 1","ритуал 2"],
+    "monthly": ["ритуал 1"]
+  }},
+  "examples": [
+    {{
+      "name": "Имя персонажа или человека",
+      "source": "Фильм/реальность",
+      "transformation": "что он(а) поменял(а): по 1 строке про внешний вид / речь / окружение / привычки / поведение",
+      "lesson": "1-2 предложения: главный урок для пользователя"
+    }},
+    {{ "name": "...", "source": "...", "transformation": "...", "lesson": "..." }}
+  ]
+}}
+
+ТРЕБОВАНИЯ К ВЫВОДУ:
+- 4 недели, в каждой 3-5 действий
+- Каждое действие: указать axis (outfit/speech/environment/habits/behavior)
+- 2 примера: один из фильма, один из жизни
+- Без markdown-форматирования внутри строк, без эмодзи в JSON
+- Пиши на русском, обращайся на «ты»
+
+ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ (краткая выдержка для контекста):
+{profile_summary}
+"""
+
+
+def _brand_archetype_label(profile: dict) -> Tuple[str, str]:
+    """Грубое определение текущего архетипа по векторам."""
+    bl = (profile or {}).get("behavioral_levels") or {}
+    def lv(k, d=4):
+        v = bl.get(k)
+        if isinstance(v, list) and v: return v[-1]
+        if isinstance(v, (int, float)): return v
+        return d
+    sb, tf, ub, cv = lv("СБ"), lv("ТФ"), lv("УБ"), lv("ЧВ")
+    if cv >= 5 and tf <= 3: return ("Искатель/Бунтарь", "сейчас выбираешь свободу и новое, иногда в ущерб системности")
+    if tf >= 5 and ub >= 5: return ("Эксперт-Создатель",  "сейчас известен как профессионал, но может не хватать харизмы")
+    if sb >= 5 and ub >= 5: return ("Заботливый",         "сейчас воспринимаешься как надёжный и поддерживающий")
+    if cv >= 5 and ub >= 5: return ("Любовник/Друг",      "сейчас тебя видят как тёплого, эмоционального, общительного")
+    if tf >= 5:             return ("Герой",              "сейчас известен как тот, кто доводит дело до конца")
+    return ("Странник",                                   "сейчас образ размытый — это нормально, тебе есть куда расти")
+
+
+@app.post("/api/brand/transformation")
+@limiter.limit("8/minute")
+async def brand_transformation(request: Request):
+    """План трансформации публичного образа: текущий → выбранный целевой."""
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id"))
+        target_key = (data.get("target") or "").strip().lower()
+        custom_target = (data.get("custom_target") or "").strip() or None
+
+        if not target_key and not custom_target:
+            return {"success": False, "error": "target or custom_target required"}
+
+        profile = await user_repo.get_profile(user_id) or {}
+        context = await context_repo.get(user_id) or {}
+        user_name = context.get("name", "друг")
+
+        current_arch, current_desc = _brand_archetype_label(profile)
+
+        target_label = TARGET_IMAGES.get(target_key, {}).get("label", "Свой образ")
+        target_examples = TARGET_IMAGES.get(target_key, {}).get("examples", "")
+
+        # Краткое summary профиля для AI-контекста
+        bl = profile.get("behavioral_levels", {}) or {}
+        def lv(k):
+            v = bl.get(k)
+            if isinstance(v, list) and v: return v[-1]
+            if isinstance(v, (int, float)): return v
+            return None
+        summary_lines = [
+            f"Имя: {user_name}",
+            f"Возраст: {context.get('age', '—')}",
+            f"Город: {context.get('city', '—')}",
+            f"Род занятий: {context.get('occupation', '—')}",
+        ]
+        vec = ", ".join(f"{k}={lv(k)}" for k in ("СБ", "ТФ", "УБ", "ЧВ") if lv(k) is not None)
+        if vec:
+            summary_lines.append(f"Поведенческие векторы: {vec}")
+        if profile.get("display_name"):
+            summary_lines.append(f"Профиль: {profile['display_name']}")
+        profile_summary = "\n".join(summary_lines)
+
+        prompt = _brand_transformation_prompt(
+            current_archetype=current_arch,
+            current_desc=current_desc,
+            target_label=target_label,
+            target_examples=target_examples,
+            user_name=user_name,
+            profile_summary=profile_summary,
+            custom_target=custom_target,
+        )
+        system = "Ты помогаешь людям менять публичный образ. Отвечай строго в формате JSON, без преамбул."
+
+        response = await ai_service._call_deepseek(system, prompt, max_tokens=2200, temperature=0.7)
+        if not response or not str(response).strip():
+            return {"success": False, "error": "empty AI response"}
+
+        clean = re.sub(r'```json|```', '', str(response)).strip()
+        # Найти первую { и последнюю }
+        try:
+            start = clean.index("{")
+            end   = clean.rindex("}") + 1
+            payload = json.loads(clean[start:end])
+        except Exception as e:
+            logger.error(f"brand_transformation JSON parse failed: {e}; raw[:300]={clean[:300]}")
+            return {"success": False, "error": "AI response was not valid JSON"}
+
+        return {
+            "success": True,
+            "current_archetype": current_arch,
+            "current_description": current_desc,
+            "target_key": target_key or "custom",
+            "target_label": target_label if target_key else (custom_target[:80] if custom_target else "Свой образ"),
+            "target_examples": target_examples,
+            "transformation": payload,
+        }
+    except Exception as e:
+        logger.error(f"brand_transformation error: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
