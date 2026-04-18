@@ -1647,6 +1647,43 @@ window.addEventListener('beforeinstallprompt', (e) => {
     window._frediInstallPrompt = e;
 });
 
+// ============================================
+// КНОПКА ПОДЕЛИТЬСЯ ССЫЛКОЙ (встраиваемая версия, напр. Telegram-miniapp)
+// ============================================
+function initShareBtn() {
+    const btn = document.getElementById('shareBtn');
+    if (!btn || btn._fShareInited) return;
+    btn._fShareInited = true;
+
+    btn.addEventListener('click', async () => {
+        // Ссылка на текущий фронтенд (не на меистерскую)
+        const shareUrl = (location.origin || '') + (location.pathname || '/');
+        const data = {
+            title: 'Фреди — виртуальный психолог',
+            text: 'Попробуй Фреди — AI-психолог с голосом, толкованием снов и персональным профилем',
+            url: shareUrl
+        };
+        // Нативный Web Share (мобильные + современный Safari/Chrome)
+        if (navigator.share) {
+            try {
+                await navigator.share(data);
+                return;
+            } catch (err) {
+                if (err && err.name === 'AbortError') return; // пользователь закрыл диалог — молча
+                // иначе падаем в фолбэк
+            }
+        }
+        // Фолбэк: копируем ссылку
+        try {
+            await navigator.clipboard.writeText(data.url);
+            if (typeof showToast === 'function') showToast('🔗 Ссылка скопирована: ' + data.url, 'success');
+        } catch {
+            if (typeof showToast === 'function') showToast('Скопируй вручную: ' + data.url, 'info');
+            else window.prompt('Ссылка для отправки:', data.url);
+        }
+    });
+}
+
 function initTopMenu() {
     const btn = document.getElementById('menuBtn');
     if (!btn || btn._fTopMenuInited) return;
@@ -1846,6 +1883,7 @@ async function init() {
 
     initMobileMenu();
     initTopMenu();
+    initShareBtn();
     await initVoice();
 
     // Проверяем имя пользователя
