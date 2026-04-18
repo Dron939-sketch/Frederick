@@ -182,7 +182,8 @@ function _drInjectStyles() {
             --dream-muted: #6C6890;
             --dream-text: #E4E0FF;
         }
-        #screenContainer { background: var(--dream-bg); }
+        /* Фиолетовая атмосфера применяется ТОЛЬКО внутри .dr-dreams-scope — чтобы не протекала на другие экраны */
+        .dr-dreams-scope { background: var(--dream-bg); min-height: 100vh; }
 
         .dr-tabs {
             display:flex;gap:4px;background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.12);
@@ -322,7 +323,30 @@ function _drInjectStyles() {
         @media (max-width: 480px) {
             .dr-voice-btn { width: 80px; height: 80px; }
             .recording-timer { font-size: 18px; }
+            /* Чипы школ компактнее на узких экранах */
+            .dr-school-chip { padding: 5px 9px; font-size: 11px; }
+            .dr-school-chip-emoji { font-size: 12px; }
+            /* Композер: voice-btn компактнее, textarea не расплющивается */
+            .dr-chat-composer { padding: 12px !important; }
+            .dr-voice-btn-compact { width: 42px !important; height: 42px !important; flex-shrink: 0; }
+            .dr-btn-send { min-width: 44px; padding: 0 10px; flex-shrink: 0; }
+            .dr-textarea-chat { min-width: 0; font-size: 14px; }
+            /* Чтобы чат занимал доступный вертикальный экран */
+            .dr-chat-wrap { min-height: calc(100vh - 160px); }
+            /* Symbol-модалка — меньше паддинг на узких */
+            .dr-symbol-card { padding: 22px 18px 18px; }
+            .dr-symbol-title { font-size: 20px; }
+            .dr-symbol-emoji { font-size: 46px; }
         }
+        @media (max-width: 360px) {
+            /* Совсем узкие экраны — ещё компактнее */
+            .dr-school-chip { padding: 4px 7px; font-size: 10px; }
+            .dr-voice-btn-compact { width: 38px !important; height: 38px !important; }
+            .dr-voice-btn-compact .dr-voice-icon { font-size: 22px !important; }
+        }
+
+        /* Textarea в композере не должна распирать flex-контейнер */
+        .dr-textarea-chat { min-width: 0; }
 
         /* ===== Press-анимация для всех кнопок модуля ===== */
         .dr-btn, .dr-btn-ghost, .dr-interpretation-btn, .dr-history-item {
@@ -542,17 +566,14 @@ function _drInjectStyles() {
         }
         .dr-chat-wrap { position: relative; z-index: 1; }
 
-        /* School chip row */
+        /* School chip row — на мобильных заворачивается в несколько строк */
         .dr-school-row {
             display: flex;
+            flex-wrap: wrap;
             gap: 6px;
             margin-bottom: 10px;
-            overflow-x: auto;
-            scrollbar-width: none;
-            -ms-overflow-style: none;
             padding-bottom: 2px;
         }
-        .dr-school-row::-webkit-scrollbar { display: none; }
         .dr-school-chip {
             flex-shrink: 0;
             display: inline-flex;
@@ -775,15 +796,17 @@ function _drRender(container, completed) {
     if (_drActiveTab === 'history') body = _drRenderHistoryTab(completed);
 
     container.innerHTML = `
-        <div class="full-content-page">
-            <button class="back-btn" id="drBack">◀️ НАЗАД</button>
-            <div class="content-header">
-                <div class="content-emoji">🌙</div>
-                <h1 class="content-title">Толкование снов</h1>
-                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Фреди анализирует символику ваших снов</p>
+        <div class="dr-dreams-scope">
+            <div class="full-content-page">
+                <button class="back-btn" id="drBack">◀️ НАЗАД</button>
+                <div class="content-header">
+                    <div class="content-emoji">🌙</div>
+                    <h1 class="content-title">Толкование снов</h1>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Фреди анализирует символику ваших снов</p>
+                </div>
+                <div class="dr-tabs">${tabsHtml}</div>
+                <div id="drBody">${body}</div>
             </div>
-            <div class="dr-tabs">${tabsHtml}</div>
-            <div id="drBody">${body}</div>
         </div>
     `;
 
@@ -1850,22 +1873,24 @@ function viewDreamDetails(index) {
     const formatted = escapedInterpretation.replace(/\n/g, '<br>');
     
     container.innerHTML = `
-        <div class="full-content-page">
-            <button class="back-btn" id="drDetailBack">◀️ НАЗАД</button>
-            <div class="content-header">
-                <div class="content-emoji">🌙</div>
-                <h1 class="content-title">${_drEscapeHtml(dream.date)}</h1>
-            </div>
+        <div class="dr-dreams-scope">
+            <div class="full-content-page">
+                <button class="back-btn" id="drDetailBack">◀️ НАЗАД</button>
+                <div class="content-header">
+                    <div class="content-emoji">🌙</div>
+                    <h1 class="content-title">${_drEscapeHtml(dream.date)}</h1>
+                </div>
 
-            <div class="dr-record-card" style="text-align: left;">
-                <h3>Ваш сон:</h3>
-                <div style="background:rgba(155,140,255,0.04);border-radius:16px;padding:16px;margin:12px 0;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap">${escapedText}</div>
+                <div class="dr-record-card" style="text-align: left;">
+                    <h3>Ваш сон:</h3>
+                    <div style="background:rgba(155,140,255,0.04);border-radius:16px;padding:16px;margin:12px 0;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap">${escapedText}</div>
 
-                <h3 style="margin-top: 20px;">Толкование Фреди:</h3>
-                <div class="dr-interpretation" style="margin-top: 0;">
-                    <div class="dr-interpretation-text">${formatted}</div>
-                    <div class="dr-interpretation-actions">
-                        <button class="dr-interpretation-btn" onclick="speakText('${dream.interpretation.replace(/'/g, "\\'").replace(/\n/g, ' ')}')">🔊 Озвучить</button>
+                    <h3 style="margin-top: 20px;">Толкование Фреди:</h3>
+                    <div class="dr-interpretation" style="margin-top: 0;">
+                        <div class="dr-interpretation-text">${formatted}</div>
+                        <div class="dr-interpretation-actions">
+                            <button class="dr-interpretation-btn" onclick="speakText('${dream.interpretation.replace(/'/g, "\\'").replace(/\n/g, ' ')}')">🔊 Озвучить</button>
+                        </div>
                     </div>
                 </div>
             </div>
