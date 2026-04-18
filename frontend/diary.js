@@ -42,6 +42,56 @@ function _dyInjectStyles() {
             margin-top: 6px;
         }
 
+        /* ===== Voice input ===== */
+        .dy-input-wrap { position: relative; }
+        .dy-voice-btn {
+            position: absolute; right: 10px; bottom: 10px;
+            width: 44px; height: 44px; border-radius: 50%;
+            background: linear-gradient(135deg, rgba(155,140,255,0.25), rgba(155,140,255,0.12));
+            border: 1px solid rgba(155,140,255,0.35);
+            color: var(--text-primary);
+            font-size: 20px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            transition: transform 0.12s ease, background 0.2s, box-shadow 0.2s;
+            -webkit-user-select: none; user-select: none;
+            touch-action: manipulation;
+        }
+        .dy-voice-btn:hover { background: rgba(155,140,255,0.28); }
+        .dy-voice-btn:active { transform: scale(0.93); }
+        .dy-voice-btn.recording {
+            animation: dyPulse 1.2s infinite;
+            background: linear-gradient(135deg, rgba(255,107,107,0.92), rgba(255,59,59,0.92));
+            border-color: rgba(255,107,107,0.92);
+            color: #fff;
+        }
+        @keyframes dyPulse {
+            0% { box-shadow: 0 0 0 0 rgba(255,107,107,0.55); }
+            70% { box-shadow: 0 0 0 14px rgba(255,107,107,0); }
+            100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); }
+        }
+        .dy-rec-indicator {
+            display: none;
+            align-items: center; gap: 10px;
+            background: linear-gradient(135deg, rgba(255,59,59,0.14), rgba(255,107,107,0.08));
+            border: 1px solid rgba(255,107,107,0.4);
+            border-radius: 12px;
+            padding: 8px 12px; margin-top: 8px;
+            font-size: 12px; color: #ff6b6b; font-weight: 600;
+        }
+        .dy-rec-indicator.is-on { display: flex; }
+        .dy-rec-indicator::before {
+            content: '🔴'; font-size: 12px;
+            animation: dyBlink 1s ease-in-out infinite;
+        }
+        @keyframes dyBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .dy-rec-timer { font-variant-numeric: tabular-nums; }
+        /* Дополнительное нижнее пространство в textarea под кнопку */
+        .dy-textarea.has-voice { padding-right: 64px; }
+
         /* Записи */
         .dy-entry {
             background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1);
@@ -224,8 +274,15 @@ function _dyWrite() {
     return `
         <div class="dy-form">
             <div class="dy-form-label">Что происходит? Что чувствуете? Что думаете?</div>
-            <textarea class="dy-textarea" id="dyInput"
-                placeholder="Сегодня я думаю о том, что..."></textarea>
+            <div class="dy-input-wrap">
+                <textarea class="dy-textarea has-voice" id="dyInput"
+                    placeholder="Сегодня я думаю о том, что..."></textarea>
+                <button type="button" class="dy-voice-btn" id="dyVoiceBtn" title="Нажмите и удерживайте для диктовки" aria-label="Надиктовать запись голосом">🎤</button>
+            </div>
+            <div class="dy-rec-indicator" id="dyRecIndicator">
+                <span>Идёт запись — отпусти кнопку, когда закончишь</span>
+                <span class="dy-rec-timer" id="dyRecTimer">0 сек</span>
+            </div>
             <div class="dy-counter" id="dyCounter">0 символов</div>
         </div>
         <button class="dy-btn dy-btn-primary" id="dySaveBtn">💾 Сохранить запись</button>
@@ -353,6 +410,8 @@ function _dyBindHandlers() {
         });
     }
 
+    _dyInitVoiceButton();
+
     // Сохранить запись
     document.getElementById('dySaveBtn')?.addEventListener('click', () => {
         const text = (document.getElementById('dyInput')?.value || '').trim();
@@ -402,6 +461,122 @@ function _dyBindHandlers() {
             _dyRender();
         };
     });
+}
+
+// ============================================
+// ГОЛОСОВОЙ ВВОД
+// ============================================
+function _dyInitVoiceButton() {
+    const voiceBtn = document.getElementById('dyVoiceBtn');
+    const input = document.getElementById('dyInput');
+    const indicator = document.getElementById('dyRecIndicator');
+    const timerEl = document.getElementById('dyRecTimer');
+    const counter = document.getElementById('dyCounter');
+    if (!voiceBtn || !input) return;
+
+    if (!window.voiceManager) {
+        voiceBtn.style.opacity = '0.4';
+        voiceBtn.addEventListener('click', () => _dyToast('🎤 Голосовой ввод недоступен', 'info'));
+        return;
+    }
+    if (voiceBtn._dyVoiceInited) return;
+    voiceBtn._dyVoiceInited = true;
+
+    const MAX_RECORD_SECONDS = 180; // дневник — дольше снов
+    let isRecording = false;
+    let startedAt = null;
+    let timerInt = null;
+    let savedOnTranscript = null;
+    let savedOnComplete = null;
+
+    const updateCounter = () => {
+        if (counter) counter.textContent = `${input.value.length} символов`;
+    };
+
+    const restoreHandlers = () => {
+        if (!window.voiceManager) return;
+        if (savedOnTranscript !== null) {
+            window.voiceManager.onTranscript = savedOnTranscript;
+            savedOnTranscript = null;
+        }
+        if (savedOnComplete !== null) {
+            window.voiceManager.onTranscriptComplete = savedOnComplete;
+            savedOnComplete = null;
+        }
+        window.voiceManager.sttOnly = false;
+    };
+
+    const stop = () => {
+        if (!isRecording) return;
+        if (timerInt) { clearInterval(timerInt); timerInt = null; }
+        try { window.voiceManager?.stopRecording?.(); } catch (e) {}
+        isRecording = false;
+        voiceBtn.classList.remove('recording');
+        voiceBtn.textContent = '🎤';
+        if (indicator) indicator.classList.remove('is-on');
+    };
+
+    const onPressStart = async (e) => {
+        e.preventDefault();
+        if (isRecording) return;
+
+        savedOnTranscript = window.voiceManager.onTranscript;
+        savedOnComplete = window.voiceManager.onTranscriptComplete;
+        window.voiceManager.sttOnly = true;
+
+        window.voiceManager.onTranscript = (text) => {
+            if (!text) return;
+            const cur = input.value;
+            input.value = cur ? `${cur} ${text}` : text;
+            input.scrollTop = input.scrollHeight;
+            updateCounter();
+        };
+        window.voiceManager.onTranscriptComplete = () => {
+            restoreHandlers();
+            if (input.value.trim()) {
+                _dyToast('✅ Голос распознан', 'success');
+            } else {
+                _dyToast('❌ Не удалось распознать речь', 'error');
+            }
+        };
+
+        isRecording = true;
+        startedAt = Date.now();
+        voiceBtn.classList.add('recording');
+        voiceBtn.textContent = '🔴';
+        if (indicator) indicator.classList.add('is-on');
+        if (timerEl) timerEl.textContent = '0 сек';
+        if (navigator.vibrate) { try { navigator.vibrate(40); } catch (e) {} }
+
+        timerInt = setInterval(() => {
+            const sec = Math.floor((Date.now() - startedAt) / 1000);
+            if (timerEl) timerEl.textContent = `${sec} сек`;
+            if (sec >= MAX_RECORD_SECONDS) {
+                stop();
+                restoreHandlers();
+                _dyToast(`⏱ Достигнут лимит записи (${MAX_RECORD_SECONDS}с)`, 'info');
+            }
+        }, 250);
+
+        const started = await window.voiceManager.startRecording();
+        if (!started) {
+            stop();
+            restoreHandlers();
+            _dyToast('🎤 Нет доступа к микрофону', 'error');
+        }
+    };
+
+    const onPressEnd = (e) => {
+        e.preventDefault();
+        stop();
+    };
+
+    voiceBtn.addEventListener('mousedown', onPressStart);
+    voiceBtn.addEventListener('mouseup', onPressEnd);
+    voiceBtn.addEventListener('mouseleave', onPressEnd);
+    voiceBtn.addEventListener('touchstart', onPressStart, { passive: false });
+    voiceBtn.addEventListener('touchend', onPressEnd, { passive: false });
+    voiceBtn.addEventListener('touchcancel', onPressEnd);
 }
 
 async function _dyRunAnalysis() {
