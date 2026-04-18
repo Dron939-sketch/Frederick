@@ -75,9 +75,10 @@ from utils import (
     get_goal_difficulty,
     get_goal_time_estimate,
     save_feasibility_result,
-    MorningMessageManager,
     get_weekend_planner as get_utils_weekend_planner
 )
+# AI-powered morning messages (а не пустышка из utils)
+from morning_messages import MorningMessageManager
 from formatters import bold, italic, clean_text_for_safe_display, format_profile_text, format_psychologist_text
 from profiles import VECTORS, LEVEL_PROFILES, STAGE_1_FEEDBACK, STAGE_2_FEEDBACK, STAGE_3_FEEDBACK, DILTS_LEVELS, FALLBACK_ANALYSIS
 
@@ -267,7 +268,7 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Гипнотические модули готовы")
 
         logger.info("📦 Инициализация утилит...")
-        morning_manager = MorningMessageManager()
+        morning_manager = MorningMessageManager(ai_service)
         logger.info("✅ Утилиты готовы")
 
         voice_manager = VoiceConnectionManager()
@@ -4298,8 +4299,172 @@ async def admin_logs(request: Request, limit: int = 50):
 
 @app.get("/api/push/vapid-public-key")
 async def get_vapid_public_key():
-    """Отдаёт публичный VAPID ключ фронтенду"""
-    return {"publicKey": "BP-yST0xJbEGx5qfPdkPn2IGcLRru41wwQUdj9vXUOS7DqKd2lxMU_aAcrwRwnp9ioItzKeRFR8NNUOQ9zb2XBY"}
+    """Отдаёт публичный VAPID ключ фронтенду (читается из env через PushService)."""
+    if not push_service or not getattr(push_service, "enabled", False):
+        return {"publicKey": None, "enabled": False,
+                "error": "VAPID not configured on server"}
+    return {"publicKey": push_service.vapid_public_key, "enabled": True}
+
+
+@app.get("/api/push/diagnostics")
+@limiter.limit("30/minute")
+async def push_diagnostics(request: Request, user_id: Optional[int] = None):
+    """Диагностика push-подсистемы и утренних сообщений."""
+    try:
+        result = {
+            "push_service_ready": push_service is not None,
+            "vapid_public_set":   bool(push_service and push_service.vapid_public_key),
+            "vapid_private_set":  bool(push_service and push_service.vapid_private_key),
+            "push_enabled":       bool(push_service and getattr(push_service, "enabled", False)),
+            "vapid_contact":      (push_service.vapid_claims or {}).get("sub") if push_service else None,
+            "vapid_public_key_preview": (push_service.vapid_public_key[:16] + "...") if push_service and push_service.vapid_public_key else None,
+            "morning_manager_ready": morning_manager is not None,
+        }
+        async with db.get_connection() as conn:
+            result["active_subscriptions_total"] = int(await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_push_subscriptions WHERE is_active = TRUE"
+            ) or 0)
+            if user_id:
+                uid = int(user_id)
+                result["user_id"] = uid
+                result["active_subscriptions_user"] = int(await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_push_subscriptions WHERE user_id = $1 AND is_active = TRUE", uid
+                ) or 0)
+                last_row = await conn.fetchrow(
+                    "SELECT last_morning_sent_at, COALESCE(notification_channel, 'push') AS channel "
+                    "FROM fredi_users WHERE user_id = $1", uid
+                )
+                if last_row:
+                    result["user_last_morning_sent_at"] = last_row["last_morning_sent_at"].isoformat() if last_row["last_morning_sent_at"] else None
+                    result["user_notification_channel"] = last_row["channel"]
+                last_msg = await conn.fetchrow("""
+                    SELECT message_text, message_type, day_number, sent_at
+                    FROM fredi_morning_messages
+                    WHERE user_id = $1
+                    ORDER BY sent_at DESC NULLS LAST
+                    LIMIT 1
+                """, uid)
+                if last_msg:
+                    result["last_message_preview"] = (last_msg["message_text"] or "")[:250]
+                    result["last_message_type"] = last_msg["message_type"]
+                    result["last_message_day"] = last_msg["day_number"]
+                    result["last_message_sent_at"] = last_msg["sent_at"].isoformat() if last_msg["sent_at"] else None
+                # Linked messengers
+                ml = await conn.fetch(
+                    "SELECT platform, is_active FROM fredi_messenger_links WHERE user_id = $1", uid
+                )
+                result["messenger_links"] = [{"platform": r["platform"], "is_active": r["is_active"]} for r in ml]
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error(f"push_diagnostics error: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/morning/send-now")
+@limiter.limit("5/minute")
+async def morning_send_now(request: Request):
+    """
+    Ручной триггер утреннего сообщения — для тестирования, без ожидания 9:00.
+    Body: { user_id: int, day?: 1..5, dry_run?: bool }
+    dry_run=True — только сгенерирует текст, не доставляет и не пишет в БД.
+    """
+    try:
+        data = await request.json() if await request.body() else {}
+    except Exception:
+        data = {}
+    user_id = data.get("user_id") or request.query_params.get("user_id")
+    if not user_id:
+        return {"success": False, "error": "user_id required"}
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return {"success": False, "error": "invalid user_id"}
+
+    day = int(data.get("day") or 1)
+    if day < 1 or day > 5:
+        day = 1
+    dry_run = bool(data.get("dry_run"))
+
+    if morning_manager is None:
+        return {"success": False, "error": "morning_manager not ready"}
+
+    async with db.get_connection() as conn:
+        u = await conn.fetchrow("""
+            SELECT u.profile,
+                   COALESCE(u.notification_channel, 'push') AS channel,
+                   c.name, c.gender, c.weather_cache
+            FROM fredi_users u
+            LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
+            WHERE u.user_id = $1
+        """, user_id)
+    if not u:
+        return {"success": False, "error": "user not found"}
+
+    profile = u["profile"] or {}
+    if isinstance(profile, str):
+        try: profile = json.loads(profile)
+        except Exception: profile = {}
+
+    scores = {}
+    bl = profile.get("behavioral_levels", {}) if isinstance(profile, dict) else {}
+    for k in ("СБ", "ТФ", "УБ", "ЧВ"):
+        arr = bl.get(k)
+        if isinstance(arr, list) and arr:
+            scores[k] = sum(arr) / len(arr)
+        elif isinstance(arr, (int, float)):
+            scores[k] = arr
+        else:
+            scores[k] = 3
+
+    weather_cache = u["weather_cache"]
+    if isinstance(weather_cache, str):
+        try: weather_cache = json.loads(weather_cache)
+        except Exception: weather_cache = None
+
+    context = {
+        "name": u["name"] or "друг",
+        "gender": u["gender"] or "other",
+        "weather_cache": weather_cache,
+    }
+
+    try:
+        message = await morning_manager.generate_morning_message(
+            user_id=user_id,
+            user_name=context["name"],
+            scores=scores,
+            profile_data=profile,
+            context=context,
+            day=day,
+        )
+    except Exception as e:
+        logger.error(f"morning_send_now generate failed: {e}", exc_info=True)
+        return {"success": False, "error": f"generation failed: {e}"}
+
+    delivered = False
+    if not dry_run:
+        title = "🎉 Идеи на выходные" if day == 5 else "🌅 Доброе утро от Фреди"
+        body_short = re.sub(r'\*\*(.*?)\*\*', r'\1', message).replace('\n', ' ').strip()
+        if len(body_short) > 120:
+            body_short = body_short[:117] + "..."
+        try:
+            delivered = await _deliver_morning_message(user_id, u["channel"], title, body_short, message)
+            async with db.get_connection() as conn2:
+                await conn2.execute(
+                    "INSERT INTO fredi_morning_messages (user_id, message_text, message_type, day_number) VALUES ($1, $2, $3, $4)",
+                    user_id, message, "weekend" if day == 5 else "morning_test", day
+                )
+        except Exception as e:
+            logger.error(f"morning_send_now delivery failed: {e}")
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "day": day,
+        "channel": u["channel"],
+        "dry_run": dry_run,
+        "delivered": delivered,
+        "message": message,
+    }
 
 @app.post("/api/push/subscribe")
 async def push_subscribe(request: Request, data: PushSubscribeRequest):
