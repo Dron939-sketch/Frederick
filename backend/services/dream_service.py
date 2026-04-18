@@ -9,6 +9,12 @@ import re
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
+try:
+    from services.varitype_context import build_user_context as _varitype_ctx, freddy_persona as _freddy_persona
+except Exception:  # pragma: no cover
+    def _varitype_ctx(*args, **kwargs): return ""
+    def _freddy_persona(): return ""
+
 logger = logging.getLogger(__name__)
 
 
@@ -278,11 +284,16 @@ class DreamInterpretationService:
             ub = vectors.get("УБ", 3)
             cv = vectors.get("ЧВ", 3)
             parts.append(f"Векторы: СБ={sb}/6, ТФ={tf}/6, УБ={ub}/6, ЧВ={cv}/6")
-            
+
             # Определяем самый низкий вектор
             min_vector = min(vectors.items(), key=lambda x: x[1])
             parts.append(f"Самая уязвимая зона: {min_vector[0]} ({min_vector[1]}/6)")
-        
+
+            # Варийатика: развёрнутый контекст по доминирующему и уязвимому векторам
+            varitype = _varitype_ctx(vectors)
+            if varitype:
+                parts.append(varitype)
+
         if key_characteristic:
             parts.append(f"Ключевая характеристика: {key_characteristic}")
         

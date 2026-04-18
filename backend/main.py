@@ -4927,6 +4927,18 @@ async def brand_transformation(request: Request):
             summary_lines.append(f"Поведенческие векторы: {vec}")
         if profile.get("display_name"):
             summary_lines.append(f"Профиль: {profile['display_name']}")
+
+        # Вариатика: развёрнутый контекст по доминирующему и уязвимому векторам
+        try:
+            from services.varitype_context import build_user_context as _vt_ctx
+            raw_vectors = {k: lv(k) for k in ("СБ", "ТФ", "УБ", "ЧВ") if lv(k) is not None}
+            vt_block = _vt_ctx(raw_vectors) if raw_vectors else ""
+            if vt_block:
+                summary_lines.append("")
+                summary_lines.append(vt_block)
+        except Exception:
+            pass
+
         profile_summary = "\n".join(summary_lines)
 
         prompt = _brand_transformation_prompt(
