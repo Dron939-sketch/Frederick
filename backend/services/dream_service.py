@@ -90,29 +90,38 @@ class DreamInterpretationService:
         )
 
         try:
-            interpretation = await self.ai_service._call_deepseek(
+            raw = await self.ai_service._call_deepseek(
                 system_prompt=self._get_system_prompt(),
                 user_prompt=prompt,
-                max_tokens=800,
+                max_tokens=900,
                 temperature=0.75
             )
-            # Защита от пустого ответа DeepSeek
-            if not interpretation or not str(interpretation).strip():
+            if not raw or not str(raw).strip():
                 logger.warning(f"DeepSeek returned empty for user {user_id} — using fallback")
-                interpretation = self._get_fallback_interpretation(dream_text, user_name)
-            else:
-                interpretation = self._clean_response(interpretation)
+                return {
+                    "needs_clarification": False,
+                    "interpretation": self._get_fallback_interpretation(dream_text, user_name),
+                    "symbols": [],
+                    "tags": [],
+                }
+
+            interpretation, symbols, tags = self._parse_meta(raw)
+            interpretation = self._clean_response(interpretation)
 
             return {
                 "needs_clarification": False,
-                "interpretation": interpretation
+                "interpretation": interpretation,
+                "symbols": symbols,
+                "tags": tags,
             }
 
         except Exception as e:
             logger.error(f"AI interpretation failed for user {user_id}: {e}")
             return {
                 "needs_clarification": False,
-                "interpretation": self._get_fallback_interpretation(dream_text, user_name)
+                "interpretation": self._get_fallback_interpretation(dream_text, user_name),
+                "symbols": [],
+                "tags": [],
             }
 
     def _next_question(
@@ -300,6 +309,19 @@ class DreamInterpretationService:
 5. Конкретный вопрос для размышления или маленькое задание
 6. Поддерживающая фраза в конце
 
+ПОСЛЕ основной интерпретации ОБЯЗАТЕЛЬНО добавь блок метаданных ровно в таком формате:
+
+=== МЕТА ===
+Символы:
+- название символа: короткое (до 10 слов) значение в контексте этого сна
+- ...
+Теги: ключевое_слово, ключевое_слово, ключевое_слово
+
+Требования:
+- 2-5 символов (образы/архетипы из сна: дом, вода, дорога, мать, тень и т.п.)
+- 3-6 тегов в нижнем регистре, одним словом каждый (тревога, свобода, поиск, отношения)
+- Блок МЕТА должен быть в самом конце ответа, до него — обычный текст интерпретации.
+
 Напиши ответ:"""
     
     def _clean_response(self, text: str) -> str:
@@ -309,12 +331,82 @@ class DreamInterpretationService:
         text = re.sub(r'__(.*?)__', r'\1', text)
         text = re.sub(r'`(.*?)`', r'\1', text)
         text = re.sub(r'#+\s*', '', text)
-        
+
         # Убираем лишние пробелы и переносы
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = text.strip()
-        
+
         return text
+
+    def _parse_meta(self, raw: str) -> Tuple[str, List[Dict[str, str]], List[str]]:
+        """
+        Разделяет сырой ответ AI на чистую интерпретацию, список символов и теги.
+        Ожидаемый формат метаблока в конце:
+
+            === МЕТА ===
+            Символы:
+            - дом: твоё внутреннее я, место где чувствуешь себя собой
+            - вода: эмоции и то что в них скрывается
+            Теги: тревога, свобода, поиск
+
+        Если метаблок отсутствует — возвращается исходный текст и пустые списки.
+        """
+        if not raw:
+            return "", [], []
+
+        marker = re.search(r'(?mi)^\s*=+\s*МЕТА\s*=+\s*$', raw)
+        if not marker:
+            return raw.strip(), [], []
+
+        body = raw[:marker.start()].strip()
+        meta = raw[marker.end():].strip()
+
+        symbols: List[Dict[str, str]] = []
+        tags: List[str] = []
+
+        section = None
+        for line in meta.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if re.match(r'(?i)^символы\s*:?\s*$', line):
+                section = 'symbols'
+                continue
+            if re.match(r'(?i)^теги\s*:', line):
+                section = 'tags'
+                tag_text = line.split(':', 1)[1] if ':' in line else ''
+                tags.extend(self._split_tags(tag_text))
+                continue
+            if section == 'symbols':
+                m = re.match(r'[-*•]\s*([^:\-]+?)\s*[:\-—]\s*(.+)$', line)
+                if m:
+                    name = m.group(1).strip().strip('*_`').lower()
+                    meaning = m.group(2).strip().strip('.').strip()
+                    if name:
+                        symbols.append({"name": name, "meaning": meaning})
+            elif section == 'tags':
+                tags.extend(self._split_tags(line))
+
+        # Нормализация тегов
+        tags = [t for t in (self._norm_tag(t) for t in tags) if t]
+        # Удалить дубликаты, сохранить порядок
+        seen = set()
+        tags = [t for t in tags if not (t in seen or seen.add(t))]
+
+        return body, symbols[:5], tags[:6]
+
+    @staticmethod
+    def _split_tags(text: str) -> List[str]:
+        if not text:
+            return []
+        return [t.strip() for t in re.split(r'[,\n;]+', text) if t.strip()]
+
+    @staticmethod
+    def _norm_tag(tag: str) -> str:
+        tag = tag.lower().strip().strip('.,;:—-*_`#"«»').strip()
+        # только первое слово, максимум 20 символов
+        first = tag.split()[0] if tag.split() else ''
+        return first[:20]
     
     def _get_fallback_interpretation(self, dream_text: str, user_name: str) -> str:
         """Запасная интерпретация, если AI недоступен"""
