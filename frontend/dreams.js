@@ -160,15 +160,29 @@ function _drInjectStyles() {
         .dr-record-card{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:24px;padding:32px;text-align:center}
         .dr-voice-btn{width:100px;height:100px;border-radius:50px;background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);cursor:pointer;margin:20px auto;display:flex;align-items:center;justify-content:center;transition:transform 0.2s}
         .dr-voice-btn:active{transform:scale(0.95)}
-        .dr-voice-btn.recording{animation:drPulse 1.5s infinite;background:rgba(224,224,224,0.25)}
+        .dr-voice-btn.recording{animation:drPulse 1.2s infinite;background:linear-gradient(135deg,rgba(255,107,107,0.9),rgba(255,59,59,0.9));border-color:rgba(255,107,107,0.9)}
+        .dr-voice-btn.recording .dr-voice-icon{color:#fff}
         
         .recording-indicator {
-            background: rgba(0,0,0,0.7);
-            border-radius: 20px;
-            padding: 12px 20px;
+            background: linear-gradient(135deg, rgba(255,59,59,0.14), rgba(255,107,107,0.08));
+            border: 1px solid rgba(255,107,107,0.4);
+            border-radius: 14px;
+            padding: 10px 14px;
             margin: 10px auto;
-            text-align: center;
-            max-width: 250px;
+            max-width: 360px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .recording-indicator::before {
+            content: '🔴';
+            font-size: 14px;
+            animation: drBlink 1s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        @keyframes drBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
         }
         .recording-wave span {
             display: inline-block;
@@ -182,10 +196,11 @@ function _drInjectStyles() {
         .recording-wave span:nth-child(2) { animation-delay: 0.1s; }
         .recording-wave span:nth-child(3) { animation-delay: 0.2s; }
         .recording-wave span:nth-child(4) { animation-delay: 0.3s; }
-        .recording-timer { font-size: 24px; font-weight: bold; color: #ff6b6b; margin: 8px 0; }
-        .recording-level { width: 100%; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; overflow: hidden; margin: 8px 0; }
+        .recording-timer { font-size: 14px; font-weight: 700; color: #ff6b6b; margin: 0; font-variant-numeric: tabular-nums; }
+        .recording-level { flex: 1; height: 4px; background: rgba(255,107,107,0.12); border-radius: 2px; overflow: hidden; margin: 0 0 0 6px; }
         .level-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ff6b6b, #ff9800); transition: width 0.05s linear; }
-        .recording-hint { font-size: 11px; color: rgba(255,255,255,0.5); }
+        .recording-hint { font-size: 12px; color: #ff6b6b; font-weight: 600; }
+        .recording-indicator .recording-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
         
         @keyframes drPulse {
             0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,107,107,0.4); }
@@ -516,11 +531,13 @@ function _drInitVoiceButton() {
             <div class="recording-wave">
                 <span></span><span></span><span></span><span></span>
             </div>
-            <div class="recording-timer" id="recordingTimer">0 сек</div>
-            <div class="recording-level">
-                <div class="level-fill"></div>
+            <div class="recording-meta">
+                <div class="recording-hint">Идёт запись — отпусти кнопку когда закончишь</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="recording-timer" id="recordingTimer">0 сек</span>
+                    <div class="recording-level"><div class="level-fill"></div></div>
+                </div>
             </div>
-            <div class="recording-hint">🎙️ Говорите... Отпустите когда закончите</div>
         `;
         voiceBtn.parentNode.insertBefore(recordingIndicator, voiceBtn.nextSibling);
     }
@@ -566,7 +583,9 @@ function _drInitVoiceButton() {
         recordingStartTime = Date.now();
         isRecording = true;
         voiceBtn.classList.add('recording');
-        if (recordingIndicator) recordingIndicator.style.display = 'block';
+        const iconEl = getIcon();
+        if (iconEl) iconEl.textContent = '🔴';
+        if (recordingIndicator) recordingIndicator.style.display = 'flex';
         
         // Таймер
         timerInterval = setInterval(() => {
