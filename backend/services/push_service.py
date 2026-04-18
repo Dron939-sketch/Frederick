@@ -15,9 +15,20 @@ logger = logging.getLogger(__name__)
 class PushService:
     def __init__(self, db: Database):
         self.db = db
-        self.vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY", "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgakYLCF1daoshHmyBxskJP4W-ktyogmv7Pi0KBryoeyKhRANCAAT_skk9MSWxBseanz3ZD59iBnC0a7uNcMEFHY_b11Dkuw6indpcTFP2gHK8EcJ6fYqCLcynkRUfDTVDkPc29lwW")
-        self.vapid_public_key  = os.environ.get("VAPID_PUBLIC_KEY",  "BP-yST0xJbEGx5qfPdkPn2IGcLRru41wwQUdj9vXUOS7DqKd2lxMU_aAcrwRwnp9ioItzKeRFR8NNUOQ9zb2XBY")
-        self.vapid_claims = {"sub": "mailto:meysternlp@gmail.com"}
+        # ВАЖНО: VAPID ключи только из env. Если их нет — push отключается.
+        # Хардкод-фолбэк удалён из-за утечки в git-истории. См. docs/PUSH_VAPID_SETUP.md
+        self.vapid_private_key = (os.environ.get("VAPID_PRIVATE_KEY") or "").strip()
+        self.vapid_public_key  = (os.environ.get("VAPID_PUBLIC_KEY") or "").strip()
+        contact = (os.environ.get("VAPID_CONTACT") or "mailto:admin@example.com").strip()
+        self.vapid_claims = {"sub": contact}
+        self.enabled = bool(self.vapid_private_key and self.vapid_public_key)
+        if not self.enabled:
+            logger.error(
+                "❌ VAPID ключи не заданы в env (VAPID_PRIVATE_KEY / VAPID_PUBLIC_KEY). "
+                "Push-уведомления отключены. См. docs/PUSH_VAPID_SETUP.md"
+            )
+        else:
+            logger.info(f"🔑 PushService: VAPID ready, contact={contact}")
 
     async def save_subscription(self, user_id: int, subscription: Dict) -> bool:
         try:
@@ -65,6 +76,9 @@ class PushService:
 
     async def send_notification(self, subscription: Dict, title: str, body: str,
                                  url: str = "/", icon: str = "/icon-192.png") -> bool:
+        if not self.enabled:
+            logger.warning("send_notification skipped: VAPID keys not configured")
+            return False
         try:
             payload = json.dumps({"title": title, "body": body, "url": url, "icon": icon})
             webpush(
