@@ -3483,6 +3483,7 @@ async def _dream_session_set(sid: str, data: Dict[str, Any]) -> None:
         "dream_text": data.get("dream_text", ""),
         "clarifications": data.get("clarifications", []),
         "last_question": data.get("last_question", ""),
+        "school": data.get("school", "jung"),
     }
     stored = False
     if cache and cache.is_connected:
@@ -3507,6 +3508,7 @@ async def interpret_dream(request: Request):
         data = await request.json()
         user_id = data.get("user_id")
         dream_text = data.get("dream_text", "").strip()
+        school = (data.get("school") or "jung").lower().strip()
 
         if not user_id:
             return {"success": False, "error": "user_id required"}
@@ -3558,7 +3560,8 @@ async def interpret_dream(request: Request):
             vectors=vectors,
             key_characteristic=key_characteristic,
             main_trap=main_trap,
-            clarifications=[]
+            clarifications=[],
+            school=school,
         )
 
         if result.get("needs_clarification"):
@@ -3568,6 +3571,7 @@ async def interpret_dream(request: Request):
                 "dream_text": dream_text,
                 "clarifications": [],
                 "last_question": result.get("question") or "",
+                "school": school,
             })
             result["session_id"] = sid
         else:
@@ -3638,6 +3642,7 @@ async def clarify_dream(request: Request):
             from services.dream_service import create_dream_service
             dream_service = create_dream_service(ai_service)
 
+        school = (data.get("school") or session.get("school") or "jung").lower().strip()
         result = await dream_service.interpret_dream(
             user_id=user_id,
             dream_text=dream_text,
@@ -3647,6 +3652,7 @@ async def clarify_dream(request: Request):
             thinking_level=profile.get('thinking_level'),
             vectors=vectors,
             clarifications=history,
+            school=school,
         )
 
         if result.get("needs_clarification"):
