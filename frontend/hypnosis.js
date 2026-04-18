@@ -357,7 +357,7 @@ function _hyRender() {
         <div class="full-content-page">
             <button class="back-btn" id="hyBack">◀️ НАЗАД</button>
             <div class="content-header">
-                <div class="content-emoji">🌙</div>
+                <div class="content-emoji">🌀</div>
                 <h1 class="content-title">Гипноз и внушение</h1>
                 <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Суггестивное воздействие под ваш профиль</p>
             </div>

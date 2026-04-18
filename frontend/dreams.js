@@ -430,6 +430,102 @@ function _drInjectStyles() {
         [data-theme="light"] .recording-indicator { background: rgba(255,255,255,0.9); color: #1c1c1e; }
         [data-theme="light"] .recording-hint { color: rgba(0,0,0,0.5); }
 
+        /* ===== Light theme: Dreams module overrides =====
+           Переопределяем oneiric-токены, чтобы текст читался на светлом фоне.
+           Палитра: мягкая лавандовая бумага, тёмный индиго-текст, глубокий янтарь у символов. */
+        [data-theme="light"] .dr-dreams-scope {
+            --dream-bg: #F5F2FF;
+            --dream-card: #FFFFFF;
+            --dream-card-soft: rgba(255,255,255,0.85);
+            --dream-accent: #5D4FB8;
+            --dream-accent-soft: rgba(93,79,184,0.12);
+            --dream-symbol: #9A4A00;
+            --dream-muted: #6B6690;
+            --dream-text: #2A1E4A;
+            color: #2A1E4A;
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-chat-bubble,
+        [data-theme="light"] .dr-dreams-scope .dr-record-card,
+        [data-theme="light"] .dr-dreams-scope .dr-interpretation {
+            background: #FFFFFF;
+            border-color: rgba(93,79,184,0.2);
+            color: #2A1E4A;
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-chat-label,
+        [data-theme="light"] .dr-dreams-scope .dr-interpretation-text,
+        [data-theme="light"] .dr-dreams-scope .dr-chat-text,
+        [data-theme="light"] .dr-dreams-scope .content-title,
+        [data-theme="light"] .dr-dreams-scope h1,
+        [data-theme="light"] .dr-dreams-scope h2,
+        [data-theme="light"] .dr-dreams-scope h3 { color: #2A1E4A; }
+        [data-theme="light"] .dr-dreams-scope p,
+        [data-theme="light"] .dr-dreams-scope .dr-chat-label { color: #5D4FB8; }
+        [data-theme="light"] .dr-dreams-scope .dream-symbol {
+            background: linear-gradient(180deg, transparent 60%, rgba(154,74,0,0.18) 60%);
+            border-bottom-color: rgba(154,74,0,0.5);
+        }
+        [data-theme="light"] .dr-dreams-scope .dream-symbol-pill {
+            background: rgba(154,74,0,0.08);
+            border-color: rgba(154,74,0,0.28);
+        }
+        [data-theme="light"] .dr-dreams-scope .dream-symbols-legend {
+            border-top-color: rgba(93,79,184,0.2);
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-school-chip {
+            background: rgba(93,79,184,0.08);
+            border-color: rgba(93,79,184,0.3);
+            color: #2A1E4A;
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-school-chip:hover { background: rgba(93,79,184,0.18); }
+        [data-theme="light"] .dr-dreams-scope .dr-school-chip.is-active {
+            background: linear-gradient(135deg, #5D4FB8, #7C6DD5);
+            border-color: #5D4FB8;
+            color: #FFFFFF;
+            box-shadow: 0 0 12px rgba(93,79,184,0.28);
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-textarea,
+        [data-theme="light"] .dr-dreams-scope .dr-textarea-chat {
+            background: #FFFFFF;
+            border-color: rgba(93,79,184,0.28);
+            color: #2A1E4A;
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-textarea::placeholder { color: #8A84B0; }
+        [data-theme="light"] .dr-dreams-scope .dr-chat-log { background: transparent; }
+        [data-theme="light"] .dr-dreams-scope .dr-chat-composer {
+            background: rgba(255,255,255,0.92);
+            border-color: rgba(93,79,184,0.22);
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-tab { color: #6B6690; }
+        [data-theme="light"] .dr-dreams-scope .dr-tab.active { background: rgba(93,79,184,0.14); color: #2A1E4A; }
+        [data-theme="light"] .dr-dreams-scope .dr-history-item {
+            background: #FFFFFF;
+            border-color: rgba(93,79,184,0.15);
+            color: #2A1E4A;
+        }
+        [data-theme="light"] .dr-dreams-scope .dr-history-preview { color: #2A1E4A; }
+        [data-theme="light"] .dr-dreams-scope .dr-history-date { color: #6B6690; }
+        /* Звёзды на светлом фоне выглядят некрасиво — просто скрываем */
+        [data-theme="light"] .dr-dreams-scope .dr-starfield { display: none; }
+
+        /* Модалка символа на светлой теме — белая карточка */
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-backdrop { background: rgba(42,30,74,0.5); }
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-card {
+            background: #FFFFFF;
+            border-color: rgba(93,79,184,0.35);
+            color: #2A1E4A;
+            box-shadow: 0 20px 60px rgba(42,30,74,0.35), 0 0 30px rgba(93,79,184,0.18);
+        }
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-close { color: #5D4FB8; }
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-close:hover { color: #2A1E4A; }
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-title { color: #9A4A00; }
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-school { color: #6B6690; }
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-meaning { color: #2A1E4A; }
+        [data-theme="light"] .dr-symbol-modal .dr-symbol-stat {
+            background: rgba(93,79,184,0.07);
+            border-color: rgba(93,79,184,0.3);
+            color: #6B6690;
+        }
+
         /* Подсветка textarea после успешного распознавания голоса */
         @keyframes drTextareaGlow {
             0% { box-shadow: 0 0 0 0 rgba(255,107,59,0.5); border-color: rgba(255,107,59,0.8); }
@@ -529,7 +625,7 @@ function _drInjectStyles() {
 
         /* Dream symbols inline highlighting + legend */
         .dream-symbol {
-            color: #ffb871;
+            color: var(--dream-symbol);
             background: linear-gradient(180deg, transparent 60%, rgba(255,184,113,0.22) 60%);
             padding: 0 2px;
             border-radius: 3px;
@@ -546,7 +642,7 @@ function _drInjectStyles() {
             padding: 3px 10px;
             border-radius: 12px;
             background: rgba(255,184,113,0.12);
-            color: #ffb871;
+            color: var(--dream-symbol);
             border: 1px solid rgba(255,184,113,0.28);
             cursor: help;
             user-select: none;
