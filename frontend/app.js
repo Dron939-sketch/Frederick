@@ -1638,6 +1638,173 @@ function initMobileMenu() {
 }
 
 // ============================================
+// ВЕРХНЕЕ МЕНЮ (три точки справа в шапке)
+// ============================================
+
+function initTopMenu() {
+    const btn = document.getElementById('menuBtn');
+    if (!btn || btn._fTopMenuInited) return;
+    btn._fTopMenuInited = true;
+
+    // Стили вставляем один раз
+    if (!document.getElementById('fredi-top-menu-styles')) {
+        const s = document.createElement('style');
+        s.id = 'fredi-top-menu-styles';
+        s.textContent = `
+            .fredi-top-menu {
+                position: fixed;
+                top: 58px;
+                right: 12px;
+                min-width: 220px;
+                background: var(--surface, #1a1a1a);
+                border: 1px solid rgba(224,224,224,0.14);
+                border-radius: 14px;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+                padding: 6px;
+                z-index: 9000;
+                opacity: 0;
+                transform: translateY(-6px) scale(0.98);
+                transition: opacity 0.14s ease, transform 0.14s ease;
+                pointer-events: none;
+            }
+            .fredi-top-menu.is-open {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                pointer-events: auto;
+            }
+            .fredi-top-menu-item {
+                display: flex; align-items: center; gap: 10px;
+                padding: 10px 12px;
+                border-radius: 10px;
+                font-size: 13px;
+                color: var(--text-primary);
+                cursor: pointer;
+                font-family: inherit;
+                background: transparent;
+                border: none;
+                width: 100%;
+                text-align: left;
+                transition: background 0.15s;
+            }
+            .fredi-top-menu-item:hover { background: rgba(224,224,224,0.08); }
+            .fredi-top-menu-item:active { background: rgba(224,224,224,0.14); }
+            .fredi-top-menu-ico { font-size: 16px; width: 20px; text-align: center; }
+            .fredi-top-menu-sub { font-size: 11px; color: var(--text-secondary); margin-left: auto; }
+            .fredi-top-menu-sep { height: 1px; background: rgba(224,224,224,0.08); margin: 4px 6px; }
+            [data-theme="light"] .fredi-top-menu {
+                background: #FFFFFF;
+                border-color: rgba(0,0,0,0.1);
+                box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+            }
+            [data-theme="light"] .fredi-top-menu-item:hover { background: rgba(0,0,0,0.05); }
+            [data-theme="light"] .fredi-top-menu-sep { background: rgba(0,0,0,0.08); }
+        `;
+        document.head.appendChild(s);
+    }
+
+    // Создаём меню
+    const menu = document.createElement('div');
+    menu.className = 'fredi-top-menu';
+    menu.id = 'frediTopMenu';
+    menu.setAttribute('role', 'menu');
+    menu.innerHTML = `
+        <button class="fredi-top-menu-item" data-action="theme" role="menuitem">
+            <span class="fredi-top-menu-ico">🌓</span>
+            <span>Сменить тему</span>
+            <span class="fredi-top-menu-sub" id="frediThemeState"></span>
+        </button>
+        <button class="fredi-top-menu-item" data-action="settings" role="menuitem">
+            <span class="fredi-top-menu-ico">⚙️</span>
+            <span>Настройки</span>
+        </button>
+        <button class="fredi-top-menu-item" data-action="dashboard" role="menuitem">
+            <span class="fredi-top-menu-ico">🏠</span>
+            <span>На главную</span>
+        </button>
+        <div class="fredi-top-menu-sep"></div>
+        <button class="fredi-top-menu-item" data-action="refresh" role="menuitem">
+            <span class="fredi-top-menu-ico">🔄</span>
+            <span>Обновить страницу</span>
+        </button>
+        <button class="fredi-top-menu-item" data-action="about" role="menuitem">
+            <span class="fredi-top-menu-ico">ℹ️</span>
+            <span>О приложении</span>
+        </button>
+    `;
+    document.body.appendChild(menu);
+
+    function updateThemeLabel() {
+        const cur = (window.FrediTheme?.get?.() || document.documentElement.getAttribute('data-theme') || 'dark');
+        const lbl = menu.querySelector('#frediThemeState');
+        if (lbl) lbl.textContent = cur === 'light' ? 'светлая' : 'тёмная';
+    }
+
+    function open() {
+        updateThemeLabel();
+        menu.classList.add('is-open');
+    }
+    function close() {
+        menu.classList.remove('is-open');
+    }
+    function toggle() {
+        menu.classList.contains('is-open') ? close() : open();
+    }
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggle();
+    });
+
+    menu.addEventListener('click', (e) => {
+        const item = e.target.closest('.fredi-top-menu-item');
+        if (!item) return;
+        const action = item.getAttribute('data-action');
+        close();
+        switch (action) {
+            case 'theme':
+                if (window.FrediTheme?.toggle) window.FrediTheme.toggle();
+                if (typeof showToast === 'function') {
+                    const now = window.FrediTheme?.get?.() === 'light' ? 'Светлая' : 'Тёмная';
+                    showToast(`🌓 Тема: ${now}`, 'info');
+                }
+                break;
+            case 'settings':
+                if (typeof showSettingsScreen === 'function') showSettingsScreen();
+                else {
+                    if (typeof showToast === 'function') showToast('⚙️ Загрузка настроек…', 'info');
+                    const s = document.createElement('script');
+                    s.src = 'settings.js';
+                    s.onload = () => { if (typeof showSettingsScreen === 'function') showSettingsScreen(); };
+                    document.head.appendChild(s);
+                }
+                break;
+            case 'dashboard':
+                if (typeof renderDashboard === 'function') renderDashboard();
+                else location.reload();
+                break;
+            case 'refresh':
+                location.reload();
+                break;
+            case 'about':
+                if (typeof showToast === 'function') {
+                    showToast('Фреди — виртуальный психолог · v3.0', 'info');
+                }
+                break;
+        }
+    });
+
+    // Закрытие: клик вне / Escape
+    document.addEventListener('click', (e) => {
+        if (!menu.classList.contains('is-open')) return;
+        if (menu.contains(e.target) || btn.contains(e.target)) return;
+        close();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') close();
+    });
+}
+
+// ============================================
 // ИНИЦИАЛИЗАЦИЯ ИМЕНИ (заменяем нативный prompt на inline-форму)
 // ============================================
 
@@ -1699,6 +1866,7 @@ async function init() {
     window.renderDashboard = renderDashboard;
 
     initMobileMenu();
+    initTopMenu();
     await initVoice();
 
     // Проверяем имя пользователя
