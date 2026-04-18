@@ -511,6 +511,133 @@ const _brandState = window._brandState;
 function _brandToast(msg) { if (window.showToast) window.showToast(msg, 'info'); }
 function _brandHome() { if (typeof renderDashboard === 'function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
 
+function _brandEsc(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function _brandUserName() {
+    try { return localStorage.getItem('fredi_user_name') || window.CONFIG?.USER_NAME || ''; } catch (e) { return ''; }
+}
+
+// ============================================
+// ЭКСПОРТ В PDF (через браузерный print-диалог)
+// ============================================
+function _brandExportPdf(arch, archName) {
+    const userName = _brandUserName();
+    const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+
+    // Собираем содержимое ВСЕХ разделов независимо от активной вкладки
+    const sections = [
+        { title: '🎭 Архетип',  html: _tabArchetype(arch, archName) },
+        { title: '👔 Стиль',    html: _tabStyle(arch, archName) },
+        { title: '📊 Бренд',    html: _tabBrand(arch, archName) },
+    ];
+    if (_brandState.plan) {
+        sections.push({ title: '🚀 План', html: _planResultHtml(_brandState.plan) });
+    }
+
+    // Подгружаем существующие стили модуля (чтобы пузырьки, цвета, кнопки и т.п. выглядели знакомо)
+    const stylesEl = document.getElementById('brand-v3-styles');
+    const appStyles = stylesEl ? stylesEl.textContent : '';
+
+    const printCss = `
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            color: #1a1a1a;
+            background: #ffffff;
+            padding: 32px 28px;
+            max-width: 860px;
+            margin: 0 auto;
+            line-height: 1.6;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        h1 { font-size: 26px; margin: 0 0 4px; }
+        h2 { font-size: 18px; margin: 26px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #eee; page-break-after: avoid; }
+        h3, h4 { color: #1a1a1a; }
+        .pdf-meta { color: #666; font-size: 12px; margin-bottom: 22px; }
+        .pdf-banner {
+            background: linear-gradient(135deg, rgba(255,107,59,0.12), rgba(255,107,59,0.04));
+            border: 1px solid rgba(255,107,59,0.28);
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 22px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .pdf-banner-emoji { font-size: 44px; line-height: 1; }
+        .pdf-banner-name { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+        .pdf-banner-desc { font-size: 13px; color: #555; }
+        .pdf-section { page-break-inside: auto; margin-bottom: 18px; }
+        .pdf-footer { margin-top: 36px; padding-top: 14px; border-top: 1px solid #eee; font-size: 11px; color: #888; text-align: center; }
+        .no-print, button, .brand-footer-row, .brand-footer-btn { display: none !important; }
+        @page { margin: 16mm 12mm; }
+        @media print {
+            body { padding: 0; }
+        }
+    `;
+
+    const headerHtml = `
+        <h1>Личный бренд</h1>
+        <div class="pdf-meta">${_brandEsc(userName || 'Пользователь')} · ${date} · Фреди</div>
+        <div class="pdf-banner">
+            <div class="pdf-banner-emoji">${arch.emoji || '🎭'}</div>
+            <div>
+                <div class="pdf-banner-name">${_brandEsc(archName)}</div>
+                <div class="pdf-banner-desc">${_brandEsc(arch.description || '')}</div>
+            </div>
+        </div>
+    `;
+
+    const body = sections
+        .map(s => `<div class="pdf-section"><h2>${s.title}</h2>${s.html}</div>`)
+        .join('');
+
+    const footer = `<div class="pdf-footer">Сгенерировано Фреди — вашим виртуальным психологом</div>`;
+
+    const doc = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Личный бренд — ${_brandEsc(archName)}</title>
+<style>${printCss}\n${appStyles}</style>
+</head>
+<body>${headerHtml}${body}${footer}</body>
+</html>`;
+
+    // Открываем во вспомогательном окне и вызываем print
+    const win = window.open('', '_blank', 'noopener,width=900,height=1000');
+    if (win) {
+        win.document.open();
+        win.document.write(doc);
+        win.document.close();
+        // Ждём, чтобы стили подтянулись
+        setTimeout(() => {
+            try { win.focus(); win.print(); } catch (e) { /* ignore */ }
+        }, 400);
+        _brandToast('📥 Открыт диалог печати — сохраните как PDF');
+        return;
+    }
+
+    // Фолбэк: popup заблокирован — отдаём .html файл
+    const blob = new Blob([doc], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brand_${(userName || archName).replace(/\s+/g, '_')}_${Date.now()}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    _brandToast('💾 PDF-превью скачано как HTML (откройте и сохраните как PDF)');
+}
+
 function _brandGetApiUrl() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
 function _brandGetUserId() { return window.CONFIG?.USER_ID; }
 
@@ -858,9 +985,9 @@ function _renderPlanWizard() {
 // ============================================
 // РЕНДЕР РЕЗУЛЬТАТА ПЛАНА
 // ============================================
-function _renderPlanResult(plan) {
+function _planResultHtml(plan) {
     const { summary, weekly_plan } = plan;
-    
+
     let html = `
         <div class="brand-plan-summary">
             <div class="brand-plan-stat"><div class="brand-plan-stat-value">${summary.total_actions}</div><div class="brand-plan-stat-label">мероприятий</div></div>
@@ -869,7 +996,7 @@ function _renderPlanResult(plan) {
             <div class="brand-plan-stat"><div class="brand-plan-stat-value">${summary.estimated_cost}</div><div class="brand-plan-stat-label">бюджет</div></div>
         </div>
     `;
-    
+
     for (let i = 1; i <= 4; i++) {
         const week = weekly_plan[i];
         html += `
@@ -886,13 +1013,13 @@ function _renderPlanResult(plan) {
                             <div class="brand-action-name">${action.name}</div>
                             <div class="brand-action-meta">⏱ ${action.time} | 💰 ${action.cost}</div>
                         </div>
-                        <button class="brand-action-detail" onclick="window.showActionDetail && window.showActionDetail('${action.id}')">ℹ️</button>
+                        <button class="brand-action-detail no-print" onclick="window.showActionDetail && window.showActionDetail('${action.id}')">ℹ️</button>
                     </div>
                 `).join('')}
             </div>
         `;
     }
-    
+
     html += `
         <div class="brand-section">
             <div class="brand-section-label">✅ ЧЕК-ЛИСТ НЕДЕЛИ 1</div>
@@ -903,17 +1030,20 @@ function _renderPlanResult(plan) {
                     </label>
                 `).join('')}
             </div>
-            <button id="saveChecklistBtn" class="brand-footer-btn" style="margin-top: 16px;">💾 Сохранить прогресс</button>
+            <button id="saveChecklistBtn" class="brand-footer-btn no-print" style="margin-top: 16px;">💾 Сохранить прогресс</button>
         </div>
-        <div style="display: flex; gap: 10px; margin-top: 16px;">
+        <div class="no-print" style="display: flex; gap: 10px; margin-top: 16px;">
             <button id="downloadPlanBtn" class="brand-footer-btn" style="flex:1;">📥 Скачать план</button>
             <button id="sharePlanBtn" class="brand-footer-btn" style="flex:1;">📤 Поделиться</button>
             <button id="regeneratePlanBtn" class="brand-footer-btn" style="flex:1;">🔄 Новый план</button>
         </div>
     `;
-    
-    document.getElementById('brandContent').innerHTML = html;
-    
+    return html;
+}
+
+function _bindPlanResultHandlers(plan) {
+    const { weekly_plan } = plan;
+
     document.getElementById('saveChecklistBtn')?.addEventListener('click', () => {
         const completed = [];
         weekly_plan[1].actions.forEach(action => {
@@ -923,7 +1053,7 @@ function _renderPlanResult(plan) {
         localStorage.setItem(`brand_checklist_${_brandGetUserId()}`, JSON.stringify({ completed, date: new Date().toISOString() }));
         _brandToast('✅ Прогресс сохранён!');
     });
-    
+
     document.getElementById('downloadPlanBtn')?.addEventListener('click', () => {
         let content = `<html><head><meta charset="UTF-8"><title>План развития бренда</title><style>body{font-family:Arial;padding:40px}</style></head><body>`;
         content += `<h1>🚀 План развития личного бренда</h1>`;
@@ -941,7 +1071,7 @@ function _renderPlanResult(plan) {
         a.click(); URL.revokeObjectURL(url);
         _brandToast('✅ План скачан');
     });
-    
+
     document.getElementById('sharePlanBtn')?.addEventListener('click', async () => {
         const text = `🚀 Мой план развития личного бренда от Фреди\n\n${weekly_plan[1].actions.map(a => `• ${a.name}`).join('\n')}\n\nСгенерировано персонально для меня.`;
         if (navigator.share) {
@@ -952,7 +1082,7 @@ function _renderPlanResult(plan) {
             _brandToast('✅ Текст скопирован');
         }
     });
-    
+
     document.getElementById('regeneratePlanBtn')?.addEventListener('click', () => {
         _brandState.plan = null;
         _brandState.planStep = 0;
@@ -961,19 +1091,25 @@ function _renderPlanResult(plan) {
     });
 }
 
+// Совместимость: старое имя — теперь тонкая обёртка (мутирует DOM и привязывает handlers)
+function _renderPlanResult(plan) {
+    const el = document.getElementById('brandContent');
+    if (el) el.innerHTML = _planResultHtml(plan);
+    _bindPlanResultHandlers(plan);
+}
+
 // ============================================
 // РЕНДЕР ВКЛАДКИ ПЛАНА
 // ============================================
 function _tabPlan() {
     if (_brandState.plan) {
-        _renderPlanResult(_brandState.plan);
-        return '';
+        return _planResultHtml(_brandState.plan);
     }
-    
+
     if (_brandState.planStep < PLAN_QUESTIONS.length) {
         return _renderPlanWizard();
     }
-    
+
     return '<div style="text-align:center;padding:40px;">Загрузка...</div>';
 }
 
@@ -1026,15 +1162,12 @@ function _renderBrand() {
         });
     });
 
-    document.getElementById('brandPdf').addEventListener('click', () => {
-        const content = document.getElementById('brandContent').innerHTML;
-        const blob = new Blob([`<html><head><meta charset="UTF-8"><title>Личный бренд - ${name}</title><style>body{font-family:Arial;padding:40px}</style></head><body>${content}</body></html>`], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = `brand_${name}.html`;
-        a.click(); URL.revokeObjectURL(url);
-        _brandToast('✅ Файл скачан');
-    });
+    // Подвязываем обработчики плана, когда активна вкладка «План» и план готов
+    if (tab === 'plan' && _brandState.plan) {
+        _bindPlanResultHandlers(_brandState.plan);
+    }
+
+    document.getElementById('brandPdf').addEventListener('click', () => _brandExportPdf(arch, name));
     
     document.getElementById('brandShare').addEventListener('click', async () => {
         const text = `🎭 Мой архетип по Фреди: ${name}\n${arch.description}\n\nУзнай свой → в приложении Фреди`;
