@@ -24,6 +24,10 @@ class DreamInterpretationService:
     
     MAX_CLARIFICATIONS = 3
 
+    # Доступные школы толкования
+    SCHOOLS = ('jung', 'freud', 'gestalt', 'slavic', 'islamic', 'scientific')
+    DEFAULT_SCHOOL = 'jung'
+
     async def interpret_dream(
         self,
         user_id: int,
@@ -36,7 +40,8 @@ class DreamInterpretationService:
         key_characteristic: Optional[str] = None,
         main_trap: Optional[str] = None,
         clarification_answer: Optional[str] = None,
-        clarifications: Optional[List[Dict[str, str]]] = None
+        clarifications: Optional[List[Dict[str, str]]] = None,
+        school: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Интерпретация сна с поддержкой многораундовых уточнений.
@@ -46,10 +51,11 @@ class DreamInterpretationService:
             clarifications — накопленная история Q&A [{'question': ..., 'answer': ...}, ...].
                              Если не задано, но есть clarification_answer — из него делается псевдо-запись
                              (обратная совместимость со старыми вызовами).
+            school — одна из SCHOOLS. По умолчанию jung. Определяет школу толкования.
 
         Returns одно из двух:
             - {'needs_clarification': True, 'session_id', 'question', 'clarification_number': int}
-            - {'needs_clarification': False, 'interpretation': str}
+            - {'needs_clarification': False, 'interpretation': str, 'symbols': [...], 'tags': [...], 'school': str}
         """
 
         profile_context = self._build_profile_context(
@@ -82,16 +88,21 @@ class DreamInterpretationService:
                 "max_clarifications": self.MAX_CLARIFICATIONS
             }
 
+        school_key = (school or self.DEFAULT_SCHOOL).lower().strip()
+        if school_key not in self.SCHOOLS:
+            school_key = self.DEFAULT_SCHOOL
+
         prompt = self._build_interpretation_prompt(
             dream_text=dream_text,
             user_name=user_name,
             profile_context=profile_context,
-            clarifications=history
+            clarifications=history,
+            school=school_key,
         )
 
         try:
             raw = await self.ai_service._call_deepseek(
-                system_prompt=self._get_system_prompt(),
+                system_prompt=self._get_system_prompt(school_key),
                 user_prompt=prompt,
                 max_tokens=900,
                 temperature=0.75
@@ -103,6 +114,7 @@ class DreamInterpretationService:
                     "interpretation": self._get_fallback_interpretation(dream_text, user_name),
                     "symbols": [],
                     "tags": [],
+                    "school": school_key,
                 }
 
             interpretation, symbols, tags = self._parse_meta(raw)
@@ -113,6 +125,7 @@ class DreamInterpretationService:
                 "interpretation": interpretation,
                 "symbols": symbols,
                 "tags": tags,
+                "school": school_key,
             }
 
         except Exception as e:
@@ -122,6 +135,7 @@ class DreamInterpretationService:
                 "interpretation": self._get_fallback_interpretation(dream_text, user_name),
                 "symbols": [],
                 "tags": [],
+                "school": school_key,
             }
 
     def _next_question(
@@ -185,20 +199,57 @@ class DreamInterpretationService:
 
         return None
     
-    def _get_system_prompt(self) -> str:
-        """Системный промпт для AI"""
-        return """Ты — Фреди, мудрый и эмпатичный психолог-юнгианец. 
-Ты помогаешь людям понять послания их снов. Говори тепло, но без пафоса. 
-Используй обращение на "ты". Не используй сложную терминологию без объяснения.
-Твоя задача — дать человеку понять, что его бессознательное хочет ему сказать.
-
-ВАЖНЫЕ ПРАВИЛА:
+    _COMMON_RULES = """ОБЩИЕ ПРАВИЛА:
 - Никогда не говори "это точно значит", лучше "возможно, этот сон говорит о..."
 - Будь бережным и поддерживающим
 - Не навязывай своё мнение
 - Учитывай психологический профиль пользователя
 - Длина ответа: 200-400 слов
-- Пиши на русском языке"""
+- Пиши на русском языке, обращение на "ты"
+- Не используй сложную терминологию без объяснения"""
+
+    _SCHOOL_PROMPTS = {
+        'jung': """Ты — Фреди, мудрый психолог-юнгианец.
+Работаешь в аналитической психологии К. Г. Юнга: архетипы (Тень, Анима/Анимус, Самость, Герой, Трикстер, Мудрец),
+коллективное бессознательное, процесс индивидуации. Образы во сне — это символы психического процесса,
+а не прямые указания. Ищи компенсаторную функцию сна (что бессознательное уравновешивает в сознании).""",
+
+        'freud': """Ты — Фреди, психоаналитик в традиции З. Фрейда.
+Работаешь с вытесненными желаниями, либидо, детскими травмами, отношениями с родителями (Эдип/Электра),
+защитными механизмами (вытеснение, проекция, сублимация, отрицание). Сон — это "королевская дорога к бессознательному":
+ищи скрытое содержание за явным (явное содержание ≠ латентное). Различай сгущение и смещение.
+Будь корректен: не сводить всё к сексуальному, но не игнорировать его.""",
+
+        'gestalt': """Ты — Фреди, гештальт-терапевт в традиции Ф. Перлза.
+Главный принцип: все элементы сна — это проекции частей самого сновидца. Нет "других" во сне — есть отщеплённые части личности.
+Приглашай к диалогу с образами: "что бы сказала эта вода/дом/фигура, если бы стала тобой?".
+Фокус на "здесь и сейчас", на незавершённых гештальтах, на том что человек проецирует вовне вместо присвоения.""",
+
+        'slavic': """Ты — Фреди, знаток славянской народной сонной традиции.
+Опирайся на русский сонник (Фрейд/Юнг не используем), народную символику: вода — к слезам/переменам,
+дорога — к новостям, дом — к здоровью/роду, чёрный кот — к осторожности с близкими, белая птица — к вестям.
+Учитывай лунные и недельные толкования ("сон в четверг", "приснилось после полудня").
+Будь уважителен к эзотерике, но не подавай как единственную истину — добавь фразу "в народной традиции это…".""",
+
+        'islamic': """Ты — Фреди, знаток исламской традиции толкования снов (ta'bir), в духе Ибн Сирина.
+Различай три типа снов: истинный (от Аллаха), от нафса (психика), от шайтана (наваждение).
+Символика: вода — знание и жизнь, молоко — фитра и чистота, меч — авторитет, ключ — власть/решение, падение — грех или испытание.
+Избегай категоричности. Подчёркивай что истинное толкование — от Аллаха, ты лишь помогаешь размышлять.
+Не выходи за рамки культурного контекста ислама; не смешивай с Юнгом или сонниками.""",
+
+        'scientific': """Ты — Фреди, научный интерпретатор снов в духе когнитивной нейронауки.
+Опирайся на: консолидацию памяти в REM-фазе, гипотезу активации-синтеза (Хобсон), теорию симуляции угрозы (Ревонсуо),
+эмоциональную регуляцию через REM. Сон — это побочный продукт обработки дневных впечатлений, а не послание.
+Говори честно: "скорее всего, мозг перерабатывает X", "этот образ может отражать текущую когнитивную нагрузку".
+Не используй архетипы, эзотерику, «скрытое содержание». Но оставайся эмпатичным — это всё ещё Фреди.""",
+    }
+
+    def _get_system_prompt(self, school: Optional[str] = None) -> str:
+        """Системный промпт для AI в зависимости от выбранной школы толкования"""
+        key = (school or self.DEFAULT_SCHOOL).lower()
+        if key not in self._SCHOOL_PROMPTS:
+            key = self.DEFAULT_SCHOOL
+        return f"{self._SCHOOL_PROMPTS[key]}\n\n{self._COMMON_RULES}"
     
     def _build_profile_context(
         self,
@@ -261,6 +312,15 @@ class DreamInterpretationService:
         
         return False, None
     
+    _SCHOOL_LABELS = {
+        'jung': 'юнгианская (архетипы, компенсаторная функция, индивидуация)',
+        'freud': 'фрейдистская (вытеснение, либидо, детство, явное/латентное содержание)',
+        'gestalt': 'гештальт (все образы — части сновидца, диалог с ними)',
+        'slavic': 'славянский народный сонник',
+        'islamic': 'исламская традиция (ta\'bir, Ибн Сирин)',
+        'scientific': 'когнитивная нейронаука (REM, консолидация памяти)',
+    }
+
     def _build_interpretation_prompt(
         self,
         dream_text: str,
@@ -268,7 +328,8 @@ class DreamInterpretationService:
         profile_context: str,
         clarifications: Optional[List[Dict[str, str]]] = None,
         has_clarification: bool = False,
-        clarification_answer: Optional[str] = None
+        clarification_answer: Optional[str] = None,
+        school: Optional[str] = None,
     ) -> str:
         """Формирует промпт для AI"""
 
@@ -288,8 +349,13 @@ class DreamInterpretationService:
 ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ОТ ПОЛЬЗОВАТЕЛЯ:
 {clarification_answer}
 """
-        
+
+        school_key = (school or self.DEFAULT_SCHOOL).lower()
+        school_label = self._SCHOOL_LABELS.get(school_key, self._SCHOOL_LABELS[self.DEFAULT_SCHOOL])
+        school_line = f"ШКОЛА ТОЛКОВАНИЯ: {school_label}\n"
+
         return f"""
+{school_line}
 ПОЛЬЗОВАТЕЛЬ:
 Имя: {user_name}
 {profile_context}

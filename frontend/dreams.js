@@ -14,6 +14,25 @@ let _drLastSpokenQuestion = '';
 let _drClarificationSessionId = null;
 let _drClarificationCount = 0;
 let _drActiveTab = 'record';
+let _drSchool = (function(){
+    try { return localStorage.getItem('fredi_dream_school') || 'jung'; } catch (e) { return 'jung'; }
+})();
+
+const DR_SCHOOLS = [
+    { id: 'jung',       label: 'Юнг',      emoji: '🌒', desc: 'Архетипы, Тень, индивидуация' },
+    { id: 'freud',      label: 'Фрейд',    emoji: '🛋️', desc: 'Вытеснение, латентное содержание' },
+    { id: 'gestalt',    label: 'Гештальт', emoji: '🪞', desc: 'Все образы — части тебя' },
+    { id: 'slavic',     label: 'Сонник',   emoji: '🕯️', desc: 'Славянская традиция' },
+    { id: 'islamic',    label: 'Ислам',    emoji: '☪️', desc: 'Ибн Сирин, tabir' },
+    { id: 'scientific', label: 'Наука',    emoji: '🧠', desc: 'REM, консолидация памяти' },
+];
+
+function _drSetSchool(id) {
+    if (!DR_SCHOOLS.find(s => s.id === id)) return;
+    _drSchool = id;
+    try { localStorage.setItem('fredi_dream_school', id); } catch (e) {}
+}
+
 let _drIsInterpreting = false;
 let _drDraftSaveTimer = null;
 
@@ -152,8 +171,21 @@ function _drInjectStyles() {
     const style = document.createElement('style');
     style.id = 'dr-v3-styles';
     style.textContent = `
+        /* Oneiric palette — темно-фиолетовая атмосфера «перед сном» */
+        :root {
+            --dream-bg: #0D0B24;
+            --dream-card: #1E1B3A;
+            --dream-card-soft: rgba(30,27,58,0.6);
+            --dream-accent: #9B8CFF;
+            --dream-accent-soft: rgba(155,140,255,0.15);
+            --dream-symbol: #FFB871;
+            --dream-muted: #6C6890;
+            --dream-text: #E4E0FF;
+        }
+        #screenContainer { background: var(--dream-bg); }
+
         .dr-tabs {
-            display:flex;gap:4px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);
+            display:flex;gap:4px;background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.12);
             border-radius:40px;padding:4px;margin-bottom:20px;overflow-x:auto;scrollbar-width:none;
         }
         .dr-tabs::-webkit-scrollbar{display:none}
@@ -162,10 +194,10 @@ function _drInjectStyles() {
             background:transparent;color:var(--text-secondary);font-size:11px;font-weight:600;
             font-family:inherit;cursor:pointer;transition:background 0.2s;min-height:36px;white-space:nowrap;
         }
-        .dr-tab.active{background:rgba(224,224,224,0.14);color:var(--text-primary)}
+        .dr-tab.active{background:rgba(155,140,255,0.18);color:var(--text-primary)}
 
-        .dr-record-card{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:24px;padding:32px;text-align:center}
-        .dr-voice-btn{width:100px;height:100px;border-radius:50px;background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);cursor:pointer;margin:20px auto;display:flex;align-items:center;justify-content:center;transition:transform 0.2s}
+        .dr-record-card{background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.12);border-radius:24px;padding:32px;text-align:center}
+        .dr-voice-btn{width:100px;height:100px;border-radius:50px;background:linear-gradient(135deg,rgba(155,140,255,0.28),rgba(155,140,255,0.12));border:1px solid rgba(155,140,255,0.4);cursor:pointer;margin:20px auto;display:flex;align-items:center;justify-content:center;transition:transform 0.2s}
         .dr-voice-btn:active{transform:scale(0.95)}
         .dr-voice-btn.recording{animation:drPulse 1.2s infinite;background:linear-gradient(135deg,rgba(255,107,107,0.9),rgba(255,59,59,0.9));border-color:rgba(255,107,107,0.9)}
         .dr-voice-btn.recording .dr-voice-icon{color:#fff}
@@ -219,34 +251,34 @@ function _drInjectStyles() {
             50% { height: 20px; }
         }
         
-        .dr-textarea{width:100%;padding:16px;border-radius:16px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:var(--text-primary);font-family:inherit;font-size:14px;min-height:150px;resize:vertical;margin:20px 0;box-sizing:border-box;line-height:1.6}
+        .dr-textarea{width:100%;padding:16px;border-radius:16px;background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.28);color:var(--text-primary);font-family:inherit;font-size:14px;min-height:150px;resize:vertical;margin:20px 0;box-sizing:border-box;line-height:1.6}
         .dr-textarea::placeholder{color:var(--text-secondary)}
-        .dr-textarea:focus{outline:none;border-color:rgba(224,224,224,0.35)}
+        .dr-textarea:focus{outline:none;border-color:rgba(155,140,255,0.5)}
         
         .dr-btn{padding:13px 24px;border-radius:40px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;font-family:inherit;
-            background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);color:var(--text-primary)}
-        .dr-btn-ghost{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.14);color:var(--text-secondary)}
+            background:linear-gradient(135deg,rgba(155,140,255,0.28),rgba(155,140,255,0.12));border:1px solid rgba(155,140,255,0.4);color:var(--text-primary)}
+        .dr-btn-ghost{background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.18);color:var(--text-secondary)}
         .dr-btn.loading .btn-text { display: none; }
         .dr-btn.loading .btn-loader { display: inline-block; }
         .btn-loader { display: none; animation: drSpin 0.8s linear infinite; }
         
-        .dr-interpretation{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:20px;padding:24px;margin-top:24px}
+        .dr-interpretation{background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.12);border-radius:20px;padding:24px;margin-top:24px}
         .dr-interpretation-text{line-height:1.7;color:var(--text-secondary);margin-bottom:20px;font-size:14px;white-space:pre-wrap}
         .dr-interpretation-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:16px}
-        .dr-interpretation-btn{background:rgba(224,224,224,0.08);border:1px solid rgba(224,224,224,0.14);padding:8px 16px;border-radius:30px;cursor:pointer;font-size:12px;transition:all 0.2s;font-family:inherit;color:var(--text-secondary)}
-        .dr-interpretation-btn:hover{background:rgba(224,224,224,0.16)}
+        .dr-interpretation-btn{background:rgba(155,140,255,0.1);border:1px solid rgba(155,140,255,0.18);padding:8px 16px;border-radius:30px;cursor:pointer;font-size:12px;transition:all 0.2s;font-family:inherit;color:var(--text-secondary)}
+        .dr-interpretation-btn:hover{background:rgba(155,140,255,0.22)}
         
-        .dr-clarification-card{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:20px;padding:24px;margin-top:20px;text-align:left}
+        .dr-clarification-card{background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.12);border-radius:20px;padding:24px;margin-top:20px;text-align:left}
         .clarification-progress{font-size:11px;color:var(--chrome);margin-bottom:12px;text-align:center}
         .dr-clarification-q{font-size:16px;font-weight:600;margin-bottom:16px;color:var(--text-primary)}
-        .dr-clarification-input{width:100%;padding:12px;border-radius:16px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.2);color:var(--text-primary);margin-top:12px;font-family:inherit;resize:vertical;box-sizing:border-box;font-size:14px}
-        .dr-clarification-input:focus{outline:none;border-color:rgba(224,224,224,0.35)}
+        .dr-clarification-input{width:100%;padding:12px;border-radius:16px;background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.28);color:var(--text-primary);margin-top:12px;font-family:inherit;resize:vertical;box-sizing:border-box;font-size:14px}
+        .dr-clarification-input:focus{outline:none;border-color:rgba(155,140,255,0.5)}
         
         .dr-history-header{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-        .dr-history-search{flex:1;padding:10px 14px;border-radius:30px;background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.15);color:var(--text-primary);font-family:inherit;font-size:13px}
+        .dr-history-search{flex:1;padding:10px 14px;border-radius:30px;background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.2);color:var(--text-primary);font-family:inherit;font-size:13px}
         .dr-history-search::placeholder{color:var(--text-secondary)}
-        .dr-history-item{background:rgba(224,224,224,0.03);border:1px solid rgba(224,224,224,0.08);border-radius:16px;padding:16px;margin-bottom:12px;cursor:pointer;transition:all 0.2s}
-        .dr-history-item:hover{background:rgba(224,224,224,0.08);transform:translateX(4px)}
+        .dr-history-item{background:rgba(155,140,255,0.04);border:1px solid rgba(155,140,255,0.1);border-radius:16px;padding:16px;margin-bottom:12px;cursor:pointer;transition:all 0.2s}
+        .dr-history-item:hover{background:rgba(155,140,255,0.1);transform:translateX(4px)}
         .dr-history-date{font-size:11px;color:var(--text-secondary);margin-bottom:8px}
         .dr-history-preview{font-size:14px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .dr-history-tags{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
@@ -256,15 +288,15 @@ function _drInjectStyles() {
         .dr-spinner{font-size:48px;animation:drSpin 1s linear infinite;display:inline-block}
         @keyframes drSpin{to{transform:rotate(360deg)}}
         
-        .dr-status{background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.1);border-radius:16px;padding:16px;margin:16px 0;text-align:center}
+        .dr-status{background:rgba(155,140,255,0.06);border:1px solid rgba(155,140,255,0.12);border-radius:16px;padding:16px;margin:16px 0;text-align:center}
         .dr-status-steps{display:flex;justify-content:center;gap:6px;margin-bottom:12px}
         .dr-status-step{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);opacity:0.4;transition:opacity 0.3s}
         .dr-status-step.active{opacity:1;color:var(--text-primary)}
         .dr-status-step.done{opacity:0.7;color:var(--text-primary)}
-        .dr-status-dot{width:8px;height:8px;border-radius:50%;background:rgba(224,224,224,0.2);transition:background 0.3s}
+        .dr-status-dot{width:8px;height:8px;border-radius:50%;background:rgba(155,140,255,0.28);transition:background 0.3s}
         .dr-status-step.active .dr-status-dot{background:var(--text-primary);animation:drPulse 1.5s infinite}
         .dr-status-step.done .dr-status-dot{background:var(--text-primary)}
-        .dr-status-arrow{color:rgba(224,224,224,0.15);font-size:10px}
+        .dr-status-arrow{color:rgba(155,140,255,0.2);font-size:10px}
         .dr-status-text{font-size:13px;color:var(--text-secondary);margin-top:8px}
         
         .draft-indicator {
@@ -378,7 +410,7 @@ function _drInjectStyles() {
         @keyframes drTextareaGlow {
             0% { box-shadow: 0 0 0 0 rgba(255,107,59,0.5); border-color: rgba(255,107,59,0.8); }
             70% { box-shadow: 0 0 0 12px rgba(255,107,59,0); border-color: rgba(255,107,59,0.4); }
-            100% { box-shadow: 0 0 0 0 rgba(255,107,59,0); border-color: rgba(224,224,224,0.2); }
+            100% { box-shadow: 0 0 0 0 rgba(255,107,59,0); border-color: rgba(155,140,255,0.28); }
         }
         .dr-textarea-highlight {
             animation: drTextareaGlow 2.4s ease-out;
@@ -496,6 +528,117 @@ function _drInjectStyles() {
             user-select: none;
         }
         .dream-symbol-pill:hover { background: rgba(255,184,113,0.22); }
+        .dream-symbol, .dream-symbol-pill { cursor: pointer; }
+
+        /* Starfield фон */
+        .dr-starfield {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.55;
+        }
+        .dr-chat-wrap { position: relative; z-index: 1; }
+
+        /* School chip row */
+        .dr-school-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            padding-bottom: 2px;
+        }
+        .dr-school-row::-webkit-scrollbar { display: none; }
+        .dr-school-chip {
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 12px;
+            border-radius: 18px;
+            background: rgba(155,140,255,0.08);
+            border: 1px solid rgba(155,140,255,0.22);
+            color: var(--dream-text, var(--text-primary));
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.18s, border-color 0.18s, transform 0.12s;
+            white-space: nowrap;
+        }
+        .dr-school-chip:hover { background: rgba(155,140,255,0.18); }
+        .dr-school-chip:active { transform: scale(0.97); }
+        .dr-school-chip.is-active {
+            background: linear-gradient(135deg, rgba(155,140,255,0.45), rgba(155,140,255,0.28));
+            border-color: rgba(155,140,255,0.7);
+            color: #fff;
+            box-shadow: 0 0 14px rgba(155,140,255,0.35);
+        }
+        .dr-school-chip-emoji { font-size: 14px; line-height: 1; }
+
+        /* Symbol modal */
+        .dr-symbol-modal {
+            position: fixed; inset: 0; z-index: 9999;
+            display: flex; align-items: center; justify-content: center;
+            animation: drSymFade 0.18s ease-out;
+        }
+        .dr-symbol-backdrop {
+            position: absolute; inset: 0;
+            background: rgba(13,11,36,0.82);
+            backdrop-filter: blur(6px);
+        }
+        .dr-symbol-card {
+            position: relative; z-index: 1;
+            background: linear-gradient(155deg, #2A2550 0%, #1E1B3A 60%, #151230 100%);
+            border: 1px solid rgba(155,140,255,0.35);
+            border-radius: 22px;
+            padding: 28px 24px 24px;
+            max-width: 420px;
+            width: calc(100% - 40px);
+            max-height: 80vh;
+            overflow-y: auto;
+            color: var(--dream-text, #E4E0FF);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(155,140,255,0.2);
+            text-align: center;
+            animation: drSymPop 0.22s ease-out;
+        }
+        .dr-symbol-close {
+            position: absolute; top: 10px; right: 14px;
+            background: transparent; border: none; color: #9B8CFF;
+            font-size: 28px; line-height: 1; cursor: pointer;
+            font-family: inherit;
+        }
+        .dr-symbol-close:hover { color: #fff; }
+        .dr-symbol-emoji { font-size: 56px; margin-bottom: 8px; }
+        .dr-symbol-title {
+            font-size: 24px; margin: 0 0 4px 0;
+            color: var(--dream-symbol, #FFB871);
+            text-transform: capitalize;
+        }
+        .dr-symbol-school {
+            font-size: 11px; color: var(--dream-muted, #6C6890);
+            text-transform: uppercase; letter-spacing: 0.06em;
+            margin-bottom: 14px;
+        }
+        .dr-symbol-meaning {
+            font-size: 15px; line-height: 1.55; margin: 0 0 18px 0;
+            color: var(--dream-text, #E4E0FF);
+        }
+        .dr-symbol-stat {
+            font-size: 11px; color: var(--dream-muted, #6C6890);
+            padding: 10px 12px; border-radius: 12px;
+            background: rgba(155,140,255,0.08);
+            border: 1px dashed rgba(155,140,255,0.3);
+        }
+        @keyframes drSymFade { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes drSymPop {
+            from { opacity: 0; transform: scale(0.92) translateY(8px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
 
         .dr-chat-composer {
             position: sticky; bottom: 0;
@@ -693,13 +836,21 @@ function _drRenderRecordTab(completed) {
         : '🎤 Нажмите и удерживайте кнопку, чтобы надиктовать сон, или напишите его ниже';
     const sendLabel = isClarification ? '📤 Ответить' : '🔮 Толковать сон';
 
+    const schoolChips = DR_SCHOOLS.map(s => `
+        <button type="button" class="dr-school-chip${_drSchool === s.id ? ' is-active' : ''}"
+                data-school="${s.id}" title="${_drEscapeHtml(s.desc)}">
+            <span class="dr-school-chip-emoji">${s.emoji}</span>${_drEscapeHtml(s.label)}
+        </button>`).join('');
+
     return `
+        <canvas id="drStarfield" class="dr-starfield" aria-hidden="true"></canvas>
         <div class="dr-chat-wrap">
             <div class="dr-chat-log" id="drChatLog">
                 ${_drRenderChatMessages()}
             </div>
 
             <div class="dr-chat-composer dr-record-card" style="padding:16px;">
+                ${isClarification ? '' : `<div class="dr-school-row" id="drSchoolRow">${schoolChips}</div>`}
                 <div id="validationError" class="error-message" style="display: none;"></div>
                 <div style="display:flex;align-items:flex-end;gap:10px;">
                     <button class="dr-voice-btn dr-voice-btn-compact" id="dreamVoiceBtn" title="Нажмите и удерживайте для записи">
@@ -760,7 +911,7 @@ function _drRenderChatBubble(msg, idx) {
         ? `<div class="dream-symbols-legend">${msg.symbols.map(s => {
                 const name = _drEscapeHtml(s.name || '');
                 const meaning = _drEscapeHtml(s.meaning || name);
-                return `<span class="dream-symbol-pill" title="${meaning}">${name}</span>`;
+                return `<span class="dream-symbol-pill" title="${meaning}" data-dream-symbol="${name}" data-dream-meaning="${meaning}">${name}</span>`;
            }).join('')}</div>`
         : '';
     const actions = !isUser && msg.text
@@ -796,7 +947,8 @@ function _drHighlightSymbols(escapedText, symbols) {
             re = new RegExp(`\\b(${nameEsc})\\b`, 'gi');
         }
         const meaning = _drEscapeHtml(s.meaning || name);
-        out = out.replace(re, `<span class="dream-symbol" title="${meaning}">$1</span>`);
+        const nameAttr = _drEscapeHtml(name);
+        out = out.replace(re, `<span class="dream-symbol" title="${meaning}" data-dream-symbol="${nameAttr}" data-dream-meaning="${meaning}">$1</span>`);
     });
     return out;
 }
@@ -1128,18 +1280,128 @@ function _drInitButtons() {
         });
     }
 
-    // «Озвучить» у каждого сообщения бота
+    // «Озвучить» у каждого сообщения бота + тап по символу → модалка
     const log = document.getElementById('drChatLog');
     if (log && !log._drSpeakBound) {
         log._drSpeakBound = true;
         log.addEventListener('click', (e) => {
-            const btn = e.target.closest('[data-speak]');
-            if (!btn) return;
-            const idx = Number(btn.getAttribute('data-speak'));
-            const msg = _drChatSession[idx];
-            if (msg && msg.text) _drSpeak(msg.text);
+            const speakBtn = e.target.closest('[data-speak]');
+            if (speakBtn) {
+                const idx = Number(speakBtn.getAttribute('data-speak'));
+                const msg = _drChatSession[idx];
+                if (msg && msg.text) _drSpeak(msg.text);
+                return;
+            }
+            const symEl = e.target.closest('[data-dream-symbol]');
+            if (symEl) {
+                _drOpenSymbolModal(symEl.getAttribute('data-dream-symbol'), symEl.getAttribute('data-dream-meaning') || '');
+            }
         });
     }
+
+    // Школы толкования — чип-группа
+    const schoolRow = document.getElementById('drSchoolRow');
+    if (schoolRow && !schoolRow._drBound) {
+        schoolRow._drBound = true;
+        schoolRow.addEventListener('click', (e) => {
+            const chip = e.target.closest('[data-school]');
+            if (!chip) return;
+            const id = chip.getAttribute('data-school');
+            _drSetSchool(id);
+            schoolRow.querySelectorAll('.dr-school-chip').forEach(el => {
+                el.classList.toggle('is-active', el.getAttribute('data-school') === id);
+            });
+        });
+    }
+
+    // Starfield анимация
+    _drStartStarfield();
+}
+
+// ==== Starfield ====
+let _drStarfieldRaf = null;
+function _drStartStarfield() {
+    const canvas = document.getElementById('drStarfield');
+    if (!canvas) return;
+    if (canvas._drInited) return;
+    canvas._drInited = true;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let w = 0, h = 0;
+    const stars = [];
+    const COUNT = 140;
+
+    function resize() {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        w = Math.max(1, Math.floor(rect.width * dpr));
+        h = Math.max(1, Math.floor(rect.height * dpr));
+        canvas.width = w; canvas.height = h;
+    }
+    function seed() {
+        stars.length = 0;
+        for (let i = 0; i < COUNT; i++) {
+            stars.push({
+                x: Math.random() * w,
+                y: Math.random() * h,
+                r: Math.random() * 1.4 + 0.3,
+                phase: Math.random() * Math.PI * 2,
+                speed: 0.004 + Math.random() * 0.01,
+                drift: (Math.random() - 0.5) * 0.04,
+            });
+        }
+    }
+    function frame(t) {
+        if (!canvas.isConnected) { _drStarfieldRaf = null; return; }
+        ctx.clearRect(0, 0, w, h);
+        for (const s of stars) {
+            s.phase += s.speed;
+            s.y += s.drift;
+            if (s.y > h + 4) s.y = -4;
+            if (s.y < -4) s.y = h + 4;
+            const alpha = 0.25 + 0.55 * Math.abs(Math.sin(s.phase));
+            ctx.fillStyle = `rgba(210,200,255,${alpha.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        _drStarfieldRaf = requestAnimationFrame(frame);
+    }
+
+    resize(); seed();
+    window.addEventListener('resize', () => { resize(); seed(); }, { passive: true });
+    _drStarfieldRaf = requestAnimationFrame(frame);
+}
+
+// ==== Symbol modal ====
+function _drOpenSymbolModal(name, meaning) {
+    const existing = document.getElementById('drSymbolModal');
+    if (existing) existing.remove();
+    const schoolLabel = DR_SCHOOLS.find(s => s.id === _drSchool)?.label || 'Юнг';
+    const safeName = _drEscapeHtml(name || '');
+    const safeMeaning = _drEscapeHtml(meaning || '');
+    const overlay = document.createElement('div');
+    overlay.id = 'drSymbolModal';
+    overlay.className = 'dr-symbol-modal';
+    overlay.innerHTML = `
+        <div class="dr-symbol-backdrop" data-close="1"></div>
+        <div class="dr-symbol-card" role="dialog" aria-modal="true">
+            <button class="dr-symbol-close" data-close="1" aria-label="Закрыть">×</button>
+            <div class="dr-symbol-emoji">✨</div>
+            <h2 class="dr-symbol-title">${safeName}</h2>
+            <div class="dr-symbol-school">В школе: ${_drEscapeHtml(schoolLabel)}</div>
+            <p class="dr-symbol-meaning">${safeMeaning}</p>
+            <div class="dr-symbol-stat">📊 Повторы символов в твоих снах — скоро</div>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target.getAttribute('data-close')) overlay.remove();
+    });
+    document.addEventListener('keydown', function onEsc(e) {
+        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); }
+    });
+    document.body.appendChild(overlay);
 }
 
 async function _drInterpretFinalFallback() {
@@ -1308,7 +1570,8 @@ async function _drInterpret() {
             vectors: status.vectors,
             key_characteristic: profileData.profile?.key_characteristic,
             main_trap: profileData.profile?.main_trap,
-            clarification_count: _drClarificationCount
+            clarification_count: _drClarificationCount,
+            school: _drSchool
         };
         console.log('[dreams] 📤 POST /api/dreams/interpret user_id=', requestBody.user_id, '| dream_length=', requestBody.dream_text.length);
         const _tStart = performance.now();
@@ -1410,7 +1673,8 @@ async function _drSubmitClarification() {
                 user_name: CONFIG.USER_NAME,
                 profile_code: status.profile_code,
                 vectors: status.vectors,
-                clarification_number: _drClarificationCount
+                clarification_number: _drClarificationCount,
+                school: _drSchool
             })
         });
         console.log('[dreams] 📥 clarify response:', { needs_clarification: !!response?.needs_clarification, has_interpretation: !!response?.interpretation });
@@ -1595,7 +1859,7 @@ function viewDreamDetails(index) {
 
             <div class="dr-record-card" style="text-align: left;">
                 <h3>Ваш сон:</h3>
-                <div style="background:rgba(224,224,224,0.03);border-radius:16px;padding:16px;margin:12px 0;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap">${escapedText}</div>
+                <div style="background:rgba(155,140,255,0.04);border-radius:16px;padding:16px;margin:12px 0;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap">${escapedText}</div>
 
                 <h3 style="margin-top: 20px;">Толкование Фреди:</h3>
                 <div class="dr-interpretation" style="margin-top: 0;">
