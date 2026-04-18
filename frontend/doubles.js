@@ -1583,13 +1583,21 @@ function _renderResults(container) {
             if (item.attachment) tags.push(item.attachment);
             if (item.profile_code) tags.push(item.profile_code);
 
+            const avatarInner = item.photo
+                ? `<img src="${item.photo.replace(/"/g, '&quot;')}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">`
+                : initial;
+            const bioHtml = item.bio
+                ? `<div class="db-card-bio" style="font-size:12px;color:var(--text-secondary);margin:6px 0 2px;line-height:1.45">${(item.bio+'').replace(/</g,'&lt;')}</div>`
+                : '';
+
             cardsHtml += `
                 <div class="db-result-card" style="animation:mirrorFadeIn ${0.2 + idx * 0.05}s ease">
                     <div class="db-card-header">
-                        <div class="db-card-avatar">${initial}</div>
+                        <div class="db-card-avatar" style="overflow:hidden">${avatarInner}</div>
                         <div class="db-card-info">
                             <div class="db-card-name">${item.name || 'Пользователь'}</div>
                             ${metaParts ? `<div class="db-card-meta"><span>📍 ${metaParts}</span></div>` : ''}
+                            ${bioHtml}
                         </div>
                         <div class="db-card-score ${scoreClass}">
                             <div class="db-card-score-val">${sim}</div>
