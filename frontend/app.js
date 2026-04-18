@@ -1638,6 +1638,188 @@ function initMobileMenu() {
 }
 
 // ============================================
+// ВЕРХНЕЕ МЕНЮ (три точки справа в шапке)
+// ============================================
+
+// Перехватываем событие PWA-установки как можно раньше, чтобы потом можно было вызвать prompt по клику
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    window._frediInstallPrompt = e;
+});
+
+// ============================================
+// КНОПКА ПОДЕЛИТЬСЯ ССЫЛКОЙ (встраиваемая версия, напр. Telegram-miniapp)
+// ============================================
+function initShareBtn() {
+    const btn = document.getElementById('shareBtn');
+    if (!btn || btn._fShareInited) return;
+    btn._fShareInited = true;
+
+    btn.addEventListener('click', async () => {
+        const shareUrl = 'https://fredi-frontend-flz2.onrender.com/';
+        const data = {
+            title: 'Фреди — виртуальный психолог',
+            text: 'Попробуй Фреди — AI-психолог с голосом, толкованием снов и персональным профилем',
+            url: shareUrl
+        };
+        // Нативный Web Share (мобильные + современный Safari/Chrome)
+        if (navigator.share) {
+            try {
+                await navigator.share(data);
+                return;
+            } catch (err) {
+                if (err && err.name === 'AbortError') return; // пользователь закрыл диалог — молча
+                // иначе падаем в фолбэк
+            }
+        }
+        // Фолбэк: копируем ссылку
+        try {
+            await navigator.clipboard.writeText(data.url);
+            if (typeof showToast === 'function') showToast('🔗 Ссылка скопирована: ' + data.url, 'success');
+        } catch {
+            if (typeof showToast === 'function') showToast('Скопируй вручную: ' + data.url, 'info');
+            else window.prompt('Ссылка для отправки:', data.url);
+        }
+    });
+}
+
+function initTopMenu() {
+    const btn = document.getElementById('menuBtn');
+    if (!btn || btn._fTopMenuInited) return;
+
+    // Меню существует ТОЛЬКО на публичном сайте (meysternlp.ru / github.io).
+    // Во встраиваемой версии/Telegram-miniapp — прячем кнопку.
+    const host = (location.hostname || '').toLowerCase();
+    const isPublicSite = host.endsWith('meysternlp.ru') || host.endsWith('github.io') || host === 'localhost' || host === '127.0.0.1';
+    if (!isPublicSite) {
+        btn.style.display = 'none';
+        return;
+    }
+    btn._fTopMenuInited = true;
+
+    // Стили вставляем один раз
+    if (!document.getElementById('fredi-top-menu-styles')) {
+        const s = document.createElement('style');
+        s.id = 'fredi-top-menu-styles';
+        s.textContent = `
+            .fredi-top-menu {
+                position: fixed;
+                top: 58px;
+                right: 12px;
+                min-width: 240px;
+                background: var(--surface, #1a1a1a);
+                border: 1px solid rgba(224,224,224,0.14);
+                border-radius: 14px;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+                padding: 6px;
+                z-index: 9000;
+                opacity: 0;
+                transform: translateY(-6px) scale(0.98);
+                transition: opacity 0.14s ease, transform 0.14s ease;
+                pointer-events: none;
+            }
+            .fredi-top-menu.is-open {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                pointer-events: auto;
+            }
+            .fredi-top-menu-item {
+                display: flex; align-items: center; gap: 10px;
+                padding: 11px 12px;
+                border-radius: 10px;
+                font-size: 13px;
+                color: var(--text-primary);
+                cursor: pointer;
+                font-family: inherit;
+                background: transparent;
+                border: none;
+                width: 100%;
+                text-align: left;
+                transition: background 0.15s;
+            }
+            .fredi-top-menu-item:hover { background: rgba(224,224,224,0.08); }
+            .fredi-top-menu-item:active { background: rgba(224,224,224,0.14); }
+            .fredi-top-menu-ico { font-size: 18px; width: 22px; text-align: center; }
+            [data-theme="light"] .fredi-top-menu {
+                background: #FFFFFF;
+                border-color: rgba(0,0,0,0.1);
+                box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+            }
+            [data-theme="light"] .fredi-top-menu-item:hover { background: rgba(0,0,0,0.05); }
+        `;
+        document.head.appendChild(s);
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'fredi-top-menu';
+    menu.id = 'frediTopMenu';
+    menu.setAttribute('role', 'menu');
+    menu.innerHTML = `
+        <button class="fredi-top-menu-item" data-action="install" role="menuitem">
+            <span class="fredi-top-menu-ico">📱</span>
+            <span>Отправить ярлык на мой экран</span>
+        </button>
+        <button class="fredi-top-menu-item" data-action="workshop" role="menuitem">
+            <span class="fredi-top-menu-ico">🏛️</span>
+            <span>В мейстерскую</span>
+        </button>
+    `;
+    document.body.appendChild(menu);
+
+    const open  = () => menu.classList.add('is-open');
+    const close = () => menu.classList.remove('is-open');
+    const toggle = () => menu.classList.contains('is-open') ? close() : open();
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggle();
+    });
+
+    menu.addEventListener('click', async (e) => {
+        const item = e.target.closest('.fredi-top-menu-item');
+        if (!item) return;
+        const action = item.getAttribute('data-action');
+        close();
+        if (action === 'install') {
+            const p = window._frediInstallPrompt;
+            if (p && typeof p.prompt === 'function') {
+                try {
+                    p.prompt();
+                    const choice = await p.userChoice;
+                    if (typeof showToast === 'function') {
+                        showToast(choice.outcome === 'accepted' ? '✅ Ярлык добавлен' : 'Установка отменена', 'info');
+                    }
+                    window._frediInstallPrompt = null;
+                } catch (err) {
+                    if (typeof showToast === 'function') showToast('Не удалось добавить ярлык', 'error');
+                }
+            } else {
+                const ua = navigator.userAgent || '';
+                const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+                if (typeof showToast === 'function') {
+                    if (isIOS) {
+                        showToast('В Safari нажмите «Поделиться» → «На экран «Домой»»', 'info');
+                    } else {
+                        showToast('Ярлык уже добавлен или недоступен в этом браузере', 'info');
+                    }
+                }
+            }
+        } else if (action === 'workshop') {
+            window.open('https://meysternlp.ru/', '_blank', 'noopener');
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!menu.classList.contains('is-open')) return;
+        if (menu.contains(e.target) || btn.contains(e.target)) return;
+        close();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') close();
+    });
+}
+
+// ============================================
 // ИНИЦИАЛИЗАЦИЯ ИМЕНИ (заменяем нативный prompt на inline-форму)
 // ============================================
 
@@ -1699,6 +1881,8 @@ async function init() {
     window.renderDashboard = renderDashboard;
 
     initMobileMenu();
+    initTopMenu();
+    initShareBtn();
     await initVoice();
 
     // Проверяем имя пользователя
