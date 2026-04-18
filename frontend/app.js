@@ -1656,8 +1656,7 @@ function initShareBtn() {
     btn._fShareInited = true;
 
     btn.addEventListener('click', async () => {
-        // Ссылка на текущий фронтенд (не на меистерскую)
-        const shareUrl = (location.origin || '') + (location.pathname || '/');
+        const shareUrl = 'https://fredi-frontend-flz2.onrender.com/';
         const data = {
             title: 'Фреди — виртуальный психолог',
             text: 'Попробуй Фреди — AI-психолог с голосом, толкованием снов и персональным профилем',
