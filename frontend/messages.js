@@ -353,10 +353,25 @@ function _msInjectStyles() {
         }
         .ms-msg-time {
             font-size: 9px;
-            opacity: 0.5;
+            opacity: 0.6;
             margin-top: 4px;
             text-align: right;
         }
+        .ms-check {
+            font-size: 10px;
+            margin-left: 2px;
+            letter-spacing: -2px;
+            display: inline-block;
+            transform: translateY(0.5px);
+        }
+        .ms-check-sent { color: var(--text-secondary, #9a9a9a); opacity: 0.75; }
+        .ms-check-delivered { color: var(--text-secondary, #9a9a9a); opacity: 0.85; }
+        .ms-check-read { color: #34B7F1; opacity: 1; }
+        .ms-check-failed { color: #ff6b6b; letter-spacing: 0; }
+        .ms-msg-own .ms-msg-bubble { position: relative; }
+        [data-theme="light"] .ms-check-sent,
+        [data-theme="light"] .ms-check-delivered { color: rgba(0,0,0,0.45); }
+        [data-theme="light"] .ms-check-read { color: #0a84ff; }
 
         .ms-chat-footer {
             flex-shrink: 0;
@@ -558,9 +573,13 @@ async function _sendMessage(chatId, text) {
     try {
         const d = await _msFetch(`/api/chats/${chatId}/messages`, {
             method: 'POST',
-            body: JSON.stringify({ text: text.trim() })
+            body: JSON.stringify({ text: text.trim(), user_id: _msUserId() })
         });
-        return d.success ? d.message : null;
+        if (!d || !d.success) {
+            _msToast('❌ ' + (d && d.error ? d.error : 'Не удалось отправить'), 'error');
+            return null;
+        }
+        return d.message;
     } catch (e) {
         _msToast('❌ Не удалось отправить сообщение', 'error');
         return null;
@@ -894,19 +913,44 @@ async function _openChat(chatId) {
 
     document.getElementById('msChatBack').onclick = () => _renderMain();
 
-    // Отправка
+    // Отправка: оптимистичный UI (✓ сразу, потом ✓✓ после ACK, голубые ✓✓ когда прочитано)
     const send = async () => {
         const input = document.getElementById('msChatInput');
         const text  = input?.value?.trim();
         if (!text) return;
         input.value = '';
+
+        const list = document.getElementById('msMsgList');
+        const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        const optimistic = {
+            id: tempId,
+            fromUserId: uid,
+            text,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+            _pending: true,
+            type: 'text'
+        };
+        if (list) {
+            list.insertAdjacentHTML('beforeend', _msMsgHtml(optimistic, true));
+            list.scrollTop = list.scrollHeight;
+        }
+
         const msg = await _sendMessage(chatId, text);
+        const tempEl = list?.querySelector(`[data-msg-id="${tempId}"]`);
         if (msg) {
-            const list = document.getElementById('msMsgList');
-            if (list) {
+            // Заменяем временный пузырь серверным ответом (✓ → ✓✓ серые)
+            if (tempEl) {
+                tempEl.outerHTML = _msMsgHtml(msg, true);
+            } else if (list) {
                 list.insertAdjacentHTML('beforeend', _msMsgHtml(msg, true));
-                list.scrollTop = list.scrollHeight;
             }
+            if (list) list.scrollTop = list.scrollHeight;
+        } else if (tempEl) {
+            // Помечаем как сбой отправки
+            optimistic._pending = false;
+            optimistic._failed = true;
+            tempEl.outerHTML = _msMsgHtml(optimistic, true);
         }
     };
 
@@ -974,11 +1018,23 @@ function _msRenderMessages(messages, uid, chat) {
 }
 
 function _msMsgHtml(msg, isOwn) {
-    const check = isOwn ? (msg.isRead ? ' ✓✓' : ' ✓') : '';
-    return `<div class="ms-msg ${isOwn?'ms-msg-own':'ms-msg-other'}">
+    let checkHtml = '';
+    if (isOwn) {
+        if (msg._pending) {
+            checkHtml = ' <span class="ms-check ms-check-sent" title="Отправлено">✓</span>';
+        } else if (msg._failed) {
+            checkHtml = ' <span class="ms-check ms-check-failed" title="Ошибка отправки">⚠</span>';
+        } else if (msg.isRead) {
+            checkHtml = ' <span class="ms-check ms-check-read" title="Прочитано">✓✓</span>';
+        } else {
+            checkHtml = ' <span class="ms-check ms-check-delivered" title="Доставлено">✓✓</span>';
+        }
+    }
+    const idAttr = msg.id != null ? ` data-msg-id="${_msEsc(String(msg.id))}"` : '';
+    return `<div class="ms-msg ${isOwn?'ms-msg-own':'ms-msg-other'}"${idAttr}>
         <div class="ms-msg-bubble">
             ${_msEsc(msg.text||'')}
-            <div class="ms-msg-time">${_msTime(msg.createdAt)}${check}</div>
+            <div class="ms-msg-time">${_msTime(msg.createdAt)}${checkHtml}</div>
         </div>
     </div>`;
 }

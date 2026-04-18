@@ -3173,11 +3173,20 @@ async def get_chat_messages(request: Request, chat_id: int, user_id: int, limit:
 
 @app.post("/api/chats/{chat_id}/messages")
 @limiter.limit("30/minute")
-async def send_message(request: Request, chat_id: int):
+async def send_message(request: Request, chat_id: int, user_id: Optional[int] = None):
     """Send a message in a chat."""
     try:
         data = await request.json()
-        sender_id = int(data.get("user_id"))
+        sender_raw = data.get("user_id") if isinstance(data, dict) else None
+        if sender_raw is None:
+            sender_raw = user_id
+        if sender_raw is None:
+            return {"success": False, "error": "user_id required"}
+        try:
+            sender_id = int(sender_raw)
+        except (TypeError, ValueError):
+            return {"success": False, "error": "invalid user_id"}
+
         text = (data.get("text") or "").strip()
         if not text:
             return {"success": False, "error": "Message text required"}
@@ -3221,16 +3230,25 @@ async def send_message(request: Request, chat_id: int):
 
 @app.post("/api/chats/{chat_id}/read")
 @limiter.limit("30/minute")
-async def mark_chat_read(request: Request, chat_id: int):
+async def mark_chat_read(request: Request, chat_id: int, user_id: Optional[int] = None):
     """Mark all messages in a chat as read."""
     try:
-        data = await request.json()
-        user_id = int(data.get("user_id"))
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        uid_raw = (data.get("user_id") if isinstance(data, dict) else None) or user_id
+        if uid_raw is None:
+            return {"success": False, "error": "user_id required"}
+        try:
+            uid = int(uid_raw)
+        except (TypeError, ValueError):
+            return {"success": False, "error": "invalid user_id"}
         async with db.get_connection() as conn:
             await conn.execute("""
                 UPDATE fredi_chat_messages SET is_read = TRUE
                 WHERE chat_id = $1 AND sender_id != $2 AND is_read = FALSE
-            """, chat_id, user_id)
+            """, chat_id, uid)
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
