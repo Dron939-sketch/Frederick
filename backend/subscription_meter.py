@@ -6,7 +6,7 @@ Subscription: unlimited access.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class SubscriptionMeter:
         daily_seconds = row["daily_usage_seconds"] or 0
         last_reset = row["last_usage_reset"]
         cooldown_ends = row["cooldown_ends_at"]
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if last_reset and last_reset < now.date():
             daily_seconds = 0
@@ -148,7 +148,7 @@ class SubscriptionMeter:
         return status
 
     async def start_cooldown(self, user_id: int):
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cooldown_ends = now + timedelta(seconds=COOLDOWN_SECONDS)
         async with self.db.get_connection() as conn:
             await conn.execute("""
