@@ -4863,11 +4863,153 @@ def _brand_transformation_prompt(current_archetype: str, current_desc: str,
 - Каждое действие: указать axis (outfit/speech/environment/habits/behavior)
 - 2 примера: один из фильма, один из жизни
 - Без markdown-форматирования внутри строк, без эмодзи в JSON
-- Пиши на русском, обращайся на «ты»
+- Пиши на русском (в значениях), обращайся на «ты»
+
+КРИТИЧЕСКИ ВАЖНО ПО ФОРМАТУ JSON:
+- Все КЛЮЧИ строго английскими как в примере выше ("summary","gap_analysis","axis"...).
+  Не переводи ключи на русский!
+- Используй ТОЛЬКО прямые двойные кавычки U+0022 (ASCII "). Не используй «ёлочки»,
+  „лапки", тире, или умные кавычки внутри JSON-строк — заменяй их на слова или тире.
+- Экранируй любые двойные кавычки внутри значений: \\" (не обычные « или ").
+- Без trailing-запятых (после последнего элемента массива/объекта).
+- Без комментариев (// или #).
+- Без переносов строк внутри строковых значений — используй \\n если очень нужно.
+- Весь ответ — ровно один JSON-объект, БЕЗ префикса ```json и БЕЗ пояснений после.
 
 ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ (краткая выдержка для контекста):
 {profile_summary}
 """
+
+
+def _brand_parse_transformation_json(raw: str) -> Optional[Any]:
+    """
+    Пытаемся максимально терпимо распарсить JSON от LLM.
+    Шаги:
+    1) Прямой json.loads от первой { до последней }
+    2) Починка частых косяков LLM:
+       - trailing commas (,  ])
+       - умные кавычки внутри строк
+       - single-line // комментарии
+    3) ast.literal_eval как последний шанс (для случаев с одинарными кавычками)
+    Возвращает dict/list, либо None если не удалось.
+    """
+    if not raw:
+        return None
+    try:
+        start = raw.index("{")
+        end = raw.rindex("}") + 1
+    except ValueError:
+        return None
+    snippet = raw[start:end]
+
+    # Попытка 1 — как есть
+    try:
+        return json.loads(snippet)
+    except Exception:
+        pass
+
+    # Попытка 2 — чистка
+    repaired = snippet
+    # 2a. Убираем // single-line комментарии
+    repaired = re.sub(r'//[^\n]*', '', repaired)
+    # 2b. Trailing commas перед ] или }
+    repaired = re.sub(r',(\s*[}\]])', r'\1', repaired)
+    # 2c. «Ёлочки» → нейтральная кавычка (внутри ЗНАЧЕНИЙ, не ключей)
+    #     Грубо: заменяем все « и » на ', \u201C \u201D на ', \u201E на '
+    for ch in ("«", "»", "\u201C", "\u201D", "\u201E", "„"):
+        repaired = repaired.replace(ch, "'")
+    # 2d. Невидимые BOM/zero-width
+    repaired = repaired.replace("\ufeff", "").replace("\u200b", "")
+    try:
+        return json.loads(repaired)
+    except Exception:
+        pass
+
+    # Попытка 3 — ast.literal_eval (допускает одинарные кавычки, но не всегда корректно мапится на JSON)
+    try:
+        import ast
+        return ast.literal_eval(repaired)
+    except Exception:
+        return None
+
+
+# Мапа русских ключей → английских (на случай, если LLM всё-таки их перевёл)
+_BRAND_KEY_MAP = {
+    "краткое содержание": "summary",
+    "сводка": "summary",
+    "анализ пробелов": "gap_analysis",
+    "анализ": "gap_analysis",
+    "план по неделям": "weekly_plan",
+    "еженедельный план": "weekly_plan",
+    "поддерживающие ритуалы": "support_rituals",
+    "ритуалы поддержки": "support_rituals",
+    "примеры": "examples",
+    "ось": "axis",
+    "метка оси": "axis_label",
+    "из": "from",
+    "к": "to",
+    "шаги": "steps",
+    "неделя": "week",
+    "фокус": "focus",
+    "действия": "actions",
+    "название": "title",
+    "заголовок": "title",
+    "детали": "detail",
+    "описание": "detail",
+    "время": "time",
+    "приоритет": "priority",
+    "ежедневно": "daily",
+    "еженедельно": "weekly",
+    "ежемесячно": "monthly",
+    "имя": "name",
+    "источник": "source",
+    "трансформация": "transformation",
+    "урок": "lesson",
+}
+
+
+def _brand_normalize_keys(obj):
+    """Рекурсивно приводит русские ключи к английским согласно _BRAND_KEY_MAP."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            new_k = _BRAND_KEY_MAP.get(str(k).lower().strip(), k)
+            out[new_k] = _brand_normalize_keys(v)
+        return out
+    if isinstance(obj, list):
+        return [_brand_normalize_keys(x) for x in obj]
+    return obj
+
+
+def _brand_transformation_fallback(current_archetype: str, target_label: str, custom_target: Optional[str]) -> dict:
+    """Минимальный план-заглушка, если AI не вернул валидный JSON."""
+    target = target_label or (custom_target or "Свой образ")
+    return {
+        "summary": f"Переход от «{current_archetype}» к «{target}». План: внешний вид, речь, окружение, привычки, поведение.",
+        "gap_analysis": [
+            {"axis": "outfit",      "axis_label": "Внешний вид",   "from": "Текущий", "to": "Новый", "steps": ["Обновить гардероб под новую роль"]},
+            {"axis": "speech",      "axis_label": "Речь и манера", "from": "Текущая", "to": "Новая", "steps": ["Говорить короче и увереннее"]},
+            {"axis": "environment", "axis_label": "Окружение",     "from": "Текущее", "to": "Новое", "steps": ["Добавить 2 тематических мероприятия в месяц"]},
+            {"axis": "habits",      "axis_label": "Привычки",      "from": "Текущие", "to": "Новые", "steps": ["Ввести еженедельные ритуалы"]},
+            {"axis": "behavior",    "axis_label": "Поведение",     "from": "Текущее", "to": "Новое", "steps": ["Меняй одну реакцию в неделю"]},
+        ],
+        "weekly_plan": [
+            {"week": i, "focus": ["Стиль", "Голос", "Среда", "Интеграция"][i - 1],
+             "actions": [{"axis": "outfit", "title": "Запишись к стилисту или пересобери 3 образа", "detail": "По новому целевому образу", "time": "2 часа", "priority": "high"}]}
+            for i in range(1, 5)
+        ],
+        "support_rituals": {
+            "daily":   ["Утром проверить: соответствует ли образ целевому"],
+            "weekly":  ["Ревизия действий за неделю"],
+            "monthly": ["Пересмотр плана"],
+        },
+        "examples": [
+            {"name": "Тони Старк", "source": "Iron Man",
+             "transformation": "Из эгоиста-инженера в публичного героя: поменял гардероб, манеру, окружение.",
+             "lesson": "Чёткая цель + видимые внешние перемены быстро переписывают восприятие."},
+        ],
+        "_fallback": True,
+    }
 
 
 def _brand_archetype_label(profile: dict) -> Tuple[str, str]:
@@ -4952,19 +5094,20 @@ async def brand_transformation(request: Request):
         )
         system = "Ты помогаешь людям менять публичный образ. Отвечай строго в формате JSON, без преамбул."
 
-        response = await ai_service._call_deepseek(system, prompt, max_tokens=2200, temperature=0.7)
+        response = await ai_service._call_deepseek(system, prompt, max_tokens=2400, temperature=0.5)
         if not response or not str(response).strip():
             return {"success": False, "error": "empty AI response"}
 
         clean = re.sub(r'```json|```', '', str(response)).strip()
-        # Найти первую { и последнюю }
-        try:
-            start = clean.index("{")
-            end   = clean.rindex("}") + 1
-            payload = json.loads(clean[start:end])
-        except Exception as e:
-            logger.error(f"brand_transformation JSON parse failed: {e}; raw[:300]={clean[:300]}")
-            return {"success": False, "error": "AI response was not valid JSON"}
+        payload = _brand_parse_transformation_json(clean)
+
+        if payload is None:
+            logger.error(f"brand_transformation JSON parse failed even after repair; raw[:400]={clean[:400]}")
+            # Мягкий fallback: не 500, а минимальный план, чтобы фронт не падал
+            payload = _brand_transformation_fallback(current_arch, target_label, custom_target)
+
+        # Нормализуем русские ключи, если модель их перевела
+        payload = _brand_normalize_keys(payload)
 
         return {
             "success": True,
