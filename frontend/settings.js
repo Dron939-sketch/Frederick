@@ -28,7 +28,7 @@
             .st-acc-arrow{font-size:10px;color:var(--text-secondary);transition:transform 0.2s}
             .st-acc-header.open .st-acc-arrow{transform:rotate(90deg)}
             .st-acc-body{overflow:hidden;max-height:0;transition:max-height 0.3s ease;background:rgba(224,224,224,0.02);border:1px solid rgba(224,224,224,0.08);border-top:none;border-radius:0 0 14px 14px}
-            .st-acc-body.open{max-height:800px}
+            .st-acc-body.open{max-height:4000px}
             .st-acc-content{padding:16px}
             .st-hint{font-size:11px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px;padding:10px 12px;background:rgba(224,224,224,0.03);border-radius:10px;border:1px solid rgba(224,224,224,0.06)}
             .st-channel-grid{display:flex;flex-direction:column;gap:10px}
