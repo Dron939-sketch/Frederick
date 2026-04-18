@@ -1641,9 +1641,24 @@ function initMobileMenu() {
 // ВЕРХНЕЕ МЕНЮ (три точки справа в шапке)
 // ============================================
 
+// Перехватываем событие PWA-установки как можно раньше, чтобы потом можно было вызвать prompt по клику
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    window._frediInstallPrompt = e;
+});
+
 function initTopMenu() {
     const btn = document.getElementById('menuBtn');
     if (!btn || btn._fTopMenuInited) return;
+
+    // Меню существует ТОЛЬКО на публичном сайте (meysternlp.ru / github.io).
+    // Во встраиваемой версии/Telegram-miniapp — прячем кнопку.
+    const host = (location.hostname || '').toLowerCase();
+    const isPublicSite = host.endsWith('meysternlp.ru') || host.endsWith('github.io') || host === 'localhost' || host === '127.0.0.1';
+    if (!isPublicSite) {
+        btn.style.display = 'none';
+        return;
+    }
     btn._fTopMenuInited = true;
 
     // Стили вставляем один раз
@@ -1655,7 +1670,7 @@ function initTopMenu() {
                 position: fixed;
                 top: 58px;
                 right: 12px;
-                min-width: 220px;
+                min-width: 240px;
                 background: var(--surface, #1a1a1a);
                 border: 1px solid rgba(224,224,224,0.14);
                 border-radius: 14px;
@@ -1674,7 +1689,7 @@ function initTopMenu() {
             }
             .fredi-top-menu-item {
                 display: flex; align-items: center; gap: 10px;
-                padding: 10px 12px;
+                padding: 11px 12px;
                 border-radius: 10px;
                 font-size: 13px;
                 color: var(--text-primary);
@@ -1688,112 +1703,76 @@ function initTopMenu() {
             }
             .fredi-top-menu-item:hover { background: rgba(224,224,224,0.08); }
             .fredi-top-menu-item:active { background: rgba(224,224,224,0.14); }
-            .fredi-top-menu-ico { font-size: 16px; width: 20px; text-align: center; }
-            .fredi-top-menu-sub { font-size: 11px; color: var(--text-secondary); margin-left: auto; }
-            .fredi-top-menu-sep { height: 1px; background: rgba(224,224,224,0.08); margin: 4px 6px; }
+            .fredi-top-menu-ico { font-size: 18px; width: 22px; text-align: center; }
             [data-theme="light"] .fredi-top-menu {
                 background: #FFFFFF;
                 border-color: rgba(0,0,0,0.1);
                 box-shadow: 0 12px 40px rgba(0,0,0,0.15);
             }
             [data-theme="light"] .fredi-top-menu-item:hover { background: rgba(0,0,0,0.05); }
-            [data-theme="light"] .fredi-top-menu-sep { background: rgba(0,0,0,0.08); }
         `;
         document.head.appendChild(s);
     }
 
-    // Создаём меню
     const menu = document.createElement('div');
     menu.className = 'fredi-top-menu';
     menu.id = 'frediTopMenu';
     menu.setAttribute('role', 'menu');
     menu.innerHTML = `
-        <button class="fredi-top-menu-item" data-action="theme" role="menuitem">
-            <span class="fredi-top-menu-ico">🌓</span>
-            <span>Сменить тему</span>
-            <span class="fredi-top-menu-sub" id="frediThemeState"></span>
+        <button class="fredi-top-menu-item" data-action="install" role="menuitem">
+            <span class="fredi-top-menu-ico">📱</span>
+            <span>Отправить ярлык на мой экран</span>
         </button>
-        <button class="fredi-top-menu-item" data-action="settings" role="menuitem">
-            <span class="fredi-top-menu-ico">⚙️</span>
-            <span>Настройки</span>
-        </button>
-        <button class="fredi-top-menu-item" data-action="dashboard" role="menuitem">
-            <span class="fredi-top-menu-ico">🏠</span>
-            <span>На главную</span>
-        </button>
-        <div class="fredi-top-menu-sep"></div>
-        <button class="fredi-top-menu-item" data-action="refresh" role="menuitem">
-            <span class="fredi-top-menu-ico">🔄</span>
-            <span>Обновить страницу</span>
-        </button>
-        <button class="fredi-top-menu-item" data-action="about" role="menuitem">
-            <span class="fredi-top-menu-ico">ℹ️</span>
-            <span>О приложении</span>
+        <button class="fredi-top-menu-item" data-action="workshop" role="menuitem">
+            <span class="fredi-top-menu-ico">🏛️</span>
+            <span>В мейстерскую</span>
         </button>
     `;
     document.body.appendChild(menu);
 
-    function updateThemeLabel() {
-        const cur = (window.FrediTheme?.get?.() || document.documentElement.getAttribute('data-theme') || 'dark');
-        const lbl = menu.querySelector('#frediThemeState');
-        if (lbl) lbl.textContent = cur === 'light' ? 'светлая' : 'тёмная';
-    }
-
-    function open() {
-        updateThemeLabel();
-        menu.classList.add('is-open');
-    }
-    function close() {
-        menu.classList.remove('is-open');
-    }
-    function toggle() {
-        menu.classList.contains('is-open') ? close() : open();
-    }
+    const open  = () => menu.classList.add('is-open');
+    const close = () => menu.classList.remove('is-open');
+    const toggle = () => menu.classList.contains('is-open') ? close() : open();
 
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
         toggle();
     });
 
-    menu.addEventListener('click', (e) => {
+    menu.addEventListener('click', async (e) => {
         const item = e.target.closest('.fredi-top-menu-item');
         if (!item) return;
         const action = item.getAttribute('data-action');
         close();
-        switch (action) {
-            case 'theme':
-                if (window.FrediTheme?.toggle) window.FrediTheme.toggle();
+        if (action === 'install') {
+            const p = window._frediInstallPrompt;
+            if (p && typeof p.prompt === 'function') {
+                try {
+                    p.prompt();
+                    const choice = await p.userChoice;
+                    if (typeof showToast === 'function') {
+                        showToast(choice.outcome === 'accepted' ? '✅ Ярлык добавлен' : 'Установка отменена', 'info');
+                    }
+                    window._frediInstallPrompt = null;
+                } catch (err) {
+                    if (typeof showToast === 'function') showToast('Не удалось добавить ярлык', 'error');
+                }
+            } else {
+                const ua = navigator.userAgent || '';
+                const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
                 if (typeof showToast === 'function') {
-                    const now = window.FrediTheme?.get?.() === 'light' ? 'Светлая' : 'Тёмная';
-                    showToast(`🌓 Тема: ${now}`, 'info');
+                    if (isIOS) {
+                        showToast('В Safari нажмите «Поделиться» → «На экран «Домой»»', 'info');
+                    } else {
+                        showToast('Ярлык уже добавлен или недоступен в этом браузере', 'info');
+                    }
                 }
-                break;
-            case 'settings':
-                if (typeof showSettingsScreen === 'function') showSettingsScreen();
-                else {
-                    if (typeof showToast === 'function') showToast('⚙️ Загрузка настроек…', 'info');
-                    const s = document.createElement('script');
-                    s.src = 'settings.js';
-                    s.onload = () => { if (typeof showSettingsScreen === 'function') showSettingsScreen(); };
-                    document.head.appendChild(s);
-                }
-                break;
-            case 'dashboard':
-                if (typeof renderDashboard === 'function') renderDashboard();
-                else location.reload();
-                break;
-            case 'refresh':
-                location.reload();
-                break;
-            case 'about':
-                if (typeof showToast === 'function') {
-                    showToast('Фреди — виртуальный психолог · v3.0', 'info');
-                }
-                break;
+            }
+        } else if (action === 'workshop') {
+            window.open('https://meysternlp.ru/', '_blank', 'noopener');
         }
     });
 
-    // Закрытие: клик вне / Escape
     document.addEventListener('click', (e) => {
         if (!menu.classList.contains('is-open')) return;
         if (menu.contains(e.target) || btn.contains(e.target)) return;
