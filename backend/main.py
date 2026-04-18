@@ -4760,12 +4760,30 @@ async def profile_me_save(request: Request):
             # Разрешённые поля для ввода
             allowed = {"name", "age", "gender", "city", "bio", "occupation",
                        "telegram", "instagram", "phone", "email"}
+            # Integer-колонки в fredi_user_contexts (нужен int, строка не кодируется asyncpg)
+            int_fields = {"age"}
             sets = []
             values = [user_id]
             for key, val in fields.items():
                 if key not in allowed:
                     continue
-                values.append(val if val != "" else None)
+                # Пусто → NULL (пользователь стер поле)
+                if val is None or (isinstance(val, str) and val.strip() == ""):
+                    coerced = None
+                elif key in int_fields:
+                    # age: принимаем int / "33" / "33 лет" (цифры извлекаются)
+                    try:
+                        if isinstance(val, (int, float)):
+                            coerced = int(val)
+                        else:
+                            digits = re.sub(r'\D+', '', str(val))
+                            coerced = int(digits) if digits else None
+                    except (TypeError, ValueError):
+                        coerced = None
+                else:
+                    # Строковые поля: тримим, обрезаем до 500 символов
+                    coerced = str(val).strip()[:500]
+                values.append(coerced)
                 sets.append(f"{key} = ${len(values)}")
             if sets:
                 await conn.execute(
