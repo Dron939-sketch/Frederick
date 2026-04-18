@@ -189,6 +189,165 @@ function _brandInjectStyles() {
             color: var(--text-secondary);
             margin-top: 4px;
         }
+
+        /* ===== TARGET IMAGE PICKER ===== */
+        .brand-target-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        .brand-target-card {
+            display: flex; flex-direction: column; gap: 6px;
+            text-align: left;
+            background: rgba(155,140,255,0.06);
+            border: 1px solid rgba(155,140,255,0.22);
+            border-radius: 16px;
+            padding: 14px;
+            cursor: pointer;
+            font-family: inherit;
+            color: var(--text-primary);
+            transition: transform 0.12s ease, background 0.18s, border-color 0.18s;
+            min-height: 130px;
+        }
+        .brand-target-card:hover {
+            background: rgba(155,140,255,0.14);
+            border-color: rgba(155,140,255,0.45);
+            transform: translateY(-2px);
+        }
+        .brand-target-card:active { transform: scale(0.98); }
+        .brand-target-emoji { font-size: 28px; line-height: 1; }
+        .brand-target-label { font-weight: 700; font-size: 13px; }
+        .brand-target-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.45; }
+        .brand-target-examples { font-size: 10px; color: var(--text-secondary); margin-top: auto; opacity: 0.85; line-height: 1.4; }
+
+        .brand-target-custom {
+            background: rgba(224,224,224,0.04);
+            border: 1px dashed rgba(224,224,224,0.18);
+            border-radius: 16px;
+            padding: 14px;
+        }
+        .brand-target-custom-label { font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+        .brand-target-input {
+            width: 100%; box-sizing: border-box;
+            padding: 10px 12px; border-radius: 10px;
+            background: rgba(224,224,224,0.06);
+            border: 1px solid rgba(224,224,224,0.18);
+            color: var(--text-primary);
+            font-family: inherit; font-size: 13px;
+            line-height: 1.5; outline: none; resize: vertical;
+        }
+        .brand-target-input:focus { border-color: rgba(155,140,255,0.55); }
+
+        /* ===== TRANSFORMATION RESULT ===== */
+        .brand-loading {
+            text-align: center; padding: 48px 16px;
+        }
+        .brand-loading-emoji { font-size: 48px; margin-bottom: 10px; animation: brandSpin 2.5s linear infinite; display: inline-block; }
+        @keyframes brandSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        .brand-loading-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+        .brand-loading-sub   { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+        .brand-transform-header {
+            background: linear-gradient(135deg, rgba(155,140,255,0.12), rgba(155,140,255,0.04));
+            border: 1px solid rgba(155,140,255,0.32);
+            border-radius: 18px;
+            padding: 16px;
+            margin-bottom: 18px;
+        }
+        .brand-transform-arrow {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        }
+        .brand-transform-side { flex: 1; min-width: 0; }
+        .brand-transform-side-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--text-secondary); margin-bottom: 4px;
+        }
+        .brand-transform-side-name {
+            font-size: 15px; font-weight: 700; color: var(--text-primary);
+            line-height: 1.3;
+        }
+        .brand-transform-arrow-icon {
+            font-size: 22px; color: rgba(155,140,255,0.85); flex-shrink: 0;
+        }
+        .brand-transform-summary {
+            margin-top: 12px; font-size: 13px; color: var(--text-secondary); line-height: 1.55;
+        }
+
+        .brand-gap-row {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+        .brand-gap-axis { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); }
+        .brand-gap-emoji { font-size: 16px; margin-right: 4px; }
+        .brand-gap-pair {
+            display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center;
+            font-size: 12px;
+        }
+        .brand-gap-from, .brand-gap-to {
+            background: rgba(224,224,224,0.05);
+            border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 10px; padding: 8px 10px;
+            color: var(--text-secondary); line-height: 1.45;
+        }
+        .brand-gap-to {
+            background: rgba(155,140,255,0.1);
+            border-color: rgba(155,140,255,0.32);
+            color: var(--text-primary);
+        }
+        .brand-gap-tag {
+            font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--text-secondary); margin-bottom: 4px; opacity: 0.85;
+        }
+        .brand-gap-tag-to { color: rgba(155,140,255,0.95); }
+        .brand-gap-arrow { color: rgba(155,140,255,0.7); font-size: 18px; padding: 0 4px; }
+        .brand-gap-steps { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.55; }
+        .brand-gap-steps li { margin-bottom: 4px; }
+
+        .brand-axis-pill {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 22px; height: 22px; border-radius: 11px;
+            background: rgba(155,140,255,0.18);
+            font-size: 12px; margin-right: 6px;
+        }
+        .brand-action-detail-text { font-size: 11px; color: var(--text-secondary); line-height: 1.45; margin-top: 3px; }
+        .brand-action-axis .brand-action-info { padding: 2px 0; }
+
+        .brand-rituals-block { margin-bottom: 12px; }
+        .brand-rituals-title {
+            font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+            color: var(--text-secondary); margin-bottom: 6px;
+        }
+        .brand-rituals-list {
+            margin: 0; padding-left: 18px; font-size: 12px;
+            color: var(--text-primary); line-height: 1.55;
+        }
+        .brand-rituals-list li { margin-bottom: 4px; }
+
+        .brand-example-card {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+        .brand-example-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
+        .brand-example-name { font-weight: 700; color: var(--text-primary); }
+        .brand-example-source { font-size: 11px; color: var(--text-secondary); }
+        .brand-example-trans { font-size: 12px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 6px; }
+        .brand-example-lesson { font-size: 12px; color: var(--text-primary); line-height: 1.55; padding: 6px 10px; background: rgba(155,140,255,0.08); border-radius: 8px; }
+
+        @media (max-width: 480px) {
+            .brand-target-grid { grid-template-columns: 1fr; }
+            .brand-gap-pair { grid-template-columns: 1fr; }
+            .brand-gap-arrow { transform: rotate(90deg); padding: 4px 0; }
+            .brand-transform-arrow { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .brand-transform-arrow-icon { transform: rotate(90deg); align-self: center; }
+        }
+
         .brand-week-card {
             background: rgba(224,224,224,0.04);
             border: 1px solid rgba(224,224,224,0.1);
@@ -493,17 +652,41 @@ const _AUDIENCE = {
 // СОСТОЯНИЕ
 // ============================================
 if (!window._brandState) {
-    window._brandState = { 
-        tab: 'archetype', 
+    window._brandState = {
+        tab: 'archetype',
         archetypeKey: null,
         vectors: { СБ:4, ТФ:4, УБ:4, ЧВ:4 },
         hasProfile: false,
         planAnswers: {},
         planStep: 0,
-        plan: null
+        plan: null,
+        targetImage: null,        // выбранный целевой образ (key или 'custom')
+        customTarget: '',          // если пользователь ввёл свой
+        transformation: null,      // ответ /api/brand/transformation
+        transformationLoading: false,
+        transformationError: null
     };
 }
 const _brandState = window._brandState;
+
+// ============================================
+// ЦЕЛЕВЫЕ ОБРАЗЫ
+// ============================================
+const TARGET_IMAGES = [
+    { key:'expert',      emoji:'🎓', label:'Эксперт-гуру',          examples:'Стив Джобс на презентации iPhone, доктор Хаус', desc:'Ты — авторитет в своём деле. Тебя слушают, тебе верят.' },
+    { key:'visionary',   emoji:'🚀', label:'Лидер-визионер',        examples:'Илон Маск, Тони Старк (Iron Man)',             desc:'Ты ведёшь людей к новому. Видишь то, чего ещё нет.' },
+    { key:'charismatic', emoji:'💋', label:'Харизматик',             examples:'Дон Дрейпер (Mad Men), Джеймс Бонд',           desc:'Ты притягиваешь внимание и доверие — стилем и манерой.' },
+    { key:'ally',        emoji:'🤝', label:'Свой парень',            examples:'Том Хэнкс, Форрест Гамп',                      desc:'С тобой просто, тепло, безопасно. Тебе доверяют тайны.' },
+    { key:'rebel',       emoji:'🤘', label:'Бунтарь-новатор',        examples:'Ранний Стив Джобс, Курт Кобейн',               desc:'Ты ломаешь правила и строишь новые. Не сливаешься с толпой.' },
+    { key:'mentor',      emoji:'🌿', label:'Заботливый наставник',   examples:'Опра Уинфри, Робин Уильямс в "Обществе мёртвых поэтов"', desc:'К тебе идут за поддержкой и мудростью. Ты помогаешь расти.' },
+];
+const AXIS_META = {
+    outfit:      { emoji:'👔', label:'Внешний вид' },
+    speech:      { emoji:'🗣️', label:'Речь и манера' },
+    environment: { emoji:'🤝', label:'Окружение' },
+    habits:      { emoji:'📅', label:'Привычки' },
+    behavior:    { emoji:'🎭', label:'Поведение' },
+};
 
 // ============================================
 // УТИЛИТЫ
@@ -1099,18 +1282,241 @@ function _renderPlanResult(plan) {
 }
 
 // ============================================
-// РЕНДЕР ВКЛАДКИ ПЛАНА
+// РЕНДЕР ВКЛАДКИ ПЛАНА (трансформация образа)
 // ============================================
 function _tabPlan() {
-    if (_brandState.plan) {
-        return _planResultHtml(_brandState.plan);
+    if (_brandState.transformation) {
+        return _transformationResultHtml(_brandState.transformation);
     }
-
-    if (_brandState.planStep < PLAN_QUESTIONS.length) {
-        return _renderPlanWizard();
+    if (_brandState.transformationLoading) {
+        return _transformationLoadingHtml();
     }
+    if (_brandState.transformationError) {
+        return _transformationErrorHtml(_brandState.transformationError);
+    }
+    return _targetImagePickerHtml();
+}
 
-    return '<div style="text-align:center;padding:40px;">Загрузка...</div>';
+function _safe(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function _targetImagePickerHtml() {
+    const cards = TARGET_IMAGES.map(t => `
+        <button class="brand-target-card" data-target-key="${t.key}" type="button">
+            <div class="brand-target-emoji">${t.emoji}</div>
+            <div class="brand-target-label">${_safe(t.label)}</div>
+            <div class="brand-target-desc">${_safe(t.desc)}</div>
+            <div class="brand-target-examples">📽 ${_safe(t.examples)}</div>
+        </button>
+    `).join('');
+    return `
+        <div class="brand-target-intro">
+            <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:12px">
+                Образ — это то, как тебя видят другие. Выбери, каким тебя должны воспринимать.
+                Фреди построит план перехода: внешний вид, речь, окружение, привычки, поведение.
+            </div>
+        </div>
+        <div class="brand-target-grid">
+            ${cards}
+        </div>
+        <div class="brand-target-custom">
+            <div class="brand-target-custom-label">📝 Свой образ:</div>
+            <textarea class="brand-target-input" id="brandCustomTarget" rows="2"
+                placeholder="Опиши кратко: каким тебя должны видеть. Пример: «уверенный профи + теплый собеседник»"></textarea>
+            <button class="brand-footer-btn" id="brandCustomTargetBtn" style="width:100%;margin-top:8px">
+                ✨ Построить план для своего образа
+            </button>
+        </div>`;
+}
+
+function _transformationLoadingHtml() {
+    return `
+        <div class="brand-loading">
+            <div class="brand-loading-emoji">🪄</div>
+            <div class="brand-loading-title">Фреди строит твой план трансформации…</div>
+            <div class="brand-loading-sub">Анализирую текущий образ, целевой образ и подбираю конкретные шаги. 20-40 секунд.</div>
+        </div>`;
+}
+
+function _transformationErrorHtml(err) {
+    return `
+        <div class="brand-loading">
+            <div class="brand-loading-emoji">😔</div>
+            <div class="brand-loading-title">Не удалось построить план</div>
+            <div class="brand-loading-sub">${_safe(err)}</div>
+            <button class="brand-footer-btn" id="brandTransformReset" style="margin-top:14px">↺ Попробовать снова</button>
+        </div>`;
+}
+
+function _transformationResultHtml(result) {
+    const t = result.transformation || {};
+    const gap = Array.isArray(t.gap_analysis) ? t.gap_analysis : [];
+    const weeks = Array.isArray(t.weekly_plan) ? t.weekly_plan : [];
+    const support = t.support_rituals || {};
+    const examples = Array.isArray(t.examples) ? t.examples : [];
+
+    const headerHtml = `
+        <div class="brand-transform-header">
+            <div class="brand-transform-arrow">
+                <div class="brand-transform-side">
+                    <div class="brand-transform-side-label">сейчас</div>
+                    <div class="brand-transform-side-name">${_safe(result.current_archetype || '')}</div>
+                </div>
+                <div class="brand-transform-arrow-icon">→</div>
+                <div class="brand-transform-side">
+                    <div class="brand-transform-side-label">цель</div>
+                    <div class="brand-transform-side-name">${_safe(result.target_label || '')}</div>
+                </div>
+            </div>
+            ${t.summary ? `<div class="brand-transform-summary">${_safe(t.summary)}</div>` : ''}
+        </div>`;
+
+    const gapHtml = gap.length ? `
+        <div class="brand-section">
+            <div class="brand-section-label">📊 ЧТО МЕНЯЕМ</div>
+            ${gap.map(row => {
+                const meta = AXIS_META[row.axis] || { emoji:'•', label: row.axis_label || row.axis };
+                const steps = Array.isArray(row.steps) ? row.steps : [];
+                return `
+                <div class="brand-gap-row">
+                    <div class="brand-gap-axis"><span class="brand-gap-emoji">${meta.emoji}</span> ${_safe(row.axis_label || meta.label)}</div>
+                    <div class="brand-gap-pair">
+                        <div class="brand-gap-from"><div class="brand-gap-tag">сейчас</div>${_safe(row.from || '')}</div>
+                        <div class="brand-gap-arrow">→</div>
+                        <div class="brand-gap-to"><div class="brand-gap-tag brand-gap-tag-to">куда</div>${_safe(row.to || '')}</div>
+                    </div>
+                    ${steps.length ? `<ul class="brand-gap-steps">${steps.map(s => `<li>${_safe(s)}</li>`).join('')}</ul>` : ''}
+                </div>`;
+            }).join('')}
+        </div>` : '';
+
+    const weeksHtml = weeks.length ? `
+        <div class="brand-section">
+            <div class="brand-section-label">📅 4 НЕДЕЛИ</div>
+            ${weeks.map(w => {
+                const acts = Array.isArray(w.actions) ? w.actions : [];
+                return `
+                <div class="brand-week-card">
+                    <div class="brand-week-header">
+                        <div class="brand-week-title">НЕДЕЛЯ ${_safe(w.week || '')}</div>
+                        ${w.focus ? `<div class="brand-week-time">🎯 ${_safe(w.focus)}</div>` : ''}
+                    </div>
+                    ${acts.map(a => {
+                        const meta = AXIS_META[a.axis] || { emoji:'•' };
+                        const prio = a.priority === 'high' ? '🔴' : '🟡';
+                        return `
+                        <div class="brand-action-item brand-action-axis">
+                            <div class="brand-action-priority">${prio}</div>
+                            <div class="brand-action-info">
+                                <div class="brand-action-name">
+                                    <span class="brand-axis-pill" title="${_safe(meta.label||'')}">${meta.emoji}</span>
+                                    ${_safe(a.title || a.name || '')}
+                                </div>
+                                ${a.detail ? `<div class="brand-action-detail-text">${_safe(a.detail)}</div>` : ''}
+                                <div class="brand-action-meta">${a.time ? '⏱ ' + _safe(a.time) : ''}</div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>`;
+            }).join('')}
+        </div>` : '';
+
+    const ritualsBlock = (arr, title) => Array.isArray(arr) && arr.length
+        ? `<div class="brand-rituals-block">
+                <div class="brand-rituals-title">${title}</div>
+                <ul class="brand-rituals-list">${arr.map(x => `<li>${_safe(x)}</li>`).join('')}</ul>
+            </div>` : '';
+
+    const supportHtml = (support.daily || support.weekly || support.monthly) ? `
+        <div class="brand-section">
+            <div class="brand-section-label">🛡 ПОДДЕРЖКА ОБРАЗА</div>
+            ${ritualsBlock(support.daily,   'Каждый день')}
+            ${ritualsBlock(support.weekly,  'Каждую неделю')}
+            ${ritualsBlock(support.monthly, 'Каждый месяц')}
+        </div>` : '';
+
+    const examplesHtml = examples.length ? `
+        <div class="brand-section">
+            <div class="brand-section-label">📽 ПРИМЕРЫ ТРАНСФОРМАЦИИ</div>
+            ${examples.map(ex => `
+                <div class="brand-example-card">
+                    <div class="brand-example-head">
+                        <span class="brand-example-name">${_safe(ex.name || '')}</span>
+                        ${ex.source ? `<span class="brand-example-source">· ${_safe(ex.source)}</span>` : ''}
+                    </div>
+                    ${ex.transformation ? `<div class="brand-example-trans">${_safe(ex.transformation)}</div>` : ''}
+                    ${ex.lesson ? `<div class="brand-example-lesson">💡 ${_safe(ex.lesson)}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>` : '';
+
+    const footer = `
+        <div class="no-print" style="display:flex;gap:10px;margin-top:16px">
+            <button id="brandTransformReset" class="brand-footer-btn" style="flex:1">🔄 Выбрать другой образ</button>
+        </div>`;
+
+    return headerHtml + gapHtml + weeksHtml + supportHtml + examplesHtml + footer;
+}
+
+async function _brandFetchTransformation(targetKey, customTarget) {
+    _brandState.transformation = null;
+    _brandState.transformationError = null;
+    _brandState.transformationLoading = true;
+    _renderBrand();
+    try {
+        const uid = (window.CONFIG && window.CONFIG.USER_ID) || _brandGetUserId();
+        const r = await fetch((window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com') + '/api/brand/transformation', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ user_id: uid, target: targetKey || '', custom_target: customTarget || '' })
+        });
+        const d = await r.json();
+        if (d.success) {
+            _brandState.transformation = d;
+        } else {
+            _brandState.transformationError = d.error || 'Не удалось получить план';
+        }
+    } catch (e) {
+        _brandState.transformationError = e.message || 'Ошибка сети';
+    } finally {
+        _brandState.transformationLoading = false;
+        _renderBrand();
+    }
+}
+
+function _bindTransformationHandlers() {
+    document.querySelectorAll('[data-target-key]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const key = btn.getAttribute('data-target-key');
+            _brandState.targetImage = key;
+            _brandState.customTarget = '';
+            _brandFetchTransformation(key, '');
+        });
+    });
+    const customBtn = document.getElementById('brandCustomTargetBtn');
+    if (customBtn) {
+        customBtn.addEventListener('click', () => {
+            const txt = (document.getElementById('brandCustomTarget')?.value || '').trim();
+            if (!txt) { _brandToast('Опиши свой целевой образ парой строк'); return; }
+            _brandState.targetImage = 'custom';
+            _brandState.customTarget = txt;
+            _brandFetchTransformation('', txt);
+        });
+    }
+    const resetBtn = document.getElementById('brandTransformReset');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            _brandState.transformation = null;
+            _brandState.transformationError = null;
+            _brandState.transformationLoading = false;
+            _brandState.targetImage = null;
+            _brandState.customTarget = '';
+            _renderBrand();
+        });
+    }
 }
 
 // ============================================
@@ -1165,6 +1571,9 @@ function _renderBrand() {
     // Подвязываем обработчики плана, когда активна вкладка «План» и план готов
     if (tab === 'plan' && _brandState.plan) {
         _bindPlanResultHandlers(_brandState.plan);
+    }
+    if (tab === 'plan') {
+        _bindTransformationHandlers();
     }
 
     document.getElementById('brandPdf').addEventListener('click', () => _brandExportPdf(arch, name));
