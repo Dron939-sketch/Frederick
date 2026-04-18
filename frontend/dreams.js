@@ -680,8 +680,9 @@ function _drRenderRecordTab(completed) {
 
     const isClarification = _drNeedsClarification;
     const draftText = _drLoadDraft();
-    // В режиме уточнений composer всегда пустой — иначе останется текст прошлого ответа/сна
-    const displayText = isClarification ? '' : (draftText || _drCurrentText);
+    // Composer пустой и в режиме уточнений, и после готового толкования —
+    // чтобы не показывать текст прошлого сна / предыдущего ответа.
+    const displayText = (isClarification || _drChatFinalShown) ? '' : (draftText || _drCurrentText);
 
     const canSkip = _drChatSession.some(m => m.role === 'bot' && m.kind === 'clarification');
     const placeholder = isClarification
@@ -1439,6 +1440,8 @@ async function _drSubmitClarification() {
             await _drSaveToHistory(_drCurrentText, interpretText, { symbols: response.symbols, tags: response.tags });
             _drClarificationCount = 0;
             _drChatFinalShown = true;
+            _drClearDraft();
+            await showDreamsScreen();
         }
 
     } catch (error) {
