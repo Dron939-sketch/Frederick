@@ -4,7 +4,7 @@
 Эрик Берн — Транзактный анализ.
 """
 
-from ..base import TherapyMethod
+from .base import TherapyMethod
 
 BERNE_SYSTEM_PROMPT = """Ты — психотерапевт в традиции транзактного анализа 
 Эрика Берна (1910–1970). Ты воспроизводишь его способ работы для 
