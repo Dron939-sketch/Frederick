@@ -13,6 +13,12 @@ from datetime import datetime, timedelta
 import logging
 
 from .base_mode import BaseMode
+from .prompts.trainer import (
+    TRAINER_FEWSHOT,
+    TRAINER_GEN_PARAMS,
+    build_trainer_system_prompt,
+    should_include_fewshot,
+)
 from profiles import VECTORS, LEVEL_PROFILES
 from services.ai_service import AIService
 
@@ -131,89 +137,76 @@ class TrainerMode(BaseMode):
         return int(sum(levels) / len(levels)) if levels else 3
 
     def get_system_prompt(self) -> str:
-        """Системный промпт для режима ТРЕНЕР"""
-        analysis = self.analyze_profile_for_response()
+        """Системный промпт тренера навыков (deliberate practice + atomic habits)."""
+        return self._build_system_prompt(self._build_profile_for_prompt())
+
+    def _build_profile_for_prompt(self) -> Dict[str, Any]:
+        return {
+            "profile_data":      self.profile_data,
+            "perception_type":   self.perception_type,
+            "thinking_level":    self.thinking_level,
+            "behavioral_levels": self.behavioral_levels,
+            "deep_patterns":     self.deep_patterns,
+            "weakest_vector":    self.weakest_vector,
+            "weakest_level":     self.weakest_level,
+            "history":           self.history,
+        }
+
+    def _build_system_prompt(self, profile_dict: Dict[str, Any]) -> str:
+        base = build_trainer_system_prompt(profile_dict)
         actions = self.vector_actions.get(self.weakest_vector, {}).get(self.weakest_level, [])
-        action_text = "\n".join([f"  • {a}" for a in actions[:3]]) if actions else "  • Начать с малого — это уже победа"
-        motivation = random.choice(self.motivation_phrases)
+        if actions:
+            actions_text = "\n".join(f"- {a}" for a in actions[:3])
+            base = (
+                f"{base}\n\n"
+                f"ВАРИАНТЫ ПРАКТИК ДЛЯ СЛАБОГО ВЕКТОРА (используй как опору, если уместно):\n"
+                f"{actions_text}"
+            )
+        ctx = self.get_context_string()
+        if ctx:
+            base = f"{base}\n\nКОНТЕКСТ:\n{ctx}"
+        return base
 
-        prompt = f"""ПРАВИЛА ОТВЕТА:
-- Пиши обычным русским текстом. Между каждым словом ровно один пробел.
-- Никаких ремарок в скобках: (мягко), (задумчиво) — запрещено.
-- Никаких звёздочек, маркдауна, эмодзи. Ответ — 2-4 предложения.
+    def _ai_profile(self) -> Dict[str, Any]:
+        """Профиль с few-shot, подставляемым только на первом ходе сессии."""
+        profile = self._build_profile_for_prompt()
+        if should_include_fewshot(self.history):
+            profile["history"] = list(TRAINER_FEWSHOT) + list(self.history or [])
+            logger.info("🎯 Trainer: few-shot подставлены (первый ход сессии)")
+        return profile
 
-Ты — Фреди, энергичный и вдохновляющий персональный тренер. Твоя миссия — помочь человеку раскрыть его потенциал через действие.
-
-ПРОФИЛЬ:
-- Зона роста: {analysis.get('growth_area', 'развитие')}
-- Слабый вектор: {self.weakest_vector} — {VECTORS.get(self.weakest_vector, {}).get('name', 'развитие')}
-- Уровень: {self.weakest_level}/6
-- Текущее ограничение: {self.weakest_profile.get('quote', 'ты можешь больше, чем думаешь')}
-
-РЕКОМЕНДУЕМЫЕ ДЕЙСТВИЯ (если спросит):
-{action_text}
-
-ТВОЙ СТИЛЬ:
-- Энергичный, вдохновляющий, заряжающий
-- Говори с убеждением и верой в успех
-- Используй фразы: "Давай!", "Ты сможешь!", "Я верю в тебя!"
-- Конкретные шаги, чёткие планы
-
-КАК ОБЩАТЬСЯ:
-- Начинай с позитивного заряда: "Эй, друг! Как настроение?"
-- Задавай вопросы, которые зажигают: "Что для тебя было бы победой сегодня?"
-- Дай конкретную задачу с верой в выполнение
-- Завершай словами поддержки: "Ты справишься!"
-
-ЧЕГО НЕ ДЕЛАТЬ:
-- Не дави и не критикуй — только вдохновляй
-- Не используй жёсткие формулировки
-
-{self.get_context_string()}
-
-ПОМНИ: ты здесь, чтобы зажечь огонь внутри человека.
-Ты помнишь весь предыдущий разговор — используй прошлые цели и победы человека."""
-
-        return prompt
+    def _context_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.context.name if self.context else None,
+            "city": self.context.city if self.context else None,
+            "age":  self.context.age  if self.context else None,
+        }
 
     def get_greeting(self) -> str:
         name = self.context.name if self.context and self.context.name else "друг"
         greetings = [
-            f"Эй, {name}! Как настроение? Готов к новым победам?",
-            f"{name}, привет! Я чувствую — сегодня будет прорыв! Что планируешь?",
-            f"Здорово, {name}! Давай разбудим твою внутреннюю силу! С чего начнём?",
-            f"{name}, рад тебя видеть! Расскажи, что для тебя сейчас самое важное?",
-            f"Привет, {name}! Какую вершину будем брать сегодня?"
+            f"Привет, {name}. С каким навыком работаем — внимание, привычка, движение, общение?",
+            f"Здравствуй, {name}. Расскажи, какой результат хочешь измерить через 4 недели?",
+            f"{name}, я здесь. Какой один маленький навык хочешь подтянуть в ближайшие 14 дней?",
+            f"Привет, {name}. Что бы ты хотел делать лучше — и как поймёшь, что начало получаться?",
+            f"{name}, давай начнём с замера: что у тебя сейчас не выходит так, как хотелось бы?",
         ]
         return random.choice(greetings)
 
     # ========== ПОТОКОВАЯ ОБРАБОТКА (WebSocket) ==========
     async def process_question_streaming(self, question: str):
-        """Потоковая обработка через AI с учётом профиля и истории"""
-
-        profile = {
-            'profile_data':      self.profile_data,
-            'perception_type':   self.perception_type,
-            'thinking_level':    self.thinking_level,
-            'behavioral_levels': self.behavioral_levels,
-            'deep_patterns':     self.deep_patterns,
-            'weakest_vector':    self.weakest_vector,
-            'weakest_level':     self.weakest_level,
-            'history':           self.history,  # ФИХ: история для памяти диалога
-        }
-
-        context_data = {
-            'name': self.context.name if self.context else None,
-            'city': self.context.city if self.context else None,
-            'age':  self.context.age  if self.context else None
-        }
+        """Потоковая обработка через AI с кастомным промптом тренера навыков."""
+        profile = self._ai_profile()
+        system_prompt = self._build_system_prompt(profile)
 
         full_response = ""
         async for chunk in self.ai_service.generate_response_streaming(
             message=question,
-            context=context_data,
+            context=self._context_dict(),
             profile=profile,
-            mode='trainer'
+            mode='trainer',
+            system_prompt=system_prompt,
+            **TRAINER_GEN_PARAMS,
         ):
             if chunk:
                 full_response += chunk
@@ -226,32 +219,20 @@ class TrainerMode(BaseMode):
 
     # ========== ПОЛНЫЙ ОТВЕТ (HTTP) ==========
     async def process_question_full(self, question: str) -> str:
-        """Полный ответ для HTTP/голосового ввода"""
-        logger.info(f"🎙️ process_question_full в режиме TrainerMode")
+        """Полный ответ для HTTP/голосового ввода."""
+        logger.info("🎙️ process_question_full в режиме TrainerMode")
 
-        profile = {
-            'profile_data':      self.profile_data,
-            'perception_type':   self.perception_type,
-            'thinking_level':    self.thinking_level,
-            'behavioral_levels': self.behavioral_levels,
-            'deep_patterns':     self.deep_patterns,
-            'weakest_vector':    self.weakest_vector,
-            'weakest_level':     self.weakest_level,
-            'history':           self.history,  # ФИХ: история
-        }
-
-        context_data = {
-            'name': self.context.name if self.context else None,
-            'city': self.context.city if self.context else None,
-            'age':  self.context.age  if self.context else None
-        }
+        profile = self._ai_profile()
+        system_prompt = self._build_system_prompt(profile)
 
         response = await self.ai_service.generate_response(
             user_id=self.user_id,
             message=question,
-            context=context_data,
+            context=self._context_dict(),
             profile=profile,
-            mode='trainer'
+            mode='trainer',
+            system_prompt=system_prompt,
+            **TRAINER_GEN_PARAMS,
         )
 
         if not response or not response.strip():
