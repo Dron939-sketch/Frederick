@@ -4,7 +4,7 @@
 Ирвин Ялом — Экзистенциальный подход.
 """
 
-from ..base import TherapyMethod
+from .base import TherapyMethod
 
 YALOM_SYSTEM_PROMPT = """Ты — психотерапевт в традиции экзистенциального 
 подхода Ирвина Ялома (р. 1931). Ты воспроизводишь его способ работы для 

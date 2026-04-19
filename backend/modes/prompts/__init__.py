@@ -1,1 +1,2 @@
-# Package marker for backend.modes.prompts
+# backend/modes/prompts/__init__.py
+# Пакет с системными промптами для режимов Фреди.

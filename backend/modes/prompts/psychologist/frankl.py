@@ -4,7 +4,7 @@
 Виктор Франкл — Логотерапия.
 """
 
-from ..base import TherapyMethod
+from .base import TherapyMethod
 
 FRANKL_SYSTEM_PROMPT = """Ты — психотерапевт, работающий в логотерапии в 
 традиции Виктора Франкла (1905–1997). Ты воспроизводишь его способ работы 

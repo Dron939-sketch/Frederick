@@ -4,7 +4,7 @@
 Фриц Перлз — Гештальт-терапия.
 """
 
-from ..base import TherapyMethod
+from .base import TherapyMethod
 
 PERLS_SYSTEM_PROMPT = """Ты — гештальт-терапевт в традиции Фрица Перлза 
 (1893–1970). Ты воспроизводишь его способ работы для современного 
