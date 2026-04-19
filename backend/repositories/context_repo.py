@@ -39,6 +39,7 @@ class ContextRepository:
         "commute_time", "housing_type", "has_private_space", "has_car",
         "support_people", "resistance_people", "energy_level",
         "life_context_complete", "awaiting_context",
+        "psychologist_state",
     ]
 
     async def save(self, user_id: Union[int, str], context: Dict[str, Any]) -> bool:
@@ -62,7 +63,7 @@ class ContextRepository:
                     cols.append(col)
                     v = context[col]
                     # JSONB columns need json.dumps
-                    if col in ("weather_cache",) and isinstance(v, dict):
+                    if col in ("weather_cache", "psychologist_state") and isinstance(v, dict):
                         v = json.dumps(v, default=str)
                     vals.append(v)
                     idx += 1
@@ -119,7 +120,7 @@ class ContextRepository:
                     val = row.get(col)
                     if val is not None:
                         # Parse JSONB strings if needed
-                        if col in ("weather_cache",) and isinstance(val, str):
+                        if col in ("weather_cache", "psychologist_state") and isinstance(val, str):
                             try:
                                 val = json.loads(val)
                             except json.JSONDecodeError:
