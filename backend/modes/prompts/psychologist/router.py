@@ -171,27 +171,27 @@ async def llm_classify(
     
     Args:
         user_message: Сообщение пользователя
-        deepseek_client: Клиент для вызова DeepSeek (AIService)
+        deepseek_client: Клиент для вызова DeepSeek
         timeout: Таймаут в секундах
     
     Returns:
         Словарь с category, confidence, reason
     """
-    import asyncio
     try:
+        import asyncio
+        
         # Вызов с таймаутом
         async def _call():
-            response = await deepseek_client._call_deepseek(
+            return await deepseek_client._call_deepseek(
                 system_prompt=LLM_CLASSIFIER_SYSTEM_PROMPT,
                 user_prompt=user_message,
                 max_tokens=150,
                 temperature=0.2,
             )
-            if not response:
-                raise ValueError("empty response")
-            return response
-        
+
         response = await asyncio.wait_for(_call(), timeout=timeout)
+        if not response:
+            raise ValueError("empty response")
         text = response.strip()
         
         # Очистка от markdown-обёртки
