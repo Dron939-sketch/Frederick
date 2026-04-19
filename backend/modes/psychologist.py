@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-МОДУЛЬ: РЕЖИМ ПСИХОЛОГ (psychologist.py)
+МОДУЛЬ: РЕЖИМ ПСИХОЛОГ (psychologist.py) — МНОГОАВТОРСКАЯ ВЕРСИЯ
 Глубинная аналитическая работа с использованием конфайнтмент-модели и анализа петель.
-ВЕРСИЯ 3.3 — ФИКСЫ: history в profile, запрет склеивания, ведущая запятая
+ВЕРСИЯ 4.0 — многоавторская архитектура (8 авторов + Router)
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 import random
 import logging
 from datetime import datetime
+import re
 
-from .base_mode import BaseMode
-from profiles import VECTORS, LEVEL_PROFILES
-from confinement.confinement_model import ConfinementModel9, ConfinementElement
-from confinement.loop_analyzer import LoopAnalyzer
-from services.ai_service import AIService
+from ..base_mode import BaseMode
+from ...profiles import VECTORS, LEVEL_PROFILES
+from ...confinement.confinement_model import ConfinementModel9
+from ...confinement.loop_analyzer import LoopAnalyzer
+from ...services.ai_service import AIService
+
+# Импорты для многоавторской архитектуры
+from ...prompts.psychologist import get_method, METHODS_REGISTRY
+from ...prompts.psychologist.router import (
+    classify,
+    detect_change_request,
+    has_crisis_marker,
+    CHANGE_METHOD_PATTERNS,
+    CRISIS_MARKERS
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +34,7 @@ logger = logging.getLogger(__name__)
 class PsychologistMode(BaseMode):
     """
     Режим ПСИХОЛОГ — глубокая аналитическая работа.
-    Использует конфайнтмент-модель для понимания структуры личности.
+    Версия 4.0: многоавторская архитектура с Router и 8 методами.
     """
 
     def __init__(self, user_id: int, user_data: Dict[str, Any], context=None):
@@ -47,7 +58,18 @@ class PsychologistMode(BaseMode):
         if self.confinement_model:
             self._analyze_confinement()
 
+        # ========== НОВОЕ: состояние для многоавторской архитектуры ==========
+        self.current_method_code = user_data.get('current_method_code', None)
+        self.method_selected_at = user_data.get('method_selected_at', None)
+        self.method_changes_count = user_data.get('method_changes_count', 0)
+        
+        # Текущий метод (объект)
+        self._current_method = None
+        if self.current_method_code:
+            self._current_method = get_method(self.current_method_code)
+
         logger.info(f"PsychologistMode инициализирован для user_id={user_id}")
+        logger.info(f"📊 Текущий метод: {self.current_method_code}, смен: {self.method_changes_count}")
         if self.confinement_model:
             logger.info(f"📊 Конфайнтмент-модель: замкнутость={self.confinement_model.is_closed}, "
                         f"петель={len(self.confinement_model.loops)}")
@@ -74,8 +96,6 @@ class PsychologistMode(BaseMode):
         if not self.confinement_model:
             return
         try:
-            # LoopAnalyzer ожидает объект с атрибутом confinement_model (UserContext)
-            # Создаём обёртку чтобы передать модель в правильном формате
             class _ContextWrapper:
                 def __init__(self, model):
                     self.confinement_model = model
@@ -94,173 +114,253 @@ class PsychologistMode(BaseMode):
         except Exception as e:
             logger.error(f"Ошибка анализа петель: {e}")
 
+    # ========== НОВЫЕ МЕТОДЫ ДЛЯ МНОГОАВТОРСКОЙ АРХИТЕКТУРЫ ==========
+
+    async def _route_message(self, question: str, exclude: List[str] = None) -> Dict[str, Any]:
+        """
+        Вызывает Router для классификации запроса.
+        
+        Args:
+            question: Текст сообщения пользователя
+            exclude: Список методов для исключения (при смене)
+        
+        Returns:
+            Результат классификации с method_code, confidence, reason, source
+        """
+        exclude = exclude or []
+        
+        result = await classify(
+            user_message=question,
+            history=self.history,
+            exclude_methods=exclude,
+            deepseek_client=self.ai_service,
+            confidence_threshold=0.45
+        )
+        
+        logger.info(f"🔀 Router: {result['method_code']} (уверенность={result['confidence']}, источник={result['source']})")
+        return result
+
+    def _user_wants_change(self, text: str) -> bool:
+        """Определяет, хочет ли пользователь сменить метод."""
+        return detect_change_request(text)
+
+    def _has_crisis(self, text: str) -> bool:
+        """Определяет, есть ли кризисный маркер."""
+        return has_crisis_marker(text)
+
+    async def _crisis_response(self) -> AsyncGenerator[str, None]:
+        """Возвращает кризисный ответ."""
+        yield ("Я слышу, что вам сейчас очень тяжело. Пожалуйста, обратитесь за помощью: "
+               "круглосуточный телефон доверия 8-800-333-44-34. Вы не одни.")
+
+    async def _stabilization_message(self) -> AsyncGenerator[str, None]:
+        """Сообщение о достижении лимита смен метода."""
+        yield ("Мы уже попробовали несколько подходов. Давайте задержимся на текущем — "
+               "в психотерапии постоянная смена метода обычно мешает продвижению.")
+
+    def _get_current_method(self):
+        """Возвращает текущий объект метода."""
+        if not self._current_method and self.current_method_code:
+            self._current_method = get_method(self.current_method_code)
+        return self._current_method
+
+    def _set_current_method(self, method_code: str):
+        """Устанавливает текущий метод."""
+        self.current_method_code = method_code
+        self._current_method = get_method(method_code)
+        self.method_selected_at = datetime.now()
+        
+        # Сохраняем в user_data для persistence
+        self.user_data['current_method_code'] = method_code
+        self.user_data['method_selected_at'] = self.method_selected_at.isoformat()
+        self.user_data['method_changes_count'] = self.method_changes_count
+
+    def _save_method_state(self):
+        """Сохраняет состояние метода в user_data."""
+        self.user_data['current_method_code'] = self.current_method_code
+        self.user_data['method_changes_count'] = self.method_changes_count
+        if self.method_selected_at:
+            self.user_data['method_selected_at'] = self.method_selected_at.isoformat()
+
+    # ========== ОСНОВНОЙ ПОТОКОВЫЙ МЕТОД ==========
+
+    async def process_question_streaming(
+        self,
+        question: str
+    ) -> AsyncGenerator[str, None]:
+        """
+        Потоковая обработка с динамическим выбором автора.
+        """
+        logger.info(f"🎙️ PsychologistMode.process_question_streaming: {question[:50]}...")
+        
+        # 1. Кризисный фильтр
+        if self._has_crisis(question):
+            async for chunk in self._crisis_response():
+                yield chunk
+            self.save_to_history(question, "кризисный ответ")
+            return
+        
+        # 2. Определяем, нужен ли роутинг
+        is_first_turn = (self.current_method_code is None)
+        wants_change = self._user_wants_change(question)
+        needs_routing = is_first_turn or wants_change
+        
+        intro_or_notice = None
+        
+        if needs_routing:
+            # Проверка лимита смен
+            if wants_change and self.method_changes_count >= 3:
+                async for chunk in self._stabilization_message():
+                    yield chunk
+                self.save_to_history(question, "стабилизация (лимит смен)")
+                return
+            
+            # Определяем исключаемый метод (текущий при смене)
+            exclude = [self.current_method_code] if wants_change and self.current_method_code else []
+            
+            # Вызов Router
+            result = await self._route_message(question, exclude=exclude)
+            new_method_code = result['method_code']
+            old_method_code = self.current_method_code
+            
+            # Обновление состояния
+            self._set_current_method(new_method_code)
+            
+            if wants_change and old_method_code:
+                self.method_changes_count += 1
+                self.user_data['method_changes_count'] = self.method_changes_count
+                # Связующее сообщение при смене
+                intro_or_notice = f"Хорошо, попробуем иначе. Теперь поработаем в подходе «{self._current_method.name_ru}».\n\n"
+                logger.info(f"🔄 Смена метода: {old_method_code} → {new_method_code} (смена #{self.method_changes_count})")
+            elif is_first_turn:
+                # Вступительное сообщение при первой встрече
+                intro_or_notice = self._current_method.introduction_message() + "\n\n"
+                logger.info(f"🎯 Выбран метод: {new_method_code}")
+            
+            self._save_method_state()
+        
+        # 3. Получаем текущий метод
+        method = self._get_current_method()
+        if not method:
+            # Fallback на Роджерса
+            method = get_method("person_centered")
+            self._set_current_method("person_centered")
+        
+        # 4. Строим сообщения для API
+        is_first = (len(self.history) == 0)
+        messages = method.build_messages(
+            user_message=question,
+            history=self.history,
+            is_first_turn=is_first
+        )
+        
+        # 5. Отправляем вступительное сообщение (если есть)
+        if intro_or_notice:
+            yield intro_or_notice
+        
+        # 6. Вызов AI с динамическим системным промптом
+        full_response = ""
+        try:
+            async for chunk in self.ai_service.generate_response_streaming(
+                message=question,
+                context=self._build_context_dict(),
+                profile=self._build_profile_dict(),
+                system_prompt=method.system_prompt,  # ключевое: передаём промпт автора
+                temperature=method.temperature,
+                top_p=method.top_p,
+                max_tokens=method.max_tokens,
+                frequency_penalty=method.frequency_penalty
+            ):
+                if chunk:
+                    full_response += chunk
+                    yield chunk
+        except Exception as e:
+            logger.error(f"Ошибка при вызове AI: {e}")
+            fallback_response = "Я здесь. Расскажите подробнее, что вы чувствуете?"
+            full_response = fallback_response
+            yield fallback_response
+        
+        # 7. Сохраняем в историю
+        if full_response:
+            self.save_to_history(question, full_response)
+        
+        logger.info(f"✅ PsychologistMode ответ сгенерирован, метод={method.code}, длина={len(full_response)}")
+
+    # ========== ПОЛНЫЙ ОТВЕТ (HTTP) ==========
+    
+    async def process_question_full(self, question: str) -> str:
+        """
+        Полная обработка вопроса для HTTP/голосового режима.
+        """
+        logger.info(f"🎙️ process_question_full в PsychologistMode")
+        
+        full_response = ""
+        async for chunk in self.process_question_streaming(question):
+            full_response += chunk
+        
+        if not full_response or not full_response.strip():
+            full_response = "Вопрос интересный. Расскажите подробнее, пожалуйста."
+        
+        return full_response
+
+    # ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
+
+    def _build_profile_dict(self) -> Dict[str, Any]:
+        """Строит словарь профиля для передачи в AI Service."""
+        return {
+            'profile_data': self.profile_data,
+            'perception_type': self.perception_type,
+            'thinking_level': self.thinking_level,
+            'behavioral_levels': self.behavioral_levels,
+            'deep_patterns': self.deep_patterns,
+            'weakest_vector': getattr(self, 'weakest_vector', None),
+            'weakest_level': getattr(self, 'weakest_level', None),
+            'attachment_type': self.attachment_type,
+            'history': self.history,
+        }
+
+    def _build_context_dict(self) -> Dict[str, Any]:
+        """Строит словарь контекста для передачи в AI Service."""
+        return {
+            'name': self.context.name if self.context else None,
+            'city': self.context.city if self.context else None,
+            'age': self.context.age if self.context else None
+        }
+
+    # ========== СИНХРОННАЯ ВЕРСИЯ ДЛЯ СОВМЕСТИМОСТИ ==========
+
+    def process_question(self, question: str) -> Dict[str, Any]:
+        """
+        Синхронная версия (заглушка).
+        Для реальной работы используйте process_question_streaming или process_question_full.
+        """
+        logger.warning("Используется синхронная версия process_question. Рекомендуется async-метод.")
+        
+        # Простой fallback
+        return {
+            "response": "Я здесь. Расскажите, что вас беспокоит?",
+            "tools_used": ["fallback"],
+            "follow_up": True,
+            "suggestions": ["Расскажите подробнее", "Что вы сейчас чувствуете?"],
+            "hypnotic_suggestion": False,
+            "tale_suggested": False
+        }
+
     def get_system_prompt(self) -> str:
-        analysis = self.analyze_profile_for_response()
-        deep_profile = self._build_deep_profile()
-        loops_analysis = self._build_loops_analysis()
-        key_confinement_text = self._build_key_confinement_text()
-        strategy = self._build_work_strategy()
-
-        prompt = f"""ПРАВИЛА ОТВЕТА:
-- Пиши обычным русским текстом. Между каждым словом ровно один пробел.
-- Никаких ремарок в скобках: (мягко), (спокойно), (задумчиво) — запрещено.
-- Никаких звёздочек, маркдауна, эмодзи.
-- Ответ — 2-4 коротких предложения. Не больше.
-
-Ты — Фреди, глубинный психолог, специализирующийся на структурном анализе личности.
-Ты работаешь с конфайнтмент-моделью и видишь рекурсивные петли, которые держат человека в замкнутом круге.
-
-{deep_profile}
-
-{loops_analysis}
-
-{key_confinement_text}
-
-{strategy}
-
-ТВОЯ ЗАДАЧА:
-Помочь человеку осознать структуру его ограничений и найти путь к изменениям.
-
-ТВОЙ СТИЛЬ:
-- Говоришь спокойно, вдумчиво, с паузами
-- Очень проницателен, но не давишь
-- Называешь вещи своими именами, но бережно
-- Используешь метафоры и образы
-- Помогаешь увидеть то, что было скрыто
-
-ТЕХНИКИ:
-- Отражение глубинных паттернов
-- Мягкое называние защит
-- Прояснение связей между элементами
-- Указание на петли самоподдержания
-- Предложение точек разрыва
-
-КОНТЕКСТ:
-{self.get_context_string()}
-
-ПОМНИ: ты видишь структуру личности. Говори с позиции понимания, но без осуждения.
-Ты помнишь весь предыдущий разговор — замечай связи между тем что человек говорил раньше и сейчас."""
-
-        return prompt
-
-    def _build_deep_profile(self) -> str:
-        if not self.confinement_model:
-            return self._build_basic_profile()
-
-        elements = self.confinement_model.elements
-        symptom      = elements.get(1)
-        behavior     = elements.get(2)
-        money        = elements.get(3)
-        understanding= elements.get(4)
-        identity     = elements.get(5)
-        system       = elements.get(6)
-        deep_belief  = elements.get(7)
-        connector    = elements.get(8)
-        worldview    = elements.get(9)
-
-        profile_parts = []
-
-        if symptom:
-            profile_parts.append(f"🔍 **Главный симптом**: {symptom.description[:100]}")
-
-        patterns = []
-        if behavior:     patterns.append(f"• Реакция на давление: {behavior.description[:80]}")
-        if money:        patterns.append(f"• Отношение к ресурсам: {money.description[:80]}")
-        if understanding:patterns.append(f"• Способ понимания: {understanding.description[:80]}")
-        if patterns:
-            profile_parts.append("🔄 **Поведенческие паттерны**:\n" + "\n".join(patterns))
-
-        identity_text = []
-        if identity:    identity_text.append(f"🎭 **Идентичность**: {identity.description[:100]}")
-        if system:      identity_text.append(f"🏛 **Системный контекст**: {system.description[:80]}")
-        if deep_belief: identity_text.append(f"⚓ **Глубинное убеждение**: {deep_belief.description[:100]}")
-        if identity_text:
-            profile_parts.append("\n".join(identity_text))
-
-        if worldview:
-            profile_parts.append(f"🌍 **Картина мира**: {worldview.description[:120]}")
-        if self.attachment_type != 'исследуется':
-            profile_parts.append(f"🤝 **Тип привязанности**: {self.attachment_type}")
-        if self.defenses:
-            profile_parts.append(f"🛡 **Защитные механизмы**: {', '.join(self.defenses[:3])}")
-
-        return "\n\n".join(profile_parts) if profile_parts else self._build_basic_profile()
-
-    def _build_basic_profile(self) -> str:
-        return f"""
-📊 **ПРОФИЛЬ (предварительный)**:
-- Тип восприятия: {self.perception_type}
-- Уровень мышления: {self.thinking_level}/9
-- Слабый вектор: {self.weakest_vector} ({VECTORS.get(self.weakest_vector, {}).get('name', 'не определён')})
-- Уровень: {self.weakest_level}/6
-- Тип привязанности: {self.attachment_type}
-"""
-
-    def _build_loops_analysis(self) -> str:
-        if not self.loop_analyzer or not self.loop_analyzer.significant_loops:
-            return "🔍 **Анализ петель**: В процессе формирования. Продолжайте диалог."
-
-        loops = self.loop_analyzer.significant_loops[:3]
-        loop_texts = []
-        for i, loop in enumerate(loops, 1):
-            loop_type   = loop.get('type_name', 'Петля')
-            description = loop.get('description', '')
-            impact      = loop.get('impact', 0)
-            bar = "█" * int(impact * 10) + "░" * (10 - int(impact * 10))
-            loop_texts.append(f"{i}. **{loop_type}** {bar} {impact:.0%}")
-            loop_texts.append(f"   {description}")
-            if impact > 0.5:
-                points = self.loop_analyzer.get_intervention_points(loop)
-                if points:
-                    loop_texts.append(f"   🎯 Ключевой элемент: *{points[0]['element_name']}*")
-
-        return "🔄 **РЕКУРСИВНЫЕ ПЕТЛИ**:\n\n" + "\n".join(loop_texts)
-
-    def _build_key_confinement_text(self) -> str:
-        if not self.key_confinement:
-            return ""
-        kc   = self.key_confinement
-        elem = kc.get('element')
-        if not elem:
-            return ""
-        importance = kc.get('importance', 0.5)
-        bar = "█" * int(importance * 10) + "░" * (10 - int(importance * 10))
-        return f"""
-🔐 **КЛЮЧЕВОЙ КОНФАЙНТМЕНТ** (степень влияния {bar} {importance:.0%})
-
-**{elem.name}** — {kc.get('description', '')[:200]}
-
-Это центральное ограничение, которое держит всю систему.
-Именно здесь потребуется наибольшее внимание для изменений.
-"""
-
-    def _build_work_strategy(self) -> str:
-        strategies = []
-        if self.attachment_type == 'тревожный':
-            strategies.append("• Сначала создавать стабильность и предсказуемость")
-            strategies.append("• Контейнировать тревогу, не усиливать её")
-        elif self.attachment_type == 'избегающий':
-            strategies.append("• Уважать дистанцию, не давить")
-            strategies.append("• Быть доступным, но не навязываться")
-        if self.confinement_model and self.confinement_model.is_closed:
-            strategies.append("• Система замкнута — требуется разрыв ключевой петли")
-            if self.best_intervention:
-                elem_name = self.best_intervention.get('element_name', 'ключевой элемент')
-                strategies.append(f"• Начать с работы над: {elem_name}")
-        if 'рационализация' in self.defenses:
-            strategies.append("• Исследовать чувства, скрытые за логикой")
-        if 'избегание' in self.defenses:
-            strategies.append("• Мягко возвращать к теме, не форсируя")
-        if not strategies:
-            strategies = ["• Исследовать глубинные паттерны через открытые вопросы",
-                          "• Создавать безопасное пространство для самовыражения"]
-        return "📋 **СТРАТЕГИЯ РАБОТЫ**:\n" + "\n".join(strategies)
+        """
+        Возвращает системный промпт для текущего метода.
+        Если метод не выбран — возвращает промпт Роджерса как default.
+        """
+        method = self._get_current_method()
+        if method:
+            return method.system_prompt
+        return get_method("person_centered").system_prompt
 
     def get_greeting(self) -> str:
+        """Возвращает приветствие режима."""
         name = ""
         if self.context and hasattr(self.context, 'name'):
             name = self.context.name or ""
-        # ФИХ: убираем ведущую запятую если имя пустое
         name_prefix = f"{name}, " if name else ""
 
         if self.key_confinement:
@@ -269,7 +369,6 @@ class PsychologistMode(BaseMode):
                 greetings = [
                     f"{name_prefix}я вижу, что в центре вашей системы — {elem.name.lower()}. Это то, что вас держит. Хотите исследовать это вместе?",
                     f"{name_prefix}я замечаю важный паттерн, связанный с {elem.name.lower()}. Расскажите, как это проявляется в вашей жизни?",
-                    f"{name_prefix}у меня есть ощущение, что ключевой момент вашей ситуации — {elem.name.lower()}. Что вы думаете об этом?"
                 ]
                 return random.choice(greetings)
 
@@ -279,253 +378,66 @@ class PsychologistMode(BaseMode):
                 loop_type = strongest.get('type_name', 'паттерн')
                 greetings = [
                     f"{name_prefix}я замечаю {loop_type.lower()}, которая повторяется в вашей жизни. Хотите посмотреть на неё вместе?",
-                    f"{name_prefix}у вас есть {loop_type.lower()}, которая заслуживает внимания. Поговорим о ней?"
                 ]
                 return random.choice(greetings)
 
         greetings = [
             f"{name_prefix}здравствуйте. Что привело вас сегодня?",
             f"Я рад нашей встрече{', ' + name if name else ''}. С чего бы вы хотели начать?",
-            f"{name_prefix}я здесь, чтобы помочь вам разобраться в глубинных процессах. Расскажите, что сейчас для вас важно."
         ]
         return random.choice(greetings)
 
-    # ========== ПОТОКОВАЯ ОБРАБОТКА (WebSocket) ==========
-    async def process_question_streaming(self, question: str):
-        """Потоковая обработка через AI с учётом профиля и истории"""
-
-        profile = {
-            'profile_data':      self.profile_data,
-            'perception_type':   self.perception_type,
-            'thinking_level':    self.thinking_level,
-            'behavioral_levels': self.behavioral_levels,
-            'deep_patterns':     self.deep_patterns,
-            'weakest_vector':    getattr(self, 'weakest_vector', None),
-            'weakest_level':     getattr(self, 'weakest_level', None),
-            'attachment_type':   self.attachment_type,
-            'history':           self.history,  # ФИХ: история для памяти диалога
-        }
-
-        context_data = {
-            'name': self.context.name if self.context else None,
-            'city': self.context.city if self.context else None,
-            'age':  self.context.age  if self.context else None
-        }
-
-        full_response = ""
-        async for chunk in self.ai_service.generate_response_streaming(
-            message=question,
-            context=context_data,
-            profile=profile,
-            mode='psychologist'
-        ):
-            if chunk:
-                full_response += chunk
-                yield chunk
-
-        if not full_response:
-            yield self._depth_inquiry_with_analysis(question)
-
-        self.save_to_history(question, full_response)
-
-    # ========== ПОЛНЫЙ ОТВЕТ (HTTP) ==========
-    async def process_question_full(self, question: str) -> str:
-        logger.info(f"🎙️ process_question_full в режиме PsychologistMode")
-
-        profile = {
-            'profile_data':      self.profile_data,
-            'perception_type':   self.perception_type,
-            'thinking_level':    self.thinking_level,
-            'behavioral_levels': self.behavioral_levels,
-            'deep_patterns':     self.deep_patterns,
-            'weakest_vector':    getattr(self, 'weakest_vector', None),
-            'weakest_level':     getattr(self, 'weakest_level', None),
-            'attachment_type':   self.attachment_type,
-            'history':           self.history,  # ФИХ: история для памяти диалога
-        }
-
-        context_data = {
-            'name': self.context.name if self.context else None,
-            'city': self.context.city if self.context else None,
-            'age':  self.context.age  if self.context else None
-        }
-
-        response = await self.ai_service.generate_response(
-            user_id=self.user_id,
-            message=question,
-            context=context_data,
-            profile=profile,
-            mode='psychologist'
-        )
-
-        if not response or not response.strip():
-            response = self._depth_inquiry_with_analysis(question)
-
-        self.save_to_history(question, response)
-        return response
-
-    # ========== СИНХРОННАЯ ВЕРСИЯ ==========
-    def process_question(self, question: str) -> Dict[str, Any]:
-        question_lower = question.lower()
-        self.last_tools_used = []
-        hypnotic_suggestion = False
-
-        if self.loop_analyzer and self.loop_analyzer.significant_loops:
-            strongest = self.loop_analyzer.get_strongest_loop()
-            if strongest and self._question_about_loop(question_lower):
-                response = self._work_with_loop(strongest)
-                self.last_tools_used.append("loop_work")
-            elif self.key_confinement and self._question_about_confinement(question_lower):
-                response = self._work_with_confinement()
-                self.last_tools_used.append("confinement_work")
-            elif self._detect_defense(question):
-                response = self._work_with_defense(question)
-                self.last_tools_used.append("defense_work")
-            elif any(w in question_lower for w in ["чувствую", "эмоции", "больно", "страшно", "грустно"]):
-                response = self._work_with_feelings(question)
-                self.last_tools_used.append("feelings_work")
-            else:
-                response = self._depth_inquiry_with_analysis(question)
-                self.last_tools_used.append("depth_analysis")
-        elif self.key_confinement and self._question_about_confinement(question_lower):
-            response = self._work_with_confinement()
-            self.last_tools_used.append("confinement_work")
-        elif self._detect_defense(question):
-            response = self._work_with_defense(question)
-            self.last_tools_used.append("defense_work")
-        elif any(w in question_lower for w in ["чувствую", "эмоции", "больно", "страшно", "грустно"]):
-            response = self._work_with_feelings(question)
-            self.last_tools_used.append("feelings_work")
-        else:
-            response = self._depth_inquiry_with_analysis(question)
-            self.last_tools_used.append("depth_analysis")
-
-        self.save_to_history(question, response)
-        return {
-            "response": response,
-            "tools_used": self.last_tools_used,
-            "follow_up": True,
-            "suggestions": self._generate_therapeutic_suggestions(),
-            "hypnotic_suggestion": hypnotic_suggestion,
-            "tale_suggested": False
-        }
-
-    def _question_about_loop(self, question: str) -> bool:
-        return any(kw in question for kw in ["круг", "повтор", "снова", "опять", "цикл", "замкнут"])
-
-    def _question_about_confinement(self, question: str) -> bool:
-        return any(kw in question for kw in ["держит", "огранич", "стопорит", "мешает", "не даёт", "препятств"])
-
-    def _work_with_loop(self, loop: Dict[str, Any]) -> str:
-        loop_type   = loop.get('type_name', 'Петля')
-        description = loop.get('description', '')
-        points = self.loop_analyzer.get_intervention_points(loop)
-        if points:
-            elem_name = points[0]['element_name']
-            responses = [
-                f"Я вижу {loop_type.lower()}: {description}. Обратите внимание на элемент «{elem_name}» — именно здесь можно разорвать этот круг. Что вы чувствуете, когда думаете о нём?",
-                f"Ваша система зациклена: {description}. Ключевая точка разрыва — «{elem_name}». Давайте исследуем этот элемент глубже.",
-                f"Интересно, что в этой петле центральную роль играет «{elem_name}». Что произойдёт, если изменить что-то в этом элементе?"
-            ]
-            return random.choice(responses)
-        return f"Я замечаю {loop_type.lower()}: {description}. Расскажите, как это проявляется в вашей жизни?"
-
-    def _work_with_confinement(self) -> str:
-        if not self.key_confinement:
-            return "Расскажите, что для вас сейчас самое ограничивающее?"
-        kc   = self.key_confinement
-        elem = kc.get('element')
-        if not elem:
-            return "Расскажите, что держит вас в этом состоянии?"
-        responses = [
-            f"Я вижу, что ключевое ограничение связано с «{elem.name}». {kc.get('description', '')[:100]} Что для вас значит этот элемент?",
-            f"Центральный узел вашей системы — «{elem.name}». Он держит всё остальное. Хотите исследовать его вместе?",
-            f"Обратите внимание на «{elem.name}». Это то, что не даёт системе измениться. Что вы чувствуете, когда думаете о нём?"
-        ]
-        return random.choice(responses)
-
-    def _detect_defense(self, text: str) -> bool:
-        defense_markers = {
-            "отрицание":          ["не проблема", "всё нормально", "ничего страшного", "не имеет значения"],
-            "рационализация":     ["потому что", "логично", "объясняется", "естественно"],
-            "интеллектуализация": ["теория", "концепция", "с точки зрения", "научно"],
-            "проекция":           ["они все", "люди всегда", "никто не", "все такие"],
-            "изоляция":           ["не чувствую", "без эмоций", "спокойно", "равнодушно"]
-        }
-        text_lower = text.lower()
-        return any(
-            any(marker in text_lower for marker in markers)
-            for markers in defense_markers.values()
-        )
-
-    def _work_with_defense(self, question: str) -> str:
-        responses = [
-            "Я замечаю, что вы говорите об этом очень логично. А что происходит в теле, когда вы это рассказываете?",
-            "Когда вы говорите 'всё нормально' — какую часть чувств вы оставляете за скобками?",
-            "Интересно, а если посмотреть на это не с логической, а с чувственной стороны — что там?",
-            "Я слышу ваши объяснения. А что, если просто побыть с этим чувством, не объясняя?"
-        ]
-        return random.choice(responses)
-
-    def _work_with_feelings(self, question: str) -> str:
-        feeling = self._extract_feeling(question)
-        responses = [
-            f"Где в теле вы чувствуете {feeling}?",
-            f"Если бы {feeling} могло говорить, что бы оно сказало?",
-            f"Что происходит с дыханием, когда вы это чувствуете?",
-            f"Как долго {feeling} с вами? Когда оно появилось впервые?"
-        ]
-        return random.choice(responses)
-
-    def _extract_feeling(self, text: str) -> str:
-        feelings = ["страх", "тревога", "грусть", "злость", "обида", "стыд", "вина", "радость", "спокойствие"]
-        for feeling in feelings:
-            if feeling in text.lower():
-                return feeling
-        return "это чувство"
-
-    def _depth_inquiry_with_analysis(self, question: str) -> str:
-        if self.loop_analyzer and self.loop_analyzer.significant_loops:
-            strongest = self.loop_analyzer.get_strongest_loop()
-            if strongest:
-                loop_type = strongest.get('type_name', 'паттерн')
-                responses = [
-                    f"Это напоминает мне {loop_type.lower()}, которую я заметил в вашей системе. Как это связано с тем, что вы сейчас описываете?",
-                    f"В вашей жизни есть повторяющийся {loop_type.lower()}. Как этот вопрос с ней связан?",
-                    "Расскажите, как этот вопрос соотносится с тем, что повторяется в вашей жизни?"
-                ]
-                return random.choice(responses)
-        responses = [
-            "Расскажите подробнее... что стоит за этим вопросом?",
-            "Когда вы думаете об этом — что происходит внутри?",
-            "А если копнуть глубже — что там?",
-            "Какая часть вас задаёт этот вопрос?",
-            "Что для вас самое важное в этом?"
-        ]
-        return random.choice(responses)
-
-    def _generate_therapeutic_suggestions(self) -> List[str]:
-        suggestions = []
-        if self.loop_analyzer and self.loop_analyzer.significant_loops:
-            suggestions.append("🔄 Хотите разобрать петлю, которая повторяется в вашей жизни?")
-        if self.key_confinement:
-            elem = self.key_confinement.get('element')
-            if elem:
-                suggestions.append(f"🔐 Давайте исследуем ключевое ограничение — «{elem.name}»")
-        if self.attachment_type == 'тревожный':
-            suggestions.append("🧘 Попробуем технику заземления?")
-        elif self.attachment_type == 'избегающий':
-            suggestions.append("🏠 Может, исследуем, что значит 'безопасная дистанция' для вас?")
-        suggestions.append("🌌 Хотите попробовать гипнотическую технику?")
-        suggestions.append("📖 Интересна терапевтическая сказка?")
-        return suggestions[:3]
-
     def get_tools_description(self) -> Dict[str, str]:
-        return {
+        """Возвращает описание доступных инструментов."""
+        base_tools = {
             "confinement_work": "Анализ структуры ограничений",
-            "loop_analysis":    "Распознавание рекурсивных петель",
-            "defense_work":     "Мягкая работа с защитными механизмами",
-            "feelings_work":    "Исследование телесных ощущений и эмоций",
-            "depth_analysis":   "Глубинный анализ паттернов",
-            "attachment_work":  "Работа с типом привязанности"
+            "loop_analysis": "Распознавание рекурсивных петель",
+            "defense_work": "Мягкая работа с защитными механизмами",
+            "feelings_work": "Исследование телесных ощущений и эмоций",
+            "depth_analysis": "Глубинный анализ паттернов",
+            "attachment_work": "Работа с типом привязанности"
         }
+        
+        # Добавляем информацию о текущем методе
+        method = self._get_current_method()
+        if method:
+            base_tools["current_method"] = f"{method.name_ru} ({method.author_name})"
+        
+        return base_tools
+
+    # ========== МЕТОДЫ ДЛЯ ФРОНТЕНДА ==========
+
+    def get_current_method_info(self) -> Dict[str, Any]:
+        """Возвращает информацию о текущем методе для UI."""
+        method = self._get_current_method()
+        if not method:
+            return {
+                "code": None,
+                "name_ru": None,
+                "author_name": None,
+                "short_description": None,
+                "changes_count": self.method_changes_count,
+                "max_changes": 3
+            }
+        
+        return {
+            "code": method.code,
+            "name_ru": method.name_ru,
+            "author_name": method.author_name,
+            "short_description": method.short_description,
+            "changes_count": self.method_changes_count,
+            "max_changes": 3
+        }
+
+    def get_available_methods(self) -> List[Dict[str, Any]]:
+        """Возвращает список всех доступных методов для UI."""
+        methods = []
+        for code, method in METHODS_REGISTRY.items():
+            methods.append({
+                "code": code,
+                "name_ru": method.name_ru,
+                "author_name": method.author_name,
+                "short_description": method.short_description,
+                "is_current": (code == self.current_method_code)
+            })
+        return methods
