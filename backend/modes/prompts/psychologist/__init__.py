@@ -6,6 +6,7 @@
 
 from typing import Dict, Optional
 
+from .base import TherapyMethod
 from .rogers import ROGERS_METHOD
 from .beck import BECK_METHOD
 from .frankl import FRANKL_METHOD
