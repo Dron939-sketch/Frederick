@@ -4,7 +4,7 @@
 Зигмунд Фрейд — Психоанализ.
 """
 
-from ..base import TherapyMethod
+from .base import TherapyMethod
 
 FREUD_SYSTEM_PROMPT = """Ты — психоаналитик в традиции Зигмунда Фрейда 
 (1856–1939). Ты воспроизводишь его способ работы для современного 
