@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Сервис для работы с DeepSeek API
-ВЕРСИЯ 3.3 — История диалога передаётся в промпт
+ВЕРСИЯ 3.4 — поддержка кастомного system_prompt для многоавторской архитектуры
 """
 
 import aiohttp
@@ -200,9 +200,8 @@ class AIService:
                     logger.info("=" * 80)
                     
                     # Нормализуем только множественные пробелы — НЕ трогаем переносы строк!
-                    # \n нужны для структуры профиля, мыслей психолога и других текстовых блоков
-                    result = re.sub(r' {2,}', ' ', result)          # убираем двойные пробелы
-                    result = re.sub(r'\n{3,}', '\n\n', result)    # не более двух переносов подряд
+                    result = re.sub(r' {2,}', ' ', result)
+                    result = re.sub(r'\n{3,}', '\n\n', result)
                     result = result.strip()
                     
                     logger.info(f"✅ DeepSeek ответ успешно получен (длина после очистки: {len(result)} символов)")
@@ -245,7 +244,7 @@ class AIService:
             return None
 
     # ============================================
-    # ГЕНЕРАЦИЯ ОТВЕТА — главный метод
+    # ГЕНЕРАЦИЯ ОТВЕТА — главный метод (обновлён)
     # ============================================
 
     async def generate_response(
@@ -254,10 +253,30 @@ class AIService:
         message: str,
         context: Dict = None,
         profile: Dict = None,
-        mode: str = 'psychologist'
+        mode: str = 'psychologist',
+        system_prompt: Optional[str] = None,  # НОВЫЙ ПАРАМЕТР
+        temperature: float = 0.7,
+        max_tokens: int = 500,
+        top_p: float = 0.9,
+        frequency_penalty: float = 0.5,
+        presence_penalty: float = 0.5
     ) -> str:
-        """Генерация ответа с учётом истории диалога"""
-
+        """
+        Генерация ответа с учётом истории диалога.
+        
+        Args:
+            user_id: ID пользователя
+            message: Сообщение пользователя
+            context: Контекст (город, возраст и т.д.)
+            profile: Профиль пользователя
+            mode: Режим (basic, coach, psychologist, trainer)
+            system_prompt: Прямая передача системного промпта (приоритет выше mode)
+            temperature: Температура генерации
+            max_tokens: Максимальное количество токенов
+            top_p: Top-p sampling
+            frequency_penalty: Штраф за повторения
+            presence_penalty: Штраф за новые темы
+        """
         cache_key = f"response:{user_id}:{hash(message)}:{mode}"
         if self.cache:
             cached = await self.cache.get(cache_key)
@@ -267,23 +286,29 @@ class AIService:
         if not self.api_key:
             return self._get_fallback_response(mode)
 
-        system_prompt = self._get_system_prompt(mode, profile or {})
-        user_prompt = self._get_user_prompt(message, context, profile, mode)
+        # Определяем системный промпт
+        if system_prompt:
+            final_system_prompt = system_prompt
+            logger.info(f"🎭 Используется кастомный system_prompt (длина: {len(system_prompt)} символов)")
+        else:
+            final_system_prompt = self._get_system_prompt(mode, profile or {})
+            logger.info(f"📌 Используется стандартный промпт для режима {mode}")
 
-        # ФИХ: передаём историю как messages[], а не как текст в промпте
-        messages = [{"role": "system", "content": system_prompt}]
+        # Строим сообщения для API
+        messages = [{"role": "system", "content": final_system_prompt}]
 
         # Добавляем историю диалога (последние 6 сообщений = 3 обмена)
         history = (profile or {}).get('history', [])
         if history:
             for msg in history[-6:]:
                 role = msg.get('role', 'user')
-                content = msg.get('content', '')[:300]  # обрезаем длинные сообщения
+                content = msg.get('content', '')[:300]
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
             logger.info(f"📚 История: {len(history[-6:])} сообщений добавлено в контекст")
 
         # Текущее сообщение
+        user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
 
         try:
@@ -294,11 +319,11 @@ class AIService:
                 json={
                     "model": "deepseek-chat",
                     "messages": messages,
-                    "temperature": 0.7,
-                    "max_tokens": 500,
-                    "top_p": 0.9,
-                    "frequency_penalty": 0.5,
-                    "presence_penalty": 0.5
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "top_p": top_p,
+                    "frequency_penalty": frequency_penalty,
+                    "presence_penalty": presence_penalty
                 },
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
@@ -323,19 +348,45 @@ class AIService:
         message: str,
         context: Dict = None,
         profile: Dict = None,
-        mode: str = 'psychologist'
+        mode: str = 'psychologist',
+        system_prompt: Optional[str] = None,  # НОВЫЙ ПАРАМЕТР
+        temperature: float = 0.7,
+        max_tokens: int = 500,
+        top_p: float = 0.9,
+        frequency_penalty: float = 0.5,
+        presence_penalty: float = 0.5
     ) -> AsyncGenerator[str, None]:
-        """Потоковая генерация с историей диалога"""
+        """
+        Потоковая генерация с историей диалога.
+        
+        Args:
+            message: Сообщение пользователя
+            context: Контекст (город, возраст и т.д.)
+            profile: Профиль пользователя
+            mode: Режим (basic, coach, psychologist, trainer)
+            system_prompt: Прямая передача системного промпта (приоритет выше mode)
+            temperature: Температура генерации
+            max_tokens: Максимальное количество токенов
+            top_p: Top-p sampling
+            frequency_penalty: Штраф за повторения
+            presence_penalty: Штраф за новые темы
+        """
         if not self.api_key:
             yield self._get_fallback_response(mode)
             return
 
-        system_prompt = self._get_system_prompt(mode, profile or {})
-        user_prompt = self._get_user_prompt(message, context, profile, mode)
+        # Определяем системный промпт
+        if system_prompt:
+            final_system_prompt = system_prompt
+            logger.info(f"🎭 Используется кастомный system_prompt (длина: {len(system_prompt)} символов)")
+        else:
+            final_system_prompt = self._get_system_prompt(mode, profile or {})
+            logger.info(f"📌 Используется стандартный промпт для режима {mode}")
 
-        # ФИХ: история как messages[]
-        messages = [{"role": "system", "content": system_prompt}]
+        # Строим сообщения для API
+        messages = [{"role": "system", "content": final_system_prompt}]
 
+        # Добавляем историю диалога (последние 6 сообщений = 3 обмена)
         history = (profile or {}).get('history', [])
         if history:
             for msg in history[-6:]:
@@ -343,15 +394,21 @@ class AIService:
                 content = msg.get('content', '')[:300]
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
+            logger.info(f"📚 История: {len(history[-6:])} сообщений добавлено в контекст")
 
+        # Текущее сообщение
+        user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {
             "model": "deepseek-chat",
             "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 500,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p,
+            "frequency_penalty": frequency_penalty,
+            "presence_penalty": presence_penalty,
             "stream": True
         }
 
@@ -363,8 +420,10 @@ class AIService:
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 if response.status != 200:
+                    logger.error(f"Streaming error: {response.status}")
                     yield self._get_fallback_response(mode)
                     return
+                
                 async for line in response.content:
                     if line:
                         line_str = line.decode('utf-8').strip()
@@ -387,14 +446,18 @@ class AIService:
             yield self._get_fallback_response(mode)
 
     # ============================================
-    # СИСТЕМНЫЕ ПРОМПТЫ
+    # СИСТЕМНЫЕ ПРОМПТЫ (без изменений)
     # ============================================
 
     def _get_system_prompt(self, mode: str, profile: Dict) -> str:
-        if mode == 'coach':        return self._get_coach_prompt(profile)
-        elif mode == 'psychologist': return self._get_psychologist_prompt(profile)
-        elif mode == 'trainer':    return self._get_trainer_prompt(profile)
-        else:                      return self._get_basic_prompt()
+        if mode == 'coach':
+            return self._get_coach_prompt(profile)
+        elif mode == 'psychologist':
+            return self._get_psychologist_prompt(profile)
+        elif mode == 'trainer':
+            return self._get_trainer_prompt(profile)
+        else:
+            return self._get_basic_prompt()
 
     def _get_coach_prompt(self, profile: Dict) -> str:
         """Промпт для КОУЧА — образ Бертрана Рассела"""
@@ -554,14 +617,15 @@ class AIService:
     # ============================================
 
     def _get_user_prompt(self, message: str, context: Dict, profile: Dict, mode: str) -> str:
-        """Формирование промпта — только текущее сообщение + контекст.
-        История передаётся отдельно через messages[] в generate_response."""
+        """Формирование промпта — только текущее сообщение + контекст."""
         prompt = message
 
         if context and mode != 'basic':
             parts = []
-            if context.get('city'):  parts.append(f"город {context['city']}")
-            if context.get('age'):   parts.append(f"возраст {context['age']}")
+            if context.get('city'):
+                parts.append(f"город {context['city']}")
+            if context.get('age'):
+                parts.append(f"возраст {context['age']}")
             if parts:
                 prompt += f"\n\nКонтекст: {', '.join(parts)}"
 
@@ -774,7 +838,6 @@ class AIService:
         text = re.sub(r'[#*_`~<>|@$%^&+={}\[\]\\]', '', text)
 
         # ФИХ СКЛЕЕННЫХ СЛОВ:
-        # DeepSeek иногда возвращает "Привет,как" вместо "Привет, как"
         # Добавляем пробел после знаков препинания если его нет
         text = re.sub(r'([.!?,;:])([^\s\d\)\]\}"\'`])', r'\1 \2', text)
 
@@ -782,10 +845,9 @@ class AIService:
         text = re.sub(r'([—–])([^\s])', r'\1 \2', text)
 
         # Разделяем склеенные слова по заглавной кириллице
-        # "КакДела" → "Как Дела"
         text = re.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', text)
 
-        # Нормализуем пробелы (но сохраняем ведущий — он часть токена в стриминге)
+        # Нормализуем пробелы
         text = re.sub(r'\s+', ' ', text)
 
         return text.rstrip()
@@ -803,19 +865,26 @@ class AIService:
         """Запасной профиль"""
         profile_code = profile.get('profile_data', {}).get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4')
         return f"""
-КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
+🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
 Вы человек с высоким уровнем адаптивности. Умеете подстраиваться под обстоятельства и находить общий язык с разными людьми.
-СИЛЬНЫЕ СТОРОНЫ
+
+💪 СИЛЬНЫЕ СТОРОНЫ
 - Высокоразвитые социальные навыки
 - Способность видеть системные связи
 - Устойчивость к стрессу
 - Прагматизм в вопросах ресурсов
-ЗОНЫ РОСТА
+
+🎯 ЗОНЫ РОСТА
 - Развитие навыков отстаивания личных границ
 - Работа со спонтанностью и гибкостью
 - Углубление самопонимания
-ГЛАВНАЯ ЛОВУШКА
+
+🌱 КАК ЭТО СФОРМИРОВАЛОСЬ
+Ваш опыт и окружение сформировали адаптивный тип реагирования, который стал вашей основной стратегией.
+
+⚠️ ГЛАВНАЯ ЛОВУШКА
 Склонность к излишнему контролю. Иногда вы слишком много анализируете вместо того, чтобы действовать.
+
 Ваш профиль: {profile_code}
 """
 
@@ -858,11 +927,11 @@ class AIService:
             levels = scores.get(k, [])
             if levels:
                 vectors[k]["level"] = sum(levels) / len(levels) if isinstance(levels, list) else levels
-        return {"name": min(vectors.values(), key=lambda x: x["level"])["name"],
-                "level": min(vectors.values(), key=lambda x: x["level"])["level"]}
+        return min(vectors.values(), key=lambda x: x["level"])
 
     def _format_deep_patterns(self, patterns: Dict) -> str:
-        if not patterns: return "Данные отсутствуют"
+        if not patterns:
+            return "Данные отсутствуют"
         lines = []
         if patterns.get('attachment'):
             lines.append(f"Привязанность: {patterns['attachment']}")
@@ -871,9 +940,6 @@ class AIService:
         if patterns.get('core_beliefs'):
             lines.append(f"Убеждения: {', '.join(patterns['core_beliefs'])}")
         return "\n".join(lines) if lines else "Данные отсутствуют"
-
-    def _get_avg_score(self, levels: List) -> float:
-        return sum(levels) / len(levels) if levels else 3.0
 
     async def close(self):
         if self.session and not self.session.closed:
