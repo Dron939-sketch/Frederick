@@ -65,6 +65,37 @@ from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
 from modes.trainer import TrainerMode
 from modes import get_mode
+
+
+# ===== Многоавторская архитектура психолога: персистенция метода между запросами =====
+def _merge_psychologist_state(user_data: dict, context_obj: dict) -> None:
+    """Подмешивает сохранённый state многоавторского психолога в user_data."""
+    psy = (context_obj or {}).get("psychologist_state") or {}
+    user_data["current_method_code"] = psy.get("current_method_code")
+    user_data["method_changes_count"] = int(psy.get("method_changes_count", 0) or 0)
+    user_data["method_selected_at"] = psy.get("method_selected_at")
+
+
+async def _save_psychologist_state(user_id, context_obj: dict, mode_instance, mode_name: str) -> None:
+    """После работы режима психолога — сохраняет current_method_code/changes_count/selected_at в БД."""
+    if mode_name != "psychologist" or mode_instance is None:
+        return
+    msa = getattr(mode_instance, "method_selected_at", None)
+    if hasattr(msa, "isoformat"):
+        msa = msa.isoformat()
+    state = {
+        "current_method_code": getattr(mode_instance, "current_method_code", None),
+        "method_changes_count": int(getattr(mode_instance, "method_changes_count", 0) or 0),
+        "method_selected_at": msa,
+    }
+    if context_obj is None:
+        context_obj = {}
+    context_obj["psychologist_state"] = state
+    try:
+        await context_repo.save(user_id, context_obj)
+    except Exception as e:
+        logger.warning(f"Failed to persist psychologist_state for user {user_id}: {e}")
+
 from utils import (
     get_theoretical_path,
     generate_life_context_questions,
@@ -239,6 +270,17 @@ async def lifespan(app: FastAPI):
         db = Database()
         await db.connect()
         logger.info("✅ PostgreSQL подключена")
+
+        # Idempotent migration: persist psychologist multi-author state
+        try:
+            async with db.get_connection() as _conn:
+                await _conn.execute(
+                    "ALTER TABLE fredi_user_contexts "
+                    "ADD COLUMN IF NOT EXISTS psychologist_state JSONB"
+                )
+            logger.info("✅ fredi_user_contexts.psychologist_state column ensured")
+        except Exception as _e:
+            logger.warning(f"⚠️ Could not ensure psychologist_state column: {_e}")
 
         logger.info("📦 Подключение к Redis...")
         cache = RedisCache()
@@ -490,6 +532,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
     simple_context = SimpleContext(context)
 
     try:
+        _merge_psychologist_state(user_data, context)
         mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
         logger.info(f"✅ Mode instance created: {mode_instance.__class__.__name__}")
     except Exception as e:
@@ -591,6 +634,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         await context_repo.save(user_id_for_db, context)
                     except Exception as _e:
                         logger.warning(f"Не удалось сохранить basic_message_count: {_e}")
+                await _save_psychologist_state(user_id_for_db, context, mode_instance, mode_name)
                 await websocket.send_json({"type": "status", "status": "speaking"})
 
                 try:
@@ -1692,6 +1736,7 @@ async def chat(request: Request, data: ChatRequest):
                 self.communication_mode = data.get("communication_mode", "psychologist")
 
         simple_context = SimpleContext(context_obj)
+        _merge_psychologist_state(user_data, context_obj)
         mode_instance = get_mode(mode_name, data.user_id, user_data, simple_context)
 
         reflection = None
@@ -1760,6 +1805,7 @@ async def chat(request: Request, data: ChatRequest):
         if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
             context_obj["basic_test_offered"] = mode_instance.test_offered
             await context_repo.save(data.user_id, context_obj)
+        await _save_psychologist_state(data.user_id, context_obj, mode_instance, mode_name)
 
         await message_repo.save(data.user_id, "user", data.message)
         await message_repo.save(data.user_id, "assistant", result["response"])
@@ -2018,6 +2064,7 @@ async def process_voice(
                 self.communication_mode = data.get("communication_mode", "psychologist")
 
         simple_context = SimpleContext(context_obj)
+        _merge_psychologist_state(user_data, context_obj)
         mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
 
         response_text = None
@@ -2058,6 +2105,7 @@ async def process_voice(
         if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
             context_obj["basic_test_offered"] = mode_instance.test_offered
             await context_repo.save(user_id_for_db, context_obj)
+        await _save_psychologist_state(user_id_for_db, context_obj, mode_instance, mode_name)
 
         # normalize_tts_text вызывается внутри voice_service — не дублируем
         logger.info(f"💬 AI response: {len(response_text)} символов")
