@@ -3,15 +3,22 @@
 """
 МОДУЛЬ: РЕЖИМ КОУЧ (coach.py)
 Партнёрский стиль общения. Образ: Бертран Рассел.
-ВЕРСИЯ 3.3 — ФИКСЫ: history в profile, запрет склеивания, ведущая запятая
+ВЕРСИЯ 4.0 — системный промпт вынесен в backend/modes/prompts/coach.py,
+ответы идут через кастомный system_prompt + COACH_GEN_PARAMS, few-shot
+подставляется только на первый ход сессии.
 """
 
 from typing import Dict, Any, List, Optional
 import random
 import logging
-from datetime import datetime
 
 from .base_mode import BaseMode
+from .prompts.coach import (
+    COACH_FEWSHOT,
+    COACH_GEN_PARAMS,
+    build_coach_system_prompt,
+    should_include_fewshot,
+)
 from profiles import VECTORS, LEVEL_PROFILES
 from services.ai_service import AIService
 
@@ -39,15 +46,6 @@ class CoachMode(BaseMode):
             "future_pacing":      self._future_pace,
             "logical_analysis":   self._logical_analysis
         }
-
-        self.russell_quotes = [
-            "Три страсти, простые и непреодолимо сильные, управляли моей жизнью: жажда любви, поиск знания и невыносимое сострадание к страданиям человечества.",
-            "Любую проблему, которая не может быть решена, можно сделать меньше, научившись жить с ней.",
-            "Страх — вот источник того, что люди называют злом. Большая часть зла в мире происходит от страха.",
-            "Я никогда не позволял школе мешать моему образованию.",
-            "Вера в истину начинается с сомнения в том, во что верят другие.",
-            "Самый продуктивный способ думать — задавать правильные вопросы."
-        ]
 
         self.vector_questions = {
             "СБ": [
@@ -78,86 +76,69 @@ class CoachMode(BaseMode):
 
         logger.info(f"📖 CoachMode (Russell) инициализирован для user_id={user_id}")
 
+    # ========== ПОСТРОЕНИЕ ПРОМПТА ==========
+
+    def _build_profile_for_prompt(self) -> Dict[str, Any]:
+        return {
+            "profile_data":      self.profile_data,
+            "perception_type":   self.perception_type,
+            "thinking_level":    self.thinking_level,
+            "behavioral_levels": self.behavioral_levels,
+            "deep_patterns":     self.deep_patterns,
+            "weakest_vector":    getattr(self, "weakest_vector", None),
+            "weakest_level":     getattr(self, "weakest_level", None),
+            "history":           self.history,
+        }
+
+    def _build_analysis_extras(self) -> str:
+        """Собирает блок с данными анализа (конфайнтмент, петли, болевые точки, зона роста)."""
+        try:
+            analysis = self.analyze_profile_for_response()
+        except Exception:
+            return ""
+
+        lines: List[str] = []
+
+        kc = analysis.get("key_confinement")
+        if kc:
+            name = kc.get("name") or ""
+            desc = (kc.get("description") or "")[:120]
+            entry = f"- Ключевое ограничение: {name}".rstrip()
+            if desc:
+                entry = f"{entry} — {desc}"
+            lines.append(entry)
+
+        loops = analysis.get("loops") or []
+        if loops:
+            first = loops[0]
+            desc = (first.get("description") or "")[:120]
+            if desc:
+                lines.append(f"- Цикл для исследования: {desc}")
+
+        pains = analysis.get("pain_points")
+        if pains:
+            lines.append(f"- Болевые точки: {', '.join(pains)}")
+
+        growth = analysis.get("growth_area")
+        if growth:
+            lines.append(f"- Зона роста: {growth}")
+
+        if not lines:
+            return ""
+        return "КОНТЕКСТ АНАЛИЗА (внутренний ориентир):\n" + "\n".join(lines)
+
+    def _build_system_prompt(self, profile_dict: Dict[str, Any]) -> str:
+        base = build_coach_system_prompt(profile_dict)
+        extras = self._build_analysis_extras()
+        return f"{base}\n\n{extras}" if extras else base
+
     def get_system_prompt(self) -> str:
-        analysis = self.analyze_profile_for_response()
-        pain_points = ", ".join(analysis["pain_points"]) if analysis["pain_points"] else "пока не выражены"
-        quote = random.choice(self.russell_quotes)
-
-        confinement_info = ""
-        if analysis["key_confinement"]:
-            kc = analysis["key_confinement"]
-            confinement_info = f"""
-КЛЮЧЕВОЕ ОГРАНИЧЕНИЕ:
-- Название: {kc.get('name', 'не определено')}
-- Описание: {kc.get('description', 'нет описания')[:150]}
-- Сила: {kc.get('strength', 0):.1%}
-"""
-
-        loops_info = ""
-        if analysis["loops"]:
-            loops_info = "\nЦИКЛЫ ДЛЯ ИССЛЕДОВАНИЯ:\n"
-            for i, loop in enumerate(analysis["loops"][:3], 1):
-                loops_info += f"{i}. {loop.get('description', 'неизвестно')} (сила: {loop.get('strength', 0):.1%})\n"
-
-        weak_vector_info = ""
-        if self.weakest_vector in VECTORS:
-            weak_vector_info = f"""
-ВЕКТОР ДЛЯ ИССЛЕДОВАНИЯ: {self.weakest_vector} ({VECTORS[self.weakest_vector]['name']})
-Уровень: {self.weakest_level}/6
-Описание: {self.weakest_profile.get('quote', 'не определено')[:150]}
-"""
-
-        prompt = f"""ПРАВИЛА ОТВЕТА:
-- Пиши обычным русским текстом. Между каждым словом ровно один пробел.
-- Никаких ремарок в скобках: (мягко), (задумчиво) — запрещено.
-- Никаких звёздочек, маркдауна, эмодзи. Ответ — 2-4 предложения.
-
-Ты — Фреди. Твой стиль вдохновлён философией Бертрана Рассела: ясность мысли, скептицизм к готовым ответам, глубокая человечность и вера в силу разума.
-
-ЦИТАТА ДНЯ:
-«{quote}»
-
-О СОБЕСЕДНИКЕ:
-- Тип восприятия: {self.perception_type} (фокус: {analysis['attention_focus']})
-- Уровень мышления: {self.thinking_level}/9 (глубина: {analysis['thinking_depth']})
-{weak_vector_info}
-- Болевые точки: {pain_points}
-- Зона роста: {analysis['growth_area']}
-
-{confinement_info}
-{loops_info}
-
-ТВОЙ СТИЛЬ ОБЩЕНИЯ:
-- Говоришь спокойно, вдумчиво, как философ, размышляющий вслух
-- Ценишь ясность мысли и свободу от догм
-- Скептичен к готовым ответам — помогаешь человеку найти свои
-- Задаёшь вопросы из искреннего любопытства
-- Мягко указываешь на противоречия, без осуждения
-
-КАК ЗАДАВАТЬ ВОПРОСЫ:
-- "Интересно, что заставляет тебя так думать?"
-- "А если посмотреть на это с другой стороны?"
-- "Что было бы, если бы ты позволил себе усомниться?"
-- "Какую роль играет страх в этом решении?"
-
-ЧЕГО НЕ ДЕЛАТЬ:
-- Не давай готовых решений
-- Не осуждай и не оценивай
-- Не навязывай точку зрения
-
-КОНТЕКСТ:
-{self.get_context_string()}
-
-ПОМНИ: ты здесь, чтобы помочь человеку найти ясность через вопросы, а не через ответы.
-Ты помнишь весь предыдущий разговор — опирайся на него в своих вопросах."""
-
-        return prompt
+        return self._build_system_prompt(self._build_profile_for_prompt())
 
     def get_greeting(self) -> str:
         name = ""
         if self.context and hasattr(self.context, 'name'):
             name = self.context.name or ""
-        # ФИХ: убираем ведущую запятую если имя пустое
         name_prefix = f"{name}, " if name else ""
 
         greetings = [
@@ -175,70 +156,64 @@ class CoachMode(BaseMode):
 
         return random.choice(greetings)
 
+    # ========== AI-ВЫЗОВЫ ==========
+
+    def _ai_profile(self) -> Dict[str, Any]:
+        """Профиль с опциональным prepend few-shot (только на первом ходе)."""
+        profile = self._build_profile_for_prompt()
+        if should_include_fewshot(self.history):
+            profile["history"] = list(COACH_FEWSHOT) + list(self.history or [])
+            logger.info("🎯 Coach: few-shot примеры подставлены (первый ход сессии)")
+        return profile
+
+    def _context_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.context.name if self.context else None,
+            "city": self.context.city if self.context else None,
+            "age":  self.context.age  if self.context else None,
+        }
+
     # ========== ПОТОКОВАЯ ОБРАБОТКА (WebSocket) ==========
     async def process_question_streaming(self, question: str):
-        """Потоковая обработка через AI с учётом профиля и истории"""
-
-        profile = {
-            'profile_data':      self.profile_data,
-            'perception_type':   self.perception_type,
-            'thinking_level':    self.thinking_level,
-            'behavioral_levels': self.behavioral_levels,
-            'deep_patterns':     self.deep_patterns,
-            'weakest_vector':    getattr(self, 'weakest_vector', None),
-            'weakest_level':     getattr(self, 'weakest_level', None),
-            'history':           self.history,  # ФИХ: история для памяти диалога
-        }
-
-        context_data = {
-            'name': self.context.name if self.context else None,
-            'city': self.context.city if self.context else None,
-            'age':  self.context.age  if self.context else None
-        }
+        """Потоковая обработка через AI с кастомным промптом Рассел-коуча."""
+        profile = self._ai_profile()
+        system_prompt = self._build_system_prompt(profile)
 
         full_response = ""
         async for chunk in self.ai_service.generate_response_streaming(
             message=question,
-            context=context_data,
+            context=self._context_dict(),
             profile=profile,
-            mode='coach'
+            mode='coach',
+            system_prompt=system_prompt,
+            **COACH_GEN_PARAMS,
         ):
             if chunk:
                 full_response += chunk
                 yield chunk
 
         if not full_response:
-            yield self._generate_philosophical_question(question)
+            fallback = self._generate_philosophical_question(question)
+            full_response = fallback
+            yield fallback
 
         self.save_to_history(question, full_response)
 
     # ========== ПОЛНЫЙ ОТВЕТ (HTTP) ==========
     async def process_question_full(self, question: str) -> str:
-        logger.info(f"🎙️ process_question_full в режиме CoachMode")
+        logger.info("🎙️ process_question_full в режиме CoachMode")
 
-        profile = {
-            'profile_data':      self.profile_data,
-            'perception_type':   self.perception_type,
-            'thinking_level':    self.thinking_level,
-            'behavioral_levels': self.behavioral_levels,
-            'deep_patterns':     self.deep_patterns,
-            'weakest_vector':    getattr(self, 'weakest_vector', None),
-            'weakest_level':     getattr(self, 'weakest_level', None),
-            'history':           self.history,  # ФИХ: история для памяти диалога
-        }
-
-        context_data = {
-            'name': self.context.name if self.context else None,
-            'city': self.context.city if self.context else None,
-            'age':  self.context.age  if self.context else None
-        }
+        profile = self._ai_profile()
+        system_prompt = self._build_system_prompt(profile)
 
         response = await self.ai_service.generate_response(
             user_id=self.user_id,
             message=question,
-            context=context_data,
+            context=self._context_dict(),
             profile=profile,
-            mode='coach'
+            mode='coach',
+            system_prompt=system_prompt,
+            **COACH_GEN_PARAMS,
         )
 
         if not response or not response.strip():
@@ -247,7 +222,7 @@ class CoachMode(BaseMode):
         self.save_to_history(question, response)
         return response
 
-    # ========== СИНХРОННАЯ ВЕРСИЯ ==========
+    # ========== СИНХРОННАЯ ВЕРСИЯ (fallback без AI) ==========
     def process_question(self, question: str) -> Dict[str, Any]:
         question_lower = question.lower()
         self.last_tools_used = []
