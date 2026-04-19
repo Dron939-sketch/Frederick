@@ -13,15 +13,15 @@ from datetime import datetime
 import re
 
 # АБСОЛЮТНЫЕ ИМПОРТЫ (от корня backend)
-from base_mode import BaseMode
+from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
 from confinement.confinement_model import ConfinementModel9
 from confinement.loop_analyzer import LoopAnalyzer
 from services.ai_service import AIService
 
 # Импорты для многоавторской архитектуры
-from prompts.psychologist import get_method, METHODS_REGISTRY
-from prompts.psychologist.router import (
+from .prompts.psychologist import get_method, METHODS_REGISTRY
+from .prompts.psychologist.router import (
     classify,
     detect_change_request,
     has_crisis_marker,
