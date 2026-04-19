@@ -5,7 +5,7 @@
 Базовый класс для всех режимов общения (КОУЧ/ПСИХОЛОГ/ТРЕНЕР/BASIC)
 Интегрирован с конфайнтмент-моделью и гипнотическими техниками
 Поддержка потоковой обработки для живого голосового диалога
-ВЕРСИЯ 2.1 — с совместимостью для voice_service
+ВЕРСИЯ 2.2 — добавлена поддержка многоавторской архитектуры психолога
 """
 
 from abc import ABC, abstractmethod
@@ -51,6 +51,19 @@ class BaseMode(ABC):
         # Последние использованные инструменты
         self.last_tools_used: List[str] = []
 
+        # === НОВОЕ: состояние для многоавторской архитектуры психолога ===
+        # Эти поля используются только в PsychologistMode, но безопасны для других режимов
+        self.current_method_code = user_data.get("current_method_code", None)
+        self.method_selected_at = user_data.get("method_selected_at", None)
+        self.method_changes_count = user_data.get("method_changes_count", 0)
+        
+        # Преобразуем строковую дату обратно в datetime, если нужно
+        if self.method_selected_at and isinstance(self.method_selected_at, str):
+            try:
+                self.method_selected_at = datetime.fromisoformat(self.method_selected_at)
+            except (ValueError, TypeError):
+                self.method_selected_at = None
+
         # === ИНИЦИАЛИЗАЦИЯ КЛЮЧЕВЫХ СИСТЕМ ===
         # 1. Конфайнтмент-модель
         self.confinement_model = None
@@ -93,6 +106,8 @@ class BaseMode(ABC):
             self.weakest_profile = {}
 
         logger.info(f"BaseMode инициализирован для user_id={user_id}, режим={self.name}")
+        if hasattr(self, 'current_method_code') and self.current_method_code:
+            logger.info(f"🎭 Текущий метод психолога: {self.current_method_code}, смен: {self.method_changes_count}")
 
     # ====================== СВОЙСТВА ДЛЯ СОВМЕСТИМОСТИ С voice_service ======================
     @property
@@ -122,6 +137,32 @@ class BaseMode(ABC):
             if hasattr(self.confinement_model, 'to_dict'):
                 return self.confinement_model.to_dict()
         return self.user_data.get('confinement_model', None)
+    
+    # ====================== НОВЫЕ МЕТОДЫ ДЛЯ СОХРАНЕНИЯ СОСТОЯНИЯ ======================
+    def save_method_state(self):
+        """
+        Сохраняет состояние метода психолога в user_data.
+        Должен вызываться после изменения current_method_code или method_changes_count.
+        """
+        self.user_data["current_method_code"] = self.current_method_code
+        self.user_data["method_changes_count"] = self.method_changes_count
+        if self.method_selected_at:
+            if isinstance(self.method_selected_at, datetime):
+                self.user_data["method_selected_at"] = self.method_selected_at.isoformat()
+            else:
+                self.user_data["method_selected_at"] = self.method_selected_at
+        else:
+            self.user_data["method_selected_at"] = None
+        
+        logger.debug(f"💾 Сохранено состояние метода: code={self.current_method_code}, changes={self.method_changes_count}")
+    
+    def reset_method_state(self):
+        """Сбрасывает состояние метода (при начале новой сессии)."""
+        self.current_method_code = None
+        self.method_selected_at = None
+        self.method_changes_count = 0
+        self.save_method_state()
+        logger.info("🔄 Состояние метода сброшено")
     # ====================================================================
 
     def _level(self, score: float) -> int:
@@ -489,6 +530,9 @@ class BaseMode(ABC):
         if len(self.history) > 50:
             self.history = self.history[-50:]
         self.user_data["history"] = self.history
+        
+        # Также сохраняем состояние метода при каждом обновлении истории
+        self.save_method_state()
 
     # ====================== ГИПНО, СКАЗКИ, ЯКОРЯ ======================
     def suggest_tale(self, issue: str = None) -> Optional[Dict]:
