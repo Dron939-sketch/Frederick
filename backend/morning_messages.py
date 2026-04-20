@@ -122,7 +122,7 @@ class MorningMessageManager:
             )
 
             if response:
-                return self._format_ai_response(response, day, address)
+                return self._format_ai_response(response, day, address, user_name)
 
         except Exception as e:
             logger.error(f"Ошибка генерации ИИ: {e}")
@@ -162,15 +162,17 @@ class MorningMessageManager:
 Напиши сообщение:
 """
     
-    def _format_ai_response(self, text: str, day: int, address: str) -> str:
+    def _format_ai_response(self, text: str, day: int, address: str, user_name: str = "") -> str:
         """Форматирует ответ ИИ"""
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'__(.*?)__', r'\1', text)
-        
+
         emoji_by_day = {2: "⚡", 3: "🌤", 4: "🚀", 5: "🌟"}
         emoji = emoji_by_day.get(day, "🌅")
 
-        return f"{emoji} **Доброе утро, {address}!**\n\n{text}"
+        name = (user_name or "").strip()
+        salute = name if name and name.lower() not in ("друг", "подруга", "") else (address or "друг")
+        return f"{emoji} **Доброе утро, {salute}!**\n\n{text}"
 
     async def _generate_weekend_message(
         self, user_name: str, address: str, scores: Dict,
@@ -283,7 +285,10 @@ class MorningMessageManager:
 """
     
     def _get_greeting(self, hour: int, user_name: str, address: str) -> str:
-        """Возвращает приветствие"""
+        """Возвращает приветствие с обращением по имени.
+
+        Приоритет: настоящее имя > обращение (брат/сестрёнка/друг) > "друг".
+        """
         if 5 <= hour < 12:
             greeting = "Доброе утро"
         elif 12 <= hour < 18:
@@ -292,8 +297,12 @@ class MorningMessageManager:
             greeting = "Добрый вечер"
         else:
             greeting = "Доброй ночи"
-        
-        return f"{greeting}, {address if address else user_name}"
+
+        name = (user_name or "").strip()
+        # Не приветствуем "другом" — если нет имени, оставляем address (брат/сестрёнка/друг).
+        if name and name.lower() not in ("друг", "подруга", ""):
+            return f"{greeting}, {name}"
+        return f"{greeting}, {address or 'друг'}"
     
     def _get_address(self, gender: str) -> str:
         """Возвращает обращение по полу"""
@@ -304,15 +313,33 @@ class MorningMessageManager:
         return "друг"
     
     def _get_weather_text(self, context: Dict, hour: int) -> str:
-        """Формирует текст о погоде"""
-        if not context or not context.get('weather_cache'):
+        """Формирует текст о погоде «за окном».
+
+        Поддерживает два формата weather_cache:
+          - legacy (models.py): {temp, description, icon, ...}
+          - новый (WeatherService): {temperature, description, icon, city, ...}
+        """
+        weather = (context or {}).get('weather_cache') or None
+        if not weather or not isinstance(weather, dict):
             return "За окном новый день, полный возможностей."
-        
-        weather = context['weather_cache']
-        temp = weather.get('temp', 0)
-        desc = weather.get('description', '')
-        icon = weather.get('icon', '☁️')
-        
+
+        # Совместимость: temperature → temp → 0
+        temp = weather.get('temperature')
+        if temp is None:
+            temp = weather.get('temp')
+        if temp is None:
+            return "За окном новый день, полный возможностей."
+        try:
+            temp = int(round(float(temp)))
+        except (TypeError, ValueError):
+            return "За окном новый день, полный возможностей."
+
+        desc = (weather.get('description') or '').strip()
+        icon = weather.get('icon') or '☁️'
+        city = (weather.get('city') or (context or {}).get('city') or '').strip()
+        city_part = f" в городе {city}" if city else ""
+        desc_part = f" {desc}," if desc else ""
+
         if 5 <= hour < 12:
             time_word = "утро"
         elif 12 <= hour < 18:
@@ -321,19 +348,27 @@ class MorningMessageManager:
             time_word = "вечер"
         else:
             time_word = "ночь"
-        
+
         if temp < -15:
-            return f"{icon} Морозное {time_word}, {temp}°C. Даже в самый холод можно найти тепло внутри себя."
+            mood = "Даже в самый холод можно найти тепло внутри себя."
+            time_adj = "Морозное"
         elif temp < 0:
-            return f"{icon} {desc}, {temp}°C. Холодно, но твоя внутренняя искра уже согревает."
+            mood = "Холодно, но твоя внутренняя искра уже согревает."
+            time_adj = "Холодное"
         elif temp < 10:
-            return f"{icon} Прохладное {time_word}, {temp}°C. Самое время для уютных мыслей и планов."
+            mood = "Самое время для уютных мыслей и планов."
+            time_adj = "Прохладное"
         elif temp < 20:
-            return f"{icon} Свежее {time_word}, {temp}°C. Природа просыпается — как и твои новые возможности."
+            mood = "Природа просыпается — как и твои новые возможности."
+            time_adj = "Свежее"
         elif temp < 30:
-            return f"{icon} Теплое {time_word}, {temp}°C. Энергия так и плещет — лови момент!"
+            mood = "Энергия так и плещет — лови момент!"
+            time_adj = "Тёплое"
         else:
-            return f"{icon} Жаркое {time_word}, {temp}°C. Даже солнце сегодня хочет тебя вдохновить."
+            mood = "Даже солнце сегодня хочет тебя вдохновить."
+            time_adj = "Жаркое"
+
+        return f"{icon} За окном{city_part}{desc_part} {temp}°C — {time_adj.lower()} {time_word}. {mood}"
     
     def _get_profile_inspiration(self, scores: Dict) -> str:
         """Вдохновение на основе профиля"""
