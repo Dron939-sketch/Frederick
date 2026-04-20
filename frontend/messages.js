@@ -1443,6 +1443,7 @@ window.updateMessagesBadge = _updateBadge;
 window.initMessagesBadge   = _initBadge;
 window.openChat            = _openChat;
 window.messagesState       = _msState;
+window.openPartnerProfile  = _msOpenProfileSheet;
 
 // ============================================
 // СОВМЕСТИМОСТЬ С chat.js (встроено)
