@@ -60,6 +60,7 @@ from hypno.hypno_module import HypnoOrchestrator
 from hypno.therapeutic_tales import TherapeuticTales
 from payment_routes import register_payment_routes
 from bot_routes import register_bot_routes
+from auth_routes import create_auth_router
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -328,7 +329,8 @@ async def lifespan(app: FastAPI):
         await _pay_init()
         _setup_bots = register_bot_routes(app, db)
         await _setup_bots()
-        logger.info("✅ Таблицы готовы (включая платежи)")
+        app.include_router(create_auth_router(db, limiter))
+        logger.info("✅ Таблицы готовы (включая платежи и auth)")
 
         logger.info("📦 Запуск фоновых задач...")
         background_tasks = [
@@ -913,6 +915,51 @@ async def init_database_tables():
 
         # Канал доставки уведомлений: 'push' (default) | 'telegram' | 'max' | 'none'
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS notification_channel TEXT DEFAULT 'push'")
+
+        # === Email/password auth (email = логин) ===
+        # CITEXT для case-insensitive unique; если расширение недоступно — fallback на TEXT.
+        try:
+            await conn.execute("CREATE EXTENSION IF NOT EXISTS citext")
+            await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email CITEXT")
+        except Exception:
+            await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email TEXT")
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP WITH TIME ZONE")
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMP WITH TIME ZONE")
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fredi_users_email_unique ON fredi_users(email) WHERE email IS NOT NULL"
+        )
+
+        # Серверные сессии авторизации. Храним sha256(token), сам токен — только в HttpOnly cookie.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_auth_sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                remember BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                user_agent TEXT,
+                ip_address TEXT
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON fredi_auth_sessions(user_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON fredi_auth_sessions(expires_at)")
+
+        # Лог попыток входа — для audit и защиты от brute-force.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_auth_attempts (
+                id BIGSERIAL PRIMARY KEY,
+                email TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                success BOOLEAN DEFAULT FALSE,
+                reason TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_email_ts ON fredi_auth_attempts(email, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_ip_ts ON fredi_auth_attempts(ip_address, created_at DESC)")
 
         # Таблица связок web_user_id ↔ messenger chat_id (для деплинков из бота)
         await conn.execute("""

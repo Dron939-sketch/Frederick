@@ -87,50 +87,98 @@
 
     var existingUid = _parseIntSafe(_safeGet(LS_USER_ID));
 
-    // Если уже синхронизировались с этим device_id ранее — можно просто обновить last_seen,
-    // но не блокируем основной поток. Модули всё равно будут читать localStorage.fredi_user_id.
-    window.authReady = (async function () {
+    function _applyUserId(newUid) {
+        var num = Number(newUid);
+        if (!num) return;
+        _safeSet(LS_USER_ID, num);
+        try {
+            document.cookie = 'fredi_uid=' + num + ';path=/;max-age=315360000;SameSite=Lax';
+        } catch (e) {}
+        try { window.USER_ID = num; } catch (e) {}
+        try { if (window.voiceManager) window.voiceManager.userId = num; } catch (e) {}
+    }
+
+    // Пробуем восстановить серверную сессию (email/password логин).
+    // credentials:'include' — чтобы HttpOnly cookie fredi_session ушла на бэк.
+    async function _tryAuthMe() {
+        try {
+            var res = await fetch(API_BASE + '/api/auth/me', {
+                method: 'GET',
+                credentials: 'include',
+                headers: { 'Accept': 'application/json' }
+            });
+            if (res.status === 401 || res.status === 404) return null;
+            if (!res.ok) return null;
+            var data = await res.json();
+            if (data && data.success && data.user_id) {
+                return data;
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function _syncByDevice() {
         try {
             var fingerprint = _buildFingerprint();
             var body = { device_id: deviceId, fingerprint: fingerprint };
-            if (existingUid) body.existing_user_id = existingUid;
+            var curUid = _parseIntSafe(_safeGet(LS_USER_ID));
+            if (curUid) body.existing_user_id = curUid;
 
             var res = await fetch(API_BASE + '/api/user/by-device', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
             var data = await res.json();
-
             if (data && data.success && data.user_id) {
-                var newUid = Number(data.user_id);
-                // Пишем в localStorage, только если он реально изменился (или был пуст).
-                if (!existingUid || existingUid !== newUid) {
-                    _safeSet(LS_USER_ID, newUid);
-                    // Также синхронизируем cookie (использует app.js CONFIG getter).
-                    try {
-                        document.cookie = 'fredi_uid=' + newUid + ';path=/;max-age=315360000;SameSite=Lax';
-                    } catch (e) {}
-                    // Если voiceManager уже создан — мягко переобновляем ему userId.
-                    try {
-                        if (window.voiceManager) window.voiceManager.userId = newUid;
-                    } catch (e) {}
-                }
+                _applyUserId(data.user_id);
                 _safeSet(LS_AUTH_SYNCED, '1');
-                console.log('🔐 auth: user_id =', newUid, '| matched_by =', data.matched_by, '| is_new =', !!data.is_new);
-                return newUid;
+                console.log('🔐 auth(device): user_id =', data.user_id, '| matched_by =', data.matched_by);
+                return Number(data.user_id);
             }
-            console.warn('🔐 auth: нестандартный ответ, продолжаем с локальным ID', data);
-            return existingUid;
         } catch (e) {
-            // Сеть упала / бэк недоступен — не ломаем flow, работаем на локальном ID.
-            console.warn('🔐 auth: fetch failed, fallback to local ID', e);
-            return existingUid;
+            console.warn('🔐 auth(device): fetch failed, using local ID', e);
         }
+        return _parseIntSafe(_safeGet(LS_USER_ID));
+    }
+
+    window.authReady = (async function () {
+        // Сначала пробуем серверную сессию — если юзер залогинен, он главнее device-ID.
+        var me = await _tryAuthMe();
+        if (me) {
+            _applyUserId(me.user_id);
+            try { window.CURRENT_USER_EMAIL = me.email || ''; } catch (e) {}
+            try { window.CURRENT_USER_NAME = me.name || ''; } catch (e) {}
+            try { window.IS_AUTHENTICATED = true; } catch (e) {}
+            _safeSet(LS_AUTH_SYNCED, '1');
+            console.log('🔐 auth: signed in as', me.email, 'user_id =', me.user_id);
+            // Параллельно обновим last_seen устройства (но user_id НЕ меняем).
+            _syncByDevice().catch(function () {});
+            return Number(me.user_id);
+        }
+
+        // Нет активной сессии — работаем как раньше, через device_id.
+        try { window.IS_AUTHENTICATED = false; } catch (e) {}
+        return await _syncByDevice();
     })();
 
-    // Публичный API (для диагностики).
+    // Публичный API (для диагностики и UI-модулей).
     window.getDeviceId = function () { return _safeGet(LS_DEVICE_ID); };
+    window.refreshAuth = async function () {
+        var me = await _tryAuthMe();
+        if (me) {
+            _applyUserId(me.user_id);
+            try { window.CURRENT_USER_EMAIL = me.email || ''; } catch (e) {}
+            try { window.CURRENT_USER_NAME = me.name || ''; } catch (e) {}
+            try { window.IS_AUTHENTICATED = true; } catch (e) {}
+            return me;
+        }
+        try { window.IS_AUTHENTICATED = false; } catch (e) {}
+        return null;
+    };
 
     console.log('✅ auth.js v1.0 загружен, device_id =', deviceId);
 })();

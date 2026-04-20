@@ -34,3 +34,7 @@ webrtcvad>=2.0.0
 
 # Push-уведомления
 pywebpush==2.0.0
+
+# Auth (email+password)
+argon2-cffi==23.1.0
+email-validator==2.1.0
