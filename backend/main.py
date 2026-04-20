@@ -439,6 +439,133 @@ async def log_requests(request: Request, call_next):
         logger.error(f"{request.method} {request.url.path} error={str(e)} duration={duration:.3f}s")
         raise
 
+
+# ============================================
+# METER GUARD — блокирует AI-вызовы бесплатным юзерам,
+# исчерпавшим лимит или находящимся в cooldown.
+# ============================================
+import re as _re_meter
+
+# Точные пути и префиксы (regex), где генерируется AI-контент и идут расходы по API.
+# Добавляй сюда новые AI-эндпоинты при появлении.
+_METER_AI_REGEX = _re_meter.compile(
+    r"^/api/(?:"
+    r"chat"
+    r"|voice/process"
+    r"|ai/generate"
+    r"|deep-analysis"
+    r"|hypno/support"
+    r"|psychologist-thoughts/generate"
+    r"|dreams/(?:interpret|clarify)"
+    r"|reality/(?:check|parse/.+)"
+    r"|brand/transformation"
+    r"|mirrors/(?:complete|[^/]+/complete)"
+    r"|morning/send-now"
+    r")(?:/.*)?$"
+)
+
+
+def _extract_user_id_from_body(body_bytes: bytes):
+    """Парсит user_id из JSON-тела (не поглощая его для downstream handler'а)."""
+    if not body_bytes:
+        return None
+    try:
+        data = json.loads(body_bytes.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in ("user_id", "uid", "userId"):
+        val = data.get(key)
+        if val is not None:
+            try:
+                n = int(val)
+                if n > 0:
+                    return n
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+@app.middleware("http")
+async def meter_guard_middleware(request: Request, call_next):
+    """Не пропускает AI-вызовы, если юзер превысил лимит/на cooldown и не имеет подписки."""
+    try:
+        # Быстрый выход для не-POST или нецелевых путей.
+        if request.method != "POST":
+            return await call_next(request)
+        path = request.url.path or ""
+        if not _METER_AI_REGEX.match(path):
+            return await call_next(request)
+
+        # Meter мог быть ещё не готов (ранний запрос при старте).
+        try:
+            from meter_routes import subscription_meter as _meter  # lazy
+        except Exception:
+            _meter = None
+        if _meter is None:
+            return await call_next(request)
+
+        # Определяем user_id: заголовок X-User-Id → тело.
+        user_id = None
+        uid_hdr = request.headers.get("X-User-Id") or request.headers.get("x-user-id")
+        if uid_hdr:
+            try:
+                n = int(str(uid_hdr).strip())
+                if n > 0:
+                    user_id = n
+            except (TypeError, ValueError):
+                pass
+
+        # Если в заголовке нет — парсим тело. Кешируем body, чтобы handler мог перечитать.
+        body_bytes = b""
+        if user_id is None:
+            try:
+                body_bytes = await request.body()
+                user_id = _extract_user_id_from_body(body_bytes)
+            except Exception:
+                body_bytes = b""
+
+            async def _replay_receive():
+                return {"type": "http.request", "body": body_bytes, "more_body": False}
+
+            request._receive = _replay_receive  # подменяем, чтобы downstream тоже прочитал
+
+        if user_id is None:
+            # Анонимный вызов без идентификатора — не блокируем,
+            # но и считать расход некому. Пропускаем (legacy).
+            return await call_next(request)
+
+        try:
+            can_send, status = await _meter.can_send_message(int(user_id))
+        except Exception as e:
+            logger.warning(f"meter_guard: can_send check failed: {e}")
+            return await call_next(request)
+
+        if can_send:
+            return await call_next(request)
+
+        logger.info(
+            f"🚫 meter_guard: blocked {path} for user_id={user_id} "
+            f"cooldown={status.get('is_on_cooldown')} "
+            f"remaining={status.get('remaining_cooldown_minutes')}"
+        )
+        return JSONResponse(
+            status_code=402,
+            content={
+                "success": False,
+                "error": "METER_BLOCKED",
+                "can_send": False,
+                "is_on_cooldown": status.get("is_on_cooldown", False),
+                "remaining_cooldown_minutes": status.get("remaining_cooldown_minutes", 0),
+                "next_session_limit_minutes": status.get("next_session_limit_minutes"),
+                "message": "Фреди отдыхает. Оформи подписку или подожди, пока восстановится.",
+            },
+        )
+    except Exception as e:
+        logger.error(f"meter_guard_middleware failure: {e}")
+        return await call_next(request)
+
 # ============================================
 # WEBSOCKET ЭНДПОИНТ
 # ============================================
