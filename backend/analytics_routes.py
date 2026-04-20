@@ -443,4 +443,70 @@ def register_analytics_routes(app, db):
             logger.error(f"analytics user error: {e}")
             return {"error": "internal"}
 
+    @app.get("/api/analytics/messages")
+    async def analytics_messages(request: Request, limit: int = 100,
+                                  x_admin_token: Optional[str] = Header(default=None)):
+        """Последние N вопросов от юзеров (только role='user')."""
+        _check_admin(x_admin_token)
+        try:
+            lim = max(1, min(int(limit), 500))
+            async with db.get_connection() as conn:
+                rows = await conn.fetch(
+                    "SELECT m.id, m.user_id, m.role, m.content, m.metadata, m.created_at, "
+                    "       COALESCE(c.name, '') AS user_name "
+                    "FROM fredi_messages m "
+                    "LEFT JOIN fredi_user_contexts c ON c.user_id = m.user_id "
+                    "WHERE m.role = 'user' "
+                    "ORDER BY m.id DESC LIMIT $1", lim
+                )
+            return {
+                "messages": [{
+                    "id": r["id"],
+                    "user_id": r["user_id"],
+                    "user_name": r["user_name"] or "",
+                    "role": r["role"],
+                    "content": r["content"],
+                    "metadata": (json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                                 else (r["metadata"] or {})),
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                } for r in rows]
+            }
+        except Exception as e:
+            logger.error(f"analytics messages error: {e}")
+            return {"error": "internal"}
+
+    @app.get("/api/analytics/messages/user/{user_id}")
+    async def analytics_messages_user(request: Request, user_id: int, limit: int = 200,
+                                        x_admin_token: Optional[str] = Header(default=None)):
+        """Полный диалог одного юзера (user + assistant)."""
+        _check_admin(x_admin_token)
+        try:
+            lim = max(1, min(int(limit), 1000))
+            async with db.get_connection() as conn:
+                name = await conn.fetchval(
+                    "SELECT name FROM fredi_user_contexts WHERE user_id = $1", int(user_id)
+                )
+                rows = await conn.fetch(
+                    "SELECT id, role, content, metadata, created_at FROM fredi_messages "
+                    "WHERE user_id = $1 ORDER BY id DESC LIMIT $2", int(user_id), lim
+                )
+            # Разворачиваем: старые → новые, чтобы в UI читалось как чат.
+            messages = [{
+                "id": r["id"],
+                "role": r["role"],
+                "content": r["content"],
+                "metadata": (json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                             else (r["metadata"] or {})),
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            } for r in rows]
+            messages.reverse()
+            return {
+                "user_id": user_id,
+                "user_name": name or "",
+                "messages": messages,
+            }
+        except Exception as e:
+            logger.error(f"analytics messages user error: {e}")
+            return {"error": "internal"}
+
     return init_analytics_table

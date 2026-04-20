@@ -75,6 +75,7 @@
     <div class="nav" id="navBar" style="display:none">
         <button data-tab="summary" class="active">Сводка (7 дней)</button>
         <button data-tab="recent">Последние события</button>
+        <button data-tab="dialogs">Диалоги</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
     </div>
 
@@ -127,6 +128,34 @@
         <h2>Последние 100 событий</h2>
         <div id="recentTable"></div>
     </section>
+
+    <section id="dialogsTab" style="display:none">
+        <h2>⚠️ Личные диалоги пользователей</h2>
+        <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:12px;padding:12px 14px;margin-bottom:16px;font-size:12px;line-height:1.5;color:var(--text-dim)">
+            <b style="color:var(--error)">Внимание:</b> здесь видны реальные сообщения пользователей психологу. Используй ответственно: никому не пересылать, не обсуждать с третьими лицами, не публиковать фрагменты без обезличивания. Проверь, что в Политике конфиденциальности указано, что разработчик может просматривать содержимое для улучшения сервиса.
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+            <button id="refreshDialogs" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄 Обновить</button>
+            <input id="userIdJump" type="text" inputmode="numeric" placeholder="user_id → открыть диалог" style="flex:1;min-width:220px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit">
+            <button id="userIdJumpBtn" style="padding:8px 14px;border-radius:8px;border:none;background:var(--accent);color:#fff;font:inherit;cursor:pointer">Открыть</button>
+        </div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin-bottom:8px">Последние 100 вопросов</h3>
+        <div id="messagesList"></div>
+    </section>
+
+    <!-- Dialog drawer -->
+    <div id="dialogOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">
+                <div>
+                    <div id="dialogTitle" style="font-weight:700;font-size:15px">Диалог</div>
+                    <div id="dialogSub" style="font-size:11px;color:var(--text-dim);margin-top:2px"></div>
+                </div>
+                <button id="dialogClose" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);cursor:pointer;font:inherit">✕</button>
+            </div>
+            <div id="dialogMessages" style="flex:1;overflow-y:auto;padding:14px 18px;background:rgba(0,0,0,0.02)"></div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -186,15 +215,21 @@
         document.getElementById('loading').style.display = 'block';
         document.getElementById('summaryTab').style.display = 'none';
         document.getElementById('recentTab').style.display = 'none';
+        var dlgTab = document.getElementById('dialogsTab');
+        if (dlgTab) dlgTab.style.display = 'none';
         try {
             if (currentTab === 'summary') {
                 var d = await _fetch('/api/analytics/summary');
                 renderSummary(d);
                 document.getElementById('summaryTab').style.display = 'block';
-            } else {
+            } else if (currentTab === 'recent') {
                 var r = await _fetch('/api/analytics/recent?limit=100');
                 renderRecent(r);
                 document.getElementById('recentTab').style.display = 'block';
+            } else if (currentTab === 'dialogs') {
+                var m = await _fetch('/api/analytics/messages?limit=100');
+                renderMessagesList(m);
+                if (dlgTab) dlgTab.style.display = 'block';
             }
         } catch (e) {
             _err(e.message || 'Ошибка');
@@ -351,6 +386,104 @@
             '<table><thead><tr><th style="width:140px">Время</th><th>Событие</th><th style="width:140px">User</th><th style="width:100px">Экран</th><th>Данные</th></tr></thead>' +
             '<tbody>'+rows+'</tbody></table>';
     }
+
+    // =============== Диалоги ===============
+
+    function renderMessagesList(d){
+        var events = (d && d.messages) || [];
+        if (!events.length) {
+            document.getElementById('messagesList').innerHTML = '<div class="empty">Нет вопросов за этот период</div>';
+            return;
+        }
+        var rows = events.map(function(m){
+            var ts = new Date(m.created_at);
+            var t = ts.toLocaleString('ru-RU');
+            var preview = _esc(String(m.content || '').slice(0, 180));
+            if ((m.content || '').length > 180) preview += '…';
+            var userLabel = _esc(m.user_id || '—');
+            if (m.user_name) userLabel += ' <span style="color:var(--text-dim);font-weight:400">('+_esc(m.user_name)+')</span>';
+            var voiceMark = m.metadata && m.metadata.voice ? ' 🎤' : '';
+            return '<tr style="cursor:pointer" data-uid="'+_esc(m.user_id)+'">' +
+                '<td style="color:var(--text-dim);font-size:11px;white-space:nowrap">'+t+'</td>' +
+                '<td style="font-size:12px;font-family:\'SF Mono\',Menlo,Consolas,monospace">'+userLabel+voiceMark+'</td>' +
+                '<td style="font-size:13px;line-height:1.45">'+preview+'</td>' +
+                '</tr>';
+        }).join('');
+        document.getElementById('messagesList').innerHTML =
+            '<table><thead><tr><th style="width:130px">Время</th><th style="width:180px">User</th><th>Вопрос</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+            '<div style="font-size:11px;color:var(--text-dim);margin-top:8px">Кликни по строке — откроется полный диалог.</div>';
+
+        // row click → open dialog
+        document.querySelectorAll('#messagesList tr[data-uid]').forEach(function(tr){
+            tr.addEventListener('click', function(){
+                openDialog(tr.dataset.uid);
+            });
+            tr.addEventListener('mouseenter', function(){ tr.style.background = 'rgba(0,0,0,0.03)'; });
+            tr.addEventListener('mouseleave', function(){ tr.style.background = 'transparent'; });
+        });
+    }
+
+    async function openDialog(userId){
+        if (!userId) return;
+        var ov = document.getElementById('dialogOverlay');
+        ov.style.display = 'flex';
+        document.getElementById('dialogTitle').textContent = 'Диалог user_id=' + userId;
+        document.getElementById('dialogSub').textContent = 'Загружаю…';
+        document.getElementById('dialogMessages').innerHTML = '<div class="empty">Загрузка…</div>';
+        try {
+            var d = await _fetch('/api/analytics/messages/user/' + encodeURIComponent(userId) + '?limit=200');
+            renderDialog(d);
+        } catch (e) {
+            document.getElementById('dialogMessages').innerHTML = '<div class="err">Ошибка: ' + _esc(e.message || '') + '</div>';
+        }
+    }
+
+    function renderDialog(d){
+        var messages = (d && d.messages) || [];
+        document.getElementById('dialogSub').textContent =
+            (d.user_name ? d.user_name + ' • ' : '') + messages.length + ' сообщений';
+        if (!messages.length) {
+            document.getElementById('dialogMessages').innerHTML = '<div class="empty">Нет сообщений</div>';
+            return;
+        }
+        var html = messages.map(function(m){
+            var isUser = m.role === 'user';
+            var ts = m.created_at ? new Date(m.created_at).toLocaleString('ru-RU') : '';
+            var bg = isUser ? 'rgba(59,130,255,0.08)' : 'rgba(16,185,129,0.06)';
+            var border = isUser ? 'rgba(59,130,255,0.25)' : 'rgba(16,185,129,0.25)';
+            var align = isUser ? 'flex-end' : 'flex-start';
+            var roleLabel = isUser ? 'ТЫ' : (m.role === 'system' ? 'SYSTEM' : 'ФРЕДИ');
+            var voiceMark = m.metadata && m.metadata.voice ? ' 🎤' : '';
+            var text = _esc(String(m.content || '')).replace(/\n/g, '<br>');
+            return '<div style="display:flex;justify-content:'+align+';margin-bottom:10px">' +
+                '<div style="max-width:80%;background:'+bg+';border:1px solid '+border+';border-radius:14px;padding:10px 14px">' +
+                    '<div style="font-size:10px;font-weight:700;letter-spacing:0.4px;color:var(--text-dim);margin-bottom:4px">'+roleLabel+voiceMark+' <span style="font-weight:400;letter-spacing:normal">· '+ts+'</span></div>' +
+                    '<div style="font-size:13px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word">'+text+'</div>' +
+                '</div></div>';
+        }).join('');
+        document.getElementById('dialogMessages').innerHTML = html;
+        // autoscroll в конец
+        var container = document.getElementById('dialogMessages');
+        container.scrollTop = container.scrollHeight;
+    }
+
+    document.getElementById('dialogClose').addEventListener('click', function(){
+        document.getElementById('dialogOverlay').style.display = 'none';
+    });
+    document.getElementById('dialogOverlay').addEventListener('click', function(e){
+        if (e.target && e.target.id === 'dialogOverlay') this.style.display = 'none';
+    });
+    var refreshBtn = document.getElementById('refreshDialogs');
+    if (refreshBtn) refreshBtn.addEventListener('click', function(){ if (currentTab === 'dialogs') refresh(); });
+    var jumpInput = document.getElementById('userIdJump');
+    var jumpBtn = document.getElementById('userIdJumpBtn');
+    function _doJump(){
+        var v = (jumpInput.value || '').trim();
+        if (!v) return;
+        openDialog(v);
+    }
+    if (jumpBtn) jumpBtn.addEventListener('click', _doJump);
+    if (jumpInput) jumpInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); _doJump(); } });
 
     function _kvCard(label, value, sub){
         return '<div class="kv-card"><div class="label">'+label+'</div>' +
