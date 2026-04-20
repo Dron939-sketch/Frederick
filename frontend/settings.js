@@ -224,25 +224,25 @@
                     '<div class="st-profile-row"><span class="st-profile-label">Имя</span><span class="st-profile-value">' + (name || '—') + '</span></div>' +
                     '<div class="st-profile-row"><span class="st-profile-label">Email</span><span class="st-profile-value">' + (email || '—') + '</span></div>' +
                     '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' +
-                      '<button class="st-link-btn" id="acChangePass">Сменить пароль</button>' +
+                      '<button class="st-link-btn" id="acChangePass">Сменить пин-код</button>' +
                       '<button class="st-link-btn danger" id="acLogout">Выйти из аккаунта</button>' +
                     '</div>';
                 var cp = document.getElementById('acChangePass');
                 if (cp) cp.onclick = function () {
-                    var cur = window.prompt('Текущий пароль:');
+                    var cur = window.prompt('Текущий пин-код:');
                     if (!cur) return;
-                    var np = window.prompt('Новый пароль (мин. 8 символов):');
-                    if (!np || np.length < 8) { _toast('Пароль слишком короткий', 'error'); return; }
-                    var np2 = window.prompt('Повторите новый пароль:');
-                    if (np !== np2) { _toast('Пароли не совпадают', 'error'); return; }
+                    var np = window.prompt('Новый пин-код (4 цифры):');
+                    if (!/^\d{4}$/.test(np || '')) { _toast('Пин-код — ровно 4 цифры', 'error'); return; }
+                    var np2 = window.prompt('Повторите новый пин-код:');
+                    if (np !== np2) { _toast('Пин-коды не совпадают', 'error'); return; }
                     fetch(_api() + '/api/auth/change-password', {
                         method: 'POST', credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ current_password: cur, new_password: np })
                     }).then(function (r) { return r.json().catch(function () { return {}; }); })
                       .then(function (d) {
-                          if (d && d.success) _toast('Пароль изменён ✓', 'success');
-                          else _toast('Не удалось сменить пароль', 'error');
+                          if (d && d.success) _toast('Пин-код изменён ✓', 'success');
+                          else _toast('Не удалось сменить пин-код', 'error');
                       })
                       .catch(function () { _toast('Ошибка сети', 'error'); });
                 };

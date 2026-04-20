@@ -67,7 +67,7 @@
         var isRegister = (mode === 'register');
         var title = isRegister ? 'Создать аккаунт' : 'Вход';
         var subtitle = isRegister
-            ? 'Email станет вашим логином. Пароль и все данные останутся с вами на этом устройстве.'
+            ? 'Email станет вашим логином. Придумайте пин-код из 4 цифр.'
             : 'Войдите, чтобы работать с Фреди с любого устройства.';
 
         var nameField = isRegister
@@ -77,8 +77,8 @@
             : '';
 
         var passCheckField = isRegister
-            ? '<div class="fa-field"><label class="fa-label" for="faPass2">Повторите пароль</label>' +
-              '<input id="faPass2" class="fa-input" type="password" autocomplete="new-password" maxlength="72" />' +
+            ? '<div class="fa-field"><label class="fa-label" for="faPass2">Повторите пин-код</label>' +
+              '<input id="faPass2" class="fa-input" type="password" autocomplete="new-password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" />' +
               '<div class="fa-err" id="faErrPass2"></div></div>'
             : '';
 
@@ -99,8 +99,8 @@
                   '<input id="faEmail" class="fa-input" type="email" autocomplete="email" value="' + lastEmail.replace(/"/g, '&quot;') + '" maxlength="254" />' +
                   '<div class="fa-err" id="faErrEmail"></div>' +
                 '</div>' +
-                '<div class="fa-field"><label class="fa-label" for="faPass">Пароль</label>' +
-                  '<input id="faPass" class="fa-input" type="password" autocomplete="' + (isRegister ? 'new-password' : 'current-password') + '" maxlength="72" />' +
+                '<div class="fa-field"><label class="fa-label" for="faPass">Пин-код (4 цифры)</label>' +
+                  '<input id="faPass" class="fa-input" type="password" autocomplete="' + (isRegister ? 'new-password' : 'current-password') + '" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" />' +
                   '<div class="fa-err" id="faErrPass"></div>' +
                 '</div>' +
                 passCheckField +
@@ -109,7 +109,7 @@
                   '<button class="fa-btn fa-btn-primary" id="faSubmit">' + primaryLabel + '</button>' +
                   '<button class="fa-btn fa-btn-ghost" id="faSkip">Пропустить — продолжить без входа</button>' +
                 '</div>' +
-                '<div class="fa-info">Мы храним пароль в виде необратимого хеша (Argon2). Сессия защищена HttpOnly-cookie и живёт до 1 года.</div>' +
+                '<div class="fa-info">Пин-код хранится в виде необратимого хеша (Argon2). Сессия защищена HttpOnly-cookie и живёт до 1 года.</div>' +
               '</div></div>' +
             '</div>';
     }
@@ -136,13 +136,17 @@
 
         var ok = true;
         if (!_isEmail(email)) { _setErr('faErrEmail', 'Неверный формат email'); ok = false; }
-        if (password.length < 8) { _setErr('faErrPass', 'Минимум 8 символов'); ok = false; }
+        if (mode === 'register') {
+            if (!/^\d{4}$/.test(password)) { _setErr('faErrPass', 'Пин-код — 4 цифры'); ok = false; }
+        } else {
+            if (!password) { _setErr('faErrPass', 'Введите пин-код'); ok = false; }
+        }
 
         if (mode === 'register') {
             var name = (document.getElementById('faName').value || '').trim();
             var pass2 = document.getElementById('faPass2').value || '';
             if (!name) { _setErr('faErrName', 'Введите имя'); ok = false; }
-            if (pass2 !== password) { _setErr('faErrPass2', 'Пароли не совпадают'); ok = false; }
+            if (pass2 !== password) { _setErr('faErrPass2', 'Пин-коды не совпадают'); ok = false; }
             if (!ok) return;
 
             await _doRegister(name, email, password, remember);
@@ -224,9 +228,9 @@
         } else if (err === 'invalid_email') {
             _setErr('faErrEmail', msg || 'Неверный формат email');
         } else if (err === 'weak_password') {
-            _setErr('faErrPass', msg || 'Пароль слишком простой. Нужны буквы и цифры.');
+            _setErr('faErrPass', msg || 'Пин-код — ровно 4 цифры');
         } else if (err === 'invalid_credentials') {
-            _setErr('faErrPass', 'Неверный email или пароль');
+            _setErr('faErrPass', 'Неверный email или пин-код');
         } else if (err === 'rate_limited' || (data && data.detail && /rate/i.test(String(data.detail)))) {
             _setErr('faErrEmail', 'Слишком много попыток. Подождите минуту.');
         } else {
