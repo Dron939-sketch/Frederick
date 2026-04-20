@@ -1,19 +1,91 @@
 """
-analytics_routes.py — Lightweight analytics endpoint.
-Usage: from analytics_routes import register_analytics_routes
-       register_analytics_routes(app, db)
+analytics_routes.py — Lightweight analytics + admin endpoints.
+
+Фронт-события приходят батчем на /api/analytics/events.
+Серверные события пишем через log_server_event(db, user_id, event, data).
+Админ-эндпоинты защищены заголовком X-Admin-Token = env ADMIN_TOKEN.
 """
 
 import json
 import logging
+import os
 from datetime import datetime
-from fastapi import Request
+from typing import Optional, Dict, Any
+
+from fastapi import Request, HTTPException, Header
 
 logger = logging.getLogger(__name__)
+
+# Глобальная ссылка на db, чтобы log_server_event работал из любых модулей
+# без необходимости таскать db через все функции.
+_db_ref = None
+
+
+def _event_name(name: str) -> str:
+    return (name or "")[:50]
+
+
+def _screen_name(screen: str) -> str:
+    return (screen or "")[:50]
+
+
+def _sanitize_event_data(data: Any) -> Dict[str, str]:
+    """Отсечь мусор и ограничить размеры значений (защита от абьюза)."""
+    if not isinstance(data, dict):
+        return {}
+    safe: Dict[str, str] = {}
+    for k, v in list(data.items())[:20]:
+        safe[str(k)[:30]] = str(v)[:200]
+    return safe
+
+
+async def log_server_event(
+    user_id: Optional[int],
+    event: str,
+    data: Optional[Dict[str, Any]] = None,
+    screen: Optional[str] = None,
+    session_id: str = "server",
+):
+    """Пишет серверное событие в fredi_analytics. Не кидает исключений
+    (логирует и продолжает — аналитика не должна ломать бизнес-логику)."""
+    if _db_ref is None:
+        return
+    try:
+        uid: Optional[int] = None
+        if user_id is not None:
+            try:
+                uid = int(user_id)
+                if uid <= 0:
+                    uid = None
+            except (ValueError, TypeError):
+                uid = None
+        safe = _sanitize_event_data(data or {})
+        async with _db_ref.get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO fredi_analytics "
+                "(user_id, session_id, event, screen, data) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                uid, session_id[:50], _event_name(event),
+                _screen_name(screen or ""),
+                json.dumps(safe, ensure_ascii=False),
+            )
+    except Exception as e:
+        logger.warning(f"log_server_event({event}) failed: {e}")
+
+
+def _check_admin(token: Optional[str]):
+    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail={"error": "admin_disabled",
+                                                      "message": "Админ-эндпоинты выключены: задайте ADMIN_TOKEN в env"})
+    if not token or token != expected:
+        raise HTTPException(status_code=401, detail={"error": "unauthorized"})
 
 
 def register_analytics_routes(app, db):
     """Register analytics endpoints."""
+    global _db_ref
+    _db_ref = db
 
     async def init_analytics_table():
         async with db.get_connection() as conn:
@@ -36,11 +108,15 @@ def register_analytics_routes(app, db):
                 "CREATE INDEX IF NOT EXISTS idx_fredi_analytics_event "
                 "ON fredi_analytics(event, created_at DESC)"
             )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fredi_analytics_created "
+                "ON fredi_analytics(created_at DESC)"
+            )
         logger.info("Analytics table ready")
 
     @app.post("/api/analytics/events")
     async def receive_events(request: Request):
-        """Receive a batch of analytics events (fire-and-forget from frontend)."""
+        """Приём батча фронт-событий (fire-and-forget)."""
         try:
             body = await request.body()
             if len(body) > 50000:
@@ -49,7 +125,6 @@ def register_analytics_routes(app, db):
             events = data.get("events", [])
             if not events or not isinstance(events, list):
                 return {"ok": False}
-            # Limit batch size
             events = events[:20]
             async with db.get_connection() as conn:
                 for ev in events:
@@ -58,22 +133,16 @@ def register_analytics_routes(app, db):
                         user_id = int(user_id) if user_id else None
                     except (ValueError, TypeError):
                         user_id = None
-                    event_name = str(ev.get("event", ""))[:50]
+                    event_name = _event_name(ev.get("event", ""))
                     session_id = str(ev.get("session_id", ""))[:50]
-                    screen = str(ev.get("screen", ""))[:50]
-                    event_data = ev.get("data", {})
-                    if not isinstance(event_data, dict):
-                        event_data = {}
-                    # Truncate data values
-                    safe_data = {}
-                    for k, v in list(event_data.items())[:20]:
-                        safe_data[str(k)[:30]] = str(v)[:200]
+                    screen = _screen_name(ev.get("screen", ""))
+                    safe_data = _sanitize_event_data(ev.get("data"))
                     await conn.execute(
                         "INSERT INTO fredi_analytics "
                         "(user_id, session_id, event, screen, data) "
                         "VALUES ($1, $2, $3, $4, $5)",
                         user_id, session_id, event_name, screen,
-                        json.dumps(safe_data, ensure_ascii=False)
+                        json.dumps(safe_data, ensure_ascii=False),
                     )
             return {"ok": True}
         except Exception as e:
@@ -81,54 +150,136 @@ def register_analytics_routes(app, db):
             return {"ok": False}
 
     @app.get("/api/analytics/summary")
-    async def analytics_summary(request: Request):
-        """Get aggregated analytics summary (last 7 days)."""
+    async def analytics_summary(request: Request,
+                                x_admin_token: Optional[str] = Header(default=None)):
+        """Агрегаты за 7 дней. Закрыт X-Admin-Token."""
+        _check_admin(x_admin_token)
         try:
             async with db.get_connection() as conn:
-                # Total events
                 total = await conn.fetchval(
                     "SELECT COUNT(*) FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days'"
                 )
-                # Unique users
                 users = await conn.fetchval(
                     "SELECT COUNT(DISTINCT user_id) FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' AND user_id IS NOT NULL"
                 )
-                # Events by type
                 rows = await conn.fetch(
                     "SELECT event, COUNT(*) as cnt "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
-                    "GROUP BY event ORDER BY cnt DESC LIMIT 20"
+                    "GROUP BY event ORDER BY cnt DESC LIMIT 30"
                 )
-                by_event = {r['event']: r['cnt'] for r in rows}
-                # Screens by popularity
+                by_event = [{"event": r["event"], "count": r["cnt"]} for r in rows]
                 screens = await conn.fetch(
                     "SELECT screen, COUNT(*) as cnt "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
                     "AND event = 'screen_view' AND screen != '' "
-                    "GROUP BY screen ORDER BY cnt DESC LIMIT 15"
+                    "GROUP BY screen ORDER BY cnt DESC LIMIT 20"
                 )
-                by_screen = {r['screen']: r['cnt'] for r in screens}
-                # Avg session duration
+                by_screen = [{"screen": r["screen"], "count": r["cnt"]} for r in screens]
                 avg_dur = await conn.fetchval(
                     "SELECT AVG((data->>'duration_sec')::int) "
                     "FROM fredi_analytics "
                     "WHERE event = 'session_end' "
                     "AND created_at > NOW() - INTERVAL '7 days'"
                 )
+                # Daily active users за 7 дней (день + уникальные user_id)
+                dau_rows = await conn.fetch(
+                    "SELECT DATE(created_at) AS day, "
+                    "COUNT(DISTINCT user_id) AS users, COUNT(*) AS events "
+                    "FROM fredi_analytics "
+                    "WHERE created_at > NOW() - INTERVAL '7 days' "
+                    "GROUP BY DATE(created_at) ORDER BY day"
+                )
+                dau = [{"day": r["day"].isoformat(), "users": r["users"],
+                        "events": r["events"]} for r in dau_rows]
+                # Воронка meter → subscribe
+                mbs = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_analytics "
+                    "WHERE event = 'meter_blocked_shown' "
+                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
+                msc = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_analytics "
+                    "WHERE event = 'meter_subscribe_clicked' "
+                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
+                sub_act = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_analytics "
+                    "WHERE event = 'subscription_activated' "
+                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
+                funnel = {
+                    "meter_blocked_shown": mbs,
+                    "meter_subscribe_clicked": msc,
+                    "subscription_activated": sub_act,
+                }
                 return {
                     "period": "7d",
                     "total_events": total or 0,
                     "unique_users": users or 0,
                     "avg_session_sec": round(avg_dur or 0),
                     "by_event": by_event,
-                    "by_screen": by_screen
+                    "by_screen": by_screen,
+                    "dau": dau,
+                    "funnel": funnel,
                 }
         except Exception as e:
             logger.error(f"analytics summary error: {e}")
+            return {"error": "internal"}
+
+    @app.get("/api/analytics/recent")
+    async def analytics_recent(request: Request, limit: int = 100,
+                               x_admin_token: Optional[str] = Header(default=None)):
+        """Последние N событий — для живой ленты."""
+        _check_admin(x_admin_token)
+        try:
+            lim = max(1, min(int(limit), 500))
+            async with db.get_connection() as conn:
+                rows = await conn.fetch(
+                    "SELECT id, user_id, session_id, event, screen, data, created_at "
+                    "FROM fredi_analytics ORDER BY id DESC LIMIT $1", lim
+                )
+            return {
+                "events": [{
+                    "id": r["id"],
+                    "user_id": r["user_id"],
+                    "session_id": r["session_id"],
+                    "event": r["event"],
+                    "screen": r["screen"],
+                    "data": (json.loads(r["data"]) if isinstance(r["data"], str)
+                             else (r["data"] or {})),
+                    "created_at": r["created_at"].isoformat(),
+                } for r in rows]
+            }
+        except Exception as e:
+            logger.error(f"analytics recent error: {e}")
+            return {"error": "internal"}
+
+    @app.get("/api/analytics/user/{user_id}")
+    async def analytics_user(request: Request, user_id: int, limit: int = 200,
+                             x_admin_token: Optional[str] = Header(default=None)):
+        """Timeline событий одного юзера."""
+        _check_admin(x_admin_token)
+        try:
+            lim = max(1, min(int(limit), 500))
+            async with db.get_connection() as conn:
+                rows = await conn.fetch(
+                    "SELECT id, event, screen, data, created_at FROM fredi_analytics "
+                    "WHERE user_id = $1 ORDER BY id DESC LIMIT $2", int(user_id), lim
+                )
+            return {
+                "user_id": user_id,
+                "events": [{
+                    "id": r["id"],
+                    "event": r["event"],
+                    "screen": r["screen"],
+                    "data": (json.loads(r["data"]) if isinstance(r["data"], str)
+                             else (r["data"] or {})),
+                    "created_at": r["created_at"].isoformat(),
+                } for r in rows]
+            }
+        except Exception as e:
+            logger.error(f"analytics user error: {e}")
             return {"error": "internal"}
 
     return init_analytics_table
