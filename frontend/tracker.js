@@ -29,8 +29,59 @@
     var _currentFeature=null;
     var _featureOpenedAt=0;
 
+    // ---- user attrs (для сегментации всех событий) ----
+    var _isPremium=null; // null = неизвестно; обновляется фоновым fetch
+
+    function _detectDevice(){
+        var ua=(navigator.userAgent||'').toLowerCase();
+        if(/ipad|tablet/.test(ua) || (window.innerWidth>=768 && window.innerWidth<=1024 && 'ontouchstart' in window)) return 'tablet';
+        if(/mobile|iphone|android|phone/.test(ua) || (window.innerWidth<768 && 'ontouchstart' in window)) return 'mobile';
+        return 'desktop';
+    }
+    function _isPwa(){
+        try{
+            return !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                || (window.navigator && window.navigator.standalone === true);
+        }catch(e){ return false; }
+    }
+    function _connType(){
+        try{ return (navigator.connection && navigator.connection.effectiveType) || ''; }catch(e){ return ''; }
+    }
+    function _getAttrs(){
+        var a={
+            is_authed: !!window.IS_AUTHENTICATED,
+            device: _detectDevice(),
+            pwa: _isPwa(),
+            lang: (navigator.language||'').slice(0,20),
+            connection: _connType(),
+            theme: (document.documentElement.getAttribute('data-theme')||'dark'),
+        };
+        if(_isPremium !== null) a.is_premium = !!_isPremium;
+        return a;
+    }
+
+    // Фоновая проверка is_premium, чтобы сегментировать фри/премиум юзеров.
+    async function _refreshPremium(){
+        var uid=UID();
+        if(!uid) return;
+        try{
+            var r=await fetch(API()+'/api/meter/status/'+uid, {credentials:'include'});
+            if(!r.ok) return;
+            var d=await r.json();
+            _isPremium=!!d.is_premium;
+        }catch(e){}
+    }
+
     function track(event,data){
-        var payload={user_id:UID(),session_id:SID,event:event,data:data||{},screen:_screen,ts:new Date().toISOString()};
+        var payload={
+            user_id:UID(),
+            session_id:SID,
+            event:event,
+            data:data||{},
+            attrs:_getAttrs(),
+            screen:_screen,
+            ts:new Date().toISOString()
+        };
         _queue.push(payload);
         _flush();
     }
@@ -221,6 +272,11 @@
     }else{
         _hookNav();
     }
+
+    // Подхватываем is_premium с небольшой задержкой, чтобы USER_ID успел проставиться.
+    setTimeout(_refreshPremium, 1500);
+    // И обновляем его раз в 5 минут, на случай оплаты во время сессии.
+    setInterval(_refreshPremium, 300000);
 
     // Public API
     window.FrediTracker={

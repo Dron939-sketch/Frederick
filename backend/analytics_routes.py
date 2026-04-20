@@ -39,15 +39,48 @@ def _sanitize_event_data(data: Any) -> Dict[str, str]:
     return safe
 
 
+# Whitelist user-level атрибутов: то что реально нужно для сегментации.
+# Всё остальное с клиента игнорируется (защита от абьюза и раздувания БД).
+_ALLOWED_ATTRS = {
+    "is_authed", "is_premium", "device", "pwa",
+    "lang", "connection", "theme", "channel",
+    "days_since_signup", "app_version",
+}
+
+
+def _sanitize_attrs(attrs: Any) -> Dict[str, Any]:
+    if not isinstance(attrs, dict):
+        return {}
+    safe: Dict[str, Any] = {}
+    for k in list(attrs.keys())[:20]:
+        if k not in _ALLOWED_ATTRS:
+            continue
+        v = attrs.get(k)
+        if isinstance(v, bool):
+            safe[k] = v
+        elif isinstance(v, (int, float)):
+            safe[k] = v
+        elif v is None:
+            continue
+        else:
+            safe[k] = str(v)[:50]
+    return safe
+
+
 async def log_server_event(
     user_id: Optional[int],
     event: str,
     data: Optional[Dict[str, Any]] = None,
     screen: Optional[str] = None,
     session_id: str = "server",
+    attrs: Optional[Dict[str, Any]] = None,
 ):
     """Пишет серверное событие в fredi_analytics. Не кидает исключений
-    (логирует и продолжает — аналитика не должна ломать бизнес-логику)."""
+    (логирует и продолжает — аналитика не должна ломать бизнес-логику).
+
+    Если attrs не переданы, но есть user_id — попробуем подтянуть
+    is_premium с meter_routes, чтобы серверные события тоже сегментировались.
+    """
     if _db_ref is None:
         return
     try:
@@ -59,15 +92,29 @@ async def log_server_event(
                     uid = None
             except (ValueError, TypeError):
                 uid = None
+
+        # Автоматически подкидываем is_premium для серверных событий, если uid есть.
+        enriched_attrs: Dict[str, Any] = dict(attrs or {})
+        if uid and "is_premium" not in enriched_attrs:
+            try:
+                from meter_routes import subscription_meter as _meter
+                if _meter is not None:
+                    is_prem = await _meter.has_active_subscription(uid)
+                    enriched_attrs["is_premium"] = bool(is_prem)
+            except Exception:
+                pass
+
         safe = _sanitize_event_data(data or {})
+        safe_attrs = _sanitize_attrs(enriched_attrs)
         async with _db_ref.get_connection() as conn:
             await conn.execute(
                 "INSERT INTO fredi_analytics "
-                "(user_id, session_id, event, screen, data) "
-                "VALUES ($1, $2, $3, $4, $5)",
+                "(user_id, session_id, event, screen, data, attrs) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
                 uid, session_id[:50], _event_name(event),
                 _screen_name(screen or ""),
                 json.dumps(safe, ensure_ascii=False),
+                json.dumps(safe_attrs, ensure_ascii=False),
             )
     except Exception as e:
         logger.warning(f"log_server_event({event}) failed: {e}")
@@ -97,9 +144,17 @@ def register_analytics_routes(app, db):
                     event TEXT NOT NULL,
                     screen TEXT,
                     data JSONB DEFAULT '{}',
+                    attrs JSONB DEFAULT '{}',
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
             """)
+            # Если таблица уже существовала без attrs — добавим.
+            try:
+                await conn.execute(
+                    "ALTER TABLE fredi_analytics ADD COLUMN IF NOT EXISTS attrs JSONB DEFAULT '{}'"
+                )
+            except Exception:
+                pass
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_fredi_analytics_user "
                 "ON fredi_analytics(user_id, created_at DESC)"
@@ -112,7 +167,15 @@ def register_analytics_routes(app, db):
                 "CREATE INDEX IF NOT EXISTS idx_fredi_analytics_created "
                 "ON fredi_analytics(created_at DESC)"
             )
-        logger.info("Analytics table ready")
+            # Частичные GIN-индексы на attrs — ускоряют сегментацию
+            try:
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_fredi_analytics_attrs_gin "
+                    "ON fredi_analytics USING GIN (attrs)"
+                )
+            except Exception:
+                pass
+        logger.info("Analytics table ready (with attrs column)")
 
     @app.post("/api/analytics/events")
     async def receive_events(request: Request):
@@ -137,12 +200,14 @@ def register_analytics_routes(app, db):
                     session_id = str(ev.get("session_id", ""))[:50]
                     screen = _screen_name(ev.get("screen", ""))
                     safe_data = _sanitize_event_data(ev.get("data"))
+                    safe_attrs = _sanitize_attrs(ev.get("attrs"))
                     await conn.execute(
                         "INSERT INTO fredi_analytics "
-                        "(user_id, session_id, event, screen, data) "
-                        "VALUES ($1, $2, $3, $4, $5)",
+                        "(user_id, session_id, event, screen, data, attrs) "
+                        "VALUES ($1, $2, $3, $4, $5, $6)",
                         user_id, session_id, event_name, screen,
                         json.dumps(safe_data, ensure_ascii=False),
+                        json.dumps(safe_attrs, ensure_ascii=False),
                     )
             return {"ok": True}
         except Exception as e:
@@ -246,6 +311,61 @@ def register_analytics_routes(app, db):
                     "SELECT COUNT(*) FROM fredi_analytics "
                     "WHERE event IN ('api_error','api_network_error','error','promise_unhandled') "
                     "AND created_at > NOW() - INTERVAL '7 days'") or 0
+                # Сегментация по ключевым attrs
+                seg_device_rows = await conn.fetch(
+                    "SELECT COALESCE(attrs->>'device','unknown') AS seg, "
+                    "COUNT(DISTINCT user_id) AS users, "
+                    "COUNT(*) AS events, "
+                    "AVG((data->>'duration_sec')::int) FILTER (WHERE event='session_end') AS avg_sec "
+                    "FROM fredi_analytics "
+                    "WHERE created_at > NOW() - INTERVAL '7 days' "
+                    "GROUP BY seg ORDER BY users DESC NULLS LAST"
+                )
+                by_device = [{
+                    "seg": r["seg"] or "unknown",
+                    "users": r["users"] or 0,
+                    "events": r["events"] or 0,
+                    "avg_session_sec": round(float(r["avg_sec"] or 0)),
+                } for r in seg_device_rows]
+
+                seg_plan_rows = await conn.fetch(
+                    "SELECT "
+                    "CASE WHEN (attrs->>'is_premium')::boolean THEN 'premium' "
+                    "ELSE 'free' END AS seg, "
+                    "COUNT(DISTINCT user_id) AS users, "
+                    "COUNT(*) AS events, "
+                    "AVG((data->>'duration_sec')::int) FILTER (WHERE event='session_end') AS avg_sec "
+                    "FROM fredi_analytics "
+                    "WHERE created_at > NOW() - INTERVAL '7 days' "
+                    "AND attrs ? 'is_premium' "
+                    "GROUP BY seg ORDER BY users DESC NULLS LAST"
+                )
+                by_plan = [{
+                    "seg": r["seg"],
+                    "users": r["users"] or 0,
+                    "events": r["events"] or 0,
+                    "avg_session_sec": round(float(r["avg_sec"] or 0)),
+                } for r in seg_plan_rows]
+
+                seg_authed_rows = await conn.fetch(
+                    "SELECT "
+                    "CASE WHEN (attrs->>'is_authed')::boolean THEN 'authed' "
+                    "ELSE 'anon' END AS seg, "
+                    "COUNT(DISTINCT user_id) AS users, "
+                    "COUNT(*) AS events, "
+                    "AVG((data->>'duration_sec')::int) FILTER (WHERE event='session_end') AS avg_sec "
+                    "FROM fredi_analytics "
+                    "WHERE created_at > NOW() - INTERVAL '7 days' "
+                    "AND attrs ? 'is_authed' "
+                    "GROUP BY seg ORDER BY users DESC NULLS LAST"
+                )
+                by_auth = [{
+                    "seg": r["seg"],
+                    "users": r["users"] or 0,
+                    "events": r["events"] or 0,
+                    "avg_session_sec": round(float(r["avg_sec"] or 0)),
+                } for r in seg_authed_rows]
+
                 return {
                     "period": "7d",
                     "total_events": total or 0,
@@ -258,6 +378,11 @@ def register_analytics_routes(app, db):
                     "features": features,
                     "dau": dau,
                     "funnel": funnel,
+                    "segments": {
+                        "device": by_device,
+                        "plan": by_plan,
+                        "auth": by_auth,
+                    },
                 }
         except Exception as e:
             logger.error(f"analytics summary error: {e}")
