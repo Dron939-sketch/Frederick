@@ -637,12 +637,12 @@
             var rows = Object.keys(byUser).map(function (k) {
                 var u = byUser[k];
                 var fieldsPretty = u.fields.join(', ');
-                return '<div class="st-profile-row" style="flex-direction:column;align-items:stretch;gap:6px">' +
+                return '<div class="st-profile-row" data-requester="' + k + '" style="flex-direction:column;align-items:stretch;gap:6px">' +
                     '<div><b>' + _escape(u.name) + '</b> <span style="color:var(--text-secondary);font-size:11px">#' + k + '</span></div>' +
                     '<div style="font-size:11px;color:var(--text-secondary)">Запрашивает: ' + _escape(fieldsPretty) + '</div>' +
                     '<div style="display:flex;gap:6px;margin-top:4px">' +
-                      '<button class="st-link-btn" data-reqids="' + u.ids.join(',') + '" data-action="granted" style="flex:1;background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.4)">✅ Разрешить</button>' +
-                      '<button class="st-link-btn danger" data-reqids="' + u.ids.join(',') + '" data-action="denied" style="flex:1">❌ Отклонить</button>' +
+                      '<button class="st-link-btn" data-reqids="' + u.ids.join(',') + '" data-requester="' + k + '" data-action="granted" style="flex:1;background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.4)">✅ Разрешить</button>' +
+                      '<button class="st-link-btn danger" data-reqids="' + u.ids.join(',') + '" data-requester="' + k + '" data-action="denied" style="flex:1">❌ Отклонить</button>' +
                     '</div>' +
                     '</div>';
             }).join('');
@@ -653,17 +653,28 @@
 
             el.querySelectorAll('button[data-reqids]').forEach(function (btn) {
                 btn.addEventListener('click', async function () {
-                    var ids = String(btn.dataset.reqids || '').split(',').filter(Boolean);
                     var action = btn.dataset.action;
+                    var requesterId = parseInt(btn.closest('[data-requester]')?.dataset.requester || '0', 10)
+                        || parseInt(btn.dataset.requester || '0', 10);
+                    // Фоллбек на старый механизм если вдруг структура упала
+                    var ids = String(btn.dataset.reqids || '').split(',').filter(Boolean);
                     btn.disabled = true;
                     btn.innerHTML = '⏳';
                     try {
-                        for (var i = 0; i < ids.length; i++) {
-                            await fetch(_api() + '/api/profile/access/' + ids[i] + '/resolve', {
+                        if (requesterId) {
+                            await fetch(_api() + '/api/profile/access/respond-all', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ user_id: uid, status: action })
+                                body: JSON.stringify({ user_id: uid, requester_id: requesterId, status: action })
                             });
+                        } else {
+                            for (var i = 0; i < ids.length; i++) {
+                                await fetch(_api() + '/api/profile/access/' + ids[i] + '/resolve', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ user_id: uid, status: action })
+                                });
+                            }
                         }
                         _toast(action === 'granted' ? '✅ Доступ разрешён' : '❌ Доступ отклонён',
                                action === 'granted' ? 'success' : 'info');

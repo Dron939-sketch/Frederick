@@ -1262,6 +1262,11 @@ async def init_database_tables():
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_chat_messages_chat ON fredi_chat_messages(chat_id, created_at)")
+        # metadata на сообщении — нужно для inline-кнопок (напр. запрос доступа к профилю)
+        try:
+            await conn.execute("ALTER TABLE fredi_chat_messages ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'")
+        except Exception:
+            pass
         # New table: fredi_user_data (shared with bots)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_user_data (
@@ -3513,7 +3518,8 @@ async def get_chat_messages(request: Request, chat_id: int, user_id: int, limit:
                 return {"success": False, "error": "Chat not found"}
 
             rows = await conn.fetch("""
-                SELECT id, sender_id as "fromUserId", text, is_read as "isRead", created_at as "createdAt"
+                SELECT id, sender_id as "fromUserId", text, metadata,
+                       is_read as "isRead", created_at as "createdAt"
                 FROM fredi_chat_messages
                 WHERE chat_id = $1
                 ORDER BY created_at DESC
@@ -3528,10 +3534,17 @@ async def get_chat_messages(request: Request, chat_id: int, user_id: int, limit:
 
         messages = []
         for r in rows:
+            meta = r["metadata"]
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    meta = {}
             messages.append({
                 "id": r["id"],
                 "fromUserId": r["fromUserId"],
                 "text": r["text"],
+                "metadata": meta or {},
                 "isRead": r["isRead"],
                 "createdAt": r["createdAt"].isoformat(),
                 "type": "text"
@@ -5430,6 +5443,102 @@ async def profile_access_resolve(request: Request, access_id: int):
         return {"success": False, "error": str(e)}
 
 
+@app.post("/api/profile/access/respond-all")
+@limiter.limit("30/minute")
+async def profile_access_respond_all(request: Request):
+    """
+    Владелец профиля одним кликом отвечает на ВСЕ pending-запросы от
+    конкретного requester'а: {user_id (owner), requester_id, status}.
+    Плюс обновляет связанное системное сообщение в чате, чтобы собеседник
+    сразу увидел результат без перезагрузки.
+    """
+    try:
+        data = await request.json()
+        owner = int(data.get("user_id") or 0)
+        requester = int(data.get("requester_id") or 0)
+        status = (data.get("status") or "").strip()
+        if status not in ("granted", "denied"):
+            return {"success": False, "error": "status must be granted|denied"}
+        if not owner or not requester or owner == requester:
+            return {"success": False, "error": "bad params"}
+
+        updated = 0
+        owner_name = "Пользователь"
+        async with db.get_connection() as conn:
+            res = await conn.execute("""
+                UPDATE fredi_profile_access
+                SET status = $3, resolved_at = NOW()
+                WHERE owner_id = $1 AND requester_id = $2 AND status = 'pending'
+            """, owner, requester, status)
+            try:
+                updated = int(str(res).split()[-1])
+            except Exception:
+                updated = 0
+
+            owner_row = await conn.fetchrow(
+                "SELECT name FROM fredi_user_contexts WHERE user_id = $1", owner
+            )
+            owner_name = (owner_row["name"] if owner_row else None) or "Пользователь"
+
+            # Обновляем системное сообщение access_request в чате обоих, чтобы
+            # собеседник увидел результат.
+            low, high = min(owner, requester), max(owner, requester)
+            chat_row = await conn.fetchrow(
+                "SELECT id FROM fredi_chats WHERE user_id_1 = $1 AND user_id_2 = $2",
+                low, high
+            )
+            if chat_row:
+                chat_id = chat_row["id"]
+                new_text = ("✅ Доступ к профилю открыт" if status == "granted"
+                            else "🔒 Запрос доступа отклонён")
+                new_meta = {"kind": f"access_{status}", "requester_id": requester, "owner_id": owner}
+                await conn.execute("""
+                    UPDATE fredi_chat_messages
+                    SET text = $3, metadata = $4::jsonb
+                    WHERE chat_id = $1
+                      AND sender_id = $2
+                      AND metadata ? 'kind'
+                      AND metadata->>'kind' = 'access_request'
+                """, chat_id, requester, new_text, json.dumps(new_meta, ensure_ascii=False))
+
+        # Уведомление requester'у (одно, не спам)
+        ntype = f"profile_access_{status}"
+        if status == "granted":
+            title = f"✅ {owner_name} открыл(а) профиль"
+            body = "Ты можешь посмотреть полный профиль."
+        else:
+            title = f"🔒 {owner_name} отклонил(а) запрос"
+            body = "Доступ к профилю не предоставлен."
+        await _push_notification(
+            requester, ntype, title, body,
+            {"owner_id": owner, "owner_name": owner_name}
+        )
+
+        # Analytics
+        try:
+            await log_server_event(owner, f"profile_access_{status}_all", {
+                "requester_id": requester, "fields_resolved": updated
+            })
+        except Exception:
+            pass
+
+        # Push
+        try:
+            if push_service and status == "granted":
+                await push_service.send_to_user(
+                    requester, title="✅ Доступ открыт",
+                    body=f"{owner_name} разрешил(а) посмотреть профиль",
+                    url="/?tab=messages"
+                )
+        except Exception:
+            pass
+
+        return {"success": True, "updated": updated, "status": status}
+    except Exception as e:
+        logger.error(f"profile_access_respond_all error: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @app.post("/api/profile/access/request-full")
 @limiter.limit("10/minute")
 async def profile_access_request_full(request: Request):
@@ -5505,13 +5614,17 @@ async def profile_access_request_full(request: Request):
 
                 if chat_id:
                     sys_text = (
-                        f"🔐 {requester_name} нашёл(ла) тебя в «Двойниках» и запросил(а) доступ к полному профилю. "
-                        f"Ответить: Настройки → 🔑 Аккаунт → Запросы на профиль."
+                        f"🔐 {requester_name} нашёл(ла) тебя в «Двойниках» и запросил(а) доступ к полному профилю."
                     )
+                    sys_meta = {
+                        "kind": "access_request",
+                        "requester_id": requester,
+                        "requester_name": requester_name,
+                    }
                     await conn.execute("""
-                        INSERT INTO fredi_chat_messages (chat_id, sender_id, text, created_at)
-                        VALUES ($1, $2, $3, NOW())
-                    """, chat_id, requester, sys_text)
+                        INSERT INTO fredi_chat_messages (chat_id, sender_id, text, metadata, created_at)
+                        VALUES ($1, $2, $3, $4::jsonb, NOW())
+                    """, chat_id, requester, sys_text, json.dumps(sys_meta, ensure_ascii=False))
                     await conn.execute(
                         "UPDATE fredi_chats SET last_message_text = $2, last_message_at = NOW() WHERE id = $1",
                         chat_id, sys_text[:200]

@@ -991,24 +991,20 @@ function _renderRequestsTab() {
 
     c.querySelectorAll('button[data-ids]').forEach(btn => {
         btn.addEventListener('click', async function () {
-            const ids = String(this.dataset.ids || '').split(',').filter(Boolean);
             const action = this.dataset.action;
             this.disabled = true;
             const orig = this.innerHTML;
             this.innerHTML = '⏳';
             try {
                 const uid = _msUserId();
-                for (const id of ids) {
-                    await fetch(_msApi() + `/api/profile/access/${id}/resolve`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ user_id: uid, status: action })
-                    });
-                }
+                const requesterId = parseInt(this.closest('[data-requester]').dataset.requester, 10);
+                // Одним запросом резолвим все поля сразу (раньше был цикл по ids).
+                await _msFetch('/api/profile/access/respond-all', {
+                    method: 'POST',
+                    body: JSON.stringify({ user_id: uid, requester_id: requesterId, status: action })
+                });
                 _msToast(action === 'granted' ? '✅ Доступ разрешён' : '❌ Запрос отклонён',
                          action === 'granted' ? 'success' : 'info');
-                // Убираем группу этого юзера из state, пере-рендерим.
-                const requesterId = parseInt(this.closest('[data-requester]').dataset.requester);
                 _msState.requests = (_msState.requests || []).filter(r => r.requester_id !== requesterId);
                 _updateBadge();
                 _renderMain();
@@ -1132,6 +1128,49 @@ async function _openChat(chatId) {
     document.getElementById('msSendBtn').onclick = send;
     document.getElementById('msChatInput').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 
+    // Inline action buttons для системных сообщений (запросы доступа к профилю).
+    // Делегируем клики на весь список — переживёт перерисовки после отправки.
+    document.getElementById('msMsgList').addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-respond]');
+        if (!btn) return;
+        const status = btn.dataset.respond; // 'granted' | 'denied'
+        const requesterId = parseInt(btn.dataset.requester, 10);
+        const msgId = btn.dataset.msgId;
+        if (!requesterId) return;
+        const row = btn.closest('.ms-msg-actions');
+        if (row) row.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);padding:6px 4px">⏳ Обрабатываю...</div>';
+        try {
+            const res = await _msFetch('/api/profile/access/respond-all', {
+                method: 'POST',
+                body: JSON.stringify({ user_id: _msUserId(), requester_id: requesterId, status })
+            });
+            if (res && res.success) {
+                _msToast(status === 'granted' ? '✅ Доступ разрешён' : '❌ Запрос отклонён',
+                         status === 'granted' ? 'success' : 'info');
+                // Обновляем текст сообщения в UI
+                const bubble = btn.closest('.ms-msg-bubble');
+                if (bubble) {
+                    const newText = status === 'granted' ? '✅ Доступ к профилю открыт' : '🔒 Запрос доступа отклонён';
+                    // Первый текстовый узел до .ms-msg-actions/.ms-msg-time — это текст сообщения
+                    const children = Array.from(bubble.childNodes);
+                    for (const node of children) {
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            node.textContent = newText;
+                            break;
+                        }
+                    }
+                }
+                if (row) row.remove();
+            } else {
+                _msToast('❌ Не удалось обработать', 'error');
+                if (row) row.innerHTML = `<button class="ms-notif-btn ms-notif-btn-accept" data-respond="granted" data-requester="${requesterId}" data-msg-id="${msgId}">✅ Разрешить</button><button class="ms-notif-btn ms-notif-btn-decline" data-respond="denied" data-requester="${requesterId}" data-msg-id="${msgId}">❌ Отклонить</button>`;
+            }
+        } catch (err) {
+            _msToast('Ошибка сети', 'error');
+            if (row) row.innerHTML = `<button class="ms-notif-btn ms-notif-btn-accept" data-respond="granted" data-requester="${requesterId}" data-msg-id="${msgId}">✅ Разрешить</button><button class="ms-notif-btn ms-notif-btn-decline" data-respond="denied" data-requester="${requesterId}" data-msg-id="${msgId}">❌ Отклонить</button>`;
+        }
+    });
+
     document.getElementById('msContactReq').onclick = async () => {
         try { await _msFetch(`/api/chats/${chatId}/contact`, { method: 'POST' }); _msToast('📞 Запрос отправлен', 'success'); }
         catch { _msToast('❌ Ошибка', 'error'); }
@@ -1206,9 +1245,23 @@ function _msMsgHtml(msg, isOwn) {
         }
     }
     const idAttr = msg.id != null ? ` data-msg-id="${_msEsc(String(msg.id))}"` : '';
+
+    // Inline-экшены для системного запроса доступа к профилю.
+    // Показываем ТОЛЬКО получателю (кому адресован запрос), т.е. когда !isOwn,
+    // и только если metadata.kind === 'access_request'.
+    let actionsHtml = '';
+    const meta = msg.metadata || {};
+    if (!isOwn && meta.kind === 'access_request' && meta.requester_id) {
+        actionsHtml = `<div class="ms-msg-actions" style="display:flex;gap:6px;margin-top:8px">
+            <button class="ms-notif-btn ms-notif-btn-accept" data-respond="granted" data-requester="${meta.requester_id}" data-msg-id="${msg.id}" style="flex:1">✅ Разрешить</button>
+            <button class="ms-notif-btn ms-notif-btn-decline" data-respond="denied" data-requester="${meta.requester_id}" data-msg-id="${msg.id}" style="flex:1">❌ Отклонить</button>
+        </div>`;
+    }
+
     return `<div class="ms-msg ${isOwn?'ms-msg-own':'ms-msg-other'}"${idAttr}>
         <div class="ms-msg-bubble">
             ${_msEsc(msg.text||'')}
+            ${actionsHtml}
             <div class="ms-msg-time">${_msTime(msg.createdAt)}${checkHtml}</div>
         </div>
     </div>`;
