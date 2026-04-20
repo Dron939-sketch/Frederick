@@ -13,6 +13,7 @@ Email/password аутентификация с поддержкой «Запом
 
 import hashlib
 import logging
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -68,6 +69,15 @@ class ChangePasswordIn(BaseModel):
 
 class MergeAnonIn(BaseModel):
     anon_user_id: int
+
+
+class ForgotPinIn(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class ResetPinIn(BaseModel):
+    token: str = Field(min_length=10, max_length=128)
+    new_pin: str = Field(min_length=4, max_length=4)
 
 
 # -------------------- Утилиты --------------------
@@ -138,13 +148,16 @@ async def _log_attempt(db, email: Optional[str], ip: str, ua: str, success: bool
 
 # -------------------- Создание router'а --------------------
 
-def create_auth_router(db, limiter) -> APIRouter:
+def create_auth_router(db, limiter, email_service=None) -> APIRouter:
     """
     Создаёт APIRouter с эндпоинтами /api/auth/*.
 
     Args:
         db: инстанс Database (с методами execute/fetchrow/fetchval/get_connection)
         limiter: slowapi Limiter для rate-limit.
+        email_service: опциональный EmailService — для /forgot-pin. Если None,
+                       /forgot-pin тихо ничего не отправит, но 200 вернёт
+                       (чтобы не палить наличие email на сервере).
     """
     router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -508,6 +521,143 @@ def create_auth_router(db, limiter) -> APIRouter:
 
         logger.info(f"🔗 merge-anon: {anon_uid} → {target_uid}, rows merged={merged_total}")
         return {"success": True, "merged": merged_total, "target_user_id": target_uid}
+
+    # -------------------- /forgot-pin --------------------
+
+    @router.post("/forgot-pin")
+    @limiter.limit("3/hour")
+    async def forgot_pin(request: Request, body: ForgotPinIn):
+        """Запрос на сброс пин-кода. Всегда отвечает 200 — чтобы не палить
+        наличие email в системе. Письмо уходит, только если email найден."""
+        ip = _client_ip(request)
+        ua = _user_agent(request)
+        try:
+            email = _normalize_email(body.email)
+        except HTTPException:
+            # Невалидный формат — всё равно молча отвечаем 200.
+            return {"success": True, "message": "Если email зарегистрирован, мы отправили инструкцию."}
+
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT user_id FROM fredi_users WHERE email = $1", email
+            )
+            if not row:
+                logger.info(f"🔐 forgot-pin: email не найден ({email}) — тихо 200")
+                return {"success": True, "message": "Если email зарегистрирован, мы отправили инструкцию."}
+
+            uid = int(row["user_id"])
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = _hash_token(raw_token)
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+            # Инвалидируем активные предыдущие токены для этого юзера —
+            # новый запрос гасит старые ссылки (защита от перепутывания).
+            await conn.execute(
+                "UPDATE fredi_password_resets SET used_at = NOW() "
+                "WHERE user_id = $1 AND used_at IS NULL",
+                uid,
+            )
+            await conn.execute(
+                """
+                INSERT INTO fredi_password_resets
+                    (token_hash, user_id, created_at, expires_at, ip_address, user_agent)
+                VALUES ($1, $2, NOW(), $3, $4, $5)
+                """,
+                token_hash, uid, expires_at, ip, ua,
+            )
+
+        # Формируем ссылку и отправляем письмо.
+        app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru").rstrip("/")
+        reset_link = f"{app_url}/?reset_pin={raw_token}"
+        if email_service is not None and getattr(email_service, "enabled", False):
+            sent = await email_service.send(
+                to=email,
+                subject="Сброс пин-кода Фреди",
+                body=(
+                    "Здравствуйте!\n\n"
+                    "Кто-то запросил сброс пин-кода для вашего аккаунта в Фреди.\n\n"
+                    f"Чтобы установить новый пин-код, перейдите по ссылке (действует 1 час):\n{reset_link}\n\n"
+                    "Если это были не вы — просто проигнорируйте письмо, ваш текущий пин-код останется прежним.\n\n"
+                    "— Фреди"
+                ),
+                html=(
+                    f"<p>Здравствуйте!</p>"
+                    f"<p>Кто-то запросил сброс пин-кода для вашего аккаунта в Фреди.</p>"
+                    f"<p>Чтобы установить новый пин-код, перейдите по ссылке "
+                    f"(<b>действует 1 час</b>):</p>"
+                    f'<p><a href="{reset_link}">{reset_link}</a></p>'
+                    f"<p>Если это были не вы — просто проигнорируйте письмо, "
+                    f"ваш текущий пин-код останется прежним.</p>"
+                    f"<p>— Фреди</p>"
+                ),
+            )
+            if not sent:
+                logger.warning(f"🔐 forgot-pin: email send failed for {email}")
+        else:
+            logger.warning(
+                f"🔐 forgot-pin: EmailService disabled, не отправлено письмо для {email}. "
+                f"Reset-link (для отладки): {reset_link}"
+            )
+
+        return {"success": True, "message": "Если email зарегистрирован, мы отправили инструкцию."}
+
+    # -------------------- /reset-pin --------------------
+
+    @router.post("/reset-pin")
+    @limiter.limit("10/hour")
+    async def reset_pin(request: Request, body: ResetPinIn):
+        """Применение токена сброса. Устанавливает новый пин и инвалидирует все сессии."""
+        ip = _client_ip(request)
+        ua = _user_agent(request)
+
+        if not _password_ok(body.new_pin):
+            raise HTTPException(status_code=400, detail={
+                "error": "weak_password",
+                "message": "Пин-код — ровно 4 цифры.",
+            })
+
+        token_hash = _hash_token(body.token.strip())
+
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT user_id, expires_at, used_at
+                FROM fredi_password_resets
+                WHERE token_hash = $1
+                """,
+                token_hash,
+            )
+            if not row:
+                raise HTTPException(status_code=400, detail={"error": "invalid_token",
+                                                              "message": "Ссылка недействительна."})
+            if row["used_at"] is not None:
+                raise HTTPException(status_code=400, detail={"error": "used_token",
+                                                              "message": "Ссылка уже использована."})
+            now = datetime.now(timezone.utc)
+            exp = row["expires_at"]
+            if exp is None or exp <= now:
+                raise HTTPException(status_code=400, detail={"error": "expired_token",
+                                                              "message": "Ссылка истекла. Запросите новую."})
+
+            uid = int(row["user_id"])
+            new_hash = _hasher.hash(body.new_pin)
+            await conn.execute(
+                "UPDATE fredi_users SET password_hash = $1, password_updated_at = NOW(), updated_at = NOW() "
+                "WHERE user_id = $2",
+                new_hash, uid,
+            )
+            await conn.execute(
+                "UPDATE fredi_password_resets SET used_at = NOW() WHERE token_hash = $1",
+                token_hash,
+            )
+            # Инвалидируем все активные сессии — после сброса юзер должен войти заново.
+            await conn.execute(
+                "DELETE FROM fredi_auth_sessions WHERE user_id = $1", uid
+            )
+
+        await _log_attempt(db, None, ip, ua, True, f"reset_pin:user_id={uid}")
+        logger.info(f"🔐 reset-pin: pin updated, sessions cleared for user_id={uid}")
+        return {"success": True}
 
     return router
 
