@@ -10,7 +10,6 @@ Email/password аутентификация с поддержкой «Запом
   с user_id без email — email привязывается к существующему user_id (сохраняем историю).
 - Rate-limit: 5/min на (IP+email) для login, 3/hour на IP для register.
 """
-from __future__ import annotations
 
 import hashlib
 import logging
