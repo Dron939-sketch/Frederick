@@ -86,6 +86,14 @@
         '<li><span>\uD83C\uDF05</span> \u041C\u043E\u0442\u0438\u0432\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 \u043F\u043E\u0441\u043B\u0430\u043D\u0438\u044F \u0438 \u0438\u0434\u0435\u0438 \u043D\u0430 \u0432\u044B\u0445\u043E\u0434\u043D\u044B\u0435</li>' +
         '</ul>';
 
+    function _track(event, data) {
+        try {
+            if (window.FrediTracker && window.FrediTracker.track) {
+                window.FrediTracker.track(event, data || {});
+            }
+        } catch (e) {}
+    }
+
     function showFatigueModal(data) {
         _injectMeterStyles();
         var existing = document.getElementById('meterOverlay');
@@ -94,6 +102,12 @@
         var isOnCooldown = data.is_on_cooldown;
         var remaining = data.remaining_cooldown_minutes || 0;
         var nextLimit = data.next_session_limit_minutes;
+
+        _track('meter_blocked_shown', {
+            is_on_cooldown: !!isOnCooldown,
+            remaining_cooldown_minutes: remaining,
+            next_session_limit_minutes: nextLimit
+        });
 
         var emoji, title, mainText, hintText;
 
@@ -133,9 +147,18 @@
             '</div>';
         document.body.appendChild(overlay);
 
-        document.getElementById('meterCloseBtn').onclick = function() { overlay.remove(); };
-        overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+        document.getElementById('meterCloseBtn').onclick = function() {
+            _track('meter_closed', { is_on_cooldown: !!isOnCooldown });
+            overlay.remove();
+        };
+        overlay.onclick = function(e) {
+            if (e.target === overlay) {
+                _track('meter_dismissed_outside', { is_on_cooldown: !!isOnCooldown });
+                overlay.remove();
+            }
+        };
         document.getElementById('meterSubscribeBtn').onclick = function() {
+            _track('meter_subscribe_clicked', { is_on_cooldown: !!isOnCooldown });
             overlay.remove();
             if (typeof showSettingsScreen === 'function') showSettingsScreen();
         };

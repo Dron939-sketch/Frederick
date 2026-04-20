@@ -146,6 +146,16 @@ async def _log_attempt(db, email: Optional[str], ip: str, ua: str, success: bool
         logger.warning(f"auth_attempts log failed: {e}")
 
 
+async def _track(user_id, event: str, data: Optional[dict] = None):
+    """Тонкая обёртка над analytics.log_server_event, чтобы auth_routes
+    не падал, если analytics ещё не инициализирован."""
+    try:
+        from analytics_routes import log_server_event
+        await log_server_event(user_id, event, data or {})
+    except Exception as e:
+        logger.debug(f"analytics track({event}) failed: {e}")
+
+
 # -------------------- Создание router'а --------------------
 
 def create_auth_router(db, limiter, email_service=None) -> APIRouter:
@@ -308,6 +318,7 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
 
         _set_session_cookie(response, raw, body.remember)
         await _log_attempt(db, email, ip, ua, True, "register")
+        await _track(uid, "auth_register_success", {"anon_merged": bool(anon_uid)})
         logger.info(f"🔐 register: user_id={uid} email={email} anon_merged={bool(anon_uid)}")
         return {"success": True, "user_id": uid, "email": email, "name": body.name.strip()}
 
@@ -373,6 +384,7 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
 
         _set_session_cookie(response, raw, body.remember)
         await _log_attempt(db, email, ip, ua, True, "login")
+        await _track(uid, "auth_login_success", {"remember": bool(body.remember)})
         logger.info(f"🔐 login: user_id={uid} remember={body.remember} has_anon={has_anon_data}")
         return {
             "success": True,
@@ -599,6 +611,7 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                 f"Reset-link (для отладки): {reset_link}"
             )
 
+        await _track(None, "auth_forgot_requested", {"email_found": bool(row) if 'row' in locals() else False})
         return {"success": True, "message": "Если email зарегистрирован, мы отправили инструкцию."}
 
     # -------------------- /reset-pin --------------------
@@ -656,6 +669,7 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
             )
 
         await _log_attempt(db, None, ip, ua, True, f"reset_pin:user_id={uid}")
+        await _track(uid, "auth_pin_reset", {})
         logger.info(f"🔐 reset-pin: pin updated, sessions cleared for user_id={uid}")
         return {"success": True}
 

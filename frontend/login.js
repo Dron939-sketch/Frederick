@@ -17,6 +17,9 @@
     function _safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
     function _safeSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} }
     function _toast(msg, t) { if (window.showToast) window.showToast(msg, t || 'info'); }
+    function _track(ev, data) {
+        try { if (window.FrediTracker && window.FrediTracker.track) window.FrediTracker.track(ev, data || {}); } catch (e) {}
+    }
 
     function _injectStyles() {
         if (document.getElementById('fa-auth-styles')) return;
@@ -195,6 +198,7 @@
             }
             _safeSet(LS_LAST_EMAIL, email);
             try { localStorage.setItem('fredi_user_id', data.user_id); } catch (e) {}
+            _track('register_success', { had_anon: !!_safeGet('fredi_user_id') });
             _toast('Аккаунт создан ✓', 'success');
             _closeModal();
             // Перечитаем серверную сессию и перезагрузим экран под новым user_id.
@@ -225,6 +229,7 @@
             }
             _safeSet(LS_LAST_EMAIL, email);
             try { localStorage.setItem('fredi_user_id', data.user_id); } catch (e) {}
+            _track('login_success', { remember: !!remember, has_anon_data: !!data.has_anon_data });
             _toast('Добро пожаловать, ' + (data.name || email) + '!', 'success');
             _closeModal();
 
@@ -406,6 +411,7 @@
                 return;
             }
             _safeSet(LS_LAST_EMAIL, email);
+            _track('forgot_pin_requested', {});
             _toast('Если email зарегистрирован, на него отправлена ссылка ✓', 'success');
             _closeModal();
         } catch (e) {
@@ -500,6 +506,7 @@
                 }
                 return;
             }
+            _track('pin_reset_success', {});
             _toast('Пин-код обновлён ✓ Войдите с новым пин-кодом.', 'success');
             _closeReset();
             setTimeout(function () { _open('login'); }, 300);

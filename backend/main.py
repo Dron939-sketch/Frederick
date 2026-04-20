@@ -62,6 +62,7 @@ from payment_routes import register_payment_routes
 from bot_routes import register_bot_routes
 from auth_routes import create_auth_router
 from email_service import EmailService
+from analytics_routes import register_analytics_routes, log_server_event
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -334,7 +335,9 @@ async def lifespan(app: FastAPI):
         global email_service
         email_service = EmailService()
         app.include_router(create_auth_router(db, limiter, email_service))
-        logger.info("✅ Таблицы готовы (включая платежи и auth)")
+        _init_analytics = register_analytics_routes(app, db)
+        await _init_analytics()
+        logger.info("✅ Таблицы готовы (включая платежи, auth и analytics)")
 
         logger.info("📦 Запуск фоновых задач...")
         background_tasks = [
@@ -550,6 +553,15 @@ async def meter_guard_middleware(request: Request, call_next):
             f"cooldown={status.get('is_on_cooldown')} "
             f"remaining={status.get('remaining_cooldown_minutes')}"
         )
+        # Аналитика: server-side fire-and-forget
+        try:
+            await log_server_event(user_id, "meter_blocked_server", {
+                "path": path,
+                "is_on_cooldown": status.get("is_on_cooldown", False),
+                "remaining_cooldown_minutes": status.get("remaining_cooldown_minutes", 0),
+            })
+        except Exception:
+            pass
         return JSONResponse(
             status_code=402,
             content={
