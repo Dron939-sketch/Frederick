@@ -196,6 +196,10 @@ def register_analytics_routes(app, db):
                 dau = [{"day": r["day"].isoformat(), "users": r["users"],
                         "events": r["events"]} for r in dau_rows]
                 # Воронка meter → subscribe
+                mws = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_analytics "
+                    "WHERE event IN ('meter_warning_server','meter_warning_shown') "
+                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
                 mbs = await conn.fetchval(
                     "SELECT COUNT(*) FROM fredi_analytics "
                     "WHERE event = 'meter_blocked_shown' "
@@ -209,17 +213,49 @@ def register_analytics_routes(app, db):
                     "WHERE event = 'subscription_activated' "
                     "AND created_at > NOW() - INTERVAL '7 days'") or 0
                 funnel = {
+                    "meter_warning": mws,
                     "meter_blocked_shown": mbs,
                     "meter_subscribe_clicked": msc,
                     "subscription_activated": sub_act,
                 }
+                # Средняя длительность фич (feature_closed.duration_sec)
+                feat_rows = await conn.fetch(
+                    "SELECT (data->>'feature') AS feature, "
+                    "AVG((data->>'duration_sec')::int) AS avg_sec, "
+                    "COUNT(*) AS opens "
+                    "FROM fredi_analytics "
+                    "WHERE event = 'feature_closed' "
+                    "AND created_at > NOW() - INTERVAL '7 days' "
+                    "AND data ? 'feature' AND data ? 'duration_sec' "
+                    "GROUP BY feature ORDER BY avg_sec DESC NULLS LAST LIMIT 20"
+                )
+                features = [{
+                    "feature": r["feature"],
+                    "avg_sec": round(float(r["avg_sec"] or 0), 1),
+                    "opens": r["opens"],
+                } for r in feat_rows]
+                # Среднее latency_ms для AI-ответов (индикатор качества UX)
+                ai_lat = await conn.fetchval(
+                    "SELECT AVG((data->>'latency_ms')::int) FROM fredi_analytics "
+                    "WHERE event = 'ai_response_received' "
+                    "AND data ? 'latency_ms' "
+                    "AND created_at > NOW() - INTERVAL '7 days'"
+                )
+                # Счёт ошибок API за неделю
+                api_err = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_analytics "
+                    "WHERE event IN ('api_error','api_network_error','error','promise_unhandled') "
+                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
                 return {
                     "period": "7d",
                     "total_events": total or 0,
                     "unique_users": users or 0,
                     "avg_session_sec": round(avg_dur or 0),
+                    "ai_avg_latency_ms": round(ai_lat or 0),
+                    "api_errors_7d": api_err,
                     "by_event": by_event,
                     "by_screen": by_screen,
+                    "features": features,
                     "dau": dau,
                     "funnel": funnel,
                 }

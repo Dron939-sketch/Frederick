@@ -87,6 +87,9 @@
         <h2>Воронка подписки</h2>
         <div id="funnel"></div>
 
+        <h2>Фичи: средняя длительность и количество открытий</h2>
+        <div id="featuresTable"></div>
+
         <h2>События за 7 дней</h2>
         <div id="byEventTable"></div>
 
@@ -184,7 +187,9 @@
             _kvCard('Всего событий', d.total_events, 'за 7 дней') +
             _kvCard('Уникальных юзеров', d.unique_users, 'за 7 дней') +
             _kvCard('Ср. длит. сессии', _fmtSec(d.avg_session_sec), 'session_end') +
-            _kvCard('DAU (сегодня)', _todayDau(d.dau), 'Daily Active Users');
+            _kvCard('DAU (сегодня)', _todayDau(d.dau), 'Daily Active Users') +
+            _kvCard('AI latency (среднее)', (d.ai_avg_latency_ms || 0) + ' мс', 'ai_response_received') +
+            _kvCard('Ошибки за 7 дней', d.api_errors_7d || 0, 'api_error + js error');
 
         // Funnel
         var f = d.funnel || {};
@@ -202,11 +207,31 @@
                 '<div class="conv">'+conv+'</div>' +
             '</div>';
         }
-        html += row('Показ модалки meter', step1, step1);
-        html += row('Клик «Открыть подписку»', step2, step1);
-        html += row('Подписка активирована', step3, step2);
-        if (step1 === 0 && step2 === 0 && step3 === 0) html = '<div class="empty">Нет данных для воронки</div>';
+        var step0 = f.meter_warning || 0;
+        var baseForStart = step0 || step1;
+        html += row('Предупреждение (<5 мин)', step0, baseForStart);
+        html += row('Показ модалки meter', step1, baseForStart);
+        html += row('Клик «Открыть подписку»', step2, step1 || baseForStart);
+        html += row('Подписка активирована', step3, step2 || step1 || baseForStart);
+        if (!step0 && !step1 && !step2 && !step3) html = '<div class="empty">Нет данных для воронки</div>';
         document.getElementById('funnel').innerHTML = html;
+
+        // Features table
+        var feats = d.features || [];
+        if (!feats.length) document.getElementById('featuresTable').innerHTML = '<div class="empty">Нет данных (накопятся после первых feature_closed событий)</div>';
+        else {
+            var maxAvg = feats[0].avg_sec || 1;
+            var rfs = feats.map(function(x){
+                var w = maxAvg > 0 ? Math.round((x.avg_sec/maxAvg)*100) : 0;
+                return '<tr><td>'+_esc(x.feature)+'</td>' +
+                       '<td><div class="bar-wrap"><div class="bar-track"><div class="bar" style="width:'+w+'%"></div></div></div></td>' +
+                       '<td style="text-align:right;font-variant-numeric:tabular-nums">'+_fmtSec(Math.round(x.avg_sec))+'</td>' +
+                       '<td style="text-align:right;font-variant-numeric:tabular-nums">'+x.opens+'</td></tr>';
+            }).join('');
+            document.getElementById('featuresTable').innerHTML =
+                '<table><thead><tr><th>Фича</th><th></th><th style="text-align:right">Ср. время</th><th style="text-align:right">Открытий</th></tr></thead>' +
+                '<tbody>'+rfs+'</tbody></table>';
+        }
 
         // By event
         var e = d.by_event || [];

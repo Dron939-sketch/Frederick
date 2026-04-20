@@ -269,23 +269,35 @@ class PaymentService:
                 SELECT expires_at FROM fredi_subscriptions
                 WHERE user_id = $1 AND status = 'active'
             """, user_id)
-            
+
             if row and row["expires_at"] and row["expires_at"] > now:
                 new_expires = row["expires_at"] + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                is_renewal = True
                 logger.info(f"Extending subscription for user {user_id} from {row['expires_at']} to {new_expires}")
             else:
                 new_expires = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                is_renewal = False
                 logger.info(f"Creating new subscription for user {user_id} until {new_expires}")
-            
+
             await conn.execute("""
                 INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew)
                 VALUES ($1, 'active', $2, $3, TRUE)
                 ON CONFLICT (user_id) DO UPDATE SET
-                    status = 'active', 
+                    status = 'active',
                     expires_at = $3,
                     auto_renew = TRUE,
                     updated_at = NOW()
             """, user_id, now, new_expires)
+
+        # Analytics: ключевое событие воронки.
+        try:
+            from analytics_routes import log_server_event
+            await log_server_event(user_id, "subscription_activated", {
+                "is_renewal": bool(is_renewal),
+                "expires_at": new_expires.isoformat(),
+            })
+        except Exception as e:
+            logger.debug(f"analytics track(subscription_activated) failed: {e}")
 
     async def process_webhook(self, event: str, payment_obj: Dict) -> Dict[str, Any]:
         yookassa_id = payment_obj.get("id", "")

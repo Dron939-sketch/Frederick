@@ -92,6 +92,15 @@ def register_meter_routes(app, db, limiter):
                 remaining = status.get("remaining_minutes", 30)
                 if remaining is not None and remaining <= 5 and not status.get("is_premium"):
                     result["warning"] = True
+                    # Analytics: засекаем момент, когда юзер в зоне warning (<5 мин
+                    # до блока) — начало воронки конверсии.
+                    try:
+                        from analytics_routes import log_server_event
+                        await log_server_event(int(user_id), "meter_warning_server", {
+                            "remaining_minutes": float(remaining),
+                        })
+                    except Exception:
+                        pass
                 result["remaining_minutes"] = remaining
             return result
         except Exception as e:
