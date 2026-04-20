@@ -494,6 +494,7 @@ if (!window._msState) {
         tab:           'notifications',
         notifications: [],
         chats:         [],
+        requests:      [],
         unreadCount:   0
     };
 }
@@ -548,6 +549,14 @@ async function _loadNotifications() {
         if (d.success) _msState.notifications = d.notifications || [];
     } catch (e) { console.warn('notifications fetch:', e.message); }
     return _msState.notifications;
+}
+
+async function _loadRequests() {
+    try {
+        const d = await _msFetch('/api/profile/access/inbox');
+        if (d && d.success) _msState.requests = d.requests || [];
+    } catch (e) { console.warn('requests fetch:', e.message); }
+    return _msState.requests;
 }
 
 async function _loadChats() {
@@ -642,11 +651,56 @@ async function _shareContact(chatId) {
 function _updateBadge() {
     const badge = document.getElementById('messagesBadge');
     const unread = _msState.notifications.filter(n => !n.isRead).length;
-    const total  = (_msState.unreadCount || 0) + unread;
+    // Уникальные запрашивающие — один юзер просит доступ к N полям,
+    // но считаем его как одно «уведомление».
+    const reqUsers = new Set((_msState.requests || []).map(r => r.requester_id));
+    const total  = (_msState.unreadCount || 0) + unread + reqUsers.size;
     if (badge) {
         badge.style.display = total > 0 ? '' : 'none';
+        // Если в элементе нет внутреннего span'а — кладём число в сам badge.
         const span = badge.querySelector('.msg-badge');
         if (span) span.textContent = total > 99 ? '99+' : String(total);
+        else badge.textContent = total > 99 ? '99+' : String(total);
+    }
+
+    // Индикатор в свёрнутом виде (на мобильной кнопке ☰): красная точка,
+    // если есть что-то новое. Чтобы юзер видел сигнал даже с закрытым меню.
+    _updateMobileDot(total);
+}
+
+function _updateMobileDot(total) {
+    const btn = document.getElementById('mobileMenuBtn');
+    if (!btn) return;
+    let dot = document.getElementById('mobileMenuDot');
+    if (total > 0) {
+        if (!dot) {
+            // Инжектим стили один раз.
+            if (!document.getElementById('ms-mobdot-styles')) {
+                const s = document.createElement('style');
+                s.id = 'ms-mobdot-styles';
+                s.textContent = `
+                    #mobileMenuBtn { position: relative; }
+                    #mobileMenuDot {
+                        position: absolute; top: 4px; right: 4px;
+                        width: 10px; height: 10px; border-radius: 50%;
+                        background: #ff3b3b;
+                        box-shadow: 0 0 0 2px var(--bg-primary, #0a0a0a);
+                        pointer-events: none;
+                        animation: msMobDotPulse 2s ease-in-out infinite;
+                    }
+                    @keyframes msMobDotPulse {
+                        0%,100% { transform: scale(1); opacity: 1; }
+                        50% { transform: scale(1.25); opacity: 0.85; }
+                    }
+                `;
+                document.head.appendChild(s);
+            }
+            dot = document.createElement('span');
+            dot.id = 'mobileMenuDot';
+            btn.appendChild(dot);
+        }
+    } else if (dot) {
+        dot.remove();
     }
 }
 
@@ -660,6 +714,7 @@ function _renderMain() {
 
     const unreadNotif = _msState.notifications.filter(n => !n.isRead).length;
     const unreadChats = _msState.unreadCount;
+    const reqUsersCount = new Set((_msState.requests || []).map(r => r.requester_id)).size;
 
     c.innerHTML = `
         <div class="full-content-page">
@@ -679,7 +734,8 @@ function _renderMain() {
                     ${unreadChats>0?`<span class="ms-tab-badge">${unreadChats}</span>`:''}
                 </button>
                 <button class="ms-tab ${_msState.tab==='requests'?'active':''}" data-tab="requests">
-                    🎯 Запросы
+                    🔐 Запросы
+                    ${reqUsersCount>0?`<span class="ms-tab-badge">${reqUsersCount}</span>`:''}
                 </button>
             </div>
 
@@ -696,7 +752,8 @@ function _renderMain() {
     });
 
     // Грузим данные и рендерим вкладку
-    Promise.all([_loadNotifications(), _loadChats()]).then(() => {
+    Promise.all([_loadNotifications(), _loadChats(), _loadRequests()]).then(() => {
+        _updateBadge();
         if (_msState.tab === 'notifications') _renderNotifTab();
         else if (_msState.tab === 'chats')    _renderChatsTab();
         else                                  _renderRequestsTab();
@@ -851,11 +908,85 @@ function _renderChatsTab() {
 function _renderRequestsTab() {
     const c = document.getElementById('msTabContent');
     if (!c) return;
-    c.innerHTML = `<div class="ms-empty">
-        <div class="ms-empty-icon">🎯</div>
-        <div class="ms-empty-title">Активные запросы</div>
-        <div class="ms-empty-sub">Здесь будут ваши активные поиски и их статус</div>
-    </div>`;
+
+    const reqs = _msState.requests || [];
+    if (!reqs.length) {
+        c.innerHTML = `<div class="ms-empty">
+            <div class="ms-empty-icon">🔐</div>
+            <div class="ms-empty-title">Нет входящих запросов</div>
+            <div class="ms-empty-sub">Когда кто-то попросит доступ к твоему профилю — запрос появится здесь</div>
+        </div>`;
+        return;
+    }
+
+    // Группируем по requester_id (один юзер = один блок, поля перечислены списком).
+    const byUser = new Map();
+    reqs.forEach(r => {
+        const k = r.requester_id;
+        if (!byUser.has(k)) byUser.set(k, { name: r.requester_name, ids: [], fields: [], created_at: r.created_at });
+        byUser.get(k).ids.push(r.id);
+        byUser.get(k).fields.push(r.field);
+    });
+
+    const fieldLabels = {
+        phone: 'телефон', email: 'email', telegram: 'Telegram',
+        instagram: 'Instagram', occupation: 'работа', bio: 'био',
+    };
+    const prettyField = f => fieldLabels[f] || f;
+
+    const html = Array.from(byUser.entries()).map(([uid, u]) => {
+        const fieldsText = u.fields.map(prettyField).join(', ');
+        const when = u.created_at ? new Date(u.created_at).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) : '';
+        return `
+        <div class="ms-notif-item unread" data-requester="${uid}">
+            <div class="ms-notif-top">
+                <div class="ms-notif-title">🔐 ${_msEsc(u.name)} просит доступ</div>
+                ${when ? `<div class="ms-notif-time">${when}</div>` : ''}
+            </div>
+            <div class="ms-notif-body">Запрашивает: ${_msEsc(fieldsText)}</div>
+            <div class="ms-notif-actions">
+                <button class="ms-notif-btn ms-notif-btn-accept" data-action="granted" data-ids="${u.ids.join(',')}">✅ Разрешить</button>
+                <button class="ms-notif-btn ms-notif-btn-decline" data-action="denied" data-ids="${u.ids.join(',')}">❌ Отклонить</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    c.innerHTML = `
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.4">
+            🔐 Эти люди нашли тебя в «Двойниках» и просят доступ к полному профилю (контакты, соцсети).
+        </div>
+        ${html}`;
+
+    c.querySelectorAll('button[data-ids]').forEach(btn => {
+        btn.addEventListener('click', async function () {
+            const ids = String(this.dataset.ids || '').split(',').filter(Boolean);
+            const action = this.dataset.action;
+            this.disabled = true;
+            const orig = this.innerHTML;
+            this.innerHTML = '⏳';
+            try {
+                const uid = _msUserId();
+                for (const id of ids) {
+                    await fetch(_msApi() + `/api/profile/access/${id}/resolve`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: uid, status: action })
+                    });
+                }
+                _msToast(action === 'granted' ? '✅ Доступ разрешён' : '❌ Запрос отклонён',
+                         action === 'granted' ? 'success' : 'info');
+                // Убираем группу этого юзера из state, пере-рендерим.
+                const requesterId = parseInt(this.closest('[data-requester]').dataset.requester);
+                _msState.requests = (_msState.requests || []).filter(r => r.requester_id !== requesterId);
+                _updateBadge();
+                _renderMain();
+            } catch (e) {
+                _msToast('Ошибка сети', 'error');
+                this.disabled = false;
+                this.innerHTML = orig;
+            }
+        });
+    });
 }
 
 // ============================================
@@ -1079,11 +1210,11 @@ function _msConfirm(title, sub) {
 // ИНИЦИАЛИЗАЦИЯ БЕЙДЖА (вызывается из app.js)
 // ============================================
 function _initBadge() {
-    _loadNotifications().then(_loadChats).then(_updateBadge).catch(() => {});
+    Promise.all([_loadNotifications(), _loadChats(), _loadRequests()]).then(_updateBadge).catch(() => {});
     // Обновляем бейдж каждые 60 секунд
     if (!window._msBadgeTimer) {
         window._msBadgeTimer = setInterval(() => {
-            _loadNotifications().then(_loadChats).then(_updateBadge).catch(() => {});
+            Promise.all([_loadNotifications(), _loadChats(), _loadRequests()]).then(_updateBadge).catch(() => {});
         }, 60000);
     }
 }
