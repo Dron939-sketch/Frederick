@@ -43,7 +43,10 @@ function urlBase64ToUint8Array(base64String) {
 async function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return null;
     try {
-        const reg = await navigator.serviceWorker.register('/service_worker.js');
+        // Относительный путь работает и в корне (Frederick deploy),
+        // и в подпапке /fredi/ (github.io). При абсолютном "/service_worker.js"
+        // во втором случае был 404, т.к. файл лежит в /fredi/.
+        const reg = await navigator.serviceWorker.register('./service_worker.js');
         console.log('✅ Service Worker зарегистрирован');
         return reg;
     } catch(e) {
