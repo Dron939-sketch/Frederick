@@ -87,6 +87,9 @@
         <h2>Воронка подписки</h2>
         <div id="funnel"></div>
 
+        <h2>Сегменты (по атрибутам юзеров)</h2>
+        <div id="segments"></div>
+
         <h2>Фичи: средняя длительность и количество открытий</h2>
         <div id="featuresTable"></div>
 
@@ -215,6 +218,30 @@
         html += row('Подписка активирована', step3, step2 || step1 || baseForStart);
         if (!step0 && !step1 && !step2 && !step3) html = '<div class="empty">Нет данных для воронки</div>';
         document.getElementById('funnel').innerHTML = html;
+
+        // Segments
+        var seg = d.segments || {};
+        function renderSegmentTable(title, data){
+            if (!data || !data.length) return '';
+            var maxU = data.reduce(function(m,x){return Math.max(m,x.users||0)},0) || 1;
+            var rows = data.map(function(x){
+                var wu = Math.round(((x.users||0)/maxU)*100);
+                return '<tr><td>'+_esc(x.seg)+'</td>' +
+                       '<td><div class="bar-wrap"><div class="bar-track"><div class="bar" style="width:'+wu+'%"></div></div></div></td>' +
+                       '<td style="text-align:right;font-variant-numeric:tabular-nums">'+(x.users||0)+'</td>' +
+                       '<td style="text-align:right;font-variant-numeric:tabular-nums">'+(x.events||0)+'</td>' +
+                       '<td style="text-align:right;font-variant-numeric:tabular-nums">'+_fmtSec(x.avg_session_sec||0)+'</td></tr>';
+            }).join('');
+            return '<div style="margin-bottom:18px">' +
+                '<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.3px">'+title+'</div>' +
+                '<table><thead><tr><th>Сегмент</th><th></th><th style="text-align:right">Юзеры</th><th style="text-align:right">События</th><th style="text-align:right">Ср. сессия</th></tr></thead>' +
+                '<tbody>'+rows+'</tbody></table></div>';
+        }
+        var segHtml = renderSegmentTable('По устройству', seg.device)
+                    + renderSegmentTable('По плану (premium/free)', seg.plan)
+                    + renderSegmentTable('По аутентификации', seg.auth);
+        document.getElementById('segments').innerHTML = segHtml ||
+            '<div class="empty">Накопятся после первых событий с attrs (юзеры на старой версии фронта шлют без атрибутов)</div>';
 
         // Features table
         var feats = d.features || [];
