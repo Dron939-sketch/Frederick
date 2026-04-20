@@ -1317,6 +1317,24 @@ async def init_database_tables():
                 )
             """)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_profile_access_owner_status ON fredi_profile_access(owner_id, status)")
+
+            # Уведомления пользователя (для вкладки «Уведомления» в Сообщениях).
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_notifications (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                    type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    body TEXT,
+                    data JSONB DEFAULT '{}',
+                    is_read BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fredi_notifications_user_unread "
+                "ON fredi_notifications(user_id, is_read, created_at DESC)"
+            )
         except Exception as e:
             logger.warning(f"profile/privacy migration warning: {e}")
 
@@ -3611,18 +3629,100 @@ async def mark_chat_read(request: Request, chat_id: int, user_id: Optional[int] 
 @app.get("/api/notifications")
 @limiter.limit("30/minute")
 async def get_notifications(request: Request, user_id: int):
-    """Get notifications (new chats, unread messages)."""
+    """Список уведомлений пользователя + счётчик непрочитанных чат-сообщений."""
     try:
         async with db.get_connection() as conn:
-            unread = await conn.fetchval("""
+            unread_chat = await conn.fetchval("""
                 SELECT COUNT(*) FROM fredi_chat_messages m
                 JOIN fredi_chats ch ON ch.id = m.chat_id
                 WHERE (ch.user_id_1 = $1 OR ch.user_id_2 = $1)
                   AND m.sender_id != $1 AND m.is_read = FALSE
             """, user_id) or 0
-        return {"success": True, "notifications": [], "unread_total": unread}
+
+            rows = await conn.fetch("""
+                SELECT id, type, title, body, data, is_read, created_at
+                FROM fredi_notifications
+                WHERE user_id = $1
+                ORDER BY id DESC
+                LIMIT 100
+            """, user_id)
+
+        notifications = []
+        for r in rows:
+            raw = r["data"]
+            if isinstance(raw, str):
+                try:
+                    data_obj = json.loads(raw)
+                except Exception:
+                    data_obj = {}
+            else:
+                data_obj = raw or {}
+            notifications.append({
+                "id": r["id"],
+                "type": r["type"],
+                "title": r["title"],
+                "body": r["body"] or "",
+                "data": data_obj,
+                "isRead": bool(r["is_read"]),
+                "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
+            })
+        return {"success": True, "notifications": notifications, "unread_total": unread_chat}
     except Exception as e:
+        logger.error(f"get_notifications error: {e}")
         return {"success": True, "notifications": [], "unread_total": 0}
+
+
+@app.post("/api/notifications/read-all")
+@limiter.limit("30/minute")
+async def notifications_read_all(request: Request):
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id") or 0)
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "UPDATE fredi_notifications SET is_read = TRUE "
+                "WHERE user_id = $1 AND is_read = FALSE",
+                user_id
+            )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"notifications_read_all error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.delete("/api/notifications/{notif_id}")
+@limiter.limit("60/minute")
+async def delete_notification(request: Request, notif_id: int):
+    try:
+        uid_q = request.query_params.get("user_id")
+        user_id = int(uid_q) if uid_q else 0
+        async with db.get_connection() as conn:
+            if user_id:
+                await conn.execute(
+                    "DELETE FROM fredi_notifications WHERE id = $1 AND user_id = $2",
+                    notif_id, user_id
+                )
+            else:
+                await conn.execute("DELETE FROM fredi_notifications WHERE id = $1", notif_id)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"delete_notification error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def _push_notification(user_id: int, ntype: str, title: str, body: str = "", data: Optional[Dict] = None):
+    """Вставка уведомления в fredi_notifications. Никогда не бросает — аналитика/нотиф-канал не должен ломать flow."""
+    try:
+        payload = json.dumps(data or {}, ensure_ascii=False, default=str)
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO fredi_notifications (user_id, type, title, body, data, is_read, created_at)
+                VALUES ($1, $2, $3, $4, $5::jsonb, FALSE, NOW())
+            """, int(user_id), ntype[:40], title[:200], (body or "")[:500], payload)
+    except Exception as e:
+        logger.warning(f"_push_notification({ntype}) failed: {e}")
 
 
 @app.post("/api/chats/{chat_id}/contact")
@@ -5238,15 +5338,23 @@ async def profile_access_inbox(request: Request, user_id: int):
 @app.post("/api/profile/access/{access_id}/resolve")
 @limiter.limit("60/minute")
 async def profile_access_resolve(request: Request, access_id: int):
-    """Одобрить/отклонить запрос. user_id в body — должен быть owner этого запроса."""
+    """Одобрить/отклонить запрос. user_id в body — должен быть owner этого запроса.
+
+    На одобрение/отклонение шлём уведомление запрашивающему в таблицу
+    fredi_notifications (отображается в «Сообщения → Уведомления»).
+    """
     try:
         data = await request.json()
         user_id = int(data.get("user_id"))
         status = (data.get("status") or "").strip()
         if status not in ("granted", "denied"):
             return {"success": False, "error": "status must be granted|denied"}
+        requester_id = None
         async with db.get_connection() as conn:
-            row = await conn.fetchrow("SELECT owner_id FROM fredi_profile_access WHERE id = $1", access_id)
+            row = await conn.fetchrow(
+                "SELECT owner_id, requester_id, field_name FROM fredi_profile_access WHERE id = $1",
+                access_id
+            )
             if not row or int(row["owner_id"]) != user_id:
                 return {"success": False, "error": "not found"}
             await conn.execute("""
@@ -5254,6 +5362,68 @@ async def profile_access_resolve(request: Request, access_id: int):
                 SET status = $2, resolved_at = NOW()
                 WHERE id = $1
             """, access_id, status)
+            requester_id = int(row["requester_id"])
+            owner_name_row = await conn.fetchrow(
+                "SELECT name FROM fredi_user_contexts WHERE user_id = $1", user_id
+            )
+            owner_name = (owner_name_row["name"] if owner_name_row else None) or "Пользователь"
+
+            # Чтобы не спамить юзера N уведомлениями (когда резолвится сразу 5
+            # полей) — дедупим: если уже есть непрочитанное уведомление этого
+            # типа от того же owner за последние 10 минут, обновим его, а
+            # не создадим новое.
+            recent = await conn.fetchrow("""
+                SELECT id FROM fredi_notifications
+                WHERE user_id = $1
+                  AND type = $2
+                  AND (data->>'owner_id')::bigint = $3
+                  AND is_read = FALSE
+                  AND created_at > NOW() - INTERVAL '10 minutes'
+                LIMIT 1
+            """, requester_id, f"profile_access_{status}", user_id)
+
+        if recent:
+            # Уже есть — просто обновим timestamp, чтобы поднялось в топе.
+            try:
+                async with db.get_connection() as conn:
+                    await conn.execute(
+                        "UPDATE fredi_notifications SET created_at = NOW() WHERE id = $1",
+                        recent["id"]
+                    )
+            except Exception:
+                pass
+        else:
+            ntype = f"profile_access_{status}"
+            if status == "granted":
+                title = f"✅ {owner_name} открыл(а) профиль"
+                body = "Ты можешь посмотреть полный профиль."
+            else:
+                title = f"🔒 {owner_name} отклонил(а) запрос"
+                body = "Доступ к профилю не предоставлен."
+            await _push_notification(
+                requester_id, ntype, title, body,
+                {"owner_id": user_id, "owner_name": owner_name}
+            )
+
+        # Analytics
+        try:
+            await log_server_event(user_id, f"profile_access_{status}", {"requester_id": requester_id})
+        except Exception:
+            pass
+
+        # Web-push requester'у
+        try:
+            if push_service:
+                if status == "granted":
+                    await push_service.send_to_user(
+                        requester_id,
+                        title=f"✅ Доступ открыт",
+                        body=f"{owner_name} разрешил(а) посмотреть профиль",
+                        url="/?tab=messages"
+                    )
+        except Exception:
+            pass
+
         return {"success": True}
     except Exception as e:
         logger.error(f"profile_access_resolve error: {e}")

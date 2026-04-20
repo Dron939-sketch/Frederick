@@ -826,8 +826,26 @@ function _renderNotifTab() {
         btn.addEventListener('click', async () => {
             const id = btn.dataset.delNotif;
             try { await _msFetch(`/api/notifications/${id}`, { method: 'DELETE' }); } catch {}
-            _msState.notifications = _msState.notifications.filter(n => n.id !== id);
+            _msState.notifications = _msState.notifications.filter(n => String(n.id) !== String(id));
+            _updateBadge();
             _renderNotifTab();
+        });
+    });
+
+    c.querySelectorAll('[data-view-profile]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const ownerId = parseInt(btn.dataset.viewProfile, 10);
+            const ownerName = btn.dataset.ownerName || 'Пользователь';
+            const notifId = btn.dataset.notifId;
+            if (!ownerId) return;
+            try { await _msOpenProfileSheet(ownerId, ownerName); } catch (e) { console.error('open profile sheet:', e); }
+            // Пометим уведомление прочитанным, но не удалим — юзер может
+            // захотеть вернуться.
+            if (notifId) {
+                const n = _msState.notifications.find(x => String(x.id) === String(notifId));
+                if (n) n.isRead = true;
+                _updateBadge();
+            }
         });
     });
 }
@@ -850,6 +868,20 @@ function _notifItemHtml(n, unread) {
                 data-share-contact="1" data-chat-id="${n.data.chatId}">🔓 Раскрыть контакты</button>
             <button class="ms-notif-btn ms-notif-btn-decline"
                 data-del-notif="${n.id}">✗ Отказать</button>
+        </div>`;
+    } else if (n.type === 'profile_access_granted' && n.data && n.data.owner_id) {
+        actions = `<div class="ms-notif-actions">
+            <button class="ms-notif-btn ms-notif-btn-accept"
+                data-view-profile="${n.data.owner_id}"
+                data-owner-name="${_msEsc(n.data.owner_name || '')}"
+                data-notif-id="${n.id}">👤 Посмотреть профиль</button>
+            <button class="ms-notif-btn ms-notif-btn-decline"
+                data-del-notif="${n.id}">✗ Скрыть</button>
+        </div>`;
+    } else if (n.type === 'profile_access_denied' && n.data) {
+        actions = `<div class="ms-notif-actions">
+            <button class="ms-notif-btn ms-notif-btn-decline"
+                data-del-notif="${n.id}">Понятно</button>
         </div>`;
     }
 
