@@ -61,6 +61,7 @@ from hypno.therapeutic_tales import TherapeuticTales
 from payment_routes import register_payment_routes
 from bot_routes import register_bot_routes
 from auth_routes import create_auth_router
+from email_service import EmailService
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -131,6 +132,7 @@ intervention_lib: Optional[InterventionLibrary] = None
 morning_manager: Optional[MorningMessageManager] = None
 push_service = None
 weekend_planner: Optional[WeekendPlanner] = None
+email_service = None
 
 # ============================================
 # VOICE CONNECTION MANAGER
@@ -329,7 +331,9 @@ async def lifespan(app: FastAPI):
         await _pay_init()
         _setup_bots = register_bot_routes(app, db)
         await _setup_bots()
-        app.include_router(create_auth_router(db, limiter))
+        global email_service
+        email_service = EmailService()
+        app.include_router(create_auth_router(db, limiter, email_service))
         logger.info("✅ Таблицы готовы (включая платежи и auth)")
 
         logger.info("📦 Запуск фоновых задач...")
@@ -994,6 +998,21 @@ async def init_database_tables():
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_email_ts ON fredi_auth_attempts(email, created_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_ip_ts ON fredi_auth_attempts(ip_address, created_at DESC)")
+
+        # Токены сброса пин-кода. Храним sha256, ссылка одноразовая, TTL 1 час.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_password_resets (
+                token_hash TEXT PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                used_at TIMESTAMP WITH TIME ZONE,
+                ip_address TEXT,
+                user_agent TEXT
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_user ON fredi_password_resets(user_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON fredi_password_resets(expires_at)")
 
         # Таблица связок web_user_id ↔ messenger chat_id (для деплинков из бота)
         await conn.execute("""

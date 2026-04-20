@@ -107,6 +107,9 @@
                 '<label class="fa-check"><input id="faRemember" type="checkbox" checked>Запомнить меня на этом устройстве</label>' +
                 '<div class="fa-actions">' +
                   '<button class="fa-btn fa-btn-primary" id="faSubmit">' + primaryLabel + '</button>' +
+                  (isRegister
+                    ? ''
+                    : '<button class="fa-btn fa-btn-ghost" id="faForgot">Забыли пин-код?</button>') +
                   '<button class="fa-btn fa-btn-ghost" id="faSkip">Пропустить — продолжить без входа</button>' +
                 '</div>' +
                 '<div class="fa-info">Пин-код хранится в виде необратимого хеша (Argon2). Сессия защищена HttpOnly-cookie и живёт до 1 года.</div>' +
@@ -279,6 +282,11 @@
 
         document.getElementById('faClose').addEventListener('click', _closeModal);
         document.getElementById('faSkip').addEventListener('click', _closeModal);
+        var forgotBtn = document.getElementById('faForgot');
+        if (forgotBtn) forgotBtn.addEventListener('click', function () {
+            var prefill = (document.getElementById('faEmail') && document.getElementById('faEmail').value) || '';
+            _openForgot(prefill);
+        });
         document.getElementById('faAuthModal').addEventListener('click', function (e) {
             if (e.target.id === 'faAuthModal') _closeModal();
         });
@@ -317,9 +325,195 @@
         _reloadApp();
     }
 
+    // ===== Забыли пин-код =====
+
+    function _openForgot(prefillEmail) {
+        _injectStyles();
+        _closeModal();
+        var lastEmail = (prefillEmail || _safeGet(LS_LAST_EMAIL) || '').replace(/"/g, '&quot;');
+        var html = '' +
+            '<div class="fa-modal-overlay" id="faAuthModal">' +
+              '<div class="fa-modal"><div class="fa-modal-inner">' +
+                '<button class="fa-close" id="faClose" aria-label="Закрыть">\u2715</button>' +
+                '<div class="fa-title">Забыли пин-код?</div>' +
+                '<div class="fa-subtitle">Укажите email, который вы использовали при регистрации. Мы пришлём ссылку для установки нового пин-кода.</div>' +
+                '<div class="fa-field"><label class="fa-label" for="faEmail">Email</label>' +
+                  '<input id="faEmail" class="fa-input" type="email" autocomplete="email" value="' + lastEmail + '" maxlength="254" />' +
+                  '<div class="fa-err" id="faErrEmail"></div>' +
+                '</div>' +
+                '<div class="fa-actions">' +
+                  '<button class="fa-btn fa-btn-primary" id="faForgotSubmit">Отправить ссылку</button>' +
+                  '<button class="fa-btn fa-btn-ghost" id="faForgotBack">Назад ко входу</button>' +
+                '</div>' +
+                '<div class="fa-info">Если email зарегистрирован, на него придёт письмо с ссылкой. Ссылка действует 1 час.</div>' +
+              '</div></div>' +
+            '</div>';
+        var wrap = document.createElement('div');
+        wrap.innerHTML = html;
+        document.body.appendChild(wrap.firstChild);
+
+        document.getElementById('faClose').addEventListener('click', _closeModal);
+        document.getElementById('faForgotBack').addEventListener('click', function () { _open('login'); });
+        document.getElementById('faAuthModal').addEventListener('click', function (e) {
+            if (e.target.id === 'faAuthModal') _closeModal();
+        });
+        document.getElementById('faAuthModal').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); _doForgot(); }
+            if (e.key === 'Escape') { e.preventDefault(); _closeModal(); }
+        });
+        document.getElementById('faForgotSubmit').addEventListener('click', _doForgot);
+        setTimeout(function () {
+            var em = document.getElementById('faEmail');
+            if (em) em.focus();
+        }, 50);
+    }
+
+    async function _doForgot() {
+        _setErr('faErrEmail', '');
+        var email = (document.getElementById('faEmail').value || '').trim();
+        if (!_isEmail(email)) { _setErr('faErrEmail', 'Неверный формат email'); return; }
+        var btn = document.getElementById('faForgotSubmit');
+        if (btn) { btn.disabled = true; btn.textContent = 'Отправляем...'; }
+        try {
+            var res = await fetch(API_BASE + '/api/auth/forgot-pin', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email })
+            });
+            // Сервер всегда отвечает 200, чтобы не палить наличие email.
+            // Если 429 — слишком частые запросы.
+            if (res.status === 429) {
+                _setErr('faErrEmail', 'Слишком много запросов. Попробуйте через час.');
+                return;
+            }
+            _safeSet(LS_LAST_EMAIL, email);
+            _toast('Если email зарегистрирован, на него отправлена ссылка ✓', 'success');
+            _closeModal();
+        } catch (e) {
+            _setErr('faErrEmail', 'Нет связи с сервером. Попробуйте позже.');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Отправить ссылку'; }
+        }
+    }
+
+    // ===== Установка нового пин-кода по ссылке =====
+
+    function _openReset(token) {
+        _injectStyles();
+        _closeModal();
+        var html = '' +
+            '<div class="fa-modal-overlay" id="faAuthModal">' +
+              '<div class="fa-modal"><div class="fa-modal-inner">' +
+                '<button class="fa-close" id="faClose" aria-label="Закрыть">\u2715</button>' +
+                '<div class="fa-title">Новый пин-код</div>' +
+                '<div class="fa-subtitle">Придумайте новый пин-код из 4 цифр. После сохранения вы будете автоматически разлогинены на всех устройствах.</div>' +
+                '<div class="fa-field"><label class="fa-label" for="faNewPin">Новый пин-код</label>' +
+                  '<input id="faNewPin" class="fa-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password" />' +
+                  '<div class="fa-err" id="faErrNewPin"></div>' +
+                '</div>' +
+                '<div class="fa-field"><label class="fa-label" for="faNewPin2">Повторите пин-код</label>' +
+                  '<input id="faNewPin2" class="fa-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password" />' +
+                  '<div class="fa-err" id="faErrNewPin2"></div>' +
+                '</div>' +
+                '<div class="fa-actions">' +
+                  '<button class="fa-btn fa-btn-primary" id="faResetSubmit">Сохранить пин-код</button>' +
+                  '<button class="fa-btn fa-btn-ghost" id="faResetSkip">Отмена</button>' +
+                '</div>' +
+              '</div></div>' +
+            '</div>';
+        var wrap = document.createElement('div');
+        wrap.innerHTML = html;
+        document.body.appendChild(wrap.firstChild);
+
+        document.getElementById('faClose').addEventListener('click', _closeReset);
+        document.getElementById('faResetSkip').addEventListener('click', _closeReset);
+        document.getElementById('faAuthModal').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); _doReset(token); }
+            if (e.key === 'Escape') { e.preventDefault(); _closeReset(); }
+        });
+        document.getElementById('faResetSubmit').addEventListener('click', function () { _doReset(token); });
+        setTimeout(function () {
+            var p = document.getElementById('faNewPin');
+            if (p) p.focus();
+        }, 50);
+    }
+
+    function _closeReset() {
+        _closeModal();
+        // Чистим query-параметр ?reset_pin=... чтобы при перезагрузке модалка не открывалась снова.
+        try {
+            var url = new URL(window.location.href);
+            if (url.searchParams.has('reset_pin')) {
+                url.searchParams.delete('reset_pin');
+                window.history.replaceState({}, '', url.toString());
+            }
+        } catch (e) {}
+    }
+
+    async function _doReset(token) {
+        _setErr('faErrNewPin', '');
+        _setErr('faErrNewPin2', '');
+        var p1 = document.getElementById('faNewPin').value || '';
+        var p2 = document.getElementById('faNewPin2').value || '';
+        if (!/^\d{4}$/.test(p1)) { _setErr('faErrNewPin', 'Пин-код — 4 цифры'); return; }
+        if (p1 !== p2) { _setErr('faErrNewPin2', 'Пин-коды не совпадают'); return; }
+
+        var btn = document.getElementById('faResetSubmit');
+        if (btn) { btn.disabled = true; btn.textContent = 'Сохраняем...'; }
+        try {
+            var res = await fetch(API_BASE + '/api/auth/reset-pin', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token, new_pin: p1 })
+            });
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!res.ok) {
+                var err = (data && data.detail && data.detail.error) || '';
+                var msg = (data && data.detail && data.detail.message) || '';
+                if (err === 'expired_token' || err === 'invalid_token' || err === 'used_token') {
+                    _setErr('faErrNewPin', msg || 'Ссылка недействительна или истекла. Запросите новую.');
+                } else if (err === 'weak_password') {
+                    _setErr('faErrNewPin', msg || 'Пин-код — 4 цифры');
+                } else {
+                    _setErr('faErrNewPin', msg || 'Не удалось сохранить пин-код');
+                }
+                return;
+            }
+            _toast('Пин-код обновлён ✓ Войдите с новым пин-кодом.', 'success');
+            _closeReset();
+            setTimeout(function () { _open('login'); }, 300);
+        } catch (e) {
+            _setErr('faErrNewPin', 'Нет связи с сервером. Попробуйте позже.');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Сохранить пин-код'; }
+        }
+    }
+
+    // Авто-открытие модалки сброса, если пришли по ссылке ?reset_pin=...
+    function _checkResetParam() {
+        try {
+            var params = new URLSearchParams(window.location.search);
+            var token = params.get('reset_pin');
+            if (token && token.length >= 10) {
+                // Дожидаемся загрузки DOM, потом показываем модалку.
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', function () { _openReset(token); });
+                } else {
+                    setTimeout(function () { _openReset(token); }, 100);
+                }
+            }
+        } catch (e) {}
+    }
+    _checkResetParam();
+
     window.FrediAuth = {
         openLogin: function () { _open('login'); },
         openRegister: function () { _open('register'); },
+        openForgot: function () { _openForgot(); },
+        openReset: function (token) { _openReset(token); },
         logout: _logout,
         isAuthed: function () { return !!window.IS_AUTHENTICATED; }
     };
