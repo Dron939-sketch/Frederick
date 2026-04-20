@@ -5443,6 +5443,58 @@ async def profile_access_resolve(request: Request, access_id: int):
         return {"success": False, "error": str(e)}
 
 
+@app.get("/api/profile/access/status-batch")
+@limiter.limit("60/minute")
+async def profile_access_status_batch(request: Request, user_id: int, owner_ids: str):
+    """
+    Для списка owner_ids — возвращает статус запроса доступа от user_id к каждому из них.
+    Используется в карточках «Двойники»/«Подбор по цели», чтобы кнопка «Профиль»
+    сразу показывала правильное состояние (pending / granted / denied / none).
+
+    Статус «granted», если хотя бы одно приватное поле granted — это уже даёт
+    возможность открыть профиль. «pending» если что-то висит в ожидании.
+    «denied» если все ответы только negative. Иначе «none».
+    """
+    try:
+        owners = []
+        for chunk in (owner_ids or "").split(","):
+            chunk = chunk.strip()
+            if chunk.isdigit():
+                owners.append(int(chunk))
+        owners = list({o for o in owners if o > 0})[:100]
+        if not owners:
+            return {"success": True, "statuses": {}}
+
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT owner_id,
+                       MAX(CASE WHEN status = 'granted' THEN 1 ELSE 0 END) AS has_g,
+                       MAX(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS has_p,
+                       MAX(CASE WHEN status = 'denied'  THEN 1 ELSE 0 END) AS has_d
+                FROM fredi_profile_access
+                WHERE requester_id = $1 AND owner_id = ANY($2::bigint[])
+                GROUP BY owner_id
+            """, int(user_id), owners)
+
+        statuses = {}
+        for r in rows:
+            if r["has_g"]:
+                st = "granted"
+            elif r["has_p"]:
+                st = "pending"
+            elif r["has_d"]:
+                st = "denied"
+            else:
+                st = "none"
+            statuses[str(r["owner_id"])] = st
+        for o in owners:
+            statuses.setdefault(str(o), "none")
+        return {"success": True, "statuses": statuses}
+    except Exception as e:
+        logger.error(f"profile_access_status_batch error: {e}")
+        return {"success": True, "statuses": {}}
+
+
 @app.post("/api/profile/access/respond-all")
 @limiter.limit("30/minute")
 async def profile_access_respond_all(request: Request):

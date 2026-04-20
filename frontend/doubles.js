@@ -1646,11 +1646,50 @@ function _renderResults(container) {
     document.getElementById('dbNewSearch').onclick = () => _renderModes(container);
     document.getElementById('dbChangeGoal').onclick = () => _renderGoals(container);
     
+    function _setViewBtnState(btn, state, ownerId, ownerName) {
+        if (!btn) return;
+        btn.disabled = false;
+        btn.dataset.state = state;
+        if (state === 'granted') {
+            btn.innerHTML = '✅ Посмотреть профиль';
+            btn.style.background = 'rgba(16,185,129,0.14)';
+        } else if (state === 'pending') {
+            btn.innerHTML = '⏳ Ожидает ответа';
+            btn.disabled = true;
+            btn.style.background = '';
+        } else if (state === 'denied') {
+            btn.innerHTML = '🔒 Отклонено';
+            btn.disabled = true;
+            btn.style.background = '';
+        } else {
+            btn.innerHTML = '👤 Запросить доступ';
+            btn.style.background = '';
+        }
+    }
+
     document.querySelectorAll('.db-view-btn').forEach(b =>
         b.addEventListener('click', async function() {
             const ownerId = parseInt(this.dataset.id);
             const uid = _userId();
             if (!ownerId || !uid) return;
+            const state = this.dataset.state || 'none';
+
+            // Уже одобрен — открываем профиль сразу.
+            if (state === 'granted') {
+                if (typeof window.openPartnerProfile === 'function') {
+                    window.openPartnerProfile(ownerId, '');
+                } else {
+                    _showToast('Открываю…', 'info');
+                    // Фоллбек: переходим в Сообщения — там есть профиль-шит
+                    if (typeof window.showMessagesScreen === 'function') window.showMessagesScreen();
+                }
+                return;
+            }
+
+            // Остальные состояния disabled, сюда клики не пойдут, но перестраховка.
+            if (state === 'pending' || state === 'denied') return;
+
+            // Свежий запрос
             const orig = this.innerHTML;
             this.innerHTML = '⏳...';
             this.disabled = true;
@@ -1671,16 +1710,15 @@ function _renderResults(container) {
                 const newCount = (data.requested || []).length;
                 const alreadyCount = (data.already_granted || []).length;
                 if (newCount > 0) {
-                    this.innerHTML = '⏳ Запрос отправлен';
-                    _showToast('📨 Запрос отправлен. Владелец увидит его в Настройки → Аккаунт.', 'success');
+                    _setViewBtnState(this, 'pending', ownerId);
+                    _showToast('📨 Запрос отправлен. Владелец увидит его в Сообщениях.', 'success');
                 } else if (alreadyCount > 0) {
-                    this.innerHTML = '✅ Доступ уже открыт';
+                    _setViewBtnState(this, 'granted', ownerId);
                     _showToast('✅ У тебя уже есть доступ к этому профилю', 'info');
                 } else {
-                    this.innerHTML = '⏳ Ожидает ответа';
+                    _setViewBtnState(this, 'pending', ownerId);
                     _showToast('Запрос уже отправлен ранее — ждём ответа', 'info');
                 }
-                // Кнопка остаётся disabled — повторный запрос ничего не изменит.
             } catch (e) {
                 console.error('profile access request error:', e);
                 _showToast('❌ Ошибка сети. Попробуй позже.', 'error');
@@ -1688,6 +1726,26 @@ function _renderResults(container) {
                 this.disabled = false;
             }
         }));
+
+    // Подтягиваем текущий статус запросов для всех карточек одним batch-запросом
+    // и переводим кнопки в правильное состояние.
+    (async function _loadCardsAccessState() {
+        try {
+            const uid = _userId();
+            if (!uid) return;
+            const ownerIds = Array.from(document.querySelectorAll('.db-view-btn'))
+                .map(b => b.dataset.id).filter(Boolean);
+            if (!ownerIds.length) return;
+            const api = _api();
+            const r = await fetch(`${api}/api/profile/access/status-batch?user_id=${uid}&owner_ids=${ownerIds.join(',')}`);
+            const d = await r.json();
+            const statuses = (d && d.statuses) || {};
+            Object.keys(statuses).forEach(oid => {
+                const btn = document.querySelector(`.db-view-btn[data-id="${oid}"]`);
+                if (btn) _setViewBtnState(btn, statuses[oid], parseInt(oid));
+            });
+        } catch (e) { console.warn('cards access state:', e); }
+    })();
     document.querySelectorAll('.db-msg-btn').forEach(b =>
         b.addEventListener('click', async function() {
             const partnerId = parseInt(this.dataset.id);
