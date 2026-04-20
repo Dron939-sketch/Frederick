@@ -51,7 +51,7 @@ ANON_COOKIE_NAME = "fredi_uid"  # уже существующая cookie ано�
 class RegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=8, max_length=72)
+    password: str = Field(min_length=4, max_length=4)
     remember: bool = True
 
 
@@ -63,7 +63,7 @@ class LoginIn(BaseModel):
 
 class ChangePasswordIn(BaseModel):
     current_password: str = Field(min_length=1, max_length=72)
-    new_password: str = Field(min_length=8, max_length=72)
+    new_password: str = Field(min_length=4, max_length=4)
 
 
 class MergeAnonIn(BaseModel):
@@ -90,9 +90,8 @@ def _gen_token() -> str:
 
 
 def _password_ok(pw: str) -> bool:
-    # Минимальная «не полный мусор»-проверка: длина уже в Pydantic,
-    # дополнительно требуем хотя бы одну букву и одну цифру/спецсимвол.
-    return bool(re.search(r"[A-Za-zА-Яа-яЁё]", pw)) and bool(re.search(r"[\d\W_]", pw))
+    # PIN: ровно 4 цифры. Длина уже проверена в Pydantic (min/max=4).
+    return bool(re.fullmatch(r"\d{4}", pw or ""))
 
 
 def _client_ip(request: Request) -> str:
@@ -244,7 +243,7 @@ def create_auth_router(db, limiter) -> APIRouter:
         if not _password_ok(body.password):
             await _log_attempt(db, email, ip, ua, False, "weak_password")
             raise HTTPException(status_code=400, detail={"error": "weak_password",
-                                                          "message": "Пароль должен содержать буквы и цифры."})
+                                                          "message": "Пин-код должен состоять ровно из 4 цифр."})
 
         anon_uid = _parse_int(request.cookies.get(ANON_COOKIE_NAME))
         password_hash = _hasher.hash(body.password)
@@ -302,7 +301,7 @@ def create_auth_router(db, limiter) -> APIRouter:
     # -------------------- /login --------------------
 
     @router.post("/login")
-    @limiter.limit("5/minute")
+    @limiter.limit("3/minute")
     async def login(request: Request, response: Response, body: LoginIn):
         ip = _client_ip(request)
         ua = _user_agent(request)
