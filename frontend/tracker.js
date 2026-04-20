@@ -1,4 +1,18 @@
 // tracker.js — Fredi analytics (lightweight, fire-and-forget)
+//
+// Trackable events:
+//   session_start / session_end
+//   screen_view
+//   feature_opened / feature_closed   — с duration_sec, чтобы видеть, сколько
+//                                        реально юзер сидит в каждой фиче
+//   message_sent                      — POST /api/chat, /api/voice/process, ...
+//   ai_response_received              — длина ответа, latency_ms
+//   api_error / api_network_error     — что ломается у юзера
+//   theme_switch
+//   error                             — window.error (runtime JS)
+//
+// Публичный API:
+//   window.FrediTracker.track(event, data)  — вручную из других модулей
 (function(){
     if(window._trackerLoaded) return;
     window._trackerLoaded=true;
@@ -10,6 +24,10 @@
     var _screen='';
     var _queue=[];
     var _sending=false;
+
+    // Текущая «открытая» фича для feature_opened/closed.
+    var _currentFeature=null;
+    var _featureOpenedAt=0;
 
     function track(event,data){
         var payload={user_id:UID(),session_id:SID,event:event,data:data||{},screen:_screen,ts:new Date().toISOString()};
@@ -33,6 +51,27 @@
         if(_queue.length) setTimeout(_flush,1000);
     }
 
+    // ---- feature lifecycle ----
+    function _openFeature(name){
+        if(!name) return;
+        // Если уже открыта — закрываем, трекаем duration.
+        if(_currentFeature && _currentFeature === name) return;
+        if(_currentFeature){
+            var dur=Math.round((Date.now()-_featureOpenedAt)/1000);
+            track('feature_closed',{feature:_currentFeature,duration_sec:dur});
+        }
+        _currentFeature=name;
+        _featureOpenedAt=Date.now();
+        track('feature_opened',{feature:name});
+    }
+
+    function _closeCurrentFeature(reason){
+        if(!_currentFeature) return;
+        var dur=Math.round((Date.now()-_featureOpenedAt)/1000);
+        track('feature_closed',{feature:_currentFeature,duration_sec:dur,reason:reason||''});
+        _currentFeature=null;
+    }
+
     // Auto-track: screen views (navigation)
     function _hookNav(){
         var list=document.getElementById('chatsList');
@@ -43,14 +82,103 @@
             var chat=item.dataset.chat;
             _screen=chat;
             track('screen_view',{screen:chat});
+            _openFeature(chat);
         }
         if(list) list.addEventListener('click',onClick);
         if(footer) footer.addEventListener('click',onClick);
     }
 
-    // Auto-track: JS errors
+    // ---- fetch hook: message_sent + ai_response_received + api errors ----
+    // Список AI-эндпоинтов, которые считаем "message_sent".
+    var AI_RE=/\/api\/(?:chat|voice\/process|ai\/generate|deep-analysis|hypno\/support|psychologist-thoughts\/generate|dreams\/(?:interpret|clarify)|reality\/(?:check|parse\/[^/]+)|brand\/transformation|mirrors\/(?:complete|[^/]+\/complete)|morning\/send-now)(?:\/|$|\?)/;
+
+    function _shortEndpoint(urlStr){
+        try{
+            var u=new URL(urlStr,window.location.origin);
+            return u.pathname.slice(0,80);
+        }catch(e){
+            return (urlStr||'').split('?')[0].slice(0,80);
+        }
+    }
+
+    function _safeParseBody(body){
+        if(!body) return null;
+        if(typeof body !== 'string') return null; // не паримся с FormData/Blob
+        try{ return JSON.parse(body); }catch(e){ return null; }
+    }
+
+    function _hookFetch(){
+        if(window._trackerFetchPatched) return;
+        window._trackerFetchPatched=true;
+        var _origFetch=window.fetch;
+        window.fetch=async function(url,options){
+            var urlStr=typeof url==='string'?url:(url && url.url)||'';
+            var method=(options && options.method)||'GET';
+            var started=Date.now();
+            var isAi = AI_RE.test(urlStr);
+
+            if(isAi && method==='POST'){
+                try{
+                    var body=_safeParseBody(options && options.body);
+                    track('message_sent',{
+                        endpoint:_shortEndpoint(urlStr),
+                        text_length:(body && ((body.message||body.text||body.query||'')+'')).length||0,
+                        mode:body && (body.mode||body.context_mode||'')
+                    });
+                }catch(e){}
+            }
+
+            try{
+                var response=await _origFetch.call(window,url,options);
+                var latency=Date.now()-started;
+
+                if(isAi && response.ok){
+                    try{
+                        var cloned=response.clone();
+                        var data=await cloned.json();
+                        var respText = (data && (data.response||data.text||data.message||''))+'';
+                        track('ai_response_received',{
+                            endpoint:_shortEndpoint(urlStr),
+                            text_length:respText.length,
+                            latency_ms:latency,
+                            success:!!(data && data.success !== false)
+                        });
+                    }catch(e){}
+                }
+
+                // Error-signals only for our own API calls, не шумим про внешние ресурсы.
+                if(urlStr.indexOf('/api/')>=0 && response.status >= 400 && response.status !== 402){
+                    // 402 уже трекается через meter_blocked — не дублируем.
+                    track('api_error',{
+                        endpoint:_shortEndpoint(urlStr),
+                        status:response.status,
+                        method:method
+                    });
+                }
+
+                return response;
+            }catch(netErr){
+                if(urlStr.indexOf('/api/')>=0){
+                    track('api_network_error',{
+                        endpoint:_shortEndpoint(urlStr),
+                        method:method,
+                        error:((netErr && netErr.message)||'').slice(0,100)
+                    });
+                }
+                throw netErr;
+            }
+        };
+    }
+
+    // Auto-track: JS runtime errors
     window.addEventListener('error',function(e){
-        track('error',{message:e.message||'',filename:(e.filename||'').split('/').pop(),line:e.lineno,col:e.colno});
+        track('error',{message:(e.message||'').slice(0,200),filename:(e.filename||'').split('/').pop(),line:e.lineno,col:e.colno});
+    });
+
+    window.addEventListener('unhandledrejection',function(e){
+        var msg='';
+        try{ msg = (e.reason && (e.reason.message || String(e.reason))) || ''; }catch(x){}
+        track('promise_unhandled',{message:msg.slice(0,200)});
     });
 
     // Auto-track: session start
@@ -58,9 +186,23 @@
 
     // Auto-track: session duration (on unload)
     window.addEventListener('beforeunload',function(){
+        _closeCurrentFeature('unload');
         var dur=Math.round((Date.now()-START)/1000);
-        track('session_end',{duration_sec:dur,screens_visited:_screen});
+        track('session_end',{duration_sec:dur,last_screen:_screen});
         _flush();
+    });
+
+    // Auto-track: visibility (чтобы отличать "вернулся" от "новый визит")
+    var _hiddenAt=0;
+    document.addEventListener('visibilitychange',function(){
+        if(document.hidden){
+            _hiddenAt=Date.now();
+            track('tab_hidden',{});
+        }else if(_hiddenAt){
+            var awaySec=Math.round((Date.now()-_hiddenAt)/1000);
+            track('tab_visible',{away_sec:awaySec});
+            _hiddenAt=0;
+        }
     });
 
     // Auto-track: theme switch
@@ -72,7 +214,8 @@
         };
     }
 
-    // Init nav hooks when DOM ready
+    // Init hooks
+    _hookFetch();
     if(document.readyState==='loading'){
         document.addEventListener('DOMContentLoaded',_hookNav);
     }else{
@@ -80,6 +223,10 @@
     }
 
     // Public API
-    window.FrediTracker={track:track};
-    console.log('tracker.js loaded');
+    window.FrediTracker={
+        track:track,
+        openFeature:_openFeature,
+        closeFeature:_closeCurrentFeature
+    };
+    console.log('tracker.js v2 loaded');
 })();
