@@ -164,8 +164,8 @@
         var _origApiCall = window.apiCall;
         window._apiCallPatched = true;
         window.apiCall = async function(endpoint, options) {
-            var isChatOrVoice = endpoint.includes('/api/chat') || endpoint.includes('/api/voice/process');
-            if (isChatOrVoice && options && (options.method === 'POST' || options.body)) {
+            var isAi = _isAiRequest(endpoint);
+            if (isAi && options && (options.method === 'POST' || options.body)) {
                 var check = await checkCanSend();
                 if (!check.can_send) { showFatigueModal(check); throw new Error('METER_BLOCKED'); }
                 if (check.warning && !_warningShown) {
@@ -175,12 +175,24 @@
                 }
             }
             var result = await _origApiCall(endpoint, options);
-            if (isChatOrVoice && result && result.response) {
+            if (result && result.error === 'METER_BLOCKED') {
+                _lastCheck = null;
+                showFatigueModal(result);
+            }
+            if (isAi && result && result.response) {
                 recordUsage(Math.min(Math.max(Math.ceil(result.response.length / 8), 10), 60));
             }
             return result;
         };
         console.log('meter: apiCall patched');
+    }
+
+    // Список AI-эндпоинтов, которые должен предварять meter-чек.
+    // Держим в синхроне с _METER_AI_REGEX в backend/main.py.
+    var AI_URL_REGEX = /\/api\/(?:chat|voice\/process|ai\/generate|deep-analysis|hypno\/support|psychologist-thoughts\/generate|dreams\/(?:interpret|clarify)|reality\/(?:check|parse\/[^/]+)|brand\/transformation|mirrors\/(?:complete|[^/]+\/complete)|morning\/send-now)(?:\/|$|\?)/;
+
+    function _isAiRequest(urlStr) {
+        return AI_URL_REGEX.test(urlStr || '');
     }
 
     function _patchFetch() {
@@ -189,13 +201,13 @@
         window._fetchMeterPatched = true;
         window.fetch = async function(url, options) {
             var urlStr = typeof url === 'string' ? url : (url && url.url) || '';
-            var isVoice = urlStr.includes('/api/voice/process');
-            var isChat = urlStr.includes('/api/chat');
-            if ((isVoice || isChat) && options && options.method === 'POST') {
+            var isAi = _isAiRequest(urlStr);
+            var method = (options && options.method) || 'GET';
+            if (isAi && method === 'POST') {
                 var check = await checkCanSend();
                 if (!check.can_send) {
                     showFatigueModal(check);
-                    return new Response(JSON.stringify({ success: false, error: 'METER_BLOCKED', response: check.message || '\u0424\u0440\u0435\u0434\u0438 \u0443\u0441\u0442\u0430\u043B' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                    return new Response(JSON.stringify({ success: false, error: 'METER_BLOCKED', response: check.message || '\u0424\u0440\u0435\u0434\u0438 \u0443\u0441\u0442\u0430\u043B' }), { status: 402, headers: { 'Content-Type': 'application/json' } });
                 }
                 if (check.warning && !_warningShown) {
                     _warningShown = true;
@@ -204,7 +216,18 @@
                 }
             }
             var response = await _origFetch.call(window, url, options);
-            if ((isVoice || isChat) && response.ok) recordUsage(30);
+            // Если бэк сам заблокировал (402) — достаём данные и показываем модалку.
+            if (isAi && response.status === 402) {
+                try {
+                    var cloned = response.clone();
+                    var blocked = await cloned.json();
+                    if (blocked && blocked.error === 'METER_BLOCKED') {
+                        _lastCheck = null;
+                        showFatigueModal(blocked);
+                    }
+                } catch (e) {}
+            }
+            if (isAi && response.ok) recordUsage(30);
             return response;
         };
         console.log('meter: fetch patched');
