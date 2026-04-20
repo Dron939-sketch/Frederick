@@ -185,6 +185,7 @@
             '<div class="content-header"><div class="content-emoji">\u2699\uFE0F</div>' +
             '<h1 class="content-title">Настройки</h1>' +
             '<p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Управление Фреди</p></div>' +
+            _accordion('account', '\uD83D\uDD11', 'Аккаунт') +
             _accordion('subscription', '\uD83D\uDC8E', 'Подписка') +
             _accordion('tasks', '\uD83D\uDCCB', 'Активные задачи') +
             _accordion('notifications', '\uD83D\uDD14', 'Уведомления') +
@@ -212,6 +213,57 @@
     function _renderSection(id) {
         var el = document.getElementById('stAcc_' + id);
         if (!el) return;
+
+        if (id === 'account') {
+            var authed = !!window.IS_AUTHENTICATED;
+            var email = window.CURRENT_USER_EMAIL || '';
+            var name = window.CURRENT_USER_NAME || '';
+            if (authed) {
+                el.innerHTML =
+                    '<div class="st-hint">Вы вошли в аккаунт. Данные (дневник, тесты, сны, зеркала) синхронизируются между устройствами при входе с тем же email.</div>' +
+                    '<div class="st-profile-row"><span class="st-profile-label">Имя</span><span class="st-profile-value">' + (name || '—') + '</span></div>' +
+                    '<div class="st-profile-row"><span class="st-profile-label">Email</span><span class="st-profile-value">' + (email || '—') + '</span></div>' +
+                    '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' +
+                      '<button class="st-link-btn" id="acChangePass">Сменить пароль</button>' +
+                      '<button class="st-link-btn danger" id="acLogout">Выйти из аккаунта</button>' +
+                    '</div>';
+                var cp = document.getElementById('acChangePass');
+                if (cp) cp.onclick = function () {
+                    var cur = window.prompt('Текущий пароль:');
+                    if (!cur) return;
+                    var np = window.prompt('Новый пароль (мин. 8 символов):');
+                    if (!np || np.length < 8) { _toast('Пароль слишком короткий', 'error'); return; }
+                    var np2 = window.prompt('Повторите новый пароль:');
+                    if (np !== np2) { _toast('Пароли не совпадают', 'error'); return; }
+                    fetch(_api() + '/api/auth/change-password', {
+                        method: 'POST', credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ current_password: cur, new_password: np })
+                    }).then(function (r) { return r.json().catch(function () { return {}; }); })
+                      .then(function (d) {
+                          if (d && d.success) _toast('Пароль изменён ✓', 'success');
+                          else _toast('Не удалось сменить пароль', 'error');
+                      })
+                      .catch(function () { _toast('Ошибка сети', 'error'); });
+                };
+                var lo = document.getElementById('acLogout');
+                if (lo) lo.onclick = function () {
+                    if (window.confirm('Выйти из аккаунта на этом устройстве?')) {
+                        if (window.FrediAuth) window.FrediAuth.logout();
+                    }
+                };
+            } else {
+                el.innerHTML =
+                    '<div class="st-hint">Зарегистрируйтесь, чтобы не потерять дневник, тесты и сны при смене устройства или очистке браузера. Email станет вашим логином.</div>' +
+                    '<div style="display:flex;flex-direction:column;gap:8px">' +
+                      '<button class="fa-btn fa-btn-primary" id="acLogin" style="padding:12px;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;border:none;background:linear-gradient(135deg,#d4d4d4,#a8a8a8);color:#0a0a0a">Войти или зарегистрироваться</button>' +
+                    '</div>';
+                var li = document.getElementById('acLogin');
+                if (li) li.onclick = function () {
+                    if (window.FrediAuth) window.FrediAuth.openLogin();
+                };
+            }
+        }
 
         if (id === 'subscription') {
             el.innerHTML = '<div class="st-hint">Управление подпиской Фреди Premium. С подпиской Фреди работает без ограничений по времени и с премиум-функциями.</div><div id="subscriptionSection"></div>';
