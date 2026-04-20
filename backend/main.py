@@ -1292,7 +1292,9 @@ async def morning_messages_scheduler():
                            u.last_morning_sent_at,
                            COALESCE(u.notification_channel, 'push') AS notification_channel,
                            c.name, c.gender, c.timezone_offset,
-                           c.weather_cache
+                           c.city,
+                           c.weather_cache,
+                           c.weather_cache_time
                     FROM fredi_users u
                     LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
                     WHERE u.is_active = TRUE
@@ -1346,9 +1348,41 @@ async def morning_messages_scheduler():
                         except Exception:
                             weather_cache = None
 
+                    # Если город известен, а кэш пустой или старше 2 часов — тянем свежую погоду.
+                    city = (row["city"] or "").strip() if row["city"] else ""
+                    if city and weather_service is not None:
+                        cache_age_ok = False
+                        if weather_cache:
+                            wct = row["weather_cache_time"]
+                            if wct:
+                                try:
+                                    wct_utc = wct.astimezone(_tz.utc) if wct.tzinfo else wct.replace(tzinfo=_tz.utc)
+                                    cache_age_ok = (now_utc - wct_utc) < timedelta(hours=2)
+                                except Exception:
+                                    cache_age_ok = False
+                        if not cache_age_ok:
+                            try:
+                                fresh = await weather_service.get_weather(city)
+                                if fresh:
+                                    # Сохраняем новый кэш обратно в контекст пользователя.
+                                    async with db.get_connection() as wconn:
+                                        await wconn.execute(
+                                            """
+                                            UPDATE fredi_user_contexts
+                                            SET weather_cache = $1::jsonb,
+                                                weather_cache_time = NOW()
+                                            WHERE user_id = $2
+                                            """,
+                                            json.dumps(fresh), user_id,
+                                        )
+                                    weather_cache = fresh
+                            except Exception as _we:
+                                logger.warning(f"morning weather refresh failed for {user_id}: {_we}")
+
                     context = {
                         "name": row["name"] or "друг",
                         "gender": row["gender"] or "other",
+                        "city": city,
                         "weather_cache": weather_cache,
                         "timezone_offset": tz_offset,
                     }
