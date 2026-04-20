@@ -418,6 +418,7 @@ app.add_middleware(
     allow_headers=[
         "Accept", "Accept-Language", "Content-Language", "Content-Type",
         "Authorization", "Origin", "X-Requested-With", "X-User-Id",
+        "X-Admin-Token",
         "Access-Control-Request-Method", "Access-Control-Request-Headers",
         "Upgrade", "Connection",
     ],
