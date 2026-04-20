@@ -218,6 +218,7 @@
             var authed = !!window.IS_AUTHENTICATED;
             var email = window.CURRENT_USER_EMAIL || '';
             var name = window.CURRENT_USER_NAME || '';
+            var inboxBlock = '<div id="profileAccessInbox" style="margin-top:18px"></div>';
             if (authed) {
                 el.innerHTML =
                     '<div class="st-hint">Вы вошли в аккаунт. Данные (дневник, тесты, сны, зеркала) синхронизируются между устройствами при входе с тем же email.</div>' +
@@ -226,7 +227,8 @@
                     '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' +
                       '<button class="st-link-btn" id="acChangePass">Сменить пин-код</button>' +
                       '<button class="st-link-btn danger" id="acLogout">Выйти из аккаунта</button>' +
-                    '</div>';
+                    '</div>' +
+                    inboxBlock;
                 var cp = document.getElementById('acChangePass');
                 if (cp) cp.onclick = function () {
                     var cur = window.prompt('Текущий пин-код:');
@@ -257,12 +259,14 @@
                     '<div class="st-hint">Зарегистрируйтесь, чтобы не потерять дневник, тесты и сны при смене устройства или очистке браузера. Email станет вашим логином.</div>' +
                     '<div style="display:flex;flex-direction:column;gap:8px">' +
                       '<button class="st-prof-btn primary" id="acLogin" style="padding:12px;border-radius:10px;font-size:14px;font-weight:600">Войти или зарегистрироваться</button>' +
-                    '</div>';
+                    '</div>' +
+                    inboxBlock;
                 var li = document.getElementById('acLogin');
                 if (li) li.onclick = function () {
                     if (window.FrediAuth) window.FrediAuth.openLogin();
                 };
             }
+            _loadProfileAccessInbox();
         }
 
         if (id === 'subscription') {
@@ -607,6 +611,77 @@
             };
             reader.readAsDataURL(file);
         });
+    }
+
+    // ===== Профильный inbox (запросы на доступ к профилю) =====
+    async function _loadProfileAccessInbox() {
+        var el = document.getElementById('profileAccessInbox');
+        if (!el) return;
+        var uid = _uid();
+        if (!uid) { el.innerHTML = ''; return; }
+        try {
+            var r = await fetch(_api() + '/api/profile/access/inbox?user_id=' + uid);
+            var d = await r.json();
+            var reqs = (d && d.requests) || [];
+            if (!reqs.length) { el.innerHTML = ''; return; }
+
+            // Группируем запросы по requester_id (один юзер = один блок)
+            var byUser = {};
+            reqs.forEach(function (x) {
+                var k = x.requester_id;
+                if (!byUser[k]) byUser[k] = { name: x.requester_name, ids: [], fields: [] };
+                byUser[k].ids.push(x.id);
+                byUser[k].fields.push(x.field);
+            });
+
+            var rows = Object.keys(byUser).map(function (k) {
+                var u = byUser[k];
+                var fieldsPretty = u.fields.join(', ');
+                return '<div class="st-profile-row" style="flex-direction:column;align-items:stretch;gap:6px">' +
+                    '<div><b>' + _escape(u.name) + '</b> <span style="color:var(--text-secondary);font-size:11px">#' + k + '</span></div>' +
+                    '<div style="font-size:11px;color:var(--text-secondary)">Запрашивает: ' + _escape(fieldsPretty) + '</div>' +
+                    '<div style="display:flex;gap:6px;margin-top:4px">' +
+                      '<button class="st-link-btn" data-reqids="' + u.ids.join(',') + '" data-action="granted" style="flex:1;background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.4)">✅ Разрешить</button>' +
+                      '<button class="st-link-btn danger" data-reqids="' + u.ids.join(',') + '" data-action="denied" style="flex:1">❌ Отклонить</button>' +
+                    '</div>' +
+                    '</div>';
+            }).join('');
+
+            el.innerHTML =
+                '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);margin-bottom:8px">🔔 Запросы на профиль (' + Object.keys(byUser).length + ')</div>' +
+                rows;
+
+            el.querySelectorAll('button[data-reqids]').forEach(function (btn) {
+                btn.addEventListener('click', async function () {
+                    var ids = String(btn.dataset.reqids || '').split(',').filter(Boolean);
+                    var action = btn.dataset.action;
+                    btn.disabled = true;
+                    btn.innerHTML = '⏳';
+                    try {
+                        for (var i = 0; i < ids.length; i++) {
+                            await fetch(_api() + '/api/profile/access/' + ids[i] + '/resolve', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ user_id: uid, status: action })
+                            });
+                        }
+                        _toast(action === 'granted' ? '✅ Доступ разрешён' : '❌ Доступ отклонён',
+                               action === 'granted' ? 'success' : 'info');
+                        _loadProfileAccessInbox();
+                    } catch (e) {
+                        _toast('Ошибка сети', 'error');
+                        btn.disabled = false;
+                        btn.innerHTML = action === 'granted' ? '✅ Разрешить' : '❌ Отклонить';
+                    }
+                });
+            });
+        } catch (e) {
+            el.innerHTML = '';
+        }
+    }
+
+    function _escape(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     async function showSettingsScreen() { _renderSettings(); await _loadSettings(); _renderSettings(); }

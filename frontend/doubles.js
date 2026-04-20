@@ -1647,7 +1647,47 @@ function _renderResults(container) {
     document.getElementById('dbChangeGoal').onclick = () => _renderGoals(container);
     
     document.querySelectorAll('.db-view-btn').forEach(b =>
-        b.addEventListener('click', () => _showToast('👤 Полный профиль — скоро', 'info')));
+        b.addEventListener('click', async function() {
+            const ownerId = parseInt(this.dataset.id);
+            const uid = _userId();
+            if (!ownerId || !uid) return;
+            const orig = this.innerHTML;
+            this.innerHTML = '⏳...';
+            this.disabled = true;
+            try {
+                const api = _api();
+                const res = await fetch(`${api}/api/profile/access/request-full`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: uid, owner_id: ownerId })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    _showToast('❌ ' + (data.error || 'Не удалось отправить запрос'), 'error');
+                    this.innerHTML = orig;
+                    this.disabled = false;
+                    return;
+                }
+                const newCount = (data.requested || []).length;
+                const alreadyCount = (data.already_granted || []).length;
+                if (newCount > 0) {
+                    this.innerHTML = '⏳ Запрос отправлен';
+                    _showToast('📨 Запрос отправлен. Владелец увидит его в Настройки → Аккаунт.', 'success');
+                } else if (alreadyCount > 0) {
+                    this.innerHTML = '✅ Доступ уже открыт';
+                    _showToast('✅ У тебя уже есть доступ к этому профилю', 'info');
+                } else {
+                    this.innerHTML = '⏳ Ожидает ответа';
+                    _showToast('Запрос уже отправлен ранее — ждём ответа', 'info');
+                }
+                // Кнопка остаётся disabled — повторный запрос ничего не изменит.
+            } catch (e) {
+                console.error('profile access request error:', e);
+                _showToast('❌ Ошибка сети. Попробуй позже.', 'error');
+                this.innerHTML = orig;
+                this.disabled = false;
+            }
+        }));
     document.querySelectorAll('.db-msg-btn').forEach(b =>
         b.addEventListener('click', async function() {
             const partnerId = parseInt(this.dataset.id);

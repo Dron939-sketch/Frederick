@@ -5260,6 +5260,127 @@ async def profile_access_resolve(request: Request, access_id: int):
         return {"success": False, "error": str(e)}
 
 
+@app.post("/api/profile/access/request-full")
+@limiter.limit("10/minute")
+async def profile_access_request_full(request: Request):
+    """
+    Запросить полный доступ к профилю в один приём.
+    - Создаёт pending для всех полей с privacy 'chat' и 'request'.
+    - Открывает чат (если не было) между requester и owner.
+    - Шлёт системное сообщение от имени requester'а.
+    - Возвращает статус по каждому полю: pending/granted/already_granted.
+    Используется со страницы двойников/подборов по цели.
+    """
+    try:
+        data = await request.json()
+        requester = int(data.get("user_id") or 0)
+        owner = int(data.get("owner_id") or 0)
+        if not requester or not owner:
+            return {"success": False, "error": "user_id and owner_id required"}
+        if requester == owner:
+            return {"success": False, "error": "cannot request own profile"}
+
+        private_fields = [k for k, v in DEFAULT_PRIVACY.items() if v in ("chat", "request")]
+        if not private_fields:
+            return {"success": True, "requested": [], "already": []}
+
+        requested_fields = []
+        already_granted = []
+        async with db.get_connection() as conn:
+            # Имя запрашивающего для системного сообщения.
+            requester_name_row = await conn.fetchrow(
+                "SELECT name FROM fredi_user_contexts WHERE user_id = $1", requester
+            )
+            requester_name = (requester_name_row["name"] if requester_name_row else None) or "Пользователь"
+
+            # Смотрим уже granted-поля, чтобы не пере-пендить.
+            granted_rows = await conn.fetch("""
+                SELECT field_name FROM fredi_profile_access
+                WHERE owner_id = $1 AND requester_id = $2 AND status = 'granted'
+            """, owner, requester)
+            granted = {r["field_name"] for r in granted_rows}
+
+            for field in private_fields:
+                if field in granted:
+                    already_granted.append(field)
+                    continue
+                await conn.execute("""
+                    INSERT INTO fredi_profile_access (owner_id, requester_id, field_name, status)
+                    VALUES ($1, $2, $3, 'pending')
+                    ON CONFLICT (owner_id, requester_id, field_name)
+                    DO UPDATE SET status = 'pending', resolved_at = NULL, created_at = NOW()
+                    WHERE fredi_profile_access.status != 'granted'
+                """, owner, requester, field)
+                requested_fields.append(field)
+
+            # Создать/найти чат и отправить системное сообщение — только
+            # если реально что-то новое запросили.
+            chat_id = None
+            if requested_fields:
+                low, high = min(requester, owner), max(requester, owner)
+                row = await conn.fetchrow(
+                    "SELECT id FROM fredi_chats WHERE user_id_1 = $1 AND user_id_2 = $2",
+                    low, high
+                )
+                if row:
+                    chat_id = row["id"]
+                else:
+                    row = await conn.fetchrow("""
+                        INSERT INTO fredi_chats (user_id_1, user_id_2, created_at)
+                        VALUES ($1, $2, NOW())
+                        ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET user_id_1 = EXCLUDED.user_id_1
+                        RETURNING id
+                    """, low, high)
+                    chat_id = row["id"] if row else None
+
+                if chat_id:
+                    sys_text = (
+                        f"🔐 {requester_name} нашёл(ла) тебя в «Двойниках» и запросил(а) доступ к полному профилю. "
+                        f"Ответить: Настройки → 🔑 Аккаунт → Запросы на профиль."
+                    )
+                    await conn.execute("""
+                        INSERT INTO fredi_chat_messages (chat_id, sender_id, text, created_at)
+                        VALUES ($1, $2, $3, NOW())
+                    """, chat_id, requester, sys_text)
+                    await conn.execute(
+                        "UPDATE fredi_chats SET last_message_text = $2, last_message_at = NOW() WHERE id = $1",
+                        chat_id, sys_text[:200]
+                    )
+
+        # Analytics
+        try:
+            await log_server_event(requester, "profile_access_requested", {
+                "owner_id": owner,
+                "fields_count": len(requested_fields),
+                "already_granted_count": len(already_granted),
+                "new_request": bool(requested_fields),
+            })
+        except Exception:
+            pass
+
+        # Push уведомление владельцу, если подписка есть
+        try:
+            if requested_fields and push_service:
+                await push_service.send_to_user(
+                    owner,
+                    title="🔐 Запрос доступа к профилю",
+                    body=f"{requester_name} просит посмотреть твой профиль",
+                    url="/?tab=settings&section=account"
+                )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "chat_id": chat_id,
+            "requested": requested_fields,
+            "already_granted": already_granted,
+        }
+    except Exception as e:
+        logger.error(f"profile_access_request_full error: {e}")
+        return {"success": False, "error": str(e)}
+
+
 # ============================================
 # BRAND TRANSFORMATION — переход от текущего образа к желаемому
 # ============================================
