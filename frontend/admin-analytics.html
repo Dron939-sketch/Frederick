@@ -75,6 +75,26 @@
     <div class="nav" id="navBar" style="display:none">
         <button data-tab="summary" class="active">Сводка (7 дней)</button>
         <button data-tab="recent">Последние события</button>
+        <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
+    </div>
+
+    <!-- Export modal -->
+    <div id="exportOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:800px;width:100%;max-height:92vh;display:flex;flex-direction:column;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-weight:700;font-size:16px">Экспорт для Claude</div>
+                <button id="exportClose" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);cursor:pointer;font:inherit">✕ Закрыть</button>
+            </div>
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+                Markdown-дамп данных за 7 дней. Скопируй и вставь в чат — я смогу провести анализ и дать рекомендации. Данные анонимизированы (только user_id, без email/имён).
+            </div>
+            <textarea id="exportText" readonly style="flex:1;width:100%;min-height:380px;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:12px/1.5 'SF Mono',Menlo,Consolas,monospace;resize:vertical;box-sizing:border-box"></textarea>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button id="exportCopy" style="flex:1;padding:12px;border-radius:10px;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer">📋 Скопировать</button>
+                <button id="exportDownload" style="padding:12px 18px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;cursor:pointer">💾 Скачать .md</button>
+            </div>
+            <div id="exportStatus" style="font-size:11px;color:var(--text-dim);margin-top:6px;text-align:center;min-height:14px"></div>
+        </div>
     </div>
 
     <div id="errBox"></div>
@@ -352,6 +372,175 @@
         return String(s == null ? '' : s)
             .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
+
+    // =============== Экспорт для Claude ===============
+
+    function _mdTable(headers, rows){
+        if (!rows || !rows.length) return '_(нет данных)_\n';
+        var out = '| ' + headers.join(' | ') + ' |\n';
+        out += '|' + headers.map(function(){return '---';}).join('|') + '|\n';
+        rows.forEach(function(r){
+            out += '| ' + r.map(function(c){ return String(c == null ? '' : c).replace(/\|/g,'\\|').replace(/\n/g,' '); }).join(' | ') + ' |\n';
+        });
+        return out;
+    }
+
+    function _formatMarkdown(summary, recent){
+        var now = new Date().toISOString();
+        var s = summary || {};
+        var out = [];
+        out.push('# Fredi Analytics Snapshot');
+        out.push('');
+        out.push('_Generated: `' + now + '` • Period: `' + (s.period || '7d') + '`_');
+        out.push('');
+
+        out.push('## KPI');
+        out.push('- **Total events**: ' + (s.total_events || 0));
+        out.push('- **Unique users**: ' + (s.unique_users || 0));
+        out.push('- **Avg session**: ' + _fmtSec(s.avg_session_sec || 0));
+        out.push('- **AI avg latency**: ' + (s.ai_avg_latency_ms || 0) + ' ms');
+        out.push('- **API/JS errors (7d)**: ' + (s.api_errors_7d || 0));
+        var todayDau = (s.dau && s.dau.length) ? s.dau[s.dau.length-1].users : 0;
+        out.push('- **DAU (today)**: ' + todayDau);
+        out.push('');
+
+        out.push('## Subscription funnel');
+        var f = s.funnel || {};
+        out.push(_mdTable(
+            ['Step', 'Count'],
+            [
+                ['meter_warning (≤5 мин)', f.meter_warning || 0],
+                ['meter_blocked_shown', f.meter_blocked_shown || 0],
+                ['meter_subscribe_clicked', f.meter_subscribe_clicked || 0],
+                ['subscription_activated', f.subscription_activated || 0],
+            ]
+        ));
+
+        if (s.features && s.features.length){
+            out.push('## Features (avg duration + opens)');
+            out.push(_mdTable(
+                ['Feature', 'Avg (sec)', 'Opens'],
+                s.features.map(function(x){ return [x.feature, x.avg_sec, x.opens]; })
+            ));
+        }
+
+        if (s.by_event && s.by_event.length){
+            out.push('## Top events (7d)');
+            out.push(_mdTable(
+                ['Event', 'Count'],
+                s.by_event.map(function(x){ return [x.event, x.count]; })
+            ));
+        }
+
+        if (s.by_screen && s.by_screen.length){
+            out.push('## Top screens (views)');
+            out.push(_mdTable(
+                ['Screen', 'Views'],
+                s.by_screen.map(function(x){ return [x.screen, x.count]; })
+            ));
+        }
+
+        if (s.dau && s.dau.length){
+            out.push('## DAU timeline');
+            out.push(_mdTable(
+                ['Day', 'Users', 'Events'],
+                s.dau.map(function(x){ return [x.day, x.users, x.events]; })
+            ));
+        }
+
+        if (s.segments){
+            ['device', 'plan', 'auth'].forEach(function(key){
+                var rows = s.segments[key];
+                if (!rows || !rows.length) return;
+                out.push('## Segment: ' + key);
+                out.push(_mdTable(
+                    ['Segment', 'Users', 'Events', 'Avg session'],
+                    rows.map(function(r){ return [r.seg, r.users, r.events, _fmtSec(r.avg_session_sec || 0)]; })
+                ));
+            });
+        }
+
+        // Recent events (max 80 для компактности)
+        var events = (recent && recent.events) || [];
+        if (events.length){
+            out.push('## Recent events (last ' + Math.min(events.length, 80) + ')');
+            out.push('');
+            out.push('Format: `timestamp` `event` uid=N screen=X data={...} attrs={...}');
+            out.push('');
+            events.slice(0, 80).forEach(function(e){
+                var line = '- `' + String(e.created_at || '').slice(0, 19) + '` **' + e.event + '**';
+                if (e.user_id) line += ' uid=' + e.user_id;
+                if (e.screen) line += ' screen=' + e.screen;
+                if (e.data && typeof e.data === 'object'){
+                    var entries = Object.keys(e.data).slice(0, 6).map(function(k){
+                        return k + '=' + String(e.data[k]).slice(0, 40);
+                    });
+                    if (entries.length) line += ' data={' + entries.join(', ') + '}';
+                }
+                out.push(line);
+            });
+            out.push('');
+        }
+
+        out.push('---');
+        out.push('_Посмотри на это и скажи: что бросается в глаза, где проблемы, что делать в первую очередь для увеличения длительности сессий и конверсии в подписку._');
+
+        return out.join('\n');
+    }
+
+    async function _buildExport(){
+        var status = document.getElementById('exportStatus');
+        status.textContent = 'Собираю данные…';
+        try {
+            var summary = await _fetch('/api/analytics/summary');
+            var recent = await _fetch('/api/analytics/recent?limit=80');
+            var md = _formatMarkdown(summary, recent);
+            document.getElementById('exportText').value = md;
+            status.textContent = 'Готово. ' + md.length + ' символов.';
+        } catch(e){
+            document.getElementById('exportText').value = '';
+            status.textContent = 'Ошибка: ' + (e.message || 'fetch failed');
+        }
+    }
+
+    document.getElementById('exportClaudeBtn').addEventListener('click', function(){
+        var ov = document.getElementById('exportOverlay');
+        ov.style.display = 'flex';
+        _buildExport();
+    });
+    document.getElementById('exportClose').addEventListener('click', function(){
+        document.getElementById('exportOverlay').style.display = 'none';
+    });
+    document.getElementById('exportOverlay').addEventListener('click', function(e){
+        if (e.target && e.target.id === 'exportOverlay') this.style.display = 'none';
+    });
+    document.getElementById('exportCopy').addEventListener('click', function(){
+        var ta = document.getElementById('exportText');
+        ta.select();
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText){
+                navigator.clipboard.writeText(ta.value).then(function(){
+                    document.getElementById('exportStatus').textContent = '✓ Скопировано в буфер обмена.';
+                });
+            } else {
+                document.execCommand('copy');
+                document.getElementById('exportStatus').textContent = '✓ Скопировано (fallback).';
+            }
+        } catch(e){
+            document.getElementById('exportStatus').textContent = 'Не удалось скопировать — выдели текст и Ctrl+C.';
+        }
+    });
+    document.getElementById('exportDownload').addEventListener('click', function(){
+        var md = document.getElementById('exportText').value;
+        if (!md) return;
+        var blob = new Blob([md], {type:'text/markdown;charset=utf-8'});
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'fredi-analytics-' + new Date().toISOString().slice(0,10) + '.md';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    });
 })();
 </script>
 </body>
