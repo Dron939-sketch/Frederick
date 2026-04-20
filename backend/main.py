@@ -926,8 +926,42 @@ async def init_database_tables():
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_hash TEXT")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP WITH TIME ZONE")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMP WITH TIME ZONE")
+
+        # Нормализация и дедупликация ДО создания уникального индекса —
+        # иначе миграция падает, если кто-то успел завести дубли через раннюю версию auth.
         await conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fredi_users_email_unique ON fredi_users(email) WHERE email IS NOT NULL"
+            "UPDATE fredi_users SET email = LOWER(TRIM(email)) "
+            "WHERE email IS NOT NULL AND email <> LOWER(TRIM(email))"
+        )
+        # Для каждого лишнего дубля оставляем самого активного (по last_activity),
+        # у остальных обнуляем email. Данные не теряются — только утрачивается логин.
+        dup_rows = await conn.fetch("""
+            WITH ranked AS (
+                SELECT user_id, email,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY email
+                           ORDER BY last_activity DESC NULLS LAST, user_id ASC
+                       ) AS rn
+                FROM fredi_users
+                WHERE email IS NOT NULL
+            )
+            SELECT user_id, email FROM ranked WHERE rn > 1
+        """)
+        if dup_rows:
+            dup_ids = [int(r["user_id"]) for r in dup_rows]
+            logger.warning(
+                f"⚠️ auth migration: обнаружено {len(dup_ids)} дублей email "
+                f"(user_ids={dup_ids}). Обнуляю email у менее активных записей."
+            )
+            await conn.execute(
+                "UPDATE fredi_users SET email = NULL, password_hash = NULL "
+                "WHERE user_id = ANY($1::bigint[])",
+                dup_ids,
+            )
+
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fredi_users_email_unique "
+            "ON fredi_users(email) WHERE email IS NOT NULL"
         )
 
         # Серверные сессии авторизации. Храним sha256(token), сам токен — только в HttpOnly cookie.
