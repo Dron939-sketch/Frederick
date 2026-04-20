@@ -256,7 +256,7 @@
                 el.innerHTML =
                     '<div class="st-hint">Зарегистрируйтесь, чтобы не потерять дневник, тесты и сны при смене устройства или очистке браузера. Email станет вашим логином.</div>' +
                     '<div style="display:flex;flex-direction:column;gap:8px">' +
-                      '<button class="fa-btn fa-btn-primary" id="acLogin" style="padding:12px;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;border:none;background:linear-gradient(135deg,#d4d4d4,#a8a8a8);color:#0a0a0a">Войти или зарегистрироваться</button>' +
+                      '<button class="st-prof-btn primary" id="acLogin" style="padding:12px;border-radius:10px;font-size:14px;font-weight:600">Войти или зарегистрироваться</button>' +
                     '</div>';
                 var li = document.getElementById('acLogin');
                 if (li) li.onclick = function () {
