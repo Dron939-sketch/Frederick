@@ -148,6 +148,13 @@ async function unsubscribeFromPush() {
 
 // ===== ИНИЦИАЛИЗАЦИЯ =====
 async function initPush(userId) {
+    // Notification API не существует в iOS VK WebView, Safari Private,
+    // некоторых in-app браузерах. Без этого guard JS падает с
+    // "Can't find variable: Notification" и ломает всё приложение.
+    if (!('Notification' in window)) {
+        console.log('Push: Notification API недоступен (WebView / old Safari)');
+        return;
+    }
     const reg = await registerServiceWorker();
     if (!reg) return;
 
