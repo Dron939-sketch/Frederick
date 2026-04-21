@@ -848,6 +848,37 @@ function _renderNotifTab() {
             }
         });
     });
+
+    // Inline Разрешить/Отклонить прямо из Уведомлений (для profile_access_incoming).
+    c.querySelectorAll('[data-respond-notif]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const status = btn.dataset.respondNotif;
+            const requesterId = parseInt(btn.dataset.requester, 10);
+            const notifId = btn.dataset.notifId;
+            if (!requesterId) return;
+            const row = btn.closest('.ms-notif-actions');
+            if (row) row.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);padding:6px">⏳ Обрабатываю…</div>';
+            try {
+                await _msFetch('/api/profile/access/respond-all', {
+                    method: 'POST',
+                    body: JSON.stringify({ user_id: _msUserId(), requester_id: requesterId, status })
+                });
+                _msToast(status === 'granted' ? '✅ Доступ разрешён' : '❌ Запрос отклонён',
+                         status === 'granted' ? 'success' : 'info');
+                // Удаляем уведомление и pending из локального state.
+                if (notifId) {
+                    try { await _msFetch(`/api/notifications/${notifId}`, { method: 'DELETE' }); } catch {}
+                    _msState.notifications = _msState.notifications.filter(n => String(n.id) !== String(notifId));
+                }
+                _msState.requests = (_msState.requests || []).filter(r => r.requester_id !== requesterId);
+                _updateBadge();
+                _renderNotifTab();
+            } catch (e) {
+                _msToast('Ошибка сети', 'error');
+                if (row) row.innerHTML = `<button class="ms-notif-btn ms-notif-btn-accept" data-respond-notif="granted" data-requester="${requesterId}" data-notif-id="${notifId}">✅ Разрешить</button><button class="ms-notif-btn ms-notif-btn-decline" data-respond-notif="denied" data-requester="${requesterId}" data-notif-id="${notifId}">❌ Отклонить</button>`;
+            }
+        });
+    });
 }
 
 function _notifItemHtml(n, unread) {
@@ -882,6 +913,16 @@ function _notifItemHtml(n, unread) {
         actions = `<div class="ms-notif-actions">
             <button class="ms-notif-btn ms-notif-btn-decline"
                 data-del-notif="${n.id}">Понятно</button>
+        </div>`;
+    } else if (n.type === 'profile_access_incoming' && n.data && n.data.requester_id) {
+        // Владелец получает: кто-то запросил доступ к его профилю.
+        actions = `<div class="ms-notif-actions">
+            <button class="ms-notif-btn ms-notif-btn-accept"
+                data-respond-notif="granted" data-requester="${n.data.requester_id}"
+                data-notif-id="${n.id}">✅ Разрешить</button>
+            <button class="ms-notif-btn ms-notif-btn-decline"
+                data-respond-notif="denied" data-requester="${n.data.requester_id}"
+                data-notif-id="${n.id}">❌ Отклонить</button>
         </div>`;
     }
 
