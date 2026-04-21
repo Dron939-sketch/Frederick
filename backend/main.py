@@ -428,16 +428,24 @@ app.add_middleware(
     max_age=86400,
 )
 
+_QUIET_LOG_PATHS = {"/health", "/api/analytics/events"}
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     if request.headers.get("upgrade", "").lower() == "websocket":
         return await call_next(request)
     start_time = time.time()
-    logger.debug(f"→ {request.method} {request.url.path}")
+    path = request.url.path
+    is_quiet = path in _QUIET_LOG_PATHS
+    logger.debug(f"→ {request.method} {path}")
     try:
         response = await call_next(request)
         duration = time.time() - start_time
-        logger.info(f"{request.method} {request.url.path} status={response.status_code} duration={duration:.3f}s")
+        # Health-check и аналитика бьют на пинг-режиме (17k/сутки каждый) —
+        # держим их в debug, чтобы production stdout не зашумлять.
+        log_level = logger.debug if is_quiet else logger.info
+        log_level(f"{request.method} {path} status={response.status_code} duration={duration:.3f}s")
         response.headers["X-Response-Time"] = f"{duration:.3f}s"
         return response
     except Exception as e:
@@ -1691,8 +1699,10 @@ async def morning_messages_scheduler():
 # ============================================
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    logger.info("=" * 50)
-    logger.info("🏥 HEALTH CHECK CALLED")
+    # Render пингует /health каждые 5 сек → 17k записей/сутки, если info.
+    # Держим на debug, чтобы в production stdout был только сигнал, а не шум.
+    logger.debug("=" * 50)
+    logger.debug("🏥 HEALTH CHECK CALLED")
 
     status = {
         "status": "healthy",
@@ -6547,7 +6557,13 @@ async def _force_lifespan():
         async with lifespan(app):
             _lifespan_started = True
             logger.info("✅ Lifespan успешно запущен")
-            await asyncio.Event().wait()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                logger.info("⏹️ Lifespan task cancelled (graceful shutdown)")
+                raise
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         logger.error(f"❌ Ошибка при запуске lifespan: {e}")
 
@@ -7435,10 +7451,16 @@ async def api_horoscope(request: Request):
 
 
 if __name__ != "__main__":
+    # Храним сильную ссылку на фоновую задачу — иначе GC может её
+    # уничтожить на рестарте и в логи летит
+    # «Task was destroyed but it is pending!».
+    _lifespan_bg_task = None
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            asyncio.create_task(_force_lifespan())
+            _lifespan_bg_task = asyncio.create_task(
+                _force_lifespan(), name="fredi-force-lifespan"
+            )
         else:
             loop.run_until_complete(_force_lifespan())
     except RuntimeError:
