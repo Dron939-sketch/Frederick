@@ -377,10 +377,12 @@ function _esInjectStyles() {
             border-radius: 40px; padding: 10px 18px;
             cursor: pointer; transition: all 0.2s;
             font-family: inherit; font-size: 14px;
+            color: var(--text-primary);
         }
         .sign-btn.active {
             background: rgba(224,224,224,0.15);
             border-color: rgba(224,224,224,0.3);
+            color: var(--text-primary);
         }
         .horoscope-category {
             display: flex; gap: 8px; margin-bottom: 16px;
@@ -391,9 +393,12 @@ function _esInjectStyles() {
             border: 1px solid rgba(224,224,224,0.1);
             border-radius: 30px; padding: 6px 14px;
             font-size: 12px; cursor: pointer;
+            font-family: inherit;
+            color: var(--text-primary);
         }
         .horoscope-cat-btn.active {
             background: rgba(224,224,224,0.12);
+            color: var(--text-primary);
         }
         
         /* Натальная карта */
