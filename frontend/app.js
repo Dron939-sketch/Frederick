@@ -416,6 +416,9 @@ function addMessage(text, sender = 'bot', audioUrl = null) {
         messagesContainer.className = 'chat-messages';
         container.appendChild(messagesContainer);
     }
+    // Если пришёл реальный ответ — убираем «думаю» бабл.
+    _hideThinkingBubble();
+
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${sender}`;
     const textSpan = document.createElement('div');
@@ -429,6 +432,43 @@ function addMessage(text, sender = 'bot', audioUrl = null) {
     }
     messagesContainer.appendChild(messageDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+// «Фреди печатает…» индикатор, пока ждём ответ AI.
+// Показывается мгновенно при онThinking(true), убирается при addMessage() или onThinking(false).
+let _thinkingBubble = null;
+let _thinkingLabel = null;
+
+function _showThinkingBubble(labelText) {
+    const container = document.getElementById('screenContainer');
+    if (!container) return;
+    let messagesContainer = container.querySelector('.chat-messages');
+    if (!messagesContainer) {
+        messagesContainer = document.createElement('div');
+        messagesContainer.className = 'chat-messages';
+        container.appendChild(messagesContainer);
+    }
+    if (!_thinkingBubble) {
+        _thinkingBubble = document.createElement('div');
+        _thinkingBubble.className = 'message bot thinking';
+        _thinkingBubble.innerHTML =
+            '<div class="thinking-wrap">' +
+                '<span class="thinking-label">Фреди печатает</span>' +
+                '<span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
+            '</div>';
+        _thinkingLabel = _thinkingBubble.querySelector('.thinking-label');
+        messagesContainer.appendChild(_thinkingBubble);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    if (labelText && _thinkingLabel) _thinkingLabel.textContent = labelText;
+}
+
+function _hideThinkingBubble() {
+    if (_thinkingBubble) {
+        try { _thinkingBubble.remove(); } catch (e) {}
+        _thinkingBubble = null;
+        _thinkingLabel  = null;
+    }
 }
 
 // Глобальный флаг против двойных нажатий
@@ -1423,9 +1463,14 @@ async function initVoice() {
         }
     };
 
-    // Индикатор "думает"
+    // Индикатор «Фреди печатает…»: показываем бабл сразу, как только сервер
+    // начал обрабатывать запрос, и убираем по финальному ответу.
     voiceManager.onThinking = (isThinking) => {
-        console.log('💭 Thinking:', isThinking);
+        if (isThinking) _showThinkingBubble();
+        else            _hideThinkingBubble();
+    };
+    voiceManager.onThinkingUpdate = (msg) => {
+        if (msg) _showThinkingBubble(msg);
     };
 
     voiceManager.setMode(currentMode);
