@@ -393,7 +393,9 @@ body::after {
 .mobile-menu-btn:focus-visible { outline: 2px solid rgba(255, 107, 59, 0.5); }
 
 @media (max-width: 768px) {
-    .mobile-menu-btn { display: flex; }
+    /* !important страхует от случайных оверрайдов из-за инжектируемых
+       стилей модулей — кнопка ☰ на мобиле должна быть видна всегда. */
+    .mobile-menu-btn { display: flex !important; }
 }
 
 .chat-header-avatar {
