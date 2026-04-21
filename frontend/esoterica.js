@@ -8,8 +8,36 @@
 const state = {
     activeTab: 'tarot',
     activeSuit: 'major',
+    question: '',
     userSign: null,
     userBirthData: null
+};
+
+// --- Позиции карт в раскладах (для UI и AI-интерпретации) ---
+const TAROT_SPREADS = {
+    day: {
+        label: '🎴 Карта дня',
+        positions: ['Карта дня']
+    },
+    three: {
+        label: '🃏 Прошлое · Настоящее · Будущее',
+        positions: ['Прошлое', 'Настоящее', 'Будущее']
+    },
+    celtic: {
+        label: '🔮 Кельтский крест',
+        positions: [
+            '1. Настоящее',
+            '2. Препятствие',
+            '3. Подсознание',
+            '4. Прошлое',
+            '5. Сознание / цель',
+            '6. Ближайшее будущее',
+            '7. Вы сами',
+            '8. Окружение',
+            '9. Надежды и страхи',
+            '10. Итог'
+        ]
+    }
 };
 
 // --- Данные Таро (78 карт) ---
@@ -108,68 +136,68 @@ const MAJOR_ARCANA = [
 // Младшие Арканы (для расширенного функционала)
 const MINOR_ARCANA = {
     cups: [
-        { id: 'c01', image: 'img/tarot/c01.webp', name: 'Туз Кубков', meaning: 'Новая любовь, эмоции, начало отношений' },
-        { id: 'c02', image: 'img/tarot/c02.webp', name: '2 Кубков', meaning: 'Союз, партнёрство, гармония' },
-        { id: 'c03', image: 'img/tarot/c03.webp', name: '3 Кубков', meaning: 'Празднование, дружба, радость' },
-        { id: 'c04', image: 'img/tarot/c04.webp', name: '4 Кубков', meaning: 'Апатия, скука, неудовлетворённость' },
-        { id: 'c05', image: 'img/tarot/c05.webp', name: '5 Кубков', meaning: 'Потеря, сожаление, принятие' },
-        { id: 'c06', image: 'img/tarot/c06.webp', name: '6 Кубков', meaning: 'Ностальгия, детство, воспоминания' },
-        { id: 'c07', image: 'img/tarot/c07.webp', name: '7 Кубков', meaning: 'Иллюзии, мечты, выбор' },
-        { id: 'c08', image: 'img/tarot/c08.webp', name: '8 Кубков', meaning: 'Уход, оставление, поиск' },
-        { id: 'c09', image: 'img/tarot/c09.webp', name: '9 Кубков', meaning: 'Исполнение желаний, удовлетворение' },
-        { id: 'c10', image: 'img/tarot/c10.webp', name: '10 Кубков', meaning: 'Семейное счастье, гармония' },
-        { id: 'c11', image: 'img/tarot/c11.webp', name: 'Паж Кубков', meaning: 'Романтика, творчество, новости' },
-        { id: 'c12', image: 'img/tarot/c12.webp', name: 'Рыцарь Кубков', meaning: 'Предложение, романтика, страсть' },
-        { id: 'c13', image: 'img/tarot/c13.webp', name: 'Королева Кубков', meaning: 'Эмпатия, интуиция, забота' },
-        { id: 'c14', image: 'img/tarot/c14.webp', name: 'Король Кубков', meaning: 'Эмоциональная зрелость, дипломатия' }
+        { id: 'c01', image: 'img/tarot/c01.webp', name: 'Туз Кубков', nameEn: 'Ace of Cups', element: 'Вода', meaning: 'Новая любовь, эмоции, начало отношений', reversed: 'Подавленные чувства, блок сердца, пустота' },
+        { id: 'c02', image: 'img/tarot/c02.webp', name: '2 Кубков', nameEn: 'Two of Cups', element: 'Вода', meaning: 'Союз, партнёрство, гармония', reversed: 'Разлад, неравенство, расставание' },
+        { id: 'c03', image: 'img/tarot/c03.webp', name: '3 Кубков', nameEn: 'Three of Cups', element: 'Вода', meaning: 'Празднование, дружба, радость', reversed: 'Сплетни, одиночество, излишества' },
+        { id: 'c04', image: 'img/tarot/c04.webp', name: '4 Кубков', nameEn: 'Four of Cups', element: 'Вода', meaning: 'Апатия, скука, неудовлетворённость', reversed: 'Новые возможности, выход из застоя' },
+        { id: 'c05', image: 'img/tarot/c05.webp', name: '5 Кубков', nameEn: 'Five of Cups', element: 'Вода', meaning: 'Потеря, сожаление, принятие', reversed: 'Прощение, восстановление, принятие' },
+        { id: 'c06', image: 'img/tarot/c06.webp', name: '6 Кубков', nameEn: 'Six of Cups', element: 'Вода', meaning: 'Ностальгия, детство, воспоминания', reversed: 'Застревание в прошлом, тоска' },
+        { id: 'c07', image: 'img/tarot/c07.webp', name: '7 Кубков', nameEn: 'Seven of Cups', element: 'Вода', meaning: 'Иллюзии, мечты, выбор', reversed: 'Ясность, решение, отрезвление' },
+        { id: 'c08', image: 'img/tarot/c08.webp', name: '8 Кубков', nameEn: 'Eight of Cups', element: 'Вода', meaning: 'Уход, оставление, поиск', reversed: 'Страх перемен, возврат, незавершённость' },
+        { id: 'c09', image: 'img/tarot/c09.webp', name: '9 Кубков', nameEn: 'Nine of Cups', element: 'Вода', meaning: 'Исполнение желаний, удовлетворение', reversed: 'Неудовлетворённость, самодовольство' },
+        { id: 'c10', image: 'img/tarot/c10.webp', name: '10 Кубков', nameEn: 'Ten of Cups', element: 'Вода', meaning: 'Семейное счастье, гармония', reversed: 'Разлад в семье, отчуждение' },
+        { id: 'c11', image: 'img/tarot/c11.webp', name: 'Паж Кубков', nameEn: 'Page of Cups', element: 'Вода', meaning: 'Романтика, творчество, новости', reversed: 'Незрелость, обидчивость, блок творчества' },
+        { id: 'c12', image: 'img/tarot/c12.webp', name: 'Рыцарь Кубков', nameEn: 'Knight of Cups', element: 'Вода', meaning: 'Предложение, романтика, страсть', reversed: 'Разочарование, нестабильность, лживые обещания' },
+        { id: 'c13', image: 'img/tarot/c13.webp', name: 'Королева Кубков', nameEn: 'Queen of Cups', element: 'Вода', meaning: 'Эмпатия, интуиция, забота', reversed: 'Созависимость, эмоциональный хаос' },
+        { id: 'c14', image: 'img/tarot/c14.webp', name: 'Король Кубков', nameEn: 'King of Cups', element: 'Вода', meaning: 'Эмоциональная зрелость, дипломатия', reversed: 'Манипуляция, холодность, подавленные эмоции' }
     ],
     wands: [
-        { id: 'w01', image: 'img/tarot/w01.webp', name: 'Туз Жезлов', meaning: 'Вдохновение, начинание, страсть' },
-        { id: 'w02', image: 'img/tarot/w02.webp', name: '2 Жезлов', meaning: 'Планирование, выбор, перспективы' },
-        { id: 'w03', image: 'img/tarot/w03.webp', name: '3 Жезлов', meaning: 'Прогресс, экспансия, видение' },
-        { id: 'w04', image: 'img/tarot/w04.webp', name: '4 Жезлов', meaning: 'Стабильность, дом, праздник' },
-        { id: 'w05', image: 'img/tarot/w05.webp', name: '5 Жезлов', meaning: 'Конфликт, конкуренция, борьба' },
-        { id: 'w06', image: 'img/tarot/w06.webp', name: '6 Жезлов', meaning: 'Победа, признание, успех' },
-        { id: 'w07', image: 'img/tarot/w07.webp', name: '7 Жезлов', meaning: 'Защита, оборона, стойкость' },
-        { id: 'w08', image: 'img/tarot/w08.webp', name: '8 Жезлов', meaning: 'Скорость, действия, прогресс' },
-        { id: 'w09', image: 'img/tarot/w09.webp', name: '9 Жезлов', meaning: 'Стойкость, защита, границы' },
-        { id: 'w10', image: 'img/tarot/w10.webp', name: '10 Жезлов', meaning: 'Бремя, ответственность, нагрузка' },
-        { id: 'w11', image: 'img/tarot/w11.webp', name: 'Паж Жезлов', meaning: 'Энтузиазм, исследование, новости' },
-        { id: 'w12', image: 'img/tarot/w12.webp', name: 'Рыцарь Жезлов', meaning: 'Энергия, приключения, импульс' },
-        { id: 'w13', image: 'img/tarot/w13.webp', name: 'Королева Жезлов', meaning: 'Уверенность, харизма, независимость' },
-        { id: 'w14', image: 'img/tarot/w14.webp', name: 'Король Жезлов', meaning: 'Лидерство, видение, страсть' }
+        { id: 'w01', image: 'img/tarot/w01.webp', name: 'Туз Жезлов', nameEn: 'Ace of Wands', element: 'Огонь', meaning: 'Вдохновение, начинание, страсть', reversed: 'Задержка, блок творчества, сомнение' },
+        { id: 'w02', image: 'img/tarot/w02.webp', name: '2 Жезлов', nameEn: 'Two of Wands', element: 'Огонь', meaning: 'Планирование, выбор, перспективы', reversed: 'Страх неизвестного, нерешительность, застой' },
+        { id: 'w03', image: 'img/tarot/w03.webp', name: '3 Жезлов', nameEn: 'Three of Wands', element: 'Огонь', meaning: 'Прогресс, экспансия, видение', reversed: 'Задержка, разочарование, препятствия' },
+        { id: 'w04', image: 'img/tarot/w04.webp', name: '4 Жезлов', nameEn: 'Four of Wands', element: 'Огонь', meaning: 'Стабильность, дом, праздник', reversed: 'Нестабильность, конфликт в доме' },
+        { id: 'w05', image: 'img/tarot/w05.webp', name: '5 Жезлов', nameEn: 'Five of Wands', element: 'Огонь', meaning: 'Конфликт, конкуренция, борьба', reversed: 'Разрешение, компромисс, окончание спора' },
+        { id: 'w06', image: 'img/tarot/w06.webp', name: '6 Жезлов', nameEn: 'Six of Wands', element: 'Огонь', meaning: 'Победа, признание, успех', reversed: 'Поражение, гордыня, недооценка' },
+        { id: 'w07', image: 'img/tarot/w07.webp', name: '7 Жезлов', nameEn: 'Seven of Wands', element: 'Огонь', meaning: 'Защита, оборона, стойкость', reversed: 'Сдача позиций, переутомление, сомнение' },
+        { id: 'w08', image: 'img/tarot/w08.webp', name: '8 Жезлов', nameEn: 'Eight of Wands', element: 'Огонь', meaning: 'Скорость, действия, прогресс', reversed: 'Задержки, недоразумения, разочарование' },
+        { id: 'w09', image: 'img/tarot/w09.webp', name: '9 Жезлов', nameEn: 'Nine of Wands', element: 'Огонь', meaning: 'Стойкость, защита, границы', reversed: 'Истощение, паранойя, усталость' },
+        { id: 'w10', image: 'img/tarot/w10.webp', name: '10 Жезлов', nameEn: 'Ten of Wands', element: 'Огонь', meaning: 'Бремя, ответственность, нагрузка', reversed: 'Освобождение, делегирование, облегчение' },
+        { id: 'w11', image: 'img/tarot/w11.webp', name: 'Паж Жезлов', nameEn: 'Page of Wands', element: 'Огонь', meaning: 'Энтузиазм, исследование, новости', reversed: 'Разброс, незрелость, задержка старта' },
+        { id: 'w12', image: 'img/tarot/w12.webp', name: 'Рыцарь Жезлов', nameEn: 'Knight of Wands', element: 'Огонь', meaning: 'Энергия, приключения, импульс', reversed: 'Импульсивность, безрассудство, задержка' },
+        { id: 'w13', image: 'img/tarot/w13.webp', name: 'Королева Жезлов', nameEn: 'Queen of Wands', element: 'Огонь', meaning: 'Уверенность, харизма, независимость', reversed: 'Ревность, тщеславие, неуверенность' },
+        { id: 'w14', image: 'img/tarot/w14.webp', name: 'Король Жезлов', nameEn: 'King of Wands', element: 'Огонь', meaning: 'Лидерство, видение, страсть', reversed: 'Диктатура, импульсивность, высокомерие' }
     ],
     swords: [
-        { id: 's01', image: 'img/tarot/s01.webp', name: 'Туз Мечей', meaning: 'Ясность, прорыв, истина' },
-        { id: 's02', image: 'img/tarot/s02.webp', name: '2 Мечей', meaning: 'Трудный выбор, тупик' },
-        { id: 's03', image: 'img/tarot/s03.webp', name: '3 Мечей', meaning: 'Разбитое сердце, боль' },
-        { id: 's04', image: 'img/tarot/s04.webp', name: '4 Мечей', meaning: 'Отдых, восстановление, медитация' },
-        { id: 's05', image: 'img/tarot/s05.webp', name: '5 Мечей', meaning: 'Конфликт, победа любой ценой' },
-        { id: 's06', image: 'img/tarot/s06.webp', name: '6 Мечей', meaning: 'Переход, путешествие, исцеление' },
-        { id: 's07', image: 'img/tarot/s07.webp', name: '7 Мечей', meaning: 'Хитрость, обман, стратегия' },
-        { id: 's08', image: 'img/tarot/s08.webp', name: '8 Мечей', meaning: 'Ограничения, страх, беспомощность' },
-        { id: 's09', image: 'img/tarot/s09.webp', name: '9 Мечей', meaning: 'Тревога, ночные кошмары, страхи' },
-        { id: 's10', image: 'img/tarot/s10.webp', name: '10 Мечей', meaning: 'Конец, предательство, крах' },
-        { id: 's11', image: 'img/tarot/s11.webp', name: 'Паж Мечей', meaning: 'Бдительность, наблюдение, любопытство' },
-        { id: 's12', image: 'img/tarot/s12.webp', name: 'Рыцарь Мечей', meaning: 'Скорость, прямота, агрессия' },
-        { id: 's13', image: 'img/tarot/s13.webp', name: 'Королева Мечей', meaning: 'Рациональность, независимость' },
-        { id: 's14', image: 'img/tarot/s14.webp', name: 'Король Мечей', meaning: 'Интеллект, авторитет, правда' }
+        { id: 's01', image: 'img/tarot/s01.webp', name: 'Туз Мечей', nameEn: 'Ace of Swords', element: 'Воздух', meaning: 'Ясность, прорыв, истина', reversed: 'Путаница, ложь, тупик' },
+        { id: 's02', image: 'img/tarot/s02.webp', name: '2 Мечей', nameEn: 'Two of Swords', element: 'Воздух', meaning: 'Трудный выбор, тупик', reversed: 'Нерешительность, тупик, правда всплывает' },
+        { id: 's03', image: 'img/tarot/s03.webp', name: '3 Мечей', nameEn: 'Three of Swords', element: 'Воздух', meaning: 'Разбитое сердце, боль', reversed: 'Исцеление, прощение, снятие боли' },
+        { id: 's04', image: 'img/tarot/s04.webp', name: '4 Мечей', nameEn: 'Four of Swords', element: 'Воздух', meaning: 'Отдых, восстановление, медитация', reversed: 'Выгорание, беспокойство, пробуждение' },
+        { id: 's05', image: 'img/tarot/s05.webp', name: '5 Мечей', nameEn: 'Five of Swords', element: 'Воздух', meaning: 'Конфликт, победа любой ценой', reversed: 'Примирение, раскаяние, прощение' },
+        { id: 's06', image: 'img/tarot/s06.webp', name: '6 Мечей', nameEn: 'Six of Swords', element: 'Воздух', meaning: 'Переход, путешествие, исцеление', reversed: 'Застревание, сопротивление, невозможность уйти' },
+        { id: 's07', image: 'img/tarot/s07.webp', name: '7 Мечей', nameEn: 'Seven of Swords', element: 'Воздух', meaning: 'Хитрость, обман, стратегия', reversed: 'Раскрытие, совесть, признание' },
+        { id: 's08', image: 'img/tarot/s08.webp', name: '8 Мечей', nameEn: 'Eight of Swords', element: 'Воздух', meaning: 'Ограничения, страх, беспомощность', reversed: 'Освобождение, ясность, выход' },
+        { id: 's09', image: 'img/tarot/s09.webp', name: '9 Мечей', nameEn: 'Nine of Swords', element: 'Воздух', meaning: 'Тревога, ночные кошмары, страхи', reversed: 'Облегчение, выход из страха, надежда' },
+        { id: 's10', image: 'img/tarot/s10.webp', name: '10 Мечей', nameEn: 'Ten of Swords', element: 'Воздух', meaning: 'Конец, предательство, крах', reversed: 'Восстановление, конец кошмара, урок' },
+        { id: 's11', image: 'img/tarot/s11.webp', name: 'Паж Мечей', nameEn: 'Page of Swords', element: 'Воздух', meaning: 'Бдительность, наблюдение, любопытство', reversed: 'Сплетни, цинизм, поспешность' },
+        { id: 's12', image: 'img/tarot/s12.webp', name: 'Рыцарь Мечей', nameEn: 'Knight of Swords', element: 'Воздух', meaning: 'Скорость, прямота, агрессия', reversed: 'Агрессия, поспешность, безрассудство' },
+        { id: 's13', image: 'img/tarot/s13.webp', name: 'Королева Мечей', nameEn: 'Queen of Swords', element: 'Воздух', meaning: 'Рациональность, независимость', reversed: 'Холодность, горечь, жестокость' },
+        { id: 's14', image: 'img/tarot/s14.webp', name: 'Король Мечей', nameEn: 'King of Swords', element: 'Воздух', meaning: 'Интеллект, авторитет, правда', reversed: 'Жёсткость, манипуляция, тирания' }
     ],
     pentacles: [
-        { id: 'p01', image: 'img/tarot/p01.webp', name: 'Туз Пентаклей', meaning: 'Возможность, ресурс, начало' },
-        { id: 'p02', image: 'img/tarot/p02.webp', name: '2 Пентаклей', meaning: 'Баланс, адаптация, многозадачность' },
-        { id: 'p03', image: 'img/tarot/p03.webp', name: '3 Пентаклей', meaning: 'Команда, мастерство, качество' },
-        { id: 'p04', image: 'img/tarot/p04.webp', name: '4 Пентаклей', meaning: 'Контроль, сохранение, скупость' },
-        { id: 'p05', image: 'img/tarot/p05.webp', name: '5 Пентаклей', meaning: 'Потеря, трудности, изоляция' },
-        { id: 'p06', image: 'img/tarot/p06.webp', name: '6 Пентаклей', meaning: 'Щедрость, помощь, баланс' },
-        { id: 'p07', image: 'img/tarot/p07.webp', name: '7 Пентаклей', meaning: 'Ожидание, оценка, терпение' },
-        { id: 'p08', image: 'img/tarot/p08.webp', name: '8 Пентаклей', meaning: 'Мастерство, труд, развитие' },
-        { id: 'p09', image: 'img/tarot/p09.webp', name: '9 Пентаклей', meaning: 'Достаток, самодостаточность' },
-        { id: 'p10', image: 'img/tarot/p10.webp', name: '10 Пентаклей', meaning: 'Наследие, семья, богатство' },
-        { id: 'p11', image: 'img/tarot/p11.webp', name: 'Паж Пентаклей', meaning: 'Обучение, возможности, рост' },
-        { id: 'p12', image: 'img/tarot/p12.webp', name: 'Рыцарь Пентаклей', meaning: 'Терпение, работа, надёжность' },
-        { id: 'p13', image: 'img/tarot/p13.webp', name: 'Королева Пентаклей', meaning: 'Забота, изобилие, природа' },
-        { id: 'p14', image: 'img/tarot/p14.webp', name: 'Король Пентаклей', meaning: 'Успех, стабильность, процветание' }
+        { id: 'p01', image: 'img/tarot/p01.webp', name: 'Туз Пентаклей', nameEn: 'Ace of Pentacles', element: 'Земля', meaning: 'Возможность, ресурс, начало', reversed: 'Упущенный шанс, жадность, нестабильность' },
+        { id: 'p02', image: 'img/tarot/p02.webp', name: '2 Пентаклей', nameEn: 'Two of Pentacles', element: 'Земля', meaning: 'Баланс, адаптация, многозадачность', reversed: 'Перегрузка, дисбаланс, хаос' },
+        { id: 'p03', image: 'img/tarot/p03.webp', name: '3 Пентаклей', nameEn: 'Three of Pentacles', element: 'Земля', meaning: 'Команда, мастерство, качество', reversed: 'Конфликт в команде, халтура, несогласованность' },
+        { id: 'p04', image: 'img/tarot/p04.webp', name: '4 Пентаклей', nameEn: 'Four of Pentacles', element: 'Земля', meaning: 'Контроль, сохранение, скупость', reversed: 'Жадность, страх потери, скупость' },
+        { id: 'p05', image: 'img/tarot/p05.webp', name: '5 Пентаклей', nameEn: 'Five of Pentacles', element: 'Земля', meaning: 'Потеря, трудности, изоляция', reversed: 'Восстановление, помощь, выход из бедности' },
+        { id: 'p06', image: 'img/tarot/p06.webp', name: '6 Пентаклей', nameEn: 'Six of Pentacles', element: 'Земля', meaning: 'Щедрость, помощь, баланс', reversed: 'Неравенство, долги, эксплуатация' },
+        { id: 'p07', image: 'img/tarot/p07.webp', name: '7 Пентаклей', nameEn: 'Seven of Pentacles', element: 'Земля', meaning: 'Ожидание, оценка, терпение', reversed: 'Нетерпение, провал плана, пустые усилия' },
+        { id: 'p08', image: 'img/tarot/p08.webp', name: '8 Пентаклей', nameEn: 'Eight of Pentacles', element: 'Земля', meaning: 'Мастерство, труд, развитие', reversed: 'Халтура, скука, отсутствие роста' },
+        { id: 'p09', image: 'img/tarot/p09.webp', name: '9 Пентаклей', nameEn: 'Nine of Pentacles', element: 'Земля', meaning: 'Достаток, самодостаточность', reversed: 'Зависимость, демонстрация, пустота' },
+        { id: 'p10', image: 'img/tarot/p10.webp', name: '10 Пентаклей', nameEn: 'Ten of Pentacles', element: 'Земля', meaning: 'Наследие, семья, богатство', reversed: 'Семейный конфликт, потеря, нестабильность' },
+        { id: 'p11', image: 'img/tarot/p11.webp', name: 'Паж Пентаклей', nameEn: 'Page of Pentacles', element: 'Земля', meaning: 'Обучение, возможности, рост', reversed: 'Лень, упущенный шанс, непрактичность' },
+        { id: 'p12', image: 'img/tarot/p12.webp', name: 'Рыцарь Пентаклей', nameEn: 'Knight of Pentacles', element: 'Земля', meaning: 'Терпение, работа, надёжность', reversed: 'Инертность, скука, упрямство' },
+        { id: 'p13', image: 'img/tarot/p13.webp', name: 'Королева Пентаклей', nameEn: 'Queen of Pentacles', element: 'Земля', meaning: 'Забота, изобилие, природа', reversed: 'Меркантильность, пренебрежение собой, хаос' },
+        { id: 'p14', image: 'img/tarot/p14.webp', name: 'Король Пентаклей', nameEn: 'King of Pentacles', element: 'Земля', meaning: 'Успех, стабильность, процветание', reversed: 'Коррупция, скупость, материализм' }
     ]
 };
 
@@ -515,28 +543,53 @@ async function fetchHoroscope(signId, category = 'general') {
     return fallbacks[category] || fallbacks.general;
 }
 
-// --- Интерпретация карты Таро через AI (или локально) ---
-async function interpretTarotCard(card, isReversed = false, userContext = '') {
+// --- Локальная (fallback) интерпретация одной карты ---
+function _localCardInterpretation(card, isReversed) {
     const orientation = isReversed ? 'перевёрнутом' : 'прямом';
-    const meaning = isReversed ? card.reversed : card.meaning;
-    
-    // Базовое значение
-    let interpretation = `Карта **${card.name}** (${card.nameEn}) в ${orientation} положении.\n\n`;
-    interpretation += `**Значение:** ${meaning}\n\n`;
-    
-    // Добавляем астрологическую привязку
-    if (card.element) interpretation += `**Стихия:** ${card.element}\n`;
-    if (card.planet) interpretation += `**Планета:** ${card.planet}\n`;
-    
-    // Добавляем психологический контекст
-    interpretation += `\n**Психологический аспект:** `;
-    if (card.id === 0) interpretation += `Это призыв к новому началу. Возможно, вы стоите на пороге важных перемен.`;
-    else if (card.id === 1) interpretation += `У вас есть все необходимые ресурсы для достижения цели.`;
-    else if (card.id === 2) interpretation += `Доверьтесь своей интуиции — ответ уже внутри вас.`;
-    else if (card.id === 13) interpretation += `Что-то в вашей жизни должно завершиться, чтобы освободить место для нового.`;
-    else interpretation += `Обратите внимание на то, что эта карта говорит о вашей текущей ситуации.`;
-    
-    return interpretation;
+    const meaning = isReversed ? (card.reversed || card.meaning) : card.meaning;
+    let out = `Карта **${card.name}**${card.nameEn ? ` (${card.nameEn})` : ''} в ${orientation} положении.\n\n`;
+    out += `**Значение:** ${meaning}\n\n`;
+    if (card.element) out += `**Стихия:** ${card.element}\n`;
+    if (card.planet) out += `**Планета:** ${card.planet}\n`;
+    out += `\nПрислушайтесь к тому, что отзывается в вас первым ощущением — часто это и есть ключ.`;
+    return out;
+}
+
+// --- AI-интерпретация расклада через backend /api/tarot/interpret ---
+// positionedCards: [{ card, reversed, position }]
+async function fetchSpreadInterpretation(spreadType, positionedCards, question) {
+    const apiBase = window.CONFIG?.API_BASE_URL || window.API_BASE_URL;
+    if (apiBase) {
+        try {
+            const response = await fetch(`${apiBase}/api/tarot/interpret`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    spread_type: spreadType,
+                    cards: positionedCards.map(pc => ({
+                        id: pc.card.id,
+                        name: pc.card.name,
+                        reversed: !!pc.reversed
+                    })),
+                    question: question || '',
+                    user_id: window.CONFIG?.USER_ID || window.USER_ID
+                })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data?.success && typeof data.interpretation === 'string' && data.interpretation.trim()) {
+                    return data.interpretation.trim();
+                }
+            }
+        } catch (e) {
+            console.log('Backend tarot недоступен, используем локальную интерпретацию');
+        }
+    }
+    // Fallback: склеиваем локальные карточные значения
+    return positionedCards.map(({ card, reversed, position }) => {
+        const header = position ? `**${position}:**\n` : '';
+        return header + _localCardInterpretation(card, reversed);
+    }).join('\n\n—\n\n');
 }
 
 // --- Случайная карта Таро (из полной колоды 78 карт) ---
@@ -594,6 +647,7 @@ function renderTarot() {
     const suitTabs = SUITS.map(s =>
         `<button class="sign-btn ${s.id === state.activeSuit ? 'active' : ''}" data-suit="${s.id}">${s.label}</button>`
     ).join('');
+    const qEscaped = (state.question || '').replace(/"/g, '&quot;');
     return `
         <div class="horoscope-signs">${suitTabs}</div>
         <div class="tarot-grid">
@@ -604,14 +658,21 @@ function renderTarot() {
                 </div>
             `).join('')}
         </div>
-        <div style="display: flex; gap: 12px; margin: 20px 0; flex-wrap: wrap;">
+        <div class="natal-input-group" style="margin-top: 8px;">
+            <label for="tarotQuestion">❓ Ваш вопрос (необязательно)</label>
+            <textarea id="tarotQuestion" class="natal-input" rows="2"
+                      placeholder="Например: «Что мне важно понять про мои отношения сейчас?»"
+                      style="resize:vertical;min-height:48px;">${qEscaped}</textarea>
+        </div>
+        <div style="display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap;">
             <button class="hy-btn hy-btn-primary" id="drawRandomCard">🎴 Карта дня</button>
-            <button class="hy-btn hy-btn-primary" id="drawThreeCards">🃏 Расклад "Три карты"</button>
+            <button class="hy-btn hy-btn-primary" id="drawThreeCards">🃏 Прошлое · Настоящее · Будущее</button>
             <button class="hy-btn hy-btn-primary" id="drawCelticCross">🔮 Кельтский крест</button>
         </div>
         <div id="tarotResult"></div>
         <div class="hy-tip">
             💡 <strong>О Таро:</strong> Карты не предсказывают будущее — они показывают текущие энергии и возможные пути развития.
+            Вопрос — не обязателен, но помогает Фреди дать более точную интерпретацию.
         </div>
     `;
 }
@@ -690,54 +751,78 @@ function renderNatal() {
     `;
 }
 
-// --- Обработчики Таро ---
-async function showTarotReading(card, isReversed = false, spreadType = 'single') {
+// --- Рендер результата расклада (1/3/10 карт + AI-интерпретация) ---
+function _cardImgHtml(card, reversed, size) {
+    const sz = size || 70;
+    const fallback = `data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22%3E%3Crect width=%22100%22 height=%22150%22 fill=%22%23333%22/%3E%3Ctext x=%2250%22 y=%2275%22 text-anchor=%22middle%22 fill=%22%23fff%22%3E${encodeURIComponent(card.name)}%3C/text%3E%3C/svg%3E`;
+    const rot = reversed ? 'transform: rotate(180deg);' : '';
+    return `<img src="${card.image}" alt="${card.name}" style="width:${sz}px;border-radius:12px;${rot}" onerror="this.src='${fallback}'">`;
+}
+
+async function showSpreadReading(spreadType, positionedCards) {
     const resultDiv = document.getElementById('tarotResult');
     if (!resultDiv) return;
-    
-    const interpretation = await interpretTarotCard(card, isReversed);
-    const orientationText = isReversed ? 'перевёрнутом' : 'прямом';
-    
-    let spreadHtml = '';
-    if (spreadType === 'three') {
-        spreadHtml = '<div class="hy-suggestion-label">📖 Расклад "Три карты"</div>';
-    } else if (spreadType === 'celtic') {
-        spreadHtml = '<div class="hy-suggestion-label">🔮 Расклад "Кельтский крест"</div>';
-    }
-    
+
+    const question = (state.question || '').trim();
+    const spreadInfo = TAROT_SPREADS[spreadType] || TAROT_SPREADS.day;
+
+    // Быстрая выкладка карт, пока ждём AI
+    const cardsRow = positionedCards.map(({ card, reversed, position }) => `
+        <div style="text-align:center;min-width:80px;">
+            ${_cardImgHtml(card, reversed, spreadType === 'celtic' ? 58 : 70)}
+            <div style="font-size:11px;margin-top:4px;line-height:1.3;">
+                ${position ? `<div style="color:var(--text-secondary);font-size:10px;">${position}</div>` : ''}
+                ${card.name}${reversed ? ' ↺' : ''}
+            </div>
+        </div>`).join('');
+
+    const questionHtml = question
+        ? `<div class="hy-suggestion-box" style="margin-bottom:12px;"><div class="hy-suggestion-label">❓ Ваш вопрос</div><div class="hy-suggestion-text" style="font-style:normal;">${question}</div></div>`
+        : '';
+
     resultDiv.innerHTML = `
         <div class="tarot-reading">
-            <div class="reading-card">
-                <img src="${card.image}" alt="${card.name}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22%3E%3Crect width=%22100%22 height=%22150%22 fill=%22%23333%22/%3E%3Ctext x=%2250%22 y=%2275%22 text-anchor=%22middle%22 fill=%22%23fff%22%3E${card.name}%3C/text%3E%3C/svg%3E'">
-                <div>
-                    <strong style="font-size: 18px;">${card.name}</strong><br>
-                    <span style="color: var(--text-secondary);">${card.nameEn}</span><br>
-                    <span style="font-size: 12px; color: var(--chrome);">${orientationText} · ${card.element || ''} · ${card.planet || ''}</span>
-                </div>
+            <div class="hy-suggestion-label">${spreadInfo.label}</div>
+            ${questionHtml}
+            <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin:8px 0 16px;">${cardsRow}</div>
+            <div class="hy-suggestion-box" id="tarotInterpretBox">
+                <div class="hy-suggestion-label">🔮 Фреди интерпретирует...</div>
+                <div class="hy-suggestion-text">Подождите секунду — Фреди читает расклад.</div>
             </div>
-            ${spreadHtml}
-            <div class="hy-suggestion-box">
-                <div class="hy-suggestion-label">🔮 Интерпретация</div>
-                <div class="hy-suggestion-text" style="white-space: pre-line;">${interpretation}</div>
-            </div>
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
                 <button class="hy-btn hy-btn-ghost" id="copyTarotBtn">📋 Скопировать</button>
                 <button class="hy-btn hy-btn-ghost" id="speakTarotBtn">🔊 Озвучить</button>
+                <button class="hy-btn hy-btn-ghost" id="closeTarotBtn">✖️ Закрыть</button>
             </div>
         </div>`;
-    
+
+    const interpretation = await fetchSpreadInterpretation(spreadType, positionedCards, question);
+
+    const box = document.getElementById('tarotInterpretBox');
+    if (box) {
+        box.innerHTML = `
+            <div class="hy-suggestion-label">🔮 Интерпретация</div>
+            <div class="hy-suggestion-text" style="white-space:pre-line;">${interpretation}</div>`;
+    }
+
     document.getElementById('copyTarotBtn')?.addEventListener('click', () => {
         navigator.clipboard.writeText(interpretation);
         _esToast('Скопировано', 'success');
     });
-    
     document.getElementById('speakTarotBtn')?.addEventListener('click', () => {
-        if (window.voiceManager) {
-            window.voiceManager.textToSpeech(interpretation, 'psychologist');
-        } else {
-            _esToast('Голосовой модуль не загружен', 'error');
-        }
+        if (window.voiceManager) window.voiceManager.textToSpeech(interpretation, 'psychologist');
+        else _esToast('Голосовой модуль не загружен', 'error');
     });
+    document.getElementById('closeTarotBtn')?.addEventListener('click', () => {
+        resultDiv.innerHTML = '';
+    });
+}
+
+// Back-compat: оставляем старую сигнатуру для возможного внешнего использования
+async function showTarotReading(card, isReversed = false, spreadType = 'day') {
+    return showSpreadReading('day', [{
+        card, reversed: !!isReversed, position: TAROT_SPREADS.day.positions[0]
+    }]);
 }
 
 // --- Обработчики гороскопа ---
@@ -866,49 +951,63 @@ async function buildNatalChart() {
 }
 
 // --- Привязка обработчиков ---
+function _drawUnique(n) {
+    const deck = _allTarotCards();
+    const picks = [];
+    const used = new Set();
+    while (picks.length < n && picks.length < deck.length) {
+        const i = Math.floor(Math.random() * deck.length);
+        if (used.has(i)) continue;
+        used.add(i);
+        picks.push({ card: deck[i], reversed: Math.random() > 0.7 });
+    }
+    return picks;
+}
+
 function attachTarotHandlers() {
     document.querySelectorAll('[data-suit]').forEach(btn => {
         btn.addEventListener('click', () => {
+            // сохраним вопрос перед ререндером
+            const q = document.getElementById('tarotQuestion')?.value;
+            if (typeof q === 'string') state.question = q;
             state.activeSuit = btn.dataset.suit;
             render();
         });
     });
 
+    const qEl = document.getElementById('tarotQuestion');
+    if (qEl) {
+        qEl.addEventListener('input', () => { state.question = qEl.value; });
+    }
+
     document.querySelectorAll('.tarot-card').forEach(card => {
         card.addEventListener('click', () => {
             const selected = _findCardById(card.dataset.cardId);
             if (!selected) return;
-            const isReversed = Math.random() > 0.7;
-            showTarotReading(selected, isReversed);
+            const reversed = Math.random() > 0.7;
+            showSpreadReading('day', [{
+                card: selected, reversed, position: TAROT_SPREADS.day.positions[0]
+            }]);
         });
     });
 
     document.getElementById('drawRandomCard')?.addEventListener('click', () => {
-        const { card, isReversed } = getRandomTarotCard();
-        showTarotReading(card, isReversed);
+        const [pick] = _drawUnique(1);
+        showSpreadReading('day', [{ ...pick, position: TAROT_SPREADS.day.positions[0] }]);
     });
-    
+
     document.getElementById('drawThreeCards')?.addEventListener('click', () => {
-        const cards = [];
-        for (let i = 0; i < 3; i++) {
-            cards.push(getRandomTarotCard());
-        }
-        let combinedHtml = '<div class="hy-suggestion-label">📖 Расклад "Три карты"</div><div style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;">';
-        cards.forEach(({card, isReversed}) => {
-            combinedHtml += `<div style="text-align: center; flex: 1; min-width: 80px;">
-                <img src="${card.image}" style="width: 70px; border-radius: 12px;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22%3E%3Crect width=%22100%22 height=%22150%22 fill=%22%23333%22/%3E%3Ctext x=%2250%22 y=%2275%22 text-anchor=%22middle%22 fill=%22%23fff%22%3E${card.name}%3C/text%3E%3C/svg%3E'">
-                <div style="font-size: 11px; margin-top: 4px;">${card.name}<br>${isReversed ? '↺' : '↑'}</div>
-            </div>`;
-        });
-        combinedHtml += '</div><div class="hy-suggestion-box" style="margin-top: 16px;"><div class="hy-suggestion-label">🔮 Суммарное значение</div><div class="hy-suggestion-text">Три карты показывают: прошлое → настоящее → будущее. Обратите внимание на повторяющиеся символы и энергии.</div></div>';
-        
-        const resultDiv = document.getElementById('tarotResult');
-        if (resultDiv) resultDiv.innerHTML = `<div class="tarot-reading">${combinedHtml}<button class="hy-btn hy-btn-ghost" style="margin-top: 16px;" id="closeSpreadBtn">✖️ Закрыть</button></div>`;
-        document.getElementById('closeSpreadBtn')?.addEventListener('click', () => { resultDiv.innerHTML = ''; });
+        const picks = _drawUnique(3);
+        showSpreadReading('three', picks.map((p, i) => ({
+            ...p, position: TAROT_SPREADS.three.positions[i]
+        })));
     });
-    
+
     document.getElementById('drawCelticCross')?.addEventListener('click', () => {
-        _esToast('🔮 Кельтский крест — подробный расклад из 10 карт. Функция в разработке.', 'info');
+        const picks = _drawUnique(10);
+        showSpreadReading('celtic', picks.map((p, i) => ({
+            ...p, position: TAROT_SPREADS.celtic.positions[i]
+        })));
     });
 }
 
