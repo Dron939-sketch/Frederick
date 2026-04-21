@@ -541,6 +541,21 @@ function _esUid() {
     return window.CONFIG?.USER_ID;
 }
 
+// --- Безопасная подсветка markdown (**жирный**) для AI-интерпретаций ---
+// Сначала экранируем HTML (XSS-защита), потом превращаем **bold** в <strong>.
+function _esMdToHtml(text) {
+    if (text == null) return '';
+    const escaped = String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    // **жирный** → <strong>жирный</strong>
+    // (точно совпадает с parными ** и не цепляет одинарные *)
+    return escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
+
 // --- Определение знака зодиака по дате ---
 function getZodiacSign(date) {
     const month = date.getMonth() + 1;
@@ -850,7 +865,7 @@ async function showSpreadReading(spreadType, positionedCards) {
         </div>`).join('');
 
     const questionHtml = question
-        ? `<div class="hy-suggestion-box" style="margin-bottom:12px;"><div class="hy-suggestion-label">❓ Ваш вопрос</div><div class="hy-suggestion-text" style="font-style:normal;">${question}</div></div>`
+        ? `<div class="hy-suggestion-box" style="margin-bottom:12px;"><div class="hy-suggestion-label">❓ Ваш вопрос</div><div class="hy-suggestion-text" style="font-style:normal;">${_esMdToHtml(question)}</div></div>`
         : '';
 
     resultDiv.innerHTML = `
@@ -875,7 +890,7 @@ async function showSpreadReading(spreadType, positionedCards) {
     if (box) {
         box.innerHTML = `
             <div class="hy-suggestion-label">🔮 Интерпретация</div>
-            <div class="hy-suggestion-text" style="white-space:pre-line;">${interpretation}</div>`;
+            <div class="hy-suggestion-text" style="white-space:pre-line;">${_esMdToHtml(interpretation)}</div>`;
     }
 
     document.getElementById('copyTarotBtn')?.addEventListener('click', () => {
@@ -922,7 +937,7 @@ async function loadHoroscope(signId, category) {
     resultDiv.innerHTML = `
         <div class="hy-suggestion-box">
             <div class="hy-suggestion-label">${categoryNames[category] || category}</div>
-            <div class="hy-suggestion-text" style="font-size: 16px; line-height: 1.6;">${horoscope}</div>
+            <div class="hy-suggestion-text" style="font-size: 16px; line-height: 1.6;">${_esMdToHtml(horoscope)}</div>
             <div style="margin-top: 16px; display: flex; gap: 12px;">
                 <button class="hy-btn hy-btn-ghost" id="copyHoroscopeBtn">📋 Скопировать</button>
                 <button class="hy-btn hy-btn-ghost" id="speakHoroscopeBtn">🔊 Озвучить</button>
@@ -1122,7 +1137,7 @@ async function interpretNatalChart() {
     box.innerHTML = `
         <div class="hy-suggestion-box">
             <div class="hy-suggestion-label">🔮 Интерпретация Фреди</div>
-            <div class="hy-suggestion-text" style="white-space:pre-line;">${interpretation}</div>
+            <div class="hy-suggestion-text" style="white-space:pre-line;">${_esMdToHtml(interpretation)}</div>
         </div>`;
 }
 
