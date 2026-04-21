@@ -19,7 +19,7 @@ import json
 import random
 import base64
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List, Union, Tuple
 import signal
@@ -6539,10 +6539,111 @@ async def ai_generate(request: Request):
     user_id = data.get("user_id")
     max_tokens = data.get("max_tokens", 200)
     temperature = data.get("temperature", 0.7)
-    
+
     # Вызов AI сервиса
     response = await ai_service.generate(prompt, max_tokens, temperature)
     return {"success": True, "content": response}
+
+
+# ============================================
+# ГОРОСКОП
+# ============================================
+_ZODIAC_RU = {
+    "aries": "Овен", "taurus": "Телец", "gemini": "Близнецы", "cancer": "Рак",
+    "leo": "Лев", "virgo": "Дева", "libra": "Весы", "scorpio": "Скорпион",
+    "sagittarius": "Стрелец", "capricorn": "Козерог", "aquarius": "Водолей", "pisces": "Рыбы",
+}
+_HOROSCOPE_CATEGORIES = {
+    "general":  ("общий гороскоп",          "Общий настрой дня: основные энергии и что стоит заметить."),
+    "love":     ("любовь и отношения",       "Тема любви, привязанности, общения с близкими."),
+    "career":   ("карьера и финансы",        "Работа, проекты, деньги, профессиональный рост."),
+    "health":   ("здоровье и энергия",       "Самочувствие, тело, уровень сил, что важно сейчас."),
+    "advice":   ("совет дня",                "Короткая практическая подсказка на день."),
+}
+_FALLBACK_HOROSCOPE = {
+    "general": "Сегодня день для наблюдения за собой. Обратите внимание на повторяющиеся мысли и чувства — они укажут, где сейчас ваша энергия.",
+    "love":    "В отношениях важно слушать, а не только отвечать. Маленький жест внимания сегодня значит больше, чем длинные слова.",
+    "career":  "Сосредоточьтесь на одной задаче, которую откладывали. Завершённое дело даст больше энергии, чем десять начатых.",
+    "health":  "Проверьте, достаточно ли вы пили воды и двигались сегодня. Тело благодарно откликается на простые вещи.",
+    "advice":  "Сделайте одно маленькое дело, которое вы постоянно откладываете. Это изменит день.",
+}
+
+
+@app.post("/api/horoscope")
+async def api_horoscope(request: Request):
+    """Возвращает гороскоп на сегодня для знака/категории. Кэш 24 ч в Redis.
+
+    Request JSON: {"sign": "leo", "category": "general"}
+    Response:     {"success": true, "sign": "leo", "category": "general",
+                   "date": "2026-04-21", "text": "...", "cached": false}
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    sign = (data.get("sign") or "").strip().lower()
+    category = (data.get("category") or "general").strip().lower()
+
+    if sign not in _ZODIAC_RU:
+        return {"success": False, "error": f"unknown sign: {sign!r}"}
+    if category not in _HOROSCOPE_CATEGORIES:
+        category = "general"
+
+    today = date.today().isoformat()
+    cache_key = f"horoscope:{sign}:{category}:{today}"
+
+    # 1. Пробуем кэш
+    if cache:
+        try:
+            cached = await cache.get(cache_key)
+            if cached:
+                return {"success": True, "sign": sign, "category": category,
+                        "date": today, "text": cached, "cached": True}
+        except Exception as e:
+            logger.warning(f"horoscope cache get failed: {e}")
+
+    # 2. Генерируем через DeepSeek
+    cat_ru, cat_hint = _HOROSCOPE_CATEGORIES[category]
+    sign_ru = _ZODIAC_RU[sign]
+    system_prompt = (
+        "Ты — астролог с мягкой психологической подачей. Пишешь короткие, "
+        "конкретные гороскопы на современном русском языке. Без штампов "
+        "и эзотерического жаргона. 2–3 живых предложения, обращение на «вы»."
+    )
+    user_prompt = (
+        f"Напиши {cat_ru} на сегодня ({today}) для знака {sign_ru}.\n"
+        f"Контекст темы: {cat_hint}\n"
+        f"Верни только текст гороскопа, без заголовков, списков и эмодзи."
+    )
+
+    text = None
+    try:
+        text = await ai_service._call_deepseek(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=220,
+            temperature=0.8,
+        )
+        if text:
+            text = text.strip().strip('"').strip("«»")
+    except Exception as e:
+        logger.error(f"horoscope DeepSeek failed for {sign}/{category}: {e}")
+
+    if not text:
+        text = _FALLBACK_HOROSCOPE.get(category, _FALLBACK_HOROSCOPE["general"])
+        return {"success": True, "sign": sign, "category": category,
+                "date": today, "text": text, "cached": False, "fallback": True}
+
+    # 3. Кэшируем на 24 часа
+    if cache:
+        try:
+            await cache.set(cache_key, text, ttl=86400)
+        except Exception as e:
+            logger.warning(f"horoscope cache set failed: {e}")
+
+    return {"success": True, "sign": sign, "category": category,
+            "date": today, "text": text, "cached": False}
+
 
 if __name__ != "__main__":
     try:
