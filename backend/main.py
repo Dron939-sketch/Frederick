@@ -6571,6 +6571,316 @@ _FALLBACK_HOROSCOPE = {
 
 
 # ============================================
+# НАТАЛЬНАЯ КАРТА
+# ============================================
+# Использует immanuel-python (MIT) поверх Swiss Ephemeris.
+# Lazy-import: если библиотека не установлена, эндпоинты вернут 503,
+# а приложение продолжит работать.
+_IMMANUEL_LOAD_ERROR: Optional[str] = None
+try:
+    from immanuel import charts as _immanuel_charts  # type: ignore
+except Exception as _e:
+    _immanuel_charts = None
+    _IMMANUEL_LOAD_ERROR = f"{type(_e).__name__}: {_e}"
+
+_ZODIAC_EN_TO_RU = {
+    "aries": "Овен", "taurus": "Телец", "gemini": "Близнецы", "cancer": "Рак",
+    "leo": "Лев", "virgo": "Дева", "libra": "Весы", "scorpio": "Скорпион",
+    "sagittarius": "Стрелец", "capricorn": "Козерог", "aquarius": "Водолей", "pisces": "Рыбы",
+}
+_OBJECT_EN_TO_RU = {
+    "Sun": "Солнце", "Moon": "Луна", "Mercury": "Меркурий", "Venus": "Венера",
+    "Mars": "Марс", "Jupiter": "Юпитер", "Saturn": "Сатурн", "Uranus": "Уран",
+    "Neptune": "Нептун", "Pluto": "Плутон", "True North Node": "Северный узел",
+    "North Node": "Северный узел", "South Node": "Южный узел",
+    "Chiron": "Хирон", "Ascendant": "Асцендент", "ASC": "Асцендент",
+    "Midheaven": "MC", "MC": "MC", "Descendant": "Десцендент", "DC": "Десцендент",
+    "Imum Coeli": "IC", "IC": "IC",
+}
+_ASPECT_EN_TO_RU = {
+    "Conjunction": "соединение", "Opposition": "оппозиция",
+    "Trine": "тригон", "Square": "квадрат", "Sextile": "секстиль",
+    "Quincunx": "квинконс", "Semisquare": "полуквадрат", "Sesquiquadrate": "полутораквадрат",
+    "Quintile": "квинтиль", "Biquintile": "биквинтиль",
+}
+
+
+def _ru_sign(value: str) -> str:
+    if not value:
+        return ""
+    key = str(value).strip().lower()
+    return _ZODIAC_EN_TO_RU.get(key, str(value))
+
+
+def _ru_object(value: str) -> str:
+    if not value:
+        return ""
+    return _OBJECT_EN_TO_RU.get(str(value), str(value))
+
+
+def _ru_aspect(value: str) -> str:
+    if not value:
+        return ""
+    return _ASPECT_EN_TO_RU.get(str(value), str(value))
+
+
+def _natal_serialize(natal) -> dict:
+    """Преобразует объект immanuel.Natal в JSON-совместимую структуру.
+
+    Мы защитно читаем атрибуты — у разных версий immanuel слегка отличаются
+    имена. Поэтому используем getattr с fallback'ами и ловим ошибки.
+    """
+    out: dict = {"objects": [], "houses": [], "aspects": []}
+
+    # ---- Subject / координаты ----
+    try:
+        subj = natal.native
+        out["subject"] = {
+            "date_time_local": str(getattr(subj, "date_time", "")),
+            "latitude":  float(getattr(subj, "latitude", 0.0)) if hasattr(subj, "latitude") else None,
+            "longitude": float(getattr(subj, "longitude", 0.0)) if hasattr(subj, "longitude") else None,
+        }
+    except Exception:
+        out["subject"] = {}
+
+    # ---- Планеты и точки ----
+    objects = getattr(natal, "objects", None) or {}
+    iterable = objects.values() if hasattr(objects, "values") else objects
+    for obj in iterable:
+        try:
+            name_en = str(getattr(obj, "name", ""))
+            sign_name = ""
+            deg_in_sign = None
+            sign_obj = getattr(obj, "sign", None)
+            if sign_obj is not None:
+                sign_name = str(getattr(sign_obj, "name", sign_obj))
+            lon = getattr(obj, "longitude", None)
+            if lon is not None:
+                try:
+                    raw = float(getattr(lon, "raw", lon))
+                    deg_in_sign = round(raw % 30.0, 2)
+                except Exception:
+                    pass
+            house_num = None
+            house_obj = getattr(obj, "house", None)
+            if house_obj is not None:
+                house_num = getattr(house_obj, "number", None)
+            retro = bool(getattr(obj, "retrograde", False))
+            out["objects"].append({
+                "name_en":  name_en,
+                "name_ru":  _ru_object(name_en),
+                "sign_en":  sign_name,
+                "sign_ru":  _ru_sign(sign_name),
+                "degree":   deg_in_sign,
+                "house":    house_num,
+                "retrograde": retro,
+            })
+        except Exception as e:
+            logger.warning(f"natal serialize object failed: {e}")
+
+    # ---- Дома ----
+    houses = getattr(natal, "houses", None) or {}
+    h_iter = houses.values() if hasattr(houses, "values") else houses
+    for h in h_iter:
+        try:
+            sign_obj = getattr(h, "sign", None)
+            sign_name = str(getattr(sign_obj, "name", sign_obj)) if sign_obj else ""
+            lon = getattr(h, "longitude", None)
+            deg_in_sign = None
+            if lon is not None:
+                try:
+                    deg_in_sign = round(float(getattr(lon, "raw", lon)) % 30.0, 2)
+                except Exception:
+                    pass
+            out["houses"].append({
+                "number":  getattr(h, "number", None),
+                "sign_en": sign_name,
+                "sign_ru": _ru_sign(sign_name),
+                "degree":  deg_in_sign,
+            })
+        except Exception as e:
+            logger.warning(f"natal serialize house failed: {e}")
+
+    # ---- Аспекты ----
+    aspects = getattr(natal, "aspects", None) or []
+    if hasattr(aspects, "values"):
+        aspects = aspects.values()
+    for a in aspects:
+        try:
+            asp_name = str(getattr(a, "aspect", getattr(a, "type", "")))
+            active = getattr(a, "active_object", None) or getattr(a, "active", None)
+            passive = getattr(a, "passive_object", None) or getattr(a, "passive", None)
+            orb = getattr(a, "orb", None)
+            out["aspects"].append({
+                "aspect_en": asp_name,
+                "aspect_ru": _ru_aspect(asp_name),
+                "from_en":   str(getattr(active, "name", active or "")),
+                "from_ru":   _ru_object(str(getattr(active, "name", active or ""))),
+                "to_en":     str(getattr(passive, "name", passive or "")),
+                "to_ru":     _ru_object(str(getattr(passive, "name", passive or ""))),
+                "orb":       round(float(orb), 2) if orb is not None else None,
+            })
+        except Exception as e:
+            logger.warning(f"natal serialize aspect failed: {e}")
+
+    return out
+
+
+@app.post("/api/natal/chart")
+async def api_natal_chart(request: Request):
+    """Расчёт натальной карты через immanuel-python (Swiss Ephemeris).
+
+    Request JSON:
+      {"date_time": "1990-01-01 12:00",  # local naive
+       "latitude": 55.7558,
+       "longitude": 37.6173}
+    """
+    if _immanuel_charts is None:
+        return {"success": False, "error": f"immanuel недоступен: {_IMMANUEL_LOAD_ERROR or 'не установлен'}"}
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    date_time = (data.get("date_time") or "").strip()
+    try:
+        latitude = float(data.get("latitude"))
+        longitude = float(data.get("longitude"))
+    except (TypeError, ValueError):
+        return {"success": False, "error": "latitude/longitude must be numbers"}
+    if not date_time:
+        return {"success": False, "error": "date_time is required (format: 'YYYY-MM-DD HH:MM')"}
+
+    try:
+        Subject = getattr(_immanuel_charts, "Subject", None)
+        Natal = getattr(_immanuel_charts, "Natal", None)
+        if Subject is None or Natal is None:
+            return {"success": False, "error": "immanuel.charts.Subject / Natal не найден"}
+        subject = Subject(date_time=date_time, latitude=latitude, longitude=longitude)
+        natal = Natal(subject)
+    except Exception as e:
+        logger.error(f"immanuel natal chart build failed: {e}")
+        return {"success": False, "error": f"{type(e).__name__}: {e}"}
+
+    chart_data = _natal_serialize(natal)
+    chart_data["success"] = True
+    chart_data["subject"]["date_time_local"] = date_time
+    chart_data["subject"]["latitude"] = latitude
+    chart_data["subject"]["longitude"] = longitude
+    return chart_data
+
+
+@app.post("/api/natal/interpret")
+async def api_natal_interpret(request: Request):
+    """AI-интерпретация натальной карты через DeepSeek. Кэш 24ч в Redis."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    chart = data.get("chart") or {}
+    question = (data.get("question") or "").strip()
+
+    if not isinstance(chart, dict) or not chart.get("objects"):
+        return {"success": False, "error": "chart must include 'objects' list"}
+
+    # --- Кэш-ключ по компактному снимку карты ---
+    compact_objs = sorted([
+        (o.get("name_en"), o.get("sign_en"), o.get("degree"), o.get("house"), bool(o.get("retrograde")))
+        for o in chart.get("objects", []) if o.get("name_en")
+    ])
+    cache_payload = json.dumps(
+        {"objs": compact_objs, "q": question},
+        sort_keys=True, ensure_ascii=False,
+    )
+    cache_hash = hashlib.sha1(cache_payload.encode("utf-8")).hexdigest()[:16]
+    cache_key = f"natal:{cache_hash}"
+
+    if cache:
+        try:
+            cached = await cache.get(cache_key)
+            if cached:
+                return {"success": True, "interpretation": cached, "cached": True}
+        except Exception as e:
+            logger.warning(f"natal cache get failed: {e}")
+
+    # --- Собираем промпт ---
+    obj_lines = []
+    for o in chart.get("objects", []):
+        name = o.get("name_ru") or o.get("name_en") or "?"
+        sign = o.get("sign_ru") or o.get("sign_en") or "?"
+        deg = o.get("degree")
+        house = o.get("house")
+        retro = " (R)" if o.get("retrograde") else ""
+        deg_s = f"{deg:.0f}°" if isinstance(deg, (int, float)) else ""
+        house_s = f", дом {house}" if house else ""
+        obj_lines.append(f"• {name}: {sign} {deg_s}{house_s}{retro}")
+
+    asp_lines = []
+    for a in (chart.get("aspects") or [])[:15]:
+        left = a.get("from_ru") or a.get("from_en")
+        right = a.get("to_ru") or a.get("to_en")
+        asp = a.get("aspect_ru") or a.get("aspect_en")
+        orb = a.get("orb")
+        orb_s = f" (орб {orb:.1f}°)" if isinstance(orb, (int, float)) else ""
+        asp_lines.append(f"• {left} {asp} {right}{orb_s}")
+
+    system_prompt = (
+        "Ты — Фреди, мягкий психолог-астролог. Говоришь современным русским "
+        "языком, без эзотерического жаргона. Читаешь натальную карту как "
+        "психологический портрет: опишешь ресурсы, зоны роста и повторяющиеся "
+        "темы. Обращение на «вы». Без медицинских/финансовых советов, без запугивания."
+    )
+    user_parts = ["Натальная карта человека.", "Положения планет и точек:"]
+    user_parts.append("\n".join(obj_lines) if obj_lines else "(нет данных)")
+    if asp_lines:
+        user_parts.append("Основные аспекты:")
+        user_parts.append("\n".join(asp_lines))
+    if question:
+        user_parts.append(f"Вопрос пользователя: «{question}»")
+    user_parts.append(
+        "Напиши тёплое и конкретное прочтение: "
+        "4–6 абзацев. 1-й — общая картина личности. "
+        "2-й — эмоциональный профиль (Луна, Венера). "
+        "3-й — интеллект и коммуникация (Меркурий, Марс). "
+        "4-й — дом, карьера, долгосрочные темы (Сатурн, MC, 10-й дом). "
+        "5-й — 1–2 практических совета с опорой на ресурсы карты."
+    )
+    user_prompt = "\n\n".join(user_parts)
+
+    interpretation = None
+    try:
+        interpretation = await ai_service._call_deepseek(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1100,
+            temperature=0.75,
+        )
+        if interpretation:
+            interpretation = interpretation.strip()
+    except Exception as e:
+        logger.error(f"natal DeepSeek failed: {e}")
+
+    if not interpretation:
+        return {
+            "success": True,
+            "interpretation": (
+                "Не удалось получить AI-интерпретацию прямо сейчас. "
+                "Позиции планет и дома уже рассчитаны — посмотрите, что вас "
+                "больше всего заинтересовало, и вернитесь чуть позже."
+            ),
+            "cached": False,
+            "fallback": True,
+        }
+
+    if cache:
+        try:
+            await cache.set(cache_key, interpretation, ttl=86400)
+        except Exception as e:
+            logger.warning(f"natal cache set failed: {e}")
+
+    return {"success": True, "interpretation": interpretation, "cached": False}
+
+
+# ============================================
 # ТАРО
 # ============================================
 _TAROT_SPREAD_POSITIONS = {

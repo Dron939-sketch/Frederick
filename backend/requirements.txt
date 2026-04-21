@@ -39,3 +39,7 @@ pywebpush==2.0.0
 argon2-cffi==23.1.0
 email-validator==2.1.0
 aiosmtplib==3.0.1
+
+# Astrology (natal charts — Swiss Ephemeris via immanuel-python, MIT)
+immanuel==1.4.0
+pyswisseph==2.10.3.2
