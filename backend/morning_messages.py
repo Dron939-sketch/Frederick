@@ -116,13 +116,13 @@ class MorningMessageManager:
             )
 
             if response:
-                return self._format_ai_response(response, day, address, user_name)
+                return self._format_ai_response(response, day, address, user_name, weather_text)
 
         except Exception as e:
             logger.error(f"Ошибка генерации ИИ: {e}")
 
         # Запасной вариант — статическая версия того же стиля «про мир»
-        return self._get_fallback_text(day, address, user_name)
+        return self._get_fallback_text(day, address, user_name, weather_text)
     
     def _build_ai_prompt(self, user_name: str, address: str, main_vector: str,
                          vector_desc: str, level: int, weekday: int, hour: int,
@@ -156,8 +156,11 @@ class MorningMessageManager:
 Напиши абзац:
 """
     
-    def _format_ai_response(self, text: str, day: int, address: str, user_name: str = "") -> str:
-        """Форматирует ответ ИИ"""
+    def _format_ai_response(self, text: str, day: int, address: str,
+                             user_name: str = "", weather_text: str = "") -> str:
+        """Форматирует ответ ИИ. Всегда вставляет погоду между приветствием
+        и AI-текстом — чтобы блок «за окном…» был во все дни, не только
+        в понедельнике."""
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'__(.*?)__', r'\1', text)
 
@@ -166,7 +169,12 @@ class MorningMessageManager:
 
         name = (user_name or "").strip()
         salute = name if name and name.lower() not in ("друг", "подруга", "") else (address or "друг")
-        return f"{emoji} **Доброе утро, {salute}!**\n\n{text}"
+
+        header = f"{emoji} **Доброе утро, {salute}!**"
+        weather = (weather_text or "").strip()
+        if weather:
+            return f"{header}\n\n{weather}\n\n{text}"
+        return f"{header}\n\n{text}"
 
     async def _generate_weekend_message(
         self, user_name: str, address: str, scores: Dict,
@@ -218,7 +226,13 @@ class MorningMessageManager:
             if response:
                 cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', response)
                 cleaned = re.sub(r'__(.*?)__', r'\1', cleaned)
-                return f"🎉 **Доброе утро, {address}!**\n\n{cleaned.strip()}"
+                name = (user_name or "").strip()
+                salute = name if name and name.lower() not in ("друг", "подруга", "") else (address or "друг")
+                weather = (weather_text or "").strip()
+                header = f"🎉 **Доброе утро, {salute}!**"
+                if weather:
+                    return f"{header}\n\n{weather}\n\n{cleaned.strip()}"
+                return f"{header}\n\n{cleaned.strip()}"
 
         except Exception as e:
             logger.error(f"Ошибка генерации weekend-message: {e}")
@@ -248,18 +262,28 @@ class MorningMessageManager:
         }
         ideas = fallback_ideas.get(main_vector, fallback_ideas["ЧВ"])
         ideas_text = "\n".join(f"• {idea}" for idea in ideas)
-        return (
-            f"🎉 **Доброе утро, {address}!**\n\n"
+        name = (user_name or "").strip()
+        salute = name if name and name.lower() not in ("друг", "подруга", "") else (address or "друг")
+        weather = (weather_text or "").strip()
+        header = f"🎉 **Доброе утро, {salute}!**"
+        body = (
             f"Пятница — твоё время сделать паузу и побыть с собой. "
-            f"Вот идеи на выходные:\n\n{ideas_text}\n\n"
-            f"Хороших выходных! ✨"
+            f"Вот идеи на выходные:\n\n{ideas_text}\n\nХороших выходных! ✨"
         )
+        if weather:
+            return f"{header}\n\n{weather}\n\n{body}"
+        return f"{header}\n\n{body}"
 
-    def _get_fallback_text(self, day: int, address: str, user_name: str = "") -> str:
-        """Запасной текст для дней 2-4, если AI недоступен. Стиль «про мир»."""
+    def _get_fallback_text(self, day: int, address: str,
+                            user_name: str = "", weather_text: str = "") -> str:
+        """Запасной текст для дней 2-4, если AI недоступен. Стиль «про мир».
+        Включает блок погоды, если передан."""
         name = (user_name or "").strip()
         salute = name if name and name.lower() not in ("друг", "подруга", "") else (address or "друг")
         world_paragraph = self._get_world_observation(day=day)
+        weather = (weather_text or "").strip()
+        if weather:
+            return f"🌅 **Доброе утро, {salute}!**\n\n{weather}\n\n{world_paragraph}".strip()
         return f"🌅 **Доброе утро, {salute}!**\n\n{world_paragraph}".strip()
 
     def _get_world_observation(self, day: int) -> str:
