@@ -347,6 +347,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(update_metrics()),
             asyncio.create_task(morning_messages_scheduler()),
             asyncio.create_task(_pay_scheduler()),
+            asyncio.create_task(cycle_reminders_scheduler()),
         ]
         logger.info("✅ Фоновые задачи запущены")
 
@@ -1340,6 +1341,24 @@ async def init_database_tables():
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_fredi_notifications_user_unread "
                 "ON fredi_notifications(user_id, is_read, created_at DESC)"
+            )
+
+            # Профиль менструального цикла (модуль «Гормоны» → «Циклы»).
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_cycle_profiles (
+                    user_id BIGINT PRIMARY KEY REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                    last_period_date DATE NOT NULL,
+                    cycle_length INT NOT NULL DEFAULT 28 CHECK (cycle_length BETWEEN 20 AND 45),
+                    period_length INT NOT NULL DEFAULT 5 CHECK (period_length BETWEEN 1 AND 10),
+                    notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    advance_days INT NOT NULL DEFAULT 2 CHECK (advance_days BETWEEN 0 AND 7),
+                    last_notified_cycle_start DATE,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fredi_cycle_profiles_notif "
+                "ON fredi_cycle_profiles(notifications_enabled) WHERE notifications_enabled = TRUE"
             )
         except Exception as e:
             logger.warning(f"profile/privacy migration warning: {e}")
@@ -6568,6 +6587,267 @@ _FALLBACK_HOROSCOPE = {
     "health":  "Проверьте, достаточно ли вы пили воды и двигались сегодня. Тело благодарно откликается на простые вещи.",
     "advice":  "Сделайте одно маленькое дело, которое вы постоянно откладываете. Это изменит день.",
 }
+
+
+# ============================================
+# МЕНСТРУАЛЬНЫЙ ЦИКЛ — профиль + напоминания
+# ============================================
+async def _is_registered_user(user_id: int) -> bool:
+    """Возвращает True, если у пользователя есть email (зарегистрирован)."""
+    if not user_id or user_id <= 0 or db is None:
+        return False
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT 1 FROM fredi_users WHERE user_id = $1 AND email IS NOT NULL LIMIT 1",
+                int(user_id),
+            )
+            return row is not None
+    except Exception as e:
+        logger.warning(f"_is_registered_user({user_id}) failed: {e}")
+        return False
+
+
+def _next_period_date(last_period: date, cycle_length: int, today: Optional[date] = None) -> date:
+    """Первая дата next_period_date > today, исходя из last_period + N*cycle."""
+    if today is None:
+        today = date.today()
+    nxt = last_period
+    while nxt <= today:
+        nxt = nxt + timedelta(days=cycle_length)
+    return nxt
+
+
+@app.post("/api/cycle/profile")
+async def cycle_profile_upsert(request: Request):
+    """Сохраняет/обновляет профиль цикла пользователя.
+
+    Включать уведомления разрешено только зарегистрированным пользователям
+    (у которых есть email). Для анонимных — notifications_enabled всегда False.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    try:
+        uid = int(payload.get("user_id") or 0)
+    except Exception:
+        uid = 0
+    if uid <= 0:
+        return {"success": False, "error": "user_id is required"}
+
+    last_period_str = (payload.get("last_period_date") or "").strip()
+    try:
+        last_period = datetime.strptime(last_period_str, "%Y-%m-%d").date()
+    except Exception:
+        return {"success": False, "error": "last_period_date must be YYYY-MM-DD"}
+
+    today = date.today()
+    if last_period > today:
+        return {"success": False, "error": "last_period_date cannot be in the future"}
+    if (today - last_period).days > 400:
+        return {"success": False, "error": "last_period_date too old (>400 days)"}
+
+    try:
+        cycle_length = int(payload.get("cycle_length") or 28)
+        period_length = int(payload.get("period_length") or 5)
+        advance_days = int(payload.get("advance_days") or 2)
+    except Exception:
+        return {"success": False, "error": "cycle_length / period_length / advance_days must be integers"}
+
+    if not (20 <= cycle_length <= 45):
+        return {"success": False, "error": "cycle_length must be 20..45"}
+    if not (1 <= period_length <= 10):
+        return {"success": False, "error": "period_length must be 1..10"}
+    if not (0 <= advance_days <= 7):
+        return {"success": False, "error": "advance_days must be 0..7"}
+
+    notifications_requested = bool(payload.get("notifications_enabled"))
+    notifications_enabled = False
+    if notifications_requested:
+        registered = await _is_registered_user(uid)
+        if not registered:
+            return {"success": False, "error": "not_authenticated",
+                    "message": "Уведомления доступны только зарегистрированным пользователям"}
+        notifications_enabled = True
+
+    try:
+        async with db.get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO fredi_cycle_profiles
+                    (user_id, last_period_date, cycle_length, period_length,
+                     notifications_enabled, advance_days, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    last_period_date = EXCLUDED.last_period_date,
+                    cycle_length     = EXCLUDED.cycle_length,
+                    period_length    = EXCLUDED.period_length,
+                    notifications_enabled = EXCLUDED.notifications_enabled,
+                    advance_days     = EXCLUDED.advance_days,
+                    updated_at       = NOW()
+                """,
+                uid, last_period, cycle_length, period_length, notifications_enabled, advance_days,
+            )
+    except Exception as e:
+        logger.error(f"cycle_profile_upsert failed: {e}")
+        return {"success": False, "error": f"db_error: {e}"}
+
+    nxt = _next_period_date(last_period, cycle_length, today)
+    return {
+        "success": True,
+        "profile": {
+            "user_id": uid,
+            "last_period_date": last_period.isoformat(),
+            "cycle_length": cycle_length,
+            "period_length": period_length,
+            "notifications_enabled": notifications_enabled,
+            "advance_days": advance_days,
+            "next_period_date": nxt.isoformat(),
+            "days_until_next": (nxt - today).days,
+        },
+    }
+
+
+@app.get("/api/cycle/profile")
+async def cycle_profile_get(user_id: int):
+    """Возвращает текущий профиль цикла + прогноз следующей даты."""
+    if not user_id or user_id <= 0:
+        return {"success": False, "error": "user_id is required"}
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT last_period_date, cycle_length, period_length,
+                       notifications_enabled, advance_days, updated_at
+                  FROM fredi_cycle_profiles WHERE user_id = $1
+                """,
+                int(user_id),
+            )
+    except Exception as e:
+        logger.error(f"cycle_profile_get failed: {e}")
+        return {"success": False, "error": f"db_error: {e}"}
+
+    if not row:
+        return {"success": True, "profile": None}
+    today = date.today()
+    nxt = _next_period_date(row["last_period_date"], row["cycle_length"], today)
+    return {
+        "success": True,
+        "profile": {
+            "user_id": int(user_id),
+            "last_period_date": row["last_period_date"].isoformat(),
+            "cycle_length": row["cycle_length"],
+            "period_length": row["period_length"],
+            "notifications_enabled": bool(row["notifications_enabled"]),
+            "advance_days": row["advance_days"],
+            "next_period_date": nxt.isoformat(),
+            "days_until_next": (nxt - today).days,
+        },
+    }
+
+
+@app.delete("/api/cycle/profile")
+async def cycle_profile_delete(request: Request):
+    """Удаляет профиль цикла пользователя."""
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        uid = int(payload.get("user_id") or 0)
+    except Exception:
+        uid = 0
+    if uid <= 0:
+        return {"success": False, "error": "user_id is required"}
+    try:
+        async with db.get_connection() as conn:
+            await conn.execute("DELETE FROM fredi_cycle_profiles WHERE user_id = $1", uid)
+    except Exception as e:
+        logger.error(f"cycle_profile_delete failed: {e}")
+        return {"success": False, "error": f"db_error: {e}"}
+    return {"success": True}
+
+
+async def cycle_reminders_scheduler():
+    """Раз в час проверяет пользователей с включёнными напоминаниями и
+    добавляет запись в fredi_notifications, если до следующей менструации
+    осталось ровно advance_days (и для этого цикла ещё не уведомляли).
+
+    Уведомление появится на вкладке «Уведомления» в разделе «Сообщения»,
+    счётчик непрочитанных обновится автоматически.
+    """
+    logger.info("🩸 Cycle reminders scheduler запущен")
+    await asyncio.sleep(120)  # даём приложению прогреться после старта
+
+    while True:
+        try:
+            await asyncio.sleep(3600)  # раз в час
+            if db is None:
+                continue
+
+            today = date.today()
+            async with db.get_connection() as conn:
+                # Берём только зарегистрированных (есть email) и с включёнными уведомлениями.
+                rows = await conn.fetch(
+                    """
+                    SELECT cp.user_id, cp.last_period_date, cp.cycle_length,
+                           cp.advance_days, cp.last_notified_cycle_start
+                      FROM fredi_cycle_profiles cp
+                      JOIN fredi_users u ON u.user_id = cp.user_id
+                     WHERE cp.notifications_enabled = TRUE
+                       AND u.email IS NOT NULL
+                       AND u.is_active IS NOT FALSE
+                    """
+                )
+
+            sent = 0
+            for r in rows:
+                try:
+                    nxt = _next_period_date(r["last_period_date"], r["cycle_length"], today)
+                    days_until = (nxt - today).days
+                    # Уведомляем когда до цикла осталось ровно advance_days, и этот цикл
+                    # ещё не фиксировался в last_notified_cycle_start.
+                    if days_until != r["advance_days"]:
+                        continue
+                    last_notified = r["last_notified_cycle_start"]
+                    if last_notified is not None and last_notified >= nxt:
+                        continue
+
+                    days_word = "день" if days_until == 1 else ("дня" if 2 <= days_until <= 4 else "дней")
+                    if days_until == 0:
+                        title = "🩸 Сегодня ожидается цикл"
+                        body  = "По вашим данным, сегодня может начаться менструация. Подготовьтесь заранее."
+                    elif days_until == 1:
+                        title = "🩸 Цикл начнётся завтра"
+                        body  = "По вашим данным, завтра может начаться менструация. Подготовьтесь заранее."
+                    else:
+                        title = f"🩸 Цикл через {days_until} {days_word}"
+                        body  = f"По вашим данным, менструация ожидается через {days_until} {days_word}. Самое время замедлиться и позаботиться о себе."
+
+                    await _push_notification(
+                        int(r["user_id"]),
+                        "cycle_reminder",
+                        title,
+                        body,
+                        {"next_period_date": nxt.isoformat(), "days_until": days_until},
+                    )
+
+                    async with db.get_connection() as conn:
+                        await conn.execute(
+                            "UPDATE fredi_cycle_profiles SET last_notified_cycle_start = $1 WHERE user_id = $2",
+                            nxt, int(r["user_id"]),
+                        )
+                    sent += 1
+                except Exception as e:
+                    logger.warning(f"cycle reminder for user {r.get('user_id')} failed: {e}")
+
+            if sent:
+                logger.info(f"🩸 Cycle reminders sent: {sent}")
+        except Exception as e:
+            logger.error(f"cycle_reminders_scheduler outer error: {e}")
+            await asyncio.sleep(300)
 
 
 # ============================================

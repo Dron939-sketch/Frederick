@@ -129,9 +129,132 @@ function _hmInjectStyles() {
         }
         .hm-tip strong { color: var(--chrome); }
 
+        /* ===== ЦИКЛ — форма настроек ===== */
+        .hm-cycle-form {
+            background: rgba(224,224,224,0.05);
+            border: 1px solid rgba(224,224,224,0.1);
+            border-radius: 18px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .hm-cycle-field {
+            display: flex; flex-direction: column; gap: 4px;
+            margin-bottom: 12px;
+        }
+        .hm-cycle-field label {
+            font-size: 11px; color: var(--text-secondary);
+            font-weight: 600; letter-spacing: 0.3px;
+        }
+        .hm-input {
+            width: 100%; padding: 11px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(224,224,224,0.2);
+            background: rgba(0,0,0,0.25);
+            color: var(--text-primary);
+            font-family: inherit; font-size: 14px;
+            box-sizing: border-box;
+        }
+        .hm-toggle-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 12px;
+            background: rgba(224,224,224,0.04);
+            border-radius: 12px;
+            margin-top: 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .hm-toggle-row input[type="checkbox"] {
+            width: 20px; height: 20px;
+            accent-color: var(--chrome);
+            cursor: pointer;
+        }
+        .hm-toggle-row .hm-toggle-label {
+            flex: 1; font-size: 13px; color: var(--text-primary);
+        }
+        .hm-toggle-row .hm-toggle-sub {
+            font-size: 11px; color: var(--text-secondary);
+        }
+        .hm-next-cycle-card {
+            background: linear-gradient(135deg, rgba(224,224,224,0.07), rgba(0,0,0,0.18));
+            border: 1px solid rgba(224,224,224,0.14);
+            border-radius: 18px;
+            padding: 16px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .hm-next-cycle-date {
+            font-size: 20px; font-weight: 700;
+            color: var(--text-primary); margin: 4px 0;
+        }
+        .hm-next-cycle-countdown {
+            font-size: 13px; color: var(--text-secondary);
+        }
+        .hm-login-hint {
+            font-size: 12px; color: var(--text-secondary);
+            padding: 10px 12px;
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            border-radius: 12px; margin-top: 8px;
+        }
+
         @media (max-width: 480px) {
             .hm-symptoms-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
             .hm-symptom-text  { font-size: 11px; }
+        }
+
+        /* ============================================
+           СВЕТЛАЯ ТЕМА: инверсия полупрозрачных фонов
+           rgba(224,224,224,X) → rgba(0,0,0,X) на белом
+           ============================================ */
+        [data-theme="light"] .hm-tabs,
+        [data-theme="light"] .hm-symptom,
+        [data-theme="light"] .hm-result-card,
+        [data-theme="light"] .hm-hormone-bar,
+        [data-theme="light"] .hm-btn-ghost,
+        [data-theme="light"] .hm-tip,
+        [data-theme="light"] .hm-rec-card,
+        [data-theme="light"] .hm-nutrition-card,
+        [data-theme="light"] .hm-phase-btn,
+        [data-theme="light"] .hm-cycle-cell,
+        [data-theme="light"] .hm-cycle-form,
+        [data-theme="light"] .hm-toggle-row {
+            background: rgba(0,0,0,0.04);
+            border-color: rgba(0,0,0,0.08);
+        }
+        [data-theme="light"] .hm-tab.active,
+        [data-theme="light"] .hm-phase-btn.sel,
+        [data-theme="light"] .hm-symptom.sel {
+            background: rgba(0,0,0,0.1);
+            border-color: rgba(0,0,0,0.18);
+        }
+        [data-theme="light"] .hm-btn-primary {
+            background: linear-gradient(135deg, rgba(0,0,0,0.09), rgba(0,0,0,0.04));
+            border-color: rgba(0,0,0,0.18);
+            color: var(--text-primary);
+        }
+        [data-theme="light"] .hm-btn-ghost:hover {
+            background: rgba(0,0,0,0.08);
+            color: var(--text-primary);
+        }
+        [data-theme="light"] .hm-input {
+            background: rgba(0,0,0,0.04);
+            border-color: rgba(0,0,0,0.15);
+            color: var(--text-primary);
+        }
+        [data-theme="light"] .hm-input::placeholder {
+            color: rgba(0,0,0,0.4);
+        }
+        [data-theme="light"] .hm-hormone-fill {
+            /* оставляем цветные градиенты как есть, лишь затемняем рамку */
+        }
+        [data-theme="light"] .hm-next-cycle-card {
+            background: linear-gradient(135deg, rgba(0,0,0,0.04), rgba(0,0,0,0.09));
+            border-color: rgba(0,0,0,0.12);
+        }
+        [data-theme="light"] .hm-login-hint {
+            background: rgba(245, 158, 11, 0.12);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: #92400e;
         }
     `;
     document.head.appendChild(s);
@@ -440,7 +563,70 @@ function _hmNutrition() {
 }
 
 // ===== ЦИКЛ =====
+// Профиль цикла пользователя (загружается из backend при открытии вкладки).
+// Поля: last_period_date (ISO YYYY-MM-DD), cycle_length, period_length,
+//       notifications_enabled, advance_days.
+let _hmCycleProfile = null;
+let _hmCycleProfileLoaded = false;
+
+function _hmIsAuthenticated() {
+    return !!(window.IS_AUTHENTICATED || window.CURRENT_USER_EMAIL);
+}
+
+function _hmDaysBetween(aIso, bIso) {
+    const a = new Date(aIso + 'T00:00:00');
+    const b = new Date(bIso + 'T00:00:00');
+    return Math.round((b - a) / 86400000);
+}
+
+function _hmTodayIso() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+}
+
+function _hmPredictNextPeriod(profile) {
+    if (!profile?.last_period_date) return null;
+    const last = new Date(profile.last_period_date + 'T00:00:00');
+    const cycle = Math.max(20, Math.min(45, profile.cycle_length || 28));
+    const today = new Date(_hmTodayIso() + 'T00:00:00');
+    let next = new Date(last);
+    while (next <= today) {
+        next.setDate(next.getDate() + cycle);
+    }
+    const y = next.getFullYear();
+    const m = String(next.getMonth() + 1).padStart(2, '0');
+    const dd = String(next.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+}
+
+async function _hmLoadCycleProfile() {
+    if (_hmCycleProfileLoaded) return;
+    _hmCycleProfileLoaded = true;
+    const uid = window.CONFIG?.USER_ID || window.USER_ID;
+    const apiBase = window.CONFIG?.API_BASE_URL || window.API_BASE_URL;
+    if (!uid || !apiBase) return;
+    try {
+        const r = await fetch(`${apiBase}/api/cycle/profile?user_id=${encodeURIComponent(uid)}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data?.success && data.profile) {
+            _hmCycleProfile = data.profile;
+            if (_hm.tab === 'cycle') _hmRender();
+        }
+    } catch (e) { /* ignore */ }
+}
+
 function _hmCycle() {
+    _hmLoadCycleProfile();
+
+    const authed = _hmIsAuthenticated();
+    const profile = _hmCycleProfile || {};
+    const nextIso = _hmPredictNextPeriod(profile);
+    const daysUntil = nextIso ? _hmDaysBetween(_hmTodayIso(), nextIso) : null;
+
     const phasesHtml = Object.entries(HM_CYCLE_PHASES).map(([key, ph]) => `
         <div class="hm-phase-btn${_hm.phase===key?' sel':''}" data-phase="${key}">
             <span class="hm-phase-emoji">${ph.emoji}</span>
@@ -470,13 +656,143 @@ function _hmCycle() {
             </div>
         </div>` : '';
 
+    // Блок прогноза (показываем если есть last_period_date)
+    const nextBlockHtml = nextIso ? `
+        <div class="hm-next-cycle-card">
+            <div style="font-size:11px;color:var(--text-secondary);letter-spacing:0.3px;text-transform:uppercase;">Следующий цикл ожидается</div>
+            <div class="hm-next-cycle-date">${_hmFormatRuDate(nextIso)}</div>
+            <div class="hm-next-cycle-countdown">${daysUntil === 0 ? 'сегодня' : daysUntil === 1 ? 'завтра' : `через ${daysUntil} ${_hmPluralDays(daysUntil)}`}</div>
+        </div>` : '';
+
+    // Форма ввода параметров цикла
+    const lastDate = profile.last_period_date || '';
+    const cycleLen = profile.cycle_length || 28;
+    const periodLen = profile.period_length || 5;
+    const notifEnabled = !!profile.notifications_enabled;
+    const advanceDays = profile.advance_days || 2;
+
+    const notifBlock = authed ? `
+        <label class="hm-toggle-row" for="hmNotifToggle">
+            <input type="checkbox" id="hmNotifToggle" ${notifEnabled ? 'checked' : ''}>
+            <div>
+                <div class="hm-toggle-label">Напоминать заранее</div>
+                <div class="hm-toggle-sub">Фреди отправит уведомление в «Сообщения» за указанное число дней</div>
+            </div>
+        </label>
+        <div class="hm-cycle-field" id="hmAdvanceField" style="margin-top:10px;${notifEnabled ? '' : 'display:none;'}">
+            <label for="hmAdvanceDays">За сколько дней предупреждать</label>
+            <input type="number" id="hmAdvanceDays" class="hm-input" min="0" max="7" value="${advanceDays}">
+        </div>
+    ` : `
+        <div class="hm-login-hint">
+            🔒 Чтобы получать персональные напоминания в левом меню — <strong>войдите в аккаунт</strong>. Даты сохранятся автоматически после входа.
+        </div>
+    `;
+
     return `
+        <div class="hm-section-label">📅 Мой цикл</div>
+        <div class="hm-cycle-form">
+            <div class="hm-cycle-field">
+                <label for="hmLastPeriod">Дата начала последней менструации</label>
+                <input type="date" id="hmLastPeriod" class="hm-input" max="${_hmTodayIso()}" value="${lastDate}">
+            </div>
+            <div class="hm-cycle-field">
+                <label for="hmCycleLen">Средняя длина цикла (дней)</label>
+                <input type="number" id="hmCycleLen" class="hm-input" min="20" max="45" value="${cycleLen}">
+            </div>
+            <div class="hm-cycle-field">
+                <label for="hmPeriodLen">Длительность менструации (дней)</label>
+                <input type="number" id="hmPeriodLen" class="hm-input" min="1" max="10" value="${periodLen}">
+            </div>
+            ${notifBlock}
+            <button class="hm-btn hm-btn-primary" id="hmSaveCycleBtn" style="margin-top:12px;">💾 Сохранить</button>
+        </div>
+        ${nextBlockHtml}
         <div class="hm-section-label">Выберите текущую фазу цикла</div>
         <div class="hm-cycle-phases">${phasesHtml}</div>
         ${phInfo}
         <div class="hm-tip">
             💡 <strong>Каждая фаза цикла</strong> — это разная нейрохимия. Синхронизация деятельности с фазой повышает продуктивность и снижает стресс.
         </div>`;
+}
+
+function _hmFormatRuDate(iso) {
+    try {
+        const d = new Date(iso + 'T00:00:00');
+        return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+    } catch (e) { return iso; }
+}
+
+function _hmPluralDays(n) {
+    const mod10 = n % 10, mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'день';
+    if ([2,3,4].includes(mod10) && ![12,13,14].includes(mod100)) return 'дня';
+    return 'дней';
+}
+
+async function _hmSaveCycleProfile() {
+    const lastDate = document.getElementById('hmLastPeriod')?.value;
+    const cycleLen = parseInt(document.getElementById('hmCycleLen')?.value, 10);
+    const periodLen = parseInt(document.getElementById('hmPeriodLen')?.value, 10);
+    const notifEnabled = !!document.getElementById('hmNotifToggle')?.checked;
+    const advanceDays = parseInt(document.getElementById('hmAdvanceDays')?.value, 10) || 2;
+
+    if (!lastDate) { _hmToast('Укажите дату последней менструации', 'error'); return; }
+    if (!cycleLen || cycleLen < 20 || cycleLen > 45) { _hmToast('Длина цикла должна быть 20–45 дней', 'error'); return; }
+    if (!periodLen || periodLen < 1 || periodLen > 10) { _hmToast('Длительность менструации 1–10 дней', 'error'); return; }
+
+    const uid = window.CONFIG?.USER_ID || window.USER_ID;
+    const apiBase = window.CONFIG?.API_BASE_URL || window.API_BASE_URL;
+    const authed = _hmIsAuthenticated();
+
+    const payload = {
+        user_id: uid,
+        last_period_date: lastDate,
+        cycle_length: cycleLen,
+        period_length: periodLen,
+        notifications_enabled: authed ? notifEnabled : false,
+        advance_days: Math.max(0, Math.min(7, advanceDays))
+    };
+
+    if (!apiBase) {
+        // Локальный fallback (если backend недоступен)
+        _hmCycleProfile = payload;
+        _hmToast('Сохранено локально', 'success');
+        _hmRender();
+        return;
+    }
+
+    try {
+        const r = await fetch(`${apiBase}/api/cycle/profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload)
+        });
+        if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            if (r.status === 401 || data?.error === 'not_authenticated') {
+                _hmToast('Войдите в аккаунт, чтобы сохранить профиль цикла', 'error');
+                return;
+            }
+            _hmToast('Не удалось сохранить: ' + (data?.error || r.status), 'error');
+            return;
+        }
+        const data = await r.json();
+        if (data?.success) {
+            _hmCycleProfile = data.profile || payload;
+            _hmToast(notifEnabled && authed ? '✅ Сохранено. Уведомления включены.' : '✅ Сохранено.', 'success');
+            _hmRender();
+            // Попросим разрешение на push, если ещё не дали
+            if (notifEnabled && authed && window.PushManager_Fredi?.request) {
+                try { window.PushManager_Fredi.request(uid); } catch (e) {}
+            }
+        } else {
+            _hmToast('Ошибка: ' + (data?.error || 'неизвестно'), 'error');
+        }
+    } catch (e) {
+        _hmToast('Нет связи с сервером: ' + e.message, 'error');
+    }
 }
 
 // ============================================
@@ -517,6 +833,15 @@ function _hmBindHandlers() {
             _hm.phase = _hm.phase === btn.dataset.phase ? null : btn.dataset.phase;
             _hmRender();
         });
+    });
+
+    // Профиль цикла: сохранение
+    document.getElementById('hmSaveCycleBtn')?.addEventListener('click', () => _hmSaveCycleProfile());
+
+    // Toggle уведомлений — показываем/скрываем поле «за сколько дней»
+    document.getElementById('hmNotifToggle')?.addEventListener('change', (e) => {
+        const field = document.getElementById('hmAdvanceField');
+        if (field) field.style.display = e.target.checked ? '' : 'none';
     });
 }
 
