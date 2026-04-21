@@ -6,7 +6,7 @@
 
 // --- Состояние модуля ---
 const state = {
-    activeTab: 'tarot',
+    activeTab: 'horoscope',
     activeSuit: 'major',
     question: '',
     userSign: null,
@@ -465,6 +465,63 @@ function _esInjectStyles() {
             .reading-card { flex-direction: column; text-align: center; }
             .hy-suggestion-text { font-size: 14px; }
             .hy-suggestion-box { padding: 14px; }
+        }
+
+        /* Светлая тема: инвертируем полупрозрачные фоны (были светло-серые
+           на тёмном — теперь тёмные на светлом), чтобы элементы оставались
+           видимыми и не было «тёмного на тёмном» в input-полях. */
+        [data-theme="light"] .es-tabs {
+            border-bottom-color: rgba(0,0,0,0.08);
+        }
+        [data-theme="light"] .es-tab.active,
+        [data-theme="light"] .horoscope-cat-btn.active {
+            background: rgba(0,0,0,0.08);
+        }
+        [data-theme="light"] .tarot-card,
+        [data-theme="light"] .sign-btn,
+        [data-theme="light"] .horoscope-cat-btn,
+        [data-theme="light"] .hy-suggestion-box,
+        [data-theme="light"] .natal-placeholder,
+        [data-theme="light"] .hy-tip {
+            background: rgba(0,0,0,0.035);
+            border-color: rgba(0,0,0,0.08);
+        }
+        [data-theme="light"] .tarot-card:hover {
+            background: rgba(0,0,0,0.08);
+        }
+        [data-theme="light"] .sign-btn.active {
+            background: rgba(0,0,0,0.1);
+            border-color: rgba(0,0,0,0.18);
+        }
+        [data-theme="light"] .tarot-reading {
+            background: linear-gradient(135deg, rgba(0,0,0,0.03), rgba(0,0,0,0.09));
+        }
+        [data-theme="light"] .tarot-card img {
+            background: #e8e8ed;
+        }
+        [data-theme="light"] .natal-input {
+            background: rgba(0,0,0,0.04);
+            border-color: rgba(0,0,0,0.15);
+            color: var(--text-primary);
+        }
+        [data-theme="light"] .natal-input::placeholder {
+            color: rgba(0,0,0,0.4);
+        }
+        [data-theme="light"] .hy-btn-primary {
+            background: linear-gradient(135deg, rgba(0,0,0,0.08), rgba(0,0,0,0.04));
+            border-color: rgba(0,0,0,0.18);
+            color: var(--text-primary);
+        }
+        [data-theme="light"] .hy-btn-ghost {
+            background: rgba(0,0,0,0.04);
+            border-color: rgba(0,0,0,0.12);
+        }
+        [data-theme="light"] .hy-btn-ghost:hover {
+            background: rgba(0,0,0,0.08);
+            color: var(--text-primary);
+        }
+        [data-theme="light"] .planet-row {
+            border-bottom-color: rgba(0,0,0,0.06);
         }
     `;
     document.head.appendChild(s);
@@ -1054,9 +1111,9 @@ function render() {
     
     const tabsHtml = `
         <div class="es-tabs">
-            <button class="es-tab ${state.activeTab === 'tarot' ? 'active' : ''}" data-tab="tarot">🔮 Таро</button>
             <button class="es-tab ${state.activeTab === 'horoscope' ? 'active' : ''}" data-tab="horoscope">✨ Гороскоп</button>
             <button class="es-tab ${state.activeTab === 'natal' ? 'active' : ''}" data-tab="natal">🌟 Натальная карта</button>
+            <button class="es-tab ${state.activeTab === 'tarot' ? 'active' : ''}" data-tab="tarot">🔮 Таро</button>
         </div>
     `;
     
