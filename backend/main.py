@@ -5644,43 +5644,12 @@ async def profile_access_request_full(request: Request):
                 """, owner, requester, field)
                 requested_fields.append(field)
 
-            # Создать/найти чат и отправить системное сообщение — только
-            # если реально что-то новое запросили.
+            # ВАЖНО: запросы доступа НЕ создают чат и НЕ пишут в него системное
+            # сообщение. Они живут только в fredi_profile_access и
+            # fredi_notifications — видны владельцу в «Сообщения → Запросы»
+            # и в «Настройки → Аккаунт → Запросы на профиль». Чат между
+            # юзерами появится, только когда кто-то явно нажмёт «💬 Написать».
             chat_id = None
-            if requested_fields:
-                low, high = min(requester, owner), max(requester, owner)
-                row = await conn.fetchrow(
-                    "SELECT id FROM fredi_chats WHERE user_id_1 = $1 AND user_id_2 = $2",
-                    low, high
-                )
-                if row:
-                    chat_id = row["id"]
-                else:
-                    row = await conn.fetchrow("""
-                        INSERT INTO fredi_chats (user_id_1, user_id_2, created_at)
-                        VALUES ($1, $2, NOW())
-                        ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET user_id_1 = EXCLUDED.user_id_1
-                        RETURNING id
-                    """, low, high)
-                    chat_id = row["id"] if row else None
-
-                if chat_id:
-                    sys_text = (
-                        f"🔐 {requester_name} нашёл(ла) тебя в «Двойниках» и запросил(а) доступ к полному профилю."
-                    )
-                    sys_meta = {
-                        "kind": "access_request",
-                        "requester_id": requester,
-                        "requester_name": requester_name,
-                    }
-                    await conn.execute("""
-                        INSERT INTO fredi_chat_messages (chat_id, sender_id, text, metadata, created_at)
-                        VALUES ($1, $2, $3, $4::jsonb, NOW())
-                    """, chat_id, requester, sys_text, json.dumps(sys_meta, ensure_ascii=False))
-                    await conn.execute(
-                        "UPDATE fredi_chats SET last_message_text = $2, last_message_at = NOW() WHERE id = $1",
-                        chat_id, sys_text[:200]
-                    )
 
         # Analytics
         try:
@@ -5693,14 +5662,28 @@ async def profile_access_request_full(request: Request):
         except Exception:
             pass
 
-        # Push уведомление владельцу, если подписка есть
+        # In-app уведомление владельцу (появится в «Сообщения → 🔔 Уведомления»
+        # с кнопками Разрешить/Отклонить и в бейдже на ☰).
+        if requested_fields:
+            try:
+                await _push_notification(
+                    owner,
+                    "profile_access_incoming",
+                    f"🔐 {requester_name} просит доступ к профилю",
+                    "Ответить: вкладка 🔐 Запросы.",
+                    {"requester_id": requester, "requester_name": requester_name},
+                )
+            except Exception:
+                pass
+
+        # Web-push владельцу, если подписка есть
         try:
             if requested_fields and push_service:
                 await push_service.send_to_user(
                     owner,
                     title="🔐 Запрос доступа к профилю",
                     body=f"{requester_name} просит посмотреть твой профиль",
-                    url="/?tab=settings&section=account"
+                    url="/?tab=messages"
                 )
         except Exception:
             pass
