@@ -438,26 +438,35 @@ function getZodiacSign(date) {
     return 'pisces';
 }
 
-// --- Получение гороскопа через API (с fallback на локальные данные) ---
+// --- Получение гороскопа через backend (DeepSeek + Redis-кэш на 24ч) ---
+// Fallback-цепочка: /api/horoscope → локальные тексты HOROSCOPE_TEXTS → общие.
 async function fetchHoroscope(signId, category = 'general') {
     const sign = ZODIAC_SIGNS.find(s => s.id === signId);
     if (!sign) return null;
-    
-    // Пытаемся получить через бесплатный API
-    try {
-        const response = await fetch(`https://horoscope-app-api.vercel.app/api/v1/get-horoscope/${category}?sign=${sign.name.toLowerCase()}&day=TODAY`);
-        if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.data) return data.data;
+
+    const apiBase = window.CONFIG?.API_BASE_URL || window.API_BASE_URL;
+    if (apiBase) {
+        try {
+            const response = await fetch(`${apiBase}/api/horoscope`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sign: signId, category })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data?.success && typeof data.text === 'string' && data.text.trim()) {
+                    return data.text.trim();
+                }
+            }
+        } catch (e) {
+            console.log('Backend horoscope недоступен, используем локальные тексты');
         }
-    } catch (e) {
-        console.log('API недоступен, используем локальные данные');
     }
-    
-    // Fallback на локальные данные
+
+    // Fallback: локальные данные по знаку
     const texts = HOROSCOPE_TEXTS[signId];
     if (texts && texts[category]) return texts[category];
-    
+
     // Общий fallback
     const fallbacks = {
         general: 'Сегодня хороший день для размышлений и новых начинаний. Прислушайтесь к своей интуиции.',
