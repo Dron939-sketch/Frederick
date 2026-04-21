@@ -16,6 +16,7 @@ import asyncio
 import logging
 import time
 import json
+import hashlib
 import random
 import base64
 import re
@@ -6567,6 +6568,170 @@ _FALLBACK_HOROSCOPE = {
     "health":  "Проверьте, достаточно ли вы пили воды и двигались сегодня. Тело благодарно откликается на простые вещи.",
     "advice":  "Сделайте одно маленькое дело, которое вы постоянно откладываете. Это изменит день.",
 }
+
+
+# ============================================
+# ТАРО
+# ============================================
+_TAROT_SPREAD_POSITIONS = {
+    "day": [
+        "Карта дня",
+    ],
+    "three": [
+        "Прошлое",
+        "Настоящее",
+        "Будущее",
+    ],
+    "celtic": [
+        "1. Настоящее — текущая ситуация",
+        "2. Препятствие — что мешает или бросает вызов",
+        "3. Подсознание — скрытые мотивы, корень вопроса",
+        "4. Прошлое — что привело к текущей точке",
+        "5. Сознание — надежды, цели, к чему стремитесь",
+        "6. Ближайшее будущее — что ждёт в ближайшее время",
+        "7. Вы сами — ваше отношение, ресурс",
+        "8. Окружение — влияние близких и обстоятельств",
+        "9. Надежды и страхи — двойственные ожидания",
+        "10. Итог — вероятный исход",
+    ],
+}
+
+
+@app.post("/api/tarot/interpret")
+async def api_tarot_interpret(request: Request):
+    """Интерпретирует расклад Таро через DeepSeek. Кэш 1 час в Redis.
+
+    Request JSON:
+    {
+      "spread_type": "day" | "three" | "celtic",
+      "cards": [{"id": "m00", "name": "Шут", "reversed": false}, ...],
+      "question": "необязательный вопрос пользователя",
+      "user_id": 123        # опционально
+    }
+
+    Response: {"success": true, "interpretation": "...", "cached": bool}
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    spread_type = (data.get("spread_type") or "day").strip().lower()
+    cards = data.get("cards") or []
+    question = (data.get("question") or "").strip()
+
+    if spread_type not in _TAROT_SPREAD_POSITIONS:
+        return {"success": False, "error": f"unknown spread_type: {spread_type!r}"}
+    if not isinstance(cards, list) or not cards:
+        return {"success": False, "error": "cards must be non-empty list"}
+
+    positions = _TAROT_SPREAD_POSITIONS[spread_type]
+    if len(cards) != len(positions):
+        return {"success": False, "error": f"spread {spread_type} expects {len(positions)} cards, got {len(cards)}"}
+
+    # Нормализуем карты и формируем кэш-ключ
+    norm_cards = []
+    for i, c in enumerate(cards):
+        if not isinstance(c, dict):
+            return {"success": False, "error": f"card #{i} is not an object"}
+        norm_cards.append({
+            "id":   str(c.get("id") or ""),
+            "name": str(c.get("name") or c.get("id") or ""),
+            "reversed": bool(c.get("reversed")),
+        })
+
+    cache_payload = json.dumps(
+        {"spread": spread_type, "cards": norm_cards, "q": question},
+        sort_keys=True, ensure_ascii=False,
+    )
+    cache_hash = hashlib.sha1(cache_payload.encode("utf-8")).hexdigest()[:16]
+    cache_key = f"tarot:{spread_type}:{cache_hash}"
+
+    # 1. Пробуем кэш (1 час)
+    if cache:
+        try:
+            cached = await cache.get(cache_key)
+            if cached:
+                return {"success": True, "interpretation": cached, "cached": True}
+        except Exception as e:
+            logger.warning(f"tarot cache get failed: {e}")
+
+    # 2. Собираем промпт для DeepSeek
+    lines = []
+    for pos, card in zip(positions, norm_cards):
+        orient = "перевёрнутая" if card["reversed"] else "прямая"
+        lines.append(f"• {pos}: {card['name']} ({orient})")
+    cards_block = "\n".join(lines)
+
+    system_prompt = (
+        "Ты — Фреди, мягкий таролог-психолог. Говоришь на современном русском "
+        "языке, без эзотерического жаргона и штампов. Читаешь расклад как "
+        "целое: видишь связь между картами, учитываешь их позиции, отмечаешь "
+        "перевёрнутые. Пишешь живо, по делу, обращение на «вы». "
+        "Не даёшь медицинских/финансовых советов и не запугиваешь — карты "
+        "показывают возможности, а не приговор."
+    )
+
+    user_prompt_parts = [f"Расклад: {spread_type}.", f"Карты и позиции:\n{cards_block}"]
+    if question:
+        user_prompt_parts.append(f"Вопрос пользователя: «{question}»")
+    else:
+        user_prompt_parts.append("Вопрос не задан — дайте общее прочтение.")
+
+    if spread_type == "day":
+        user_prompt_parts.append(
+            "Напишите короткую интерпретацию карты дня: 2–3 абзаца. "
+            "Первый — суть карты здесь и сейчас. Второй — на что обратить внимание. "
+            "Третий — мягкая практическая рекомендация."
+        )
+    elif spread_type == "three":
+        user_prompt_parts.append(
+            "Дайте прочтение расклада «Прошлое — Настоящее — Будущее» как единое "
+            "повествование (3–4 абзаца): что каждая карта значит в своей позиции, "
+            "и общая траектория, которую они показывают."
+        )
+    else:  # celtic
+        user_prompt_parts.append(
+            "Дайте прочтение Кельтского креста (4–6 абзацев): сначала трактуйте "
+            "каждую позицию кратко, затем общий вывод по всему раскладу — "
+            "что важнее всего, на что обратить внимание, итоговая динамика."
+        )
+
+    user_prompt = "\n\n".join(user_prompt_parts)
+
+    interpretation = None
+    try:
+        interpretation = await ai_service._call_deepseek(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=900,
+            temperature=0.75,
+        )
+        if interpretation:
+            interpretation = interpretation.strip()
+    except Exception as e:
+        logger.error(f"tarot DeepSeek failed ({spread_type}): {e}")
+
+    if not interpretation:
+        return {
+            "success": True,
+            "interpretation": (
+                "Не удалось получить AI-интерпретацию прямо сейчас. "
+                "Посмотрите на выпавшие карты и их позиции — что отзывается в вас "
+                "первым ощущением? Часто именно интуитивный ответ и есть подсказка."
+            ),
+            "cached": False,
+            "fallback": True,
+        }
+
+    # 3. Кэшируем на 1 час
+    if cache:
+        try:
+            await cache.set(cache_key, interpretation, ttl=3600)
+        except Exception as e:
+            logger.warning(f"tarot cache set failed: {e}")
+
+    return {"success": True, "interpretation": interpretation, "cached": False}
 
 
 @app.post("/api/horoscope")
