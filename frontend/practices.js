@@ -88,7 +88,8 @@ function _renderPractices(container) {
         { id:'neurotracker', label:'🧬 НЕЙРО' },
         { id:'minigames',    label:'🎮 ИГРЫ'  },
         { id:'visual',       label:'🌌 ВИЗУАЛ'},
-        { id:'generate',     label:'✨ AI'    }
+        { id:'generate',     label:'✨ AI'    },
+        { id:'esoteric',     label:'🔮 ЭЗОТЕРИКА' }
     ];
     const tabsHtml = TABS.map(t =>
         `<button class="prc-tab${practicesState.activeTab===t.id?' active':''}" data-tab="${t.id}">${t.label}</button>`
@@ -116,7 +117,20 @@ function _renderPractices(container) {
 
     document.getElementById('prcBack').onclick = () => goBackToDashboard();
     document.querySelectorAll('.prc-tab').forEach(btn => {
-        btn.addEventListener('click', () => { practicesState.activeTab = btn.dataset.tab; _renderPractices(container); });
+        btn.addEventListener('click', () => {
+            if (btn.dataset.tab === 'esoteric') {
+                const launch = () => { if (typeof showEsotericaScreen === 'function') showEsotericaScreen(); };
+                if (typeof showEsotericaScreen === 'function') { launch(); return; }
+                const s = document.createElement('script');
+                s.src = 'esoterica.js';
+                s.onload = launch;
+                s.onerror = () => { if (typeof showToast==='function') showToast('Не удалось загрузить модуль','error'); };
+                document.head.appendChild(s);
+                return;
+            }
+            practicesState.activeTab = btn.dataset.tab;
+            _renderPractices(container);
+        });
     });
     _bindHandlers(container);
 }

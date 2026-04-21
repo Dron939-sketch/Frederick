@@ -7,6 +7,7 @@
 // --- Состояние модуля ---
 const state = {
     activeTab: 'tarot',
+    activeSuit: 'major',
     userSign: null,
     userBirthData: null
 };
@@ -14,91 +15,91 @@ const state = {
 // --- Данные Таро (78 карт) ---
 // Полный набор Старших Арканов (22 карты) с изображениями
 const MAJOR_ARCANA = [
-    { id: 0, name: 'Шут', nameEn: 'The Fool', image: 'img/tarot/major/00_fool.jpg', 
+    { id: 0, name: 'Шут', nameEn: 'The Fool', image: 'img/tarot/m00.webp', 
       meaning: 'Новые начинания, спонтанность, вера в жизнь', 
       reversed: 'Безрассудство, риск, хаос',
       element: 'Воздух', planet: 'Уран' },
-    { id: 1, name: 'Маг', nameEn: 'The Magician', image: 'img/tarot/major/01_magician.jpg',
+    { id: 1, name: 'Маг', nameEn: 'The Magician', image: 'img/tarot/m01.webp',
       meaning: 'Воля, мастерство, концентрация ресурсов',
       reversed: 'Манипуляции, неуверенность, таланты впустую',
       element: 'Воздух', planet: 'Меркурий' },
-    { id: 2, name: 'Верховная Жрица', nameEn: 'The High Priestess', image: 'img/tarot/major/02_high_priestess.jpg',
+    { id: 2, name: 'Верховная Жрица', nameEn: 'The High Priestess', image: 'img/tarot/m02.webp',
       meaning: 'Интуиция, тайны, подсознание',
       reversed: 'Подавленная интуиция, поверхностность',
       element: 'Вода', planet: 'Луна' },
-    { id: 3, name: 'Императрица', nameEn: 'The Empress', image: 'img/tarot/major/03_empress.jpg',
+    { id: 3, name: 'Императрица', nameEn: 'The Empress', image: 'img/tarot/m03.webp',
       meaning: 'Изобилие, материнство, природа',
       reversed: 'Зависимость, творческий блок',
       element: 'Земля', planet: 'Венера' },
-    { id: 4, name: 'Император', nameEn: 'The Emperor', image: 'img/tarot/major/04_emperor.jpg',
+    { id: 4, name: 'Император', nameEn: 'The Emperor', image: 'img/tarot/m04.webp',
       meaning: 'Структура, власть, отеческая фигура',
       reversed: 'Тирания, контроль, ригидность',
       element: 'Огонь', planet: 'Марс' },
-    { id: 5, name: 'Иерофант', nameEn: 'The Hierophant', image: 'img/tarot/major/05_hierophant.jpg',
+    { id: 5, name: 'Иерофант', nameEn: 'The Hierophant', image: 'img/tarot/m05.webp',
       meaning: 'Традиции, обучение, духовные устои',
       reversed: 'Бунт, нетрадиционный подход',
       element: 'Земля', planet: 'Меркурий' },
-    { id: 6, name: 'Влюблённые', nameEn: 'The Lovers', image: 'img/tarot/major/06_lovers.jpg',
+    { id: 6, name: 'Влюблённые', nameEn: 'The Lovers', image: 'img/tarot/m06.webp',
       meaning: 'Выбор, гармония, отношения',
       reversed: 'Дисгармония, конфликт ценностей',
       element: 'Воздух', planet: 'Меркурий' },
-    { id: 7, name: 'Колесница', nameEn: 'The Chariot', image: 'img/tarot/major/07_chariot.jpg',
+    { id: 7, name: 'Колесница', nameEn: 'The Chariot', image: 'img/tarot/m07.webp',
       meaning: 'Воля к победе, контроль, направление',
       reversed: 'Потеря контроля, агрессия',
       element: 'Вода', planet: 'Луна' },
-    { id: 8, name: 'Сила', nameEn: 'Strength', image: 'img/tarot/major/08_strength.jpg',
+    { id: 8, name: 'Сила', nameEn: 'Strength', image: 'img/tarot/m08.webp',
       meaning: 'Внутренняя сила, терпение, сострадание',
       reversed: 'Слабость, неуверенность',
       element: 'Огонь', planet: 'Солнце' },
-    { id: 9, name: 'Отшельник', nameEn: 'The Hermit', image: 'img/tarot/major/09_hermit.jpg',
+    { id: 9, name: 'Отшельник', nameEn: 'The Hermit', image: 'img/tarot/m09.webp',
       meaning: 'Самоанализ, мудрость, уединение',
       reversed: 'Изоляция, одиночество',
       element: 'Земля', planet: 'Уран' },
-    { id: 10, name: 'Колесо Фортуны', nameEn: 'Wheel of Fortune', image: 'img/tarot/major/10_wheel.jpg',
+    { id: 10, name: 'Колесо Фортуны', nameEn: 'Wheel of Fortune', image: 'img/tarot/m10.webp',
       meaning: 'Перемены, судьба, поворотный момент',
       reversed: 'Сопротивление переменам, неудача',
       element: 'Огонь', planet: 'Юпитер' },
-    { id: 11, name: 'Справедливость', nameEn: 'Justice', image: 'img/tarot/major/11_justice.jpg',
+    { id: 11, name: 'Справедливость', nameEn: 'Justice', image: 'img/tarot/m11.webp',
       meaning: 'Честность, истина, закон',
       reversed: 'Несправедливость, предвзятость',
       element: 'Воздух', planet: 'Венера' },
-    { id: 12, name: 'Повешенный', nameEn: 'The Hanged Man', image: 'img/tarot/major/12_hanged_man.jpg',
+    { id: 12, name: 'Повешенный', nameEn: 'The Hanged Man', image: 'img/tarot/m12.webp',
       meaning: 'Жертва, новая перспектива, ожидание',
       reversed: 'Застой, эгоизм',
       element: 'Вода', planet: 'Нептун' },
-    { id: 13, name: 'Смерть', nameEn: 'Death', image: 'img/tarot/major/13_death.jpg',
+    { id: 13, name: 'Смерть', nameEn: 'Death', image: 'img/tarot/m13.webp',
       meaning: 'Трансформация, завершение, новое начало',
       reversed: 'Сопротивление переменам, застой',
       element: 'Вода', planet: 'Плутон' },
-    { id: 14, name: 'Умеренность', nameEn: 'Temperance', image: 'img/tarot/major/14_temperance.jpg',
+    { id: 14, name: 'Умеренность', nameEn: 'Temperance', image: 'img/tarot/m14.webp',
       meaning: 'Баланс, терпение, гармония',
       reversed: 'Дисбаланс, нетерпение',
       element: 'Огонь', planet: 'Сатурн' },
-    { id: 15, name: 'Дьявол', nameEn: 'The Devil', image: 'img/tarot/major/15_devil.jpg',
+    { id: 15, name: 'Дьявол', nameEn: 'The Devil', image: 'img/tarot/m15.webp',
       meaning: 'Привязанность, зависимость, материализм',
       reversed: 'Освобождение, независимость',
       element: 'Земля', planet: 'Сатурн' },
-    { id: 16, name: 'Башня', nameEn: 'The Tower', image: 'img/tarot/major/16_tower.jpg',
+    { id: 16, name: 'Башня', nameEn: 'The Tower', image: 'img/tarot/m16.webp',
       meaning: 'Внезапные перемены, крах иллюзий',
       reversed: 'Избегание катастрофы, отложенный кризис',
       element: 'Огонь', planet: 'Марс' },
-    { id: 17, name: 'Звезда', nameEn: 'The Star', image: 'img/tarot/major/17_star.jpg',
+    { id: 17, name: 'Звезда', nameEn: 'The Star', image: 'img/tarot/m17.webp',
       meaning: 'Надежда, вдохновение, исцеление',
       reversed: 'Отчаяние, потеря веры',
       element: 'Воздух', planet: 'Уран' },
-    { id: 18, name: 'Луна', nameEn: 'The Moon', image: 'img/tarot/major/18_moon.jpg',
+    { id: 18, name: 'Луна', nameEn: 'The Moon', image: 'img/tarot/m18.webp',
       meaning: 'Иллюзии, страхи, подсознание',
       reversed: 'Прояснение, преодоление страхов',
       element: 'Вода', planet: 'Луна' },
-    { id: 19, name: 'Солнце', nameEn: 'The Sun', image: 'img/tarot/major/19_sun.jpg',
+    { id: 19, name: 'Солнце', nameEn: 'The Sun', image: 'img/tarot/m19.webp',
       meaning: 'Радость, успех, позитив',
       reversed: 'Пессимизм, временные трудности',
       element: 'Огонь', planet: 'Солнце' },
-    { id: 20, name: 'Суд', nameEn: 'Judgement', image: 'img/tarot/major/20_judgement.jpg',
+    { id: 20, name: 'Суд', nameEn: 'Judgement', image: 'img/tarot/m20.webp',
       meaning: 'Пробуждение, прощение, переоценка',
       reversed: 'Сомнения, самоосуждение',
       element: 'Огонь', planet: 'Плутон' },
-    { id: 21, name: 'Мир', nameEn: 'The World', image: 'img/tarot/major/21_world.jpg',
+    { id: 21, name: 'Мир', nameEn: 'The World', image: 'img/tarot/m21.webp',
       meaning: 'Завершение, гармония, целостность',
       reversed: 'Незавершённость, задержки',
       element: 'Земля', planet: 'Сатурн' }
@@ -107,68 +108,68 @@ const MAJOR_ARCANA = [
 // Младшие Арканы (для расширенного функционала)
 const MINOR_ARCANA = {
     cups: [
-        { name: 'Туз Кубков', meaning: 'Новая любовь, эмоции, начало отношений' },
-        { name: '2 Кубков', meaning: 'Союз, партнёрство, гармония' },
-        { name: '3 Кубков', meaning: 'Празднование, дружба, радость' },
-        { name: '4 Кубков', meaning: 'Апатия, скука, неудовлетворённость' },
-        { name: '5 Кубков', meaning: 'Потеря, сожаление, принятие' },
-        { name: '6 Кубков', meaning: 'Ностальгия, детство, воспоминания' },
-        { name: '7 Кубков', meaning: 'Иллюзии, мечты, выбор' },
-        { name: '8 Кубков', meaning: 'Уход, оставление, поиск' },
-        { name: '9 Кубков', meaning: 'Исполнение желаний, удовлетворение' },
-        { name: '10 Кубков', meaning: 'Семейное счастье, гармония' },
-        { name: 'Паж Кубков', meaning: 'Романтика, творчество, новости' },
-        { name: 'Рыцарь Кубков', meaning: 'Предложение, романтика, страсть' },
-        { name: 'Королева Кубков', meaning: 'Эмпатия, интуиция, забота' },
-        { name: 'Король Кубков', meaning: 'Эмоциональная зрелость, дипломатия' }
+        { id: 'c01', image: 'img/tarot/c01.webp', name: 'Туз Кубков', meaning: 'Новая любовь, эмоции, начало отношений' },
+        { id: 'c02', image: 'img/tarot/c02.webp', name: '2 Кубков', meaning: 'Союз, партнёрство, гармония' },
+        { id: 'c03', image: 'img/tarot/c03.webp', name: '3 Кубков', meaning: 'Празднование, дружба, радость' },
+        { id: 'c04', image: 'img/tarot/c04.webp', name: '4 Кубков', meaning: 'Апатия, скука, неудовлетворённость' },
+        { id: 'c05', image: 'img/tarot/c05.webp', name: '5 Кубков', meaning: 'Потеря, сожаление, принятие' },
+        { id: 'c06', image: 'img/tarot/c06.webp', name: '6 Кубков', meaning: 'Ностальгия, детство, воспоминания' },
+        { id: 'c07', image: 'img/tarot/c07.webp', name: '7 Кубков', meaning: 'Иллюзии, мечты, выбор' },
+        { id: 'c08', image: 'img/tarot/c08.webp', name: '8 Кубков', meaning: 'Уход, оставление, поиск' },
+        { id: 'c09', image: 'img/tarot/c09.webp', name: '9 Кубков', meaning: 'Исполнение желаний, удовлетворение' },
+        { id: 'c10', image: 'img/tarot/c10.webp', name: '10 Кубков', meaning: 'Семейное счастье, гармония' },
+        { id: 'c11', image: 'img/tarot/c11.webp', name: 'Паж Кубков', meaning: 'Романтика, творчество, новости' },
+        { id: 'c12', image: 'img/tarot/c12.webp', name: 'Рыцарь Кубков', meaning: 'Предложение, романтика, страсть' },
+        { id: 'c13', image: 'img/tarot/c13.webp', name: 'Королева Кубков', meaning: 'Эмпатия, интуиция, забота' },
+        { id: 'c14', image: 'img/tarot/c14.webp', name: 'Король Кубков', meaning: 'Эмоциональная зрелость, дипломатия' }
     ],
     wands: [
-        { name: 'Туз Жезлов', meaning: 'Вдохновение, начинание, страсть' },
-        { name: '2 Жезлов', meaning: 'Планирование, выбор, перспективы' },
-        { name: '3 Жезлов', meaning: 'Прогресс, экспансия, видение' },
-        { name: '4 Жезлов', meaning: 'Стабильность, дом, праздник' },
-        { name: '5 Жезлов', meaning: 'Конфликт, конкуренция, борьба' },
-        { name: '6 Жезлов', meaning: 'Победа, признание, успех' },
-        { name: '7 Жезлов', meaning: 'Защита, оборона, стойкость' },
-        { name: '8 Жезлов', meaning: 'Скорость, действия, прогресс' },
-        { name: '9 Жезлов', meaning: 'Стойкость, защита, границы' },
-        { name: '10 Жезлов', meaning: 'Бремя, ответственность, нагрузка' },
-        { name: 'Паж Жезлов', meaning: 'Энтузиазм, исследование, новости' },
-        { name: 'Рыцарь Жезлов', meaning: 'Энергия, приключения, импульс' },
-        { name: 'Королева Жезлов', meaning: 'Уверенность, харизма, независимость' },
-        { name: 'Король Жезлов', meaning: 'Лидерство, видение, страсть' }
+        { id: 'w01', image: 'img/tarot/w01.webp', name: 'Туз Жезлов', meaning: 'Вдохновение, начинание, страсть' },
+        { id: 'w02', image: 'img/tarot/w02.webp', name: '2 Жезлов', meaning: 'Планирование, выбор, перспективы' },
+        { id: 'w03', image: 'img/tarot/w03.webp', name: '3 Жезлов', meaning: 'Прогресс, экспансия, видение' },
+        { id: 'w04', image: 'img/tarot/w04.webp', name: '4 Жезлов', meaning: 'Стабильность, дом, праздник' },
+        { id: 'w05', image: 'img/tarot/w05.webp', name: '5 Жезлов', meaning: 'Конфликт, конкуренция, борьба' },
+        { id: 'w06', image: 'img/tarot/w06.webp', name: '6 Жезлов', meaning: 'Победа, признание, успех' },
+        { id: 'w07', image: 'img/tarot/w07.webp', name: '7 Жезлов', meaning: 'Защита, оборона, стойкость' },
+        { id: 'w08', image: 'img/tarot/w08.webp', name: '8 Жезлов', meaning: 'Скорость, действия, прогресс' },
+        { id: 'w09', image: 'img/tarot/w09.webp', name: '9 Жезлов', meaning: 'Стойкость, защита, границы' },
+        { id: 'w10', image: 'img/tarot/w10.webp', name: '10 Жезлов', meaning: 'Бремя, ответственность, нагрузка' },
+        { id: 'w11', image: 'img/tarot/w11.webp', name: 'Паж Жезлов', meaning: 'Энтузиазм, исследование, новости' },
+        { id: 'w12', image: 'img/tarot/w12.webp', name: 'Рыцарь Жезлов', meaning: 'Энергия, приключения, импульс' },
+        { id: 'w13', image: 'img/tarot/w13.webp', name: 'Королева Жезлов', meaning: 'Уверенность, харизма, независимость' },
+        { id: 'w14', image: 'img/tarot/w14.webp', name: 'Король Жезлов', meaning: 'Лидерство, видение, страсть' }
     ],
     swords: [
-        { name: 'Туз Мечей', meaning: 'Ясность, прорыв, истина' },
-        { name: '2 Мечей', meaning: 'Трудный выбор, тупик' },
-        { name: '3 Мечей', meaning: 'Разбитое сердце, боль' },
-        { name: '4 Мечей', meaning: 'Отдых, восстановление, медитация' },
-        { name: '5 Мечей', meaning: 'Конфликт, победа любой ценой' },
-        { name: '6 Мечей', meaning: 'Переход, путешествие, исцеление' },
-        { name: '7 Мечей', meaning: 'Хитрость, обман, стратегия' },
-        { name: '8 Мечей', meaning: 'Ограничения, страх, беспомощность' },
-        { name: '9 Мечей', meaning: 'Тревога, ночные кошмары, страхи' },
-        { name: '10 Мечей', meaning: 'Конец, предательство, крах' },
-        { name: 'Паж Мечей', meaning: 'Бдительность, наблюдение, любопытство' },
-        { name: 'Рыцарь Мечей', meaning: 'Скорость, прямота, агрессия' },
-        { name: 'Королева Мечей', meaning: 'Рациональность, независимость' },
-        { name: 'Король Мечей', meaning: 'Интеллект, авторитет, правда' }
+        { id: 's01', image: 'img/tarot/s01.webp', name: 'Туз Мечей', meaning: 'Ясность, прорыв, истина' },
+        { id: 's02', image: 'img/tarot/s02.webp', name: '2 Мечей', meaning: 'Трудный выбор, тупик' },
+        { id: 's03', image: 'img/tarot/s03.webp', name: '3 Мечей', meaning: 'Разбитое сердце, боль' },
+        { id: 's04', image: 'img/tarot/s04.webp', name: '4 Мечей', meaning: 'Отдых, восстановление, медитация' },
+        { id: 's05', image: 'img/tarot/s05.webp', name: '5 Мечей', meaning: 'Конфликт, победа любой ценой' },
+        { id: 's06', image: 'img/tarot/s06.webp', name: '6 Мечей', meaning: 'Переход, путешествие, исцеление' },
+        { id: 's07', image: 'img/tarot/s07.webp', name: '7 Мечей', meaning: 'Хитрость, обман, стратегия' },
+        { id: 's08', image: 'img/tarot/s08.webp', name: '8 Мечей', meaning: 'Ограничения, страх, беспомощность' },
+        { id: 's09', image: 'img/tarot/s09.webp', name: '9 Мечей', meaning: 'Тревога, ночные кошмары, страхи' },
+        { id: 's10', image: 'img/tarot/s10.webp', name: '10 Мечей', meaning: 'Конец, предательство, крах' },
+        { id: 's11', image: 'img/tarot/s11.webp', name: 'Паж Мечей', meaning: 'Бдительность, наблюдение, любопытство' },
+        { id: 's12', image: 'img/tarot/s12.webp', name: 'Рыцарь Мечей', meaning: 'Скорость, прямота, агрессия' },
+        { id: 's13', image: 'img/tarot/s13.webp', name: 'Королева Мечей', meaning: 'Рациональность, независимость' },
+        { id: 's14', image: 'img/tarot/s14.webp', name: 'Король Мечей', meaning: 'Интеллект, авторитет, правда' }
     ],
     pentacles: [
-        { name: 'Туз Пентаклей', meaning: 'Возможность, ресурс, начало' },
-        { name: '2 Пентаклей', meaning: 'Баланс, адаптация, многозадачность' },
-        { name: '3 Пентаклей', meaning: 'Команда, мастерство, качество' },
-        { name: '4 Пентаклей', meaning: 'Контроль, сохранение, скупость' },
-        { name: '5 Пентаклей', meaning: 'Потеря, трудности, изоляция' },
-        { name: '6 Пентаклей', meaning: 'Щедрость, помощь, баланс' },
-        { name: '7 Пентаклей', meaning: 'Ожидание, оценка, терпение' },
-        { name: '8 Пентаклей', meaning: 'Мастерство, труд, развитие' },
-        { name: '9 Пентаклей', meaning: 'Достаток, самодостаточность' },
-        { name: '10 Пентаклей', meaning: 'Наследие, семья, богатство' },
-        { name: 'Паж Пентаклей', meaning: 'Обучение, возможности, рост' },
-        { name: 'Рыцарь Пентаклей', meaning: 'Терпение, работа, надёжность' },
-        { name: 'Королева Пентаклей', meaning: 'Забота, изобилие, природа' },
-        { name: 'Король Пентаклей', meaning: 'Успех, стабильность, процветание' }
+        { id: 'p01', image: 'img/tarot/p01.webp', name: 'Туз Пентаклей', meaning: 'Возможность, ресурс, начало' },
+        { id: 'p02', image: 'img/tarot/p02.webp', name: '2 Пентаклей', meaning: 'Баланс, адаптация, многозадачность' },
+        { id: 'p03', image: 'img/tarot/p03.webp', name: '3 Пентаклей', meaning: 'Команда, мастерство, качество' },
+        { id: 'p04', image: 'img/tarot/p04.webp', name: '4 Пентаклей', meaning: 'Контроль, сохранение, скупость' },
+        { id: 'p05', image: 'img/tarot/p05.webp', name: '5 Пентаклей', meaning: 'Потеря, трудности, изоляция' },
+        { id: 'p06', image: 'img/tarot/p06.webp', name: '6 Пентаклей', meaning: 'Щедрость, помощь, баланс' },
+        { id: 'p07', image: 'img/tarot/p07.webp', name: '7 Пентаклей', meaning: 'Ожидание, оценка, терпение' },
+        { id: 'p08', image: 'img/tarot/p08.webp', name: '8 Пентаклей', meaning: 'Мастерство, труд, развитие' },
+        { id: 'p09', image: 'img/tarot/p09.webp', name: '9 Пентаклей', meaning: 'Достаток, самодостаточность' },
+        { id: 'p10', image: 'img/tarot/p10.webp', name: '10 Пентаклей', meaning: 'Наследие, семья, богатство' },
+        { id: 'p11', image: 'img/tarot/p11.webp', name: 'Паж Пентаклей', meaning: 'Обучение, возможности, рост' },
+        { id: 'p12', image: 'img/tarot/p12.webp', name: 'Рыцарь Пентаклей', meaning: 'Терпение, работа, надёжность' },
+        { id: 'p13', image: 'img/tarot/p13.webp', name: 'Королева Пентаклей', meaning: 'Забота, изобилие, природа' },
+        { id: 'p14', image: 'img/tarot/p14.webp', name: 'Король Пентаклей', meaning: 'Успех, стабильность, процветание' }
     ]
 };
 
@@ -410,8 +411,9 @@ function _esToast(msg, type) {
 }
 
 function _esHome() {
-    if (typeof renderDashboard === 'function') renderDashboard();
-    else if (window.renderDashboard) window.renderDashboard();
+    if (typeof showPracticesScreen === 'function') { showPracticesScreen(); return; }
+    if (typeof renderDashboard === 'function') { renderDashboard(); return; }
+    if (window.renderDashboard) window.renderDashboard();
 }
 
 function _esUid() {
@@ -492,10 +494,10 @@ async function interpretTarotCard(card, isReversed = false, userContext = '') {
     return interpretation;
 }
 
-// --- Случайная карта Таро ---
+// --- Случайная карта Таро (из полной колоды 78 карт) ---
 function getRandomTarotCard() {
-    const randomIndex = Math.floor(Math.random() * MAJOR_ARCANA.length);
-    const card = MAJOR_ARCANA[randomIndex];
+    const deck = _allTarotCards();
+    const card = deck[Math.floor(Math.random() * deck.length)];
     const isReversed = Math.random() > 0.7;
     return { card, isReversed };
 }
@@ -520,10 +522,37 @@ function calculatePlanetaryPositions(date, lat, lon) {
 }
 
 // --- Рендер компонентов ---
+const SUITS = [
+    { id: 'major',     label: '🌟 Старшие',  get: () => MAJOR_ARCANA },
+    { id: 'cups',      label: '🏆 Кубки',    get: () => MINOR_ARCANA.cups },
+    { id: 'wands',     label: '🔥 Жезлы',    get: () => MINOR_ARCANA.wands },
+    { id: 'swords',    label: '⚔️ Мечи',    get: () => MINOR_ARCANA.swords },
+    { id: 'pentacles', label: '💰 Пентакли', get: () => MINOR_ARCANA.pentacles }
+];
+
+function _findCardById(id) {
+    for (const s of SUITS) {
+        const deck = s.get();
+        const found = deck.find(c => String(c.id) === String(id));
+        if (found) return found;
+    }
+    return null;
+}
+
+function _allTarotCards() {
+    return SUITS.flatMap(s => s.get());
+}
+
 function renderTarot() {
+    const suit = SUITS.find(s => s.id === state.activeSuit) || SUITS[0];
+    const deck = suit.get();
+    const suitTabs = SUITS.map(s =>
+        `<button class="sign-btn ${s.id === state.activeSuit ? 'active' : ''}" data-suit="${s.id}">${s.label}</button>`
+    ).join('');
     return `
+        <div class="horoscope-signs">${suitTabs}</div>
         <div class="tarot-grid">
-            ${MAJOR_ARCANA.slice(0, 12).map(card => `
+            ${deck.map(card => `
                 <div class="tarot-card" data-card-id="${card.id}">
                     <img src="${card.image}" alt="${card.name}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22%3E%3Crect width=%22100%22 height=%22150%22 fill=%22%23333%22/%3E%3Ctext x=%2250%22 y=%2275%22 text-anchor=%22middle%22 fill=%22%23fff%22%3E${card.name}%3C/text%3E%3C/svg%3E'">
                     <div class="tarot-card-name">${card.name}</div>
@@ -793,15 +822,22 @@ async function buildNatalChart() {
 
 // --- Привязка обработчиков ---
 function attachTarotHandlers() {
+    document.querySelectorAll('[data-suit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.activeSuit = btn.dataset.suit;
+            render();
+        });
+    });
+
     document.querySelectorAll('.tarot-card').forEach(card => {
         card.addEventListener('click', () => {
-            const cardId = parseInt(card.dataset.cardId);
-            const selected = MAJOR_ARCANA.find(c => c.id === cardId);
+            const selected = _findCardById(card.dataset.cardId);
+            if (!selected) return;
             const isReversed = Math.random() > 0.7;
             showTarotReading(selected, isReversed);
         });
     });
-    
+
     document.getElementById('drawRandomCard')?.addEventListener('click', () => {
         const { card, isReversed } = getRandomTarotCard();
         showTarotReading(card, isReversed);
