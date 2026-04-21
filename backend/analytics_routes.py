@@ -244,11 +244,16 @@ def register_analytics_routes(app, db):
                     "GROUP BY screen ORDER BY cnt DESC LIMIT 20"
                 )
                 by_screen = [{"screen": r["screen"], "count": r["cnt"]} for r in screens]
+                # Cap session duration at 1 hour — у старых клиентов
+                # (до PR #138) в session_end лежит wall-time, который может
+                # доходить до нескольких часов (вкладка оставлена открытой).
+                # Без кэпа среднее превращается в artifact.
                 avg_dur = await conn.fetchval(
-                    "SELECT AVG((data->>'duration_sec')::int) "
+                    "SELECT AVG(LEAST((data->>'duration_sec')::int, 3600)) "
                     "FROM fredi_analytics "
                     "WHERE event = 'session_end' "
-                    "AND created_at > NOW() - INTERVAL '7 days'"
+                    "AND created_at > NOW() - INTERVAL '7 days' "
+                    "AND (data->>'duration_sec') ~ '^[0-9]+$'"
                 )
                 # Daily active users за 7 дней (день + уникальные user_id)
                 dau_rows = await conn.fetch(
@@ -316,7 +321,7 @@ def register_analytics_routes(app, db):
                     "SELECT COALESCE(attrs->>'device','unknown') AS seg, "
                     "COUNT(DISTINCT user_id) AS users, "
                     "COUNT(*) AS events, "
-                    "AVG((data->>'duration_sec')::int) FILTER (WHERE event='session_end') AS avg_sec "
+                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER (WHERE event='session_end' AND (data->>'duration_sec') ~ '^[0-9]+$') AS avg_sec "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
                     "GROUP BY seg ORDER BY users DESC NULLS LAST"
@@ -334,7 +339,7 @@ def register_analytics_routes(app, db):
                     "ELSE 'free' END AS seg, "
                     "COUNT(DISTINCT user_id) AS users, "
                     "COUNT(*) AS events, "
-                    "AVG((data->>'duration_sec')::int) FILTER (WHERE event='session_end') AS avg_sec "
+                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER (WHERE event='session_end' AND (data->>'duration_sec') ~ '^[0-9]+$') AS avg_sec "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
                     "AND attrs ? 'is_premium' "
@@ -353,7 +358,7 @@ def register_analytics_routes(app, db):
                     "ELSE 'anon' END AS seg, "
                     "COUNT(DISTINCT user_id) AS users, "
                     "COUNT(*) AS events, "
-                    "AVG((data->>'duration_sec')::int) FILTER (WHERE event='session_end') AS avg_sec "
+                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER (WHERE event='session_end' AND (data->>'duration_sec') ~ '^[0-9]+$') AS avg_sec "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
                     "AND attrs ? 'is_authed' "
