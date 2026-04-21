@@ -453,6 +453,7 @@ injectMirrorStyles();
 // ГЛАВНЫЙ ЭКРАН
 // ============================================
 async function showMirrorsScreen() {
+    try { window.FrediTracker?.openFeature?.('mirrors'); } catch (e) {}
     log.info('Mirrors', 'showMirrorsScreen called');
     injectMirrorStyles();
     const container = document.getElementById('screenContainer');

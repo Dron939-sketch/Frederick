@@ -868,6 +868,7 @@ function _drShowStatus(stage, text) {
 // ============================================
 
 async function showDreamsScreen() {
+    try { window.FrediTracker?.openFeature?.('dreams'); } catch (e) {}
     _drInjectStyles();
     const container = document.getElementById('screenContainer');
     if (!container) return;

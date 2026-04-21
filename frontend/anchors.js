@@ -1503,9 +1503,10 @@ function showReimprintingScreen() {
 // ============================================
 
 async function showAnchorsScreen() {
+    try { window.FrediTracker?.openFeature?.('anchors'); } catch (e) {}
     _anInjectStyles();
     await loadUserAnchors();
-    
+
     const container = document.getElementById('screenContainer');
     if (!container) return;
     
