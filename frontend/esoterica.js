@@ -657,23 +657,39 @@ function getRandomTarotCard() {
     return { card, isReversed };
 }
 
-// --- Расчёт планетарных позиций (упрощённый, для демонстрации) ---
-// В production рекомендуется использовать Swiss Ephemeris WASM: @fusionstrings/swiss-eph
-function calculatePlanetaryPositions(date, lat, lon) {
-    // Это упрощённая имитация. Для реальных расчётов используйте Swiss Ephemeris
-    const planets = [
-        { name: 'Солнце', symbol: '☉', sign: 'Лев', degree: Math.floor(Math.random() * 30) },
-        { name: 'Луна', symbol: '☽', sign: 'Рак', degree: Math.floor(Math.random() * 30) },
-        { name: 'Меркурий', symbol: '☿', sign: 'Дева', degree: Math.floor(Math.random() * 30) },
-        { name: 'Венера', symbol: '♀', sign: 'Весы', degree: Math.floor(Math.random() * 30) },
-        { name: 'Марс', symbol: '♂', sign: 'Скорпион', degree: Math.floor(Math.random() * 30) },
-        { name: 'Юпитер', symbol: '♃', sign: 'Стрелец', degree: Math.floor(Math.random() * 30) },
-        { name: 'Сатурн', symbol: '♄', sign: 'Козерог', degree: Math.floor(Math.random() * 30) },
-        { name: 'Уран', symbol: '♅', sign: 'Водолей', degree: Math.floor(Math.random() * 30) },
-        { name: 'Нептун', symbol: '♆', sign: 'Рыбы', degree: Math.floor(Math.random() * 30) },
-        { name: 'Плутон', symbol: '♇', sign: 'Скорпион', degree: Math.floor(Math.random() * 30) }
-    ];
-    return planets;
+// --- Символы планет/точек для UI ---
+const PLANET_SYMBOLS = {
+    'Солнце': '☉', 'Луна': '☽', 'Меркурий': '☿', 'Венера': '♀',
+    'Марс': '♂', 'Юпитер': '♃', 'Сатурн': '♄', 'Уран': '♅',
+    'Нептун': '♆', 'Плутон': '♇', 'Северный узел': '☊', 'Южный узел': '☋',
+    'Хирон': '⚷', 'Асцендент': 'Asc', 'MC': 'MC', 'Десцендент': 'Desc', 'IC': 'IC'
+};
+
+function _planetSymbol(nameRu) {
+    return PLANET_SYMBOLS[nameRu] || '★';
+}
+
+// --- Геокодинг через Nominatim (OpenStreetMap, бесплатно, без ключа) ---
+async function geocodeCity(query) {
+    if (!query || !query.trim()) return null;
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ru&q=${encodeURIComponent(query.trim())}`;
+    try {
+        const r = await fetch(url, {
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!r.ok) return null;
+        const arr = await r.json();
+        if (!Array.isArray(arr) || arr.length === 0) return null;
+        const hit = arr[0];
+        return {
+            latitude: parseFloat(hit.lat),
+            longitude: parseFloat(hit.lon),
+            display_name: hit.display_name
+        };
+    } catch (e) {
+        console.log('Nominatim geocoding failed:', e);
+        return null;
+    }
 }
 
 // --- Рендер компонентов ---
@@ -929,82 +945,185 @@ async function loadHoroscope(signId, category) {
 }
 
 // --- Обработчики натальной карты ---
+// Последний полученный JSON карты (для AI-интерпретации)
+let _lastNatalChart = null;
+
 async function buildNatalChart() {
     const dateTime = document.getElementById('birthDateTime')?.value;
-    const place = document.getElementById('birthPlace')?.value;
-    const coords = document.getElementById('birthCoords')?.value;
-    
+    const place = document.getElementById('birthPlace')?.value?.trim();
+    const coordsRaw = document.getElementById('birthCoords')?.value?.trim();
+
     if (!dateTime || !place) {
         _esToast('Заполните дату и место рождения', 'error');
         return;
     }
-    
+
     const resultDiv = document.getElementById('natalResult');
-    resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">🔮 Рассчитываем натальную карту...</div></div>`;
-    
+    resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">🔮 Определяем координаты места…</div></div>`;
+
+    // 1. Координаты: из поля или через Nominatim
+    let latitude = null, longitude = null, locationLabel = place;
+    if (coordsRaw) {
+        const m = coordsRaw.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+        if (m) { latitude = parseFloat(m[1]); longitude = parseFloat(m[2]); }
+    }
+    if (latitude === null || longitude === null) {
+        const hit = await geocodeCity(place);
+        if (!hit) {
+            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось найти «${place}». Попробуйте добавить страну или ввести координаты вручную.</div></div>`;
+            return;
+        }
+        latitude = hit.latitude;
+        longitude = hit.longitude;
+        locationLabel = hit.display_name || place;
+    }
+
+    // 2. Формат date_time в "YYYY-MM-DD HH:MM" (immanuel принимает naive local)
+    const dt = dateTime.replace('T', ' ').slice(0, 16);
+
+    resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">🔮 Рассчитываем натальную карту (Swiss Ephemeris)…</div></div>`;
+
+    // 3. Backend-вычисление
+    const apiBase = window.CONFIG?.API_BASE_URL || window.API_BASE_URL;
+    let chart = null;
+    if (apiBase) {
+        try {
+            const r = await fetch(`${apiBase}/api/natal/chart`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date_time: dt, latitude, longitude })
+            });
+            if (r.ok) {
+                const data = await r.json();
+                if (data?.success) chart = data;
+                else resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Ошибка расчёта: ${data?.error || 'неизвестно'}</div></div>`;
+            } else {
+                resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Backend недоступен (HTTP ${r.status}). Натальная карта требует серверной части.</div></div>`;
+            }
+        } catch (e) {
+            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось связаться с backend: ${e.message}</div></div>`;
+        }
+    }
+    if (!chart) return;
+
+    _lastNatalChart = chart;
+
+    // 4. Сохраняем введённые данные
     const birthDate = new Date(dateTime);
-    const sign = getZodiacSign(birthDate);
-    const signData = ZODIAC_SIGNS.find(s => s.id === sign);
-    
-    // Сохраняем данные
+    const sunSignId = getZodiacSign(birthDate);
+    const signData = ZODIAC_SIGNS.find(s => s.id === sunSignId);
     localStorage.setItem('fredi_birth_data', JSON.stringify({
-        date: dateTime,
-        place: place,
-        sign: signData.name,
-        coords: coords
+        date: dateTime, place: locationLabel,
+        sign: signData?.name, coords: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
     }));
-    localStorage.setItem('fredi_zodiac_sign', sign);
-    
-    // Рассчитываем планеты
-    const planets = calculatePlanetaryPositions(birthDate, 0, 0);
-    
-    let planetsHtml = '<div class="hy-suggestion-label" style="margin-top: 8px;">🪐 Планеты в момент рождения</div>';
-    planets.forEach(p => {
-        planetsHtml += `<div class="planet-row"><span class="planet-name">${p.symbol} ${p.name}</span><span>${p.sign} — ${p.degree}°</span></div>`;
-    });
-    
+    localStorage.setItem('fredi_zodiac_sign', sunSignId);
+
+    // 5. Рендер результата
+    const planetRows = (chart.objects || []).map(o => {
+        const deg = (typeof o.degree === 'number') ? ` — ${o.degree.toFixed(1)}°` : '';
+        const house = o.house ? `, ${o.house} дом` : '';
+        const retro = o.retrograde ? ' ℞' : '';
+        const sym = _planetSymbol(o.name_ru || o.name_en);
+        return `<div class="planet-row"><span class="planet-name">${sym} ${o.name_ru || o.name_en}</span><span>${o.sign_ru || o.sign_en}${deg}${house}${retro}</span></div>`;
+    }).join('');
+
+    const houseRows = (chart.houses || []).map(h => {
+        const deg = (typeof h.degree === 'number') ? ` — ${h.degree.toFixed(1)}°` : '';
+        return `<div class="planet-row"><span class="planet-name">Дом ${h.number}</span><span>${h.sign_ru || h.sign_en}${deg}</span></div>`;
+    }).join('');
+
+    const aspectRows = (chart.aspects || []).slice(0, 20).map(a => {
+        const orb = (typeof a.orb === 'number') ? ` (орб ${a.orb.toFixed(1)}°)` : '';
+        return `<div class="planet-row"><span class="planet-name">${a.from_ru || a.from_en}</span><span>${a.aspect_ru || a.aspect_en} → ${a.to_ru || a.to_en}${orb}</span></div>`;
+    }).join('');
+
+    const sun = (chart.objects || []).find(o => (o.name_en === 'Sun') || (o.name_ru === 'Солнце'));
+    const moon = (chart.objects || []).find(o => (o.name_en === 'Moon') || (o.name_ru === 'Луна'));
+    const asc = (chart.objects || []).find(o => (o.name_en === 'Ascendant') || (o.name_en === 'ASC') || (o.name_ru === 'Асцендент'));
+
     resultDiv.innerHTML = `
         <div class="tarot-reading">
             <div class="hy-suggestion-label">🌟 Ваша натальная карта</div>
-            <div style="margin-bottom: 16px;">
-                <div><strong>📅 Дата:</strong> ${birthDate.toLocaleDateString('ru-RU')}</div>
-                <div><strong>📍 Место:</strong> ${place}</div>
-                <div><strong>♈ Солнечный знак:</strong> ${signData.name} ${signData.emoji}</div>
-                <div><strong>🌙 Стихия:</strong> ${signData.element}</div>
-                <div><strong>✨ Управляющая планета:</strong> ${signData.planet}</div>
+            <div style="margin-bottom: 14px; font-size: 13px;">
+                <div><strong>📅 Дата:</strong> ${birthDate.toLocaleString('ru-RU')}</div>
+                <div><strong>📍 Место:</strong> ${locationLabel}</div>
+                <div><strong>🌍 Координаты:</strong> ${latitude.toFixed(4)}, ${longitude.toFixed(4)}</div>
+                ${sun  ? `<div><strong>☉ Солнце:</strong> ${sun.sign_ru || sun.sign_en}${sun.house ? `, ${sun.house} дом` : ''}</div>` : ''}
+                ${moon ? `<div><strong>☽ Луна:</strong> ${moon.sign_ru || moon.sign_en}${moon.house ? `, ${moon.house} дом` : ''}</div>` : ''}
+                ${asc  ? `<div><strong>↗ Асцендент:</strong> ${asc.sign_ru || asc.sign_en}</div>` : ''}
             </div>
-            ${planetsHtml}
-            <div class="hy-suggestion-box" style="margin-top: 16px;">
-                <div class="hy-suggestion-label">🔮 Астрологическая интерпретация</div>
-                <div class="hy-suggestion-text">
-                    ${signData.name} — ${signData.element} знак. Люди этого знака обладают ${signData.element === 'Огонь' ? 'страстностью и энергией' : 
-                        signData.element === 'Земля' ? 'практичностью и надёжностью' :
-                        signData.element === 'Воздух' ? 'интеллектом и коммуникабельностью' : 'глубиной и эмпатией'}.
-                    Управляющая планета ${signData.planet} наделяет вас особыми талантами.
-                </div>
+            ${planetRows ? `<div class="hy-suggestion-label" style="margin-top: 14px;">🪐 Планеты и точки</div>${planetRows}` : ''}
+            ${houseRows  ? `<div class="hy-suggestion-label" style="margin-top: 14px;">🏠 Дома (Placidus)</div>${houseRows}`   : ''}
+            ${aspectRows ? `<div class="hy-suggestion-label" style="margin-top: 14px;">🔗 Основные аспекты</div>${aspectRows}` : ''}
+            <div class="natal-input-group" style="margin-top: 16px;">
+                <label for="natalQuestion">❓ Вопрос для Фреди (необязательно)</label>
+                <textarea id="natalQuestion" class="natal-input" rows="2"
+                          placeholder="Например: «На что обратить внимание в моей карьере?»"
+                          style="resize:vertical;min-height:48px;"></textarea>
             </div>
-            <div style="display: flex; gap: 12px; margin-top: 16px;">
+            <button class="hy-btn hy-btn-primary" id="interpretNatalBtn" style="margin-top: 10px;">
+                🔮 Фреди интерпретирует
+            </button>
+            <div id="natalInterpretBox" style="margin-top: 16px;"></div>
+            <div style="display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap;">
                 <button class="hy-btn hy-btn-ghost" id="copyNatalBtn">📋 Скопировать</button>
                 <button class="hy-btn hy-btn-ghost" id="speakNatalBtn">🔊 Озвучить</button>
             </div>
         </div>`;
-    
+
+    document.getElementById('interpretNatalBtn')?.addEventListener('click', () => interpretNatalChart());
+
     document.getElementById('copyNatalBtn')?.addEventListener('click', () => {
-        const text = document.querySelector('#natalResult .hy-suggestion-text')?.innerText || '';
+        const text = document.querySelector('#natalInterpretBox .hy-suggestion-text')?.innerText
+                  || document.querySelector('#natalResult .tarot-reading')?.innerText || '';
         navigator.clipboard.writeText(text);
         _esToast('Скопировано', 'success');
     });
-    
+
     document.getElementById('speakNatalBtn')?.addEventListener('click', () => {
-        const text = document.querySelector('#natalResult .hy-suggestion-text')?.innerText || '';
-        if (window.voiceManager) window.voiceManager.textToSpeech(text, 'psychologist');
+        const text = document.querySelector('#natalInterpretBox .hy-suggestion-text')?.innerText || '';
+        if (text && window.voiceManager) window.voiceManager.textToSpeech(text, 'psychologist');
+        else _esToast('Сначала получите интерпретацию от Фреди', 'info');
     });
-    
+
     // Обновляем активный знак в гороскопе
-    if (currentHoroscopeSign !== sign) {
-        currentHoroscopeSign = sign;
-        loadHoroscope(sign, currentHoroscopeCat);
+    if (currentHoroscopeSign !== sunSignId) {
+        currentHoroscopeSign = sunSignId;
     }
+}
+
+async function interpretNatalChart() {
+    if (!_lastNatalChart) { _esToast('Сначала постройте натальную карту', 'error'); return; }
+    const box = document.getElementById('natalInterpretBox');
+    if (!box) return;
+    const question = document.getElementById('natalQuestion')?.value?.trim() || '';
+
+    box.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">🔮 Фреди читает вашу карту…</div></div>`;
+
+    const apiBase = window.CONFIG?.API_BASE_URL || window.API_BASE_URL;
+    let interpretation = 'Сервер временно недоступен. Попробуйте чуть позже.';
+    if (apiBase) {
+        try {
+            const r = await fetch(`${apiBase}/api/natal/interpret`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chart: { objects: _lastNatalChart.objects, aspects: _lastNatalChart.aspects },
+                    question
+                })
+            });
+            if (r.ok) {
+                const data = await r.json();
+                if (data?.success && data.interpretation) interpretation = data.interpretation;
+            }
+        } catch (e) { console.log('natal interpret failed:', e); }
+    }
+
+    box.innerHTML = `
+        <div class="hy-suggestion-box">
+            <div class="hy-suggestion-label">🔮 Интерпретация Фреди</div>
+            <div class="hy-suggestion-text" style="white-space:pre-line;">${interpretation}</div>
+        </div>`;
 }
 
 // --- Привязка обработчиков ---
