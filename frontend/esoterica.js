@@ -541,6 +541,11 @@ function _esUid() {
     return window.CONFIG?.USER_ID;
 }
 
+// --- Трекинг действий в Эзотерике (fire-and-forget в FrediTracker) ---
+function _esTrack(event, data) {
+    try { window.FrediTracker?.track?.(event, data || {}); } catch (e) {}
+}
+
 // --- Безопасная подсветка markdown (**жирный**) для AI-интерпретаций ---
 // Сначала экранируем HTML (XSS-защита), потом превращаем **bold** в <strong>.
 function _esMdToHtml(text) {
@@ -587,7 +592,11 @@ async function fetchHoroscope(signId, category = 'general') {
             const response = await fetch(`${apiBase}/api/horoscope`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sign: signId, category })
+                body: JSON.stringify({
+                    sign: signId,
+                    category,
+                    user_id: window.CONFIG?.USER_ID || window.USER_ID
+                })
             });
             if (response.ok) {
                 const data = await response.json();
@@ -692,16 +701,21 @@ async function geocodeCity(query) {
         const r = await fetch(url, {
             headers: { 'Accept': 'application/json' }
         });
-        if (!r.ok) return null;
+        if (!r.ok) { _esTrack('esoterica_geocode_used', { found: false, reason: 'http_' + r.status }); return null; }
         const arr = await r.json();
-        if (!Array.isArray(arr) || arr.length === 0) return null;
+        if (!Array.isArray(arr) || arr.length === 0) {
+            _esTrack('esoterica_geocode_used', { found: false, reason: 'empty' });
+            return null;
+        }
         const hit = arr[0];
+        _esTrack('esoterica_geocode_used', { found: true });
         return {
             latitude: parseFloat(hit.lat),
             longitude: parseFloat(hit.lon),
             display_name: hit.display_name
         };
     } catch (e) {
+        _esTrack('esoterica_geocode_used', { found: false, reason: 'error' });
         console.log('Nominatim geocoding failed:', e);
         return null;
     }
@@ -854,6 +868,12 @@ async function showSpreadReading(spreadType, positionedCards) {
     const question = (state.question || '').trim();
     const spreadInfo = TAROT_SPREADS[spreadType] || TAROT_SPREADS.day;
 
+    _esTrack('tarot_spread_drawn', {
+        spread_type: spreadType,
+        card_count: positionedCards.length,
+        has_question: !!question
+    });
+
     // Быстрая выкладка карт, пока ждём AI
     const cardsRow = positionedCards.map(({ card, reversed, position }) => `
         <div style="text-align:center;min-width:80px;">
@@ -885,6 +905,10 @@ async function showSpreadReading(spreadType, positionedCards) {
         </div>`;
 
     const interpretation = await fetchSpreadInterpretation(spreadType, positionedCards, question);
+    _esTrack('tarot_interpretation_rendered', {
+        spread_type: spreadType,
+        length: interpretation ? interpretation.length : 0
+    });
 
     const box = document.getElementById('tarotInterpretBox');
     if (box) {
@@ -924,6 +948,7 @@ async function loadHoroscope(signId, category) {
     resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">🔮 Загрузка гороскопа...</div></div>`;
     
     const horoscope = await fetchHoroscope(signId, category);
+    _esTrack('horoscope_viewed', { sign: signId, category });
     const sign = ZODIAC_SIGNS.find(s => s.id === signId);
     
     const categoryNames = {
@@ -1019,9 +1044,18 @@ async function buildNatalChart() {
             resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось связаться с backend: ${e.message}</div></div>`;
         }
     }
-    if (!chart) return;
+    if (!chart) {
+        _esTrack('natal_chart_built', { success: false });
+        return;
+    }
 
     _lastNatalChart = chart;
+    _esTrack('natal_chart_built', {
+        success: true,
+        objects_count: (chart.objects || []).length,
+        houses_count: (chart.houses || []).length,
+        aspects_count: (chart.aspects || []).length
+    });
 
     // 4. Сохраняем введённые данные
     const birthDate = new Date(dateTime);
@@ -1117,6 +1151,7 @@ async function interpretNatalChart() {
 
     const apiBase = window.CONFIG?.API_BASE_URL || window.API_BASE_URL;
     let interpretation = 'Сервер временно недоступен. Попробуйте чуть позже.';
+    let success = false;
     if (apiBase) {
         try {
             const r = await fetch(`${apiBase}/api/natal/interpret`, {
@@ -1124,15 +1159,24 @@ async function interpretNatalChart() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     chart: { objects: _lastNatalChart.objects, aspects: _lastNatalChart.aspects },
-                    question
+                    question,
+                    user_id: window.CONFIG?.USER_ID || window.USER_ID
                 })
             });
             if (r.ok) {
                 const data = await r.json();
-                if (data?.success && data.interpretation) interpretation = data.interpretation;
+                if (data?.success && data.interpretation) {
+                    interpretation = data.interpretation;
+                    success = true;
+                }
             }
         } catch (e) { console.log('natal interpret failed:', e); }
     }
+    _esTrack('natal_chart_interpreted', {
+        success,
+        has_question: !!question,
+        length: interpretation.length
+    });
 
     box.innerHTML = `
         <div class="hy-suggestion-box">
@@ -1272,7 +1316,10 @@ function render() {
     
     document.querySelectorAll('.es-tab').forEach(btn => {
         btn.addEventListener('click', () => {
-            state.activeTab = btn.dataset.tab;
+            const from = state.activeTab;
+            const to = btn.dataset.tab;
+            if (from !== to) _esTrack('esoterica_tab_switched', { from, to });
+            state.activeTab = to;
             render();
         });
     });
