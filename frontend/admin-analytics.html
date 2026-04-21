@@ -531,6 +531,19 @@
 
     // =============== Диалоги ===============
 
+    var MODE_BADGES = {
+        psychologist: {label:'Психолог', icon:'🧠', color:'rgba(167,139,250,0.22)', border:'rgba(167,139,250,0.55)'},
+        coach:        {label:'Коуч',     icon:'🎯', color:'rgba(52,211,153,0.22)', border:'rgba(52,211,153,0.55)'},
+        trainer:      {label:'Тренер',   icon:'💪', color:'rgba(251,191,36,0.22)', border:'rgba(251,191,36,0.55)'},
+        basic:        {label:'Basic',    icon:'✨', color:'rgba(140,140,160,0.22)', border:'rgba(140,140,160,0.55)'},
+        test:         {label:'Тест',     icon:'📊', color:'rgba(59,130,255,0.22)', border:'rgba(59,130,255,0.55)'}
+    };
+    function _modeBadge(mode){
+        if (!mode) return '';
+        var m = MODE_BADGES[mode] || {label: mode, icon:'•', color:'rgba(180,180,200,0.18)', border:'rgba(180,180,200,0.45)'};
+        return '<span style="display:inline-block;padding:1px 7px;border-radius:8px;background:'+m.color+';border:1px solid '+m.border+';font-size:10px;font-weight:600;margin-left:4px;white-space:nowrap;vertical-align:middle">'+m.icon+' '+_esc(m.label)+'</span>';
+    }
+
     function renderMessagesList(d){
         var events = (d && d.messages) || [];
         if (!events.length) {
@@ -545,9 +558,10 @@
             var userLabel = _esc(m.user_id || '—');
             if (m.user_name) userLabel += ' <span style="color:var(--text-dim);font-weight:400">('+_esc(m.user_name)+')</span>';
             var voiceMark = m.metadata && m.metadata.voice ? ' 🎤' : '';
+            var modeHtml = m.metadata && m.metadata.mode ? _modeBadge(m.metadata.mode) : '';
             return '<tr style="cursor:pointer" data-uid="'+_esc(m.user_id)+'">' +
                 '<td style="color:var(--text-dim);font-size:11px;white-space:nowrap">'+t+'</td>' +
-                '<td style="font-size:12px;font-family:\'SF Mono\',Menlo,Consolas,monospace">'+userLabel+voiceMark+'</td>' +
+                '<td style="font-size:12px;font-family:\'SF Mono\',Menlo,Consolas,monospace">'+userLabel+voiceMark+modeHtml+'</td>' +
                 '<td style="font-size:13px;line-height:1.45">'+preview+'</td>' +
                 '</tr>';
         }).join('');
@@ -588,6 +602,20 @@
             document.getElementById('dialogMessages').innerHTML = '<div class="empty">Нет сообщений</div>';
             return;
         }
+        // Подсчёт распределения по режимам (для заголовка диалога).
+        var modeCount = {};
+        messages.forEach(function(mm){
+            var md = mm.metadata && mm.metadata.mode;
+            if (md) modeCount[md] = (modeCount[md]||0) + 1;
+        });
+        var modeSummary = Object.keys(modeCount).length
+            ? Object.keys(modeCount).map(function(k){ return (MODE_BADGES[k]?MODE_BADGES[k].icon+' '+MODE_BADGES[k].label:k) + ' ×'+modeCount[k]; }).join(' · ')
+            : '';
+        if (modeSummary) {
+            document.getElementById('dialogSub').textContent =
+                (d.user_name ? d.user_name + ' • ' : '') + messages.length + ' сообщений — ' + modeSummary;
+        }
+
         var html = messages.map(function(m){
             var isUser = m.role === 'user';
             var ts = m.created_at ? new Date(m.created_at).toLocaleString('ru-RU') : '';
@@ -596,10 +624,11 @@
             var align = isUser ? 'flex-end' : 'flex-start';
             var roleLabel = isUser ? 'ТЫ' : (m.role === 'system' ? 'SYSTEM' : 'ФРЕДИ');
             var voiceMark = m.metadata && m.metadata.voice ? ' 🎤' : '';
+            var modeHtml = m.metadata && m.metadata.mode ? _modeBadge(m.metadata.mode) : '';
             var text = _esc(String(m.content || '')).replace(/\n/g, '<br>');
             return '<div style="display:flex;justify-content:'+align+';margin-bottom:10px">' +
                 '<div style="max-width:80%;background:'+bg+';border:1px solid '+border+';border-radius:14px;padding:10px 14px">' +
-                    '<div style="font-size:10px;font-weight:700;letter-spacing:0.4px;color:var(--text-dim);margin-bottom:4px">'+roleLabel+voiceMark+' <span style="font-weight:400;letter-spacing:normal">· '+ts+'</span></div>' +
+                    '<div style="font-size:10px;font-weight:700;letter-spacing:0.4px;color:var(--text-dim);margin-bottom:4px">'+roleLabel+voiceMark+modeHtml+' <span style="font-weight:400;letter-spacing:normal">· '+ts+'</span></div>' +
                     '<div style="font-size:13px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word">'+text+'</div>' +
                 '</div></div>';
         }).join('');

@@ -803,8 +803,8 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         await websocket.send_json({"type": "audio", "data": "", "is_final": True})
                         logger.info(f"✅ TTS complete (Yandex fallback)")
 
-                    await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True})
-                    await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True})
+                    await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": mode_name})
+                    await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True, "mode": mode_name})
 
                 except Exception as e:
                     logger.error(f"TTS error: {e}")
@@ -2063,8 +2063,8 @@ async def chat(request: Request, data: ChatRequest):
                     "Слушай, я хочу предложить кое-что. Есть тест... Занимает минут десять. Он как зеркало — показывает, что внутри. Интересно?",
                     "Дай-ка подумаю, как тебе помочь лучше... Есть небольшой тест. Десять минут — и я пойму тебя гораздо глубже. Попробуем?",
                 ])
-                await message_repo.save(data.user_id, "user", data.message)
-                await message_repo.save(data.user_id, "assistant", test_response)
+                await message_repo.save(data.user_id, "user", data.message, {"mode": "test"})
+                await message_repo.save(data.user_id, "assistant", test_response, {"mode": "test"})
                 await log_event(data.user_id, "chat", {
                     "mode": "basic", "message_length": len(data.message),
                     "tools_used": ["test_offer"], "has_profile": False
@@ -2104,8 +2104,8 @@ async def chat(request: Request, data: ChatRequest):
             await context_repo.save(data.user_id, context_obj)
         await _save_psychologist_state(data.user_id, context_obj, mode_instance, mode_name)
 
-        await message_repo.save(data.user_id, "user", data.message)
-        await message_repo.save(data.user_id, "assistant", result["response"])
+        await message_repo.save(data.user_id, "user", data.message, {"mode": mode_name})
+        await message_repo.save(data.user_id, "assistant", result["response"], {"mode": mode_name})
 
         await log_event(data.user_id, "chat", {
             "mode": mode_name,
@@ -2409,8 +2409,8 @@ async def process_voice(
 
         audio_base64 = await voice_service.text_to_speech(response_text, mode_name)
 
-        await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True})
-        await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True})
+        await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": mode_name})
+        await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True, "mode": mode_name})
 
         await log_event(user_id_for_db, "voice", {
             "text_length": len(recognized_text),
