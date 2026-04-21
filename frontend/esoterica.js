@@ -411,9 +411,8 @@ function _esToast(msg, type) {
 }
 
 function _esHome() {
-    if (typeof showPracticesScreen === 'function') { showPracticesScreen(); return; }
-    if (typeof renderDashboard === 'function') { renderDashboard(); return; }
-    if (window.renderDashboard) window.renderDashboard();
+    if (typeof renderDashboard === 'function') renderDashboard();
+    else if (window.renderDashboard) window.renderDashboard();
 }
 
 function _esUid() {
