@@ -500,6 +500,10 @@ function navigateBack() {
 function navigateTo(screen, params = {}) {
     navigationHistory.push({ screen, params });
 
+    // При переключении экрана закрываем сайдбар, чтобы на мобиле он не
+    // перекрывал кнопку ☰.
+    document.getElementById('chatsPanel')?.classList.remove('open');
+
     switch (screen) {
         case 'confinement-model': showConfinementModel(); break;
         case 'confinement-loops': showConfinementLoops(params); break;
@@ -1441,6 +1445,10 @@ function renderDashboard() {
     // Делаем функцию глобальной для test.js
     window.renderDashboard = renderDashboard;
 
+    // Если сайдбар остался открытым после навигации — закрываем, иначе он
+    // перекроет ☰-кнопку на мобильных устройствах.
+    document.getElementById('chatsPanel')?.classList.remove('open');
+
     const modeConfig = MODES[currentMode];
     const modules = MODULES[currentMode];
 
@@ -1636,6 +1644,13 @@ function initMobileMenu() {
             chatsPanel.classList.remove('open');
         }
     }, { passive: true });
+
+    // Event delegation: клик по любой кнопке «◀️ НАЗАД» внутри модулей
+    // гарантированно закрывает сайдбар, чтобы на мобиле ☰ снова была видна.
+    document.addEventListener('click', (e) => {
+        const backBtn = e.target?.closest?.('.back-btn');
+        if (backBtn) chatsPanel.classList.remove('open');
+    });
 }
 
 // ============================================
@@ -1959,9 +1974,10 @@ async function init() {
 
             document.querySelectorAll('.chat-item').forEach(i => i.classList.remove('active'));
             item.classList.add('active');
-            if (window.innerWidth <= 768) {
-                document.getElementById('chatsPanel')?.classList.remove('open');
-            }
+            // Закрываем сайдбар всегда (не только на мобиле) — безопаснее,
+            // чтобы ☰-кнопка не оставалась закрытой, если пользователь
+            // открыл шторку и потом выбрал модуль с другим разрешением.
+            document.getElementById('chatsPanel')?.classList.remove('open');
         });
     });
 
