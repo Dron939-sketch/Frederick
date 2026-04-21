@@ -579,6 +579,7 @@ function _hyBindResultHandlers() {
 // ТОЧКА ВХОДА
 // ============================================
 async function showHypnosisScreen() {
+    try { window.FrediTracker?.openFeature?.('hypnosis'); } catch (e) {}
     _hy.tab = 'create';
     // Загружаем векторы для рекомендации типа
     if (!_hy.vectors) {

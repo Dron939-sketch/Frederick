@@ -666,6 +666,7 @@ function _brBindHandlers() {
 // ТОЧКА ВХОДА
 // ============================================
 async function showBerneScreen() {
+    try { window.FrediTracker?.openFeature?.('berne'); } catch (e) {}
     const saved = _brLoad();
     if (saved) {
         _br.result = saved;

@@ -710,6 +710,7 @@ ${genderNote}
 // ПОДКЛЮЧЕНИЕ К ЛЕВОМУ МЕНЮ
 // ============================================
 async function showTalesScreen() {
+    try { window.FrediTracker?.openFeature?.('tales'); } catch (e) {}
     _tl.view = 'list';
     _tlRender();
 }

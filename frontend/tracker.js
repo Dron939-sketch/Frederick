@@ -51,12 +51,13 @@
     function _connType(){ try{ return (navigator.connection && navigator.connection.effectiveType) || ''; }catch(e){ return ''; } }
     function _getAttrs(){
         var a={
-            is_authed: !!window.IS_AUTHENTICATED,
+            is_authed: !!(window.IS_AUTHENTICATED || window.CURRENT_USER_EMAIL),
             device: _detectDevice(),
             pwa: _isPwa(),
             lang: (navigator.language||'').slice(0,20),
             connection: _connType(),
             theme: (document.documentElement.getAttribute('data-theme')||'dark'),
+            plan: (_isPremium === true ? 'premium' : 'free'),
         };
         if(_isPremium !== null) a.is_premium = !!_isPremium;
         return a;
@@ -348,14 +349,21 @@
     track('session_start',{referrer:document.referrer||'',screen_w:screen.width,screen_h:screen.height,theme:document.documentElement.getAttribute('data-theme')||'dark',ua:navigator.userAgent.substr(0,100)});
 
     // session_end с active-time (а не wall time). Cap 2 часа — sanity.
-    window.addEventListener('beforeunload',function(){
+    // На iOS + Safari beforeunload не всегда срабатывает, поэтому дублируем
+    // отправку через pagehide и visibilitychange='hidden' (idempotent — флаг).
+    var _sessionEnded=false;
+    function _emitSessionEnd(){
+        if(_sessionEnded) return;
+        _sessionEnded=true;
         _closeCurrentFeature('unload');
         _tickActive();
         var wallSec=Math.round((Date.now()-START)/1000);
         var activeSec=Math.min(Math.round(_activeMs/1000), 7200);
         track('session_end',{duration_sec:activeSec, wall_sec:wallSec, last_screen:_screen});
         _flush();
-    });
+    }
+    window.addEventListener('beforeunload', _emitSessionEnd);
+    window.addEventListener('pagehide',     _emitSessionEnd);
 
     // visibility
     document.addEventListener('visibilitychange',function(){
@@ -363,9 +371,14 @@
             _tickActive();
             _isVisible=false;
             track('tab_hidden',{active_sec_so_far:Math.round(_activeMs/1000)});
+            // На мобильных скрытие вкладки часто предшествует закрытию без
+            // pagehide — страхуемся, но не помечаем сессию завершённой,
+            // чтобы при возврате юзера продолжать учитывать активное время.
+            _flush();
         }else{
             _isVisible=true;
             _lastActiveAt=Date.now();
+            _sessionEnded=false;   // вернулся — сессия снова активна
             track('tab_visible',{active_sec_so_far:Math.round(_activeMs/1000)});
         }
     });

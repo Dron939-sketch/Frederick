@@ -638,6 +638,7 @@ ${allText}
 // ТОЧКА ВХОДА
 // ============================================
 async function showDiaryScreen() {
+    try { window.FrediTracker?.openFeature?.('diary'); } catch (e) {}
     _dy.tab = 'write';
     _dy.analyzing = false;
     _dyRender();
