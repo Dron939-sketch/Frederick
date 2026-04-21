@@ -395,11 +395,48 @@ function _esInjectStyles() {
         }
         .planet-name { font-weight: 600; width: 100px; }
         
+        /* Кнопки и подсказки (self-contained, не зависит от hypnosis.js) */
+        .hy-btn {
+            padding: 11px 20px; border-radius: 30px; font-size: 13px; font-weight: 500;
+            font-family: inherit; cursor: pointer; transition: background 0.2s, transform 0.15s;
+            min-height: 42px; touch-action: manipulation; outline: none;
+        }
+        .hy-btn:active { transform: scale(0.97); }
+        .hy-btn-primary {
+            background: linear-gradient(135deg, rgba(224,224,224,0.2), rgba(192,192,192,0.1));
+            border: 1px solid rgba(224,224,224,0.3); color: var(--text-primary);
+            width: 100%; border-radius: 40px; padding: 13px;
+        }
+        .hy-btn-ghost {
+            background: rgba(224,224,224,0.05); border: 1px solid rgba(224,224,224,0.14);
+            color: var(--text-secondary);
+        }
+        .hy-btn-ghost:hover { background: rgba(224,224,224,0.1); color: var(--text-primary); }
+        .hy-suggestion-box {
+            background: rgba(224,224,224,0.06); border-radius: 14px; padding: 16px;
+            margin-bottom: 14px;
+        }
+        .hy-suggestion-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+            text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;
+        }
+        .hy-suggestion-text {
+            font-size: 15px; font-style: italic; line-height: 1.7; color: var(--text-primary);
+        }
+        .hy-tip {
+            background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.08);
+            border-radius: 14px; padding: 12px 14px; font-size: 12px;
+            color: var(--text-secondary); line-height: 1.5; margin-top: 12px;
+        }
+        .hy-tip strong { color: var(--chrome); }
+
         @media (max-width: 480px) {
             .tarot-grid { grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 10px; }
             .tarot-card img { width: 55px; }
             .tarot-card-name { font-size: 10px; }
             .reading-card { flex-direction: column; text-align: center; }
+            .hy-suggestion-text { font-size: 14px; }
+            .hy-suggestion-box { padding: 14px; }
         }
     `;
     document.head.appendChild(s);
