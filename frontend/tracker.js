@@ -148,10 +148,71 @@
         try{ var u=new URL(urlStr,window.location.origin); return u.pathname.slice(0,80); }
         catch(e){ return (urlStr||'').split('?')[0].slice(0,80); }
     }
+    function _extractResponseText(data) {
+        // AI-эндпоинты возвращают ответ в разных полях — /api/chat → response,
+        // /api/ai/generate → generated/answer, /api/deep-analysis → analysis/text
+        // и т.п. Берём первое непустое строковое значение.
+        if (!data || typeof data !== 'object') return '';
+        var keys = ['response','text','message','generated','answer','result',
+                    'analysis','content','reply','output','content_text'];
+        for (var i = 0; i < keys.length; i++) {
+            var v = data[keys[i]];
+            if (typeof v === 'string' && v.length) return v;
+        }
+        // fallback: посмотрим в data.data если есть nested object
+        if (data.data && typeof data.data === 'object') {
+            for (var j = 0; j < keys.length; j++) {
+                var vv = data.data[keys[j]];
+                if (typeof vv === 'string' && vv.length) return vv;
+            }
+        }
+        return '';
+    }
     function _safeParseBody(body){
         if(!body) return null;
         if(typeof body !== 'string') return null;
         try{ return JSON.parse(body); }catch(e){ return null; }
+    }
+
+    // ---- AI busy indicator ----
+    // Показываем глобальный «Фреди думает…» во время AI-запросов. Текст
+    // меняется, если ответа нет 10+ или 20+ секунд — юзер понимает, что
+    // система жива и не висит.
+    var _aiBusyCount=0, _aiBusyEl=null, _aiBusyT1=null, _aiBusyT2=null;
+    function _showAiBusy(){
+        _aiBusyCount++;
+        if(_aiBusyCount>1) return;
+        if(!_aiBusyEl){
+            var st=document.createElement('style');
+            st.textContent='@keyframes fbspin{0%,100%{transform:scale(1);opacity:0.8}50%{transform:scale(1.5);opacity:1}}';
+            document.head.appendChild(st);
+            _aiBusyEl=document.createElement('div');
+            _aiBusyEl.id='fredi-ai-busy';
+            _aiBusyEl.style.cssText='position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:10px 18px;border-radius:22px;font:13px/1.2 -apple-system,Segoe UI,Roboto,sans-serif;z-index:9999;display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);pointer-events:none;transition:opacity 0.2s';
+            _aiBusyEl.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#a78bfa;animation:fbspin 1s infinite ease-in-out"></span><span id="fredi-ai-busy-text">Фреди думает…</span>';
+            document.body.appendChild(_aiBusyEl);
+        }
+        var t=document.getElementById('fredi-ai-busy-text');
+        if(t) t.textContent='Фреди думает…';
+        _aiBusyEl.style.display='flex';
+        _aiBusyEl.style.opacity='1';
+        if(_aiBusyT1) clearTimeout(_aiBusyT1);
+        if(_aiBusyT2) clearTimeout(_aiBusyT2);
+        _aiBusyT1=setTimeout(function(){
+            var x=document.getElementById('fredi-ai-busy-text');
+            if(x) x.textContent='Думает долго — подожди чуть-чуть';
+        },10000);
+        _aiBusyT2=setTimeout(function(){
+            var y=document.getElementById('fredi-ai-busy-text');
+            if(y) y.textContent='⚠ Связь медленная, ещё момент';
+        },25000);
+    }
+    function _hideAiBusy(){
+        _aiBusyCount=Math.max(0,_aiBusyCount-1);
+        if(_aiBusyCount>0) return;
+        if(_aiBusyT1){clearTimeout(_aiBusyT1);_aiBusyT1=null;}
+        if(_aiBusyT2){clearTimeout(_aiBusyT2);_aiBusyT2=null;}
+        if(_aiBusyEl) _aiBusyEl.style.display='none';
     }
 
     // ---- fetch hook ----
@@ -177,6 +238,7 @@
                         via:'fetch'
                     });
                 }catch(e){}
+                _showAiBusy();
             }
 
             try{
@@ -187,7 +249,7 @@
                     try{
                         var cloned=response.clone();
                         var data=await cloned.json();
-                        var respText=(data && (data.response||data.text||data.message||''))+'';
+                        var respText=_extractResponseText(data);
                         track('ai_response_received',{
                             endpoint:_shortEndpoint(urlStr),
                             text_length:respText.length,
@@ -207,6 +269,8 @@
                     track('api_network_error',{endpoint:_shortEndpoint(urlStr),method:method,error:((netErr && netErr.message)||'').slice(0,100)});
                 }
                 throw netErr;
+            }finally{
+                if(isAi && method==='POST' && !alreadyTracked) _hideAiBusy();
             }
         };
     }
@@ -237,12 +301,13 @@
                         via:'apiCall'
                     });
                 }catch(e){}
+                _showAiBusy();
             }
             try{
                 var data=await _origApiCall(endpoint, options);
                 var latency=Date.now()-started;
                 if(isAi){
-                    var respText=(data && (data.response||data.text||data.message||''))+'';
+                    var respText=_extractResponseText(data);
                     track('ai_response_received',{
                         endpoint:_shortEndpoint(urlStr),
                         text_length:respText.length,
@@ -261,6 +326,8 @@
                     });
                 }
                 throw err;
+            }finally{
+                if(isAi && method==='POST') _hideAiBusy();
             }
         };
         console.log('tracker: apiCall patched');
