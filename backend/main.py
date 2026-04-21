@@ -6571,6 +6571,25 @@ _FALLBACK_HOROSCOPE = {
 
 
 # ============================================
+# ЭЗОТЕРИКА — серверные события аналитики (fire-and-forget)
+# ============================================
+async def _esoterica_track(user_id, event: str, data: Optional[dict] = None):
+    """Тонкая обёртка над analytics.log_server_event, без падений, если
+    user_id отсутствует или сам модуль аналитики ещё не инициализирован."""
+    try:
+        uid = int(user_id) if user_id else 0
+    except Exception:
+        uid = 0
+    if uid <= 0:
+        return
+    try:
+        from analytics_routes import log_server_event  # type: ignore
+        await log_server_event(uid, event, data or {})
+    except Exception as e:
+        logger.debug(f"esoterica analytics track({event}) failed: {e}")
+
+
+# ============================================
 # НАТАЛЬНАЯ КАРТА
 # ============================================
 # Использует immanuel-python (MIT) поверх Swiss Ephemeris.
@@ -6778,6 +6797,7 @@ async def api_natal_interpret(request: Request):
         data = {}
     chart = data.get("chart") or {}
     question = (data.get("question") or "").strip()
+    user_id = data.get("user_id")
 
     if not isinstance(chart, dict) or not chart.get("objects"):
         return {"success": False, "error": "chart must include 'objects' list"}
@@ -6798,6 +6818,7 @@ async def api_natal_interpret(request: Request):
         try:
             cached = await cache.get(cache_key)
             if cached:
+                await _esoterica_track(user_id, "natal_interpreted_server", {"cached": True})
                 return {"success": True, "interpretation": cached, "cached": True}
         except Exception as e:
             logger.warning(f"natal cache get failed: {e}")
@@ -6877,6 +6898,7 @@ async def api_natal_interpret(request: Request):
         except Exception as e:
             logger.warning(f"natal cache set failed: {e}")
 
+    await _esoterica_track(user_id, "natal_interpreted_server", {"cached": False})
     return {"success": True, "interpretation": interpretation, "cached": False}
 
 
@@ -6929,6 +6951,7 @@ async def api_tarot_interpret(request: Request):
     spread_type = (data.get("spread_type") or "day").strip().lower()
     cards = data.get("cards") or []
     question = (data.get("question") or "").strip()
+    user_id = data.get("user_id")
 
     if spread_type not in _TAROT_SPREAD_POSITIONS:
         return {"success": False, "error": f"unknown spread_type: {spread_type!r}"}
@@ -6962,6 +6985,8 @@ async def api_tarot_interpret(request: Request):
         try:
             cached = await cache.get(cache_key)
             if cached:
+                await _esoterica_track(user_id, "tarot_interpreted_server",
+                                       {"spread_type": spread_type, "cached": True})
                 return {"success": True, "interpretation": cached, "cached": True}
         except Exception as e:
             logger.warning(f"tarot cache get failed: {e}")
@@ -7041,6 +7066,8 @@ async def api_tarot_interpret(request: Request):
         except Exception as e:
             logger.warning(f"tarot cache set failed: {e}")
 
+    await _esoterica_track(user_id, "tarot_interpreted_server",
+                           {"spread_type": spread_type, "cached": False})
     return {"success": True, "interpretation": interpretation, "cached": False}
 
 
@@ -7058,6 +7085,7 @@ async def api_horoscope(request: Request):
         data = {}
     sign = (data.get("sign") or "").strip().lower()
     category = (data.get("category") or "general").strip().lower()
+    user_id = data.get("user_id")
 
     if sign not in _ZODIAC_RU:
         return {"success": False, "error": f"unknown sign: {sign!r}"}
@@ -7072,6 +7100,8 @@ async def api_horoscope(request: Request):
         try:
             cached = await cache.get(cache_key)
             if cached:
+                await _esoterica_track(user_id, "horoscope_generated_server",
+                                       {"sign": sign, "category": category, "cached": True})
                 return {"success": True, "sign": sign, "category": category,
                         "date": today, "text": cached, "cached": True}
         except Exception as e:
@@ -7106,6 +7136,8 @@ async def api_horoscope(request: Request):
 
     if not text:
         text = _FALLBACK_HOROSCOPE.get(category, _FALLBACK_HOROSCOPE["general"])
+        await _esoterica_track(user_id, "horoscope_generated_server",
+                               {"sign": sign, "category": category, "cached": False, "fallback": True})
         return {"success": True, "sign": sign, "category": category,
                 "date": today, "text": text, "cached": False, "fallback": True}
 
@@ -7116,6 +7148,8 @@ async def api_horoscope(request: Request):
         except Exception as e:
             logger.warning(f"horoscope cache set failed: {e}")
 
+    await _esoterica_track(user_id, "horoscope_generated_server",
+                           {"sign": sign, "category": category, "cached": False})
     return {"success": True, "sign": sign, "category": category,
             "date": today, "text": text, "cached": False}
 
