@@ -431,6 +431,36 @@ app.add_middleware(
 _QUIET_LOG_PATHS = {"/health", "/api/analytics/events"}
 
 
+# STT часто распознаёт имя «Фреди» как «Фрейзи / Фразия / Пройди / Вроде /
+# Фрейди / Эльф вроде / Фредерик». Нормализуем в начале/конце фразы, если
+# слово стоит как обращение, чтобы Фреди не воспринимал это как смысловой
+# контекст. Wake-word после нормализации оставляем — так модель получает
+# сигнал «это обращение к ней» и не реагирует на имя как на тему.
+_FREDI_WAKE_VARIANTS = re.compile(
+    r"\b(?:"
+    r"фр[ае]йз[иы]|фр[ае]зи(?:я|и)?|фр[ае]йди(?:к)?|фрейи|"
+    r"фред(?:дер)?ик|фредд?ик|"
+    r"фразия|фрайди|фризи|фрэди|"
+    r"пр[ое]йди|пр[ое]йдик"
+    r")\b",
+    re.IGNORECASE,
+)
+# «Вроде» / «Эльф» — частые ложные распознавания в самом начале реплики,
+# но это обычные слова — нормализуем только если стоят как первое слово
+# перед запятой/тире/вопросом, т.е. в роли обращения.
+_FREDI_WAKE_START = re.compile(
+    r"^\s*(?:вроде|эльф\s+вроде|эльф)\s*([,:\-–—.!?])",
+    re.IGNORECASE,
+)
+
+def _normalize_fredi_wake_word(text: str) -> str:
+    if not text:
+        return text
+    normalized = _FREDI_WAKE_VARIANTS.sub("Фреди", text)
+    normalized = _FREDI_WAKE_START.sub(r"Фреди\1", normalized)
+    return normalized
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     if request.headers.get("upgrade", "").lower() == "websocket":
@@ -730,6 +760,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
             recognized_text = await voice_service.speech_to_text_pcm(
                 bytes(audio_buffer), sample_rate=16000
             )
+            recognized_text = _normalize_fredi_wake_word(recognized_text)
 
             logger.info(f"📝 STT result: '{recognized_text}'")
 
@@ -2329,6 +2360,7 @@ async def process_voice(
         if not recognized_text or not recognized_text.strip():
             return {"success": False, "error": "Не удалось распознать речь"}
 
+        recognized_text = _normalize_fredi_wake_word(recognized_text)
         logger.info(f"🎤 Распознано: «{recognized_text}»")
 
         try:
@@ -2476,6 +2508,7 @@ async def voice_stt_only(request: Request):
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "wav"
 
         text = await voice_service.speech_to_text(audio_bytes, ext)
+        text = _normalize_fredi_wake_word(text) if text else text
         if text:
             logger.info(f"🎤 STT-only: {len(text)} chars")
             return {"success": True, "text": text}
