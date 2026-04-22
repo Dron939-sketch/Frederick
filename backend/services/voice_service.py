@@ -457,7 +457,14 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
     mime_types = {"webm": "audio/webm", "ogg": "audio/ogg", "wav": "audio/wav", "mp3": "audio/mpeg", "mp4": "audio/mp4"}
     content_type = mime_types.get(audio_format, "audio/webm")
     headers = {"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": content_type}
-    params = {"model": "nova-2", "language": "ru", "punctuate": "true", "smart_format": "true"}
+    # keywords=<слово>:<вес> усиливает распознавание редких/специфичных слов.
+    # В логах часто «Фреди» распознавался как «Фрейзи/Фразия/Пройди/Вроде».
+    # Вес 2 — мягкое boost, чтобы не тянуть false-positives.
+    params = {
+        "model": "nova-2", "language": "ru",
+        "punctuate": "true", "smart_format": "true",
+        "keywords": ["Фреди:2", "Фредди:2", "Фредерик:1"],
+    }
     try:
         client = await get_http_client()
         response = await client.post(DEEPGRAM_API_URL, headers=headers, params=params, content=audio_bytes, timeout=30.0)

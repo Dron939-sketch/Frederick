@@ -183,13 +183,39 @@ class BasicMode(BaseMode):
         ]
         return random.choice(greetings)
 
+    def _build_user_block(self) -> str:
+        """О СОБЕСЕДНИКЕ — чтобы AI знал имя, пол, возраст и мог
+        естественно обращаться и отвечать на «что ты обо мне знаешь?»."""
+        parts = []
+        if self.user_name:
+            parts.append(f"Имя: {self.user_name}")
+        if self.gender:
+            g = "мужчина" if str(self.gender).lower() in ("male", "m", "мужской", "муж") else (
+                "женщина" if str(self.gender).lower() in ("female", "f", "женский", "жен") else str(self.gender)
+            )
+            parts.append(f"Пол: {g}")
+        age = getattr(self, "age", None)
+        if age:
+            parts.append(f"Возраст: {age}")
+        if not parts:
+            return ""
+        return (
+            "О СОБЕСЕДНИКЕ:\n" + "\n".join("- " + p for p in parts) + "\n"
+            "Обращайся по имени естественно — примерно в каждом 2-3 ответе, без навязчивости. "
+            "Если собеседник спросит «что ты обо мне знаешь» / «помнишь меня» / «мы общались» — "
+            "ответь тепло: упомяни имя и 1–2 детали из истории ниже, покажи, что помнишь его."
+        )
+
     def _build_prompt(self, question: str) -> str:
         history_from_db = ""
+        # Расширено до 10 сообщений и до 200 символов каждое — это чище
+        # передаёт контекст предыдущих реплик, помогая AI не скатываться
+        # в одинаковые ответы при уточняющих вопросах.
         if self.history:
             parts = []
-            for m in self.history[-6:]:
+            for m in self.history[-10:]:
                 role = "Пользователь" if m.get("role") == "user" else "Фреди"
-                parts.append(f"{role}: {m.get('content', '')[:100]}")
+                parts.append(f"{role}: {m.get('content', '')[:200]}")
             history_from_db = "\n".join(parts)
 
         session_history = "\n".join(self.conversation_history[-4:])
@@ -224,8 +250,9 @@ class BasicMode(BaseMode):
             "Фреди: Рад слышать. Иногда просто поговорить - это и есть самое важное. Я здесь.\n"
         )
 
+        user_block = self._build_user_block()
         return (
-            f"{self.get_system_prompt()}\n{few_shot}\n"
+            f"{self.get_system_prompt()}\n\n{user_block}\n{few_shot}\n"
             f"{memory_text}{rules_text}{golden_text}{emotion_instr}\n"
             f"История:\n{combined}\n\n"
             f"Пользователь: {question}\n\n"

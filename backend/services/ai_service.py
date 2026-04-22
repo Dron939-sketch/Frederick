@@ -294,18 +294,26 @@ class AIService:
             final_system_prompt = self._get_system_prompt(mode, profile or {})
             logger.info(f"📌 Используется стандартный промпт для режима {mode}")
 
+        # Вставляем блок «О собеседнике» прямо в system-prompt, чтобы
+        # AI знал имя/пол/возраст и мог отвечать на «что ты обо мне знаешь».
+        _user_block = self._build_user_facts_block(context, profile)
+        if _user_block:
+            final_system_prompt = f"{final_system_prompt}\n\n{_user_block}"
+
         # Строим сообщения для API
         messages = [{"role": "system", "content": final_system_prompt}]
 
-        # Добавляем историю диалога (последние 6 сообщений = 3 обмена)
+        # Добавляем историю диалога (последние 10 сообщений = 5 обменов).
+        # Увеличено с 6 на 10 — помогает AI видеть, что юзер уже повторял
+        # вопрос, и не давать одинаковые ответы на переформулировки.
         history = (profile or {}).get('history', [])
         if history:
-            for msg in history[-6:]:
+            for msg in history[-10:]:
                 role = msg.get('role', 'user')
                 content = msg.get('content', '')[:300]
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
-            logger.info(f"📚 История: {len(history[-6:])} сообщений добавлено в контекст")
+            logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
 
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
@@ -383,18 +391,26 @@ class AIService:
             final_system_prompt = self._get_system_prompt(mode, profile or {})
             logger.info(f"📌 Используется стандартный промпт для режима {mode}")
 
+        # Вставляем блок «О собеседнике» прямо в system-prompt, чтобы
+        # AI знал имя/пол/возраст и мог отвечать на «что ты обо мне знаешь».
+        _user_block = self._build_user_facts_block(context, profile)
+        if _user_block:
+            final_system_prompt = f"{final_system_prompt}\n\n{_user_block}"
+
         # Строим сообщения для API
         messages = [{"role": "system", "content": final_system_prompt}]
 
-        # Добавляем историю диалога (последние 6 сообщений = 3 обмена)
+        # Добавляем историю диалога (последние 10 сообщений = 5 обменов).
+        # Увеличено с 6 на 10 — помогает AI видеть, что юзер уже повторял
+        # вопрос, и не давать одинаковые ответы на переформулировки.
         history = (profile or {}).get('history', [])
         if history:
-            for msg in history[-6:]:
+            for msg in history[-10:]:
                 role = msg.get('role', 'user')
                 content = msg.get('content', '')[:300]
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
-            logger.info(f"📚 История: {len(history[-6:])} сообщений добавлено в контекст")
+            logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
 
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
@@ -448,6 +464,35 @@ class AIService:
     # ============================================
     # СИСТЕМНЫЕ ПРОМПТЫ (без изменений)
     # ============================================
+
+    def _build_user_facts_block(self, context: Optional[Dict], profile: Optional[Dict]) -> str:
+        """О СОБЕСЕДНИКЕ — имя/пол/возраст из профиля.
+        Вставляется в system-prompt всех режимов, чтобы AI обращался
+        по имени и мог ответить «что ты обо мне знаешь»."""
+        ctx = context or {}
+        prof = profile or {}
+        name = (ctx.get("name") or prof.get("name") or "").strip()
+        gender = (ctx.get("gender") or prof.get("gender") or "").strip().lower()
+        age = ctx.get("age") or prof.get("age")
+        parts = []
+        if name:
+            parts.append(f"Имя: {name}")
+        if gender:
+            g = "мужчина" if gender in ("male", "m", "мужской", "муж") else (
+                "женщина" if gender in ("female", "f", "женский", "жен") else gender
+            )
+            parts.append(f"Пол: {g}")
+        if age:
+            parts.append(f"Возраст: {age}")
+        if not parts:
+            return ""
+        return (
+            "О СОБЕСЕДНИКЕ:\n" + "\n".join("- " + p for p in parts) + "\n"
+            "Обращайся по имени естественно — примерно в каждом 2-3 ответе, без навязчивости. "
+            "Если собеседник спросит «что ты обо мне знаешь» / «помнишь меня» / «мы общались» — "
+            "ответь тепло: упомяни имя и 1–2 детали из истории ниже."
+        )
+
 
     def _get_system_prompt(self, mode: str, profile: Dict) -> str:
         if mode == 'coach':
