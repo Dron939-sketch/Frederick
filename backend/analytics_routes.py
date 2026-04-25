@@ -514,4 +514,25 @@ def register_analytics_routes(app, db):
             logger.error(f"analytics messages user error: {e}")
             return {"error": "internal"}
 
-    return init_analytics_table
+    # === VK targeting (phase 1) chain-bootstrap ===
+    # Цепляем регистрацию vk_routes сюда, чтобы не править main.py из этой
+    # ветки (signing-сервер харнесса временно недоступен — нет возможности
+    # запушить 350 КБ main.py в один tool-call).
+    # TODO: когда signing починят — перенести в main.py рядом с register_analytics_routes.
+    _vk_init = None
+    try:
+        from vk_routes import register_vk_routes as _register_vk_routes
+        _vk_init = _register_vk_routes(app, db)
+        logger.info("VK routes registered via analytics chain")
+    except Exception as e:
+        logger.warning(f"vk_routes register failed: {e}")
+
+    async def _combined_init():
+        await init_analytics_table()
+        if _vk_init is not None:
+            try:
+                await _vk_init()
+            except Exception as e:
+                logger.warning(f"vk init failed: {e}")
+
+    return _combined_init
