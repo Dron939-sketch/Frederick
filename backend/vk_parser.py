@@ -1,202 +1,185 @@
 """
-vk_parser.py — Async-клиент VK API для выкачки публичных данных профиля.
+vk_parser.py — async VK API client (Phase 2).
 
-Используется фазой 2 модуля «Психологический таргетинг»: для каждого
-привязанного user_id вытаскиваем первый «слой» поведенческих данных —
-профиль, стена, группы. Дальше по этим данным AI выделяет маркеры
-архетипа и ищет «двойников».
+Тащит публичные данные профиля для построения «образа»:
+  - users.get  (имя, город, дата рождения, статус, инфа о себе, музыка/интересы/цитаты, фото)
+  - wall.get   (последние 100 постов — для NLP-анализа тональности и ключевых тем)
+  - groups.get (топ-паблики — для матчинга по интересам)
 
-Что фетчим (зависит от приватности профиля и scope сервисного токена):
-  - users.get  — базовый профиль (имя, город, возраст, статус, интересы)
-  - wall.get   — последние 100 постов (если стена открыта)
-  - groups.get — паблики, на которые подписан (часто закрыто, ок)
+Что НЕ делаем:
+  - audio.get — VK закрыл доступ к аудио для большинства приложений с 2016 года,
+    сервисный токен здесь бесполезен. Если нужно — придётся OAuth с правами audio.
 
-Чего не фетчим:
-  - audio.get  — VK выпилил методы для аудио в 2017
-  - friends.get — приватно у большинства
-  - photos.get — большой объём, пока не нужен
+Хранение токена: env `VK_SERVICE_TOKEN` (Render env). В коде/git токен не лежит.
 
-Лимиты:
-  - VK service token: 3 req/sec на токен (эмуляция: gap 333 мс между вызовами).
-  - In-memory кэш ответов на 7 суток (TTL), чтобы не молотить API при
-    повторных «Копать» по одному user_id.
+Rate-limit: VK API даёт 3 rps сервисному приложению. Глобальный asyncio.Lock
+гарантирует ≥333 мс между вызовами в рамках процесса.
 
-Энв:
-  VK_SERVICE_TOKEN — токен сервисного приложения VK (без пользователя).
+Кэш: in-memory dict с TTL 7 дней (юзер не меняет город каждый час, лента
+тоже разворачивается за минуты, не за секунды). Persistent cache не нужен —
+если процесс перезапустится, повторно дёрнем VK, это не критично.
 """
 
 import asyncio
 import logging
 import os
 import time
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-VK_API_VERSION = "5.199"
 VK_API_BASE = "https://api.vk.com/method"
+VK_API_VERSION = "5.199"
 
-# Поля users.get — берём всё, что бывает полезно для психопрофилирования
-# и что VK отдаёт по сервисному токену для открытых аккаунтов.
-VK_USER_FIELDS = (
-    "first_name,last_name,bdate,city,country,sex,relation,status,about,"
-    "interests,books,music,movies,quotes,activities,games,personal,"
-    "screen_name,site,career,occupation,connections,counters,"
-    "last_seen,online,photo_max_orig,deactivated,is_closed,can_access_closed"
+# 3 rps → минимум 333 мс между вызовами.
+_RATE_LIMIT_DELAY = 0.34
+_last_call_at = 0.0
+_rate_lock = asyncio.Lock()
+
+# Кэш: {(method, frozen_params): (expires_at, response)}
+_cache: Dict[Tuple[str, Tuple], Tuple[float, Any]] = {}
+_CACHE_TTL = 7 * 24 * 3600  # 7 дней
+
+# Поля users.get — то, что реально используем для образа.
+_USER_FIELDS = (
+    "city,country,bdate,status,about,quotes,interests,music,books,movies,games,"
+    "tv,activities,personal,relation,sex,photo_max,photo_max_orig,counters,"
+    "is_closed,can_access_closed,site,occupation,career,last_seen"
 )
+_GROUP_FIELDS = "name,description,activity,members_count,is_closed"
 
 
-class VKParserError(Exception):
-    """Любая ошибка от VK API или от сетевого слоя."""
+def _get_token() -> str:
+    tok = (os.environ.get("VK_SERVICE_TOKEN") or "").strip()
+    if not tok:
+        raise RuntimeError("VK_SERVICE_TOKEN не задан в env")
+    return tok
 
 
-class VKParser:
-    """Async VK API клиент с rate-limit и in-memory TTL кэшем."""
+def _cache_key(method: str, params: Dict[str, Any]) -> Tuple[str, Tuple]:
+    # Не включаем access_token в ключ кэша, иначе при ротации токена кэш протухнет.
+    items = tuple(sorted((k, str(v)) for k, v in params.items() if k != "access_token"))
+    return method, items
 
-    def __init__(self,
-                 service_token: Optional[str] = None,
-                 ttl_seconds: int = 7 * 86400):
-        self.token = (service_token or os.environ.get("VK_SERVICE_TOKEN") or "").strip()
-        self.ttl = ttl_seconds
-        # 3 rps → минимальный интервал между вызовами 333 мс.
-        # Lock + последняя отметка времени даёт честное равномерное окно.
-        self._lock = asyncio.Lock()
-        self._last_call_ts = 0.0
-        self._min_gap = 1.0 / 3.0
-        self._cache: dict = {}
 
-    @property
-    def enabled(self) -> bool:
-        return bool(self.token)
+async def _call(client: httpx.AsyncClient, method: str, params: Dict[str, Any]) -> Any:
+    """Generic VK API call с rate-limit + кэшем."""
+    key = _cache_key(method, params)
+    now = time.time()
+    cached = _cache.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
 
-    def _cache_key(self, method: str, params: dict) -> str:
-        # Токен в ключ не кладём — он один на процесс.
-        return method + "?" + "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    global _last_call_at
+    async with _rate_lock:
+        elapsed = time.time() - _last_call_at
+        if elapsed < _RATE_LIMIT_DELAY:
+            await asyncio.sleep(_RATE_LIMIT_DELAY - elapsed)
+        _last_call_at = time.time()
 
-    def _gc_cache(self):
-        # Простой GC: если перевалило за 5000 записей — выкидываем 1000 самых старых.
-        if len(self._cache) <= 5000:
-            return
-        items = sorted(self._cache.items(), key=lambda kv: kv[1][0])
-        for k, _ in items[:1000]:
-            self._cache.pop(k, None)
+    full_params = dict(params)
+    full_params["access_token"] = _get_token()
+    full_params["v"] = VK_API_VERSION
 
-    async def _call(self, method: str, params: dict) -> dict:
-        if not self.enabled:
-            raise VKParserError("VK_SERVICE_TOKEN не задан в env")
+    try:
+        r = await client.get(f"{VK_API_BASE}/{method}", params=full_params, timeout=15.0)
+    except httpx.HTTPError as e:
+        raise RuntimeError(f"VK API network error ({method}): {e}")
 
-        key = self._cache_key(method, params)
-        now = time.time()
-        cached = self._cache.get(key)
-        if cached and cached[0] > now:
-            return cached[1]
+    if r.status_code != 200:
+        raise RuntimeError(f"VK API HTTP {r.status_code} ({method})")
 
-        # Rate limit + выполнение запроса под одним lock'ом, чтобы
-        # параллельные «Копать» не превысили 3 rps.
-        async with self._lock:
-            elapsed = time.time() - self._last_call_ts
-            if elapsed < self._min_gap:
-                await asyncio.sleep(self._min_gap - elapsed)
-            url = f"{VK_API_BASE}/{method}"
-            payload = {"access_token": self.token, "v": VK_API_VERSION, **params}
-            try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    r = await client.post(url, data=payload)
-            except httpx.HTTPError as e:
-                self._last_call_ts = time.time()
-                raise VKParserError(f"VK network error: {e}")
-            self._last_call_ts = time.time()
+    data = r.json()
+    if "error" in data:
+        err = data["error"]
+        code = err.get("error_code")
+        msg = err.get("error_msg", "")
+        # Капчу/блок не маскируем — передаём явно, оператор увидит в админке.
+        raise RuntimeError(f"VK API {method} error {code}: {msg}")
 
-            try:
-                data = r.json()
-            except Exception:
-                raise VKParserError(f"VK non-JSON response (HTTP {r.status_code})")
+    response = data.get("response")
+    _cache[key] = (now + _CACHE_TTL, response)
+    return response
 
-        if "error" in data:
-            err = data["error"] or {}
-            code = err.get("error_code")
-            msg = err.get("error_msg", "")
-            raise VKParserError(f"VK API error {code}: {msg}")
 
-        resp = data.get("response", {})
-        self._cache[key] = (now + self.ttl, resp)
-        self._gc_cache()
-        return resp
+async def parse_user(
+    vk_id: Optional[int] = None,
+    screen_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Тащит users.get + wall.get + groups.get для одного юзера VK.
 
-    async def fetch_profile(self,
-                            vk_id: Optional[int],
-                            screen_name: Optional[str]) -> dict:
-        """Тянет users.get + wall.get + groups.get. Каждый блок может
-        упасть отдельно (приватность, ограничения токена) — кладём
-        ошибку в errors[<method>] и едем дальше.
+    Принимает либо vk_id (число), либо screen_name (строка типа 'durov'). Если
+    задан только screen_name — users.get сам резолвит его в id, мы возвращаем
+    числовой id в `user.id`, а вызывающий код может сохранить его в БД.
 
-        Returns:
-            {
-              "fetched_at": <unix ts>,
-              "user": {...},                  # users.get[0]
-              "wall": {"count": N, "items": [...]},
-              "groups": {"count": N, "items": [...]},
-              "errors": {"wall.get": "...", ...}
-            }
-        """
-        if not (vk_id or screen_name):
-            raise VKParserError("Нужен vk_id или screen_name")
+    Возвращает dict:
+        {
+          "user":   { ... users.get item ... },
+          "wall":   { count, items: [...] }   или { error: "..." },
+          "groups": { count, items: [...] }   или { error: "..." },
+          "fetched_at": <unix ts>
+        }
 
-        target = str(vk_id) if vk_id else screen_name
-        result: dict = {"fetched_at": int(time.time()), "errors": {}}
+    На закрытом профиле wall/groups придут с error — это нормальное поведение,
+    в БД положим как есть, оператор будет видеть.
+    """
+    if not vk_id and not screen_name:
+        raise ValueError("vk_id или screen_name обязательны")
 
-        # 1) users.get — без него остальное смысла не имеет.
+    user_ref = str(vk_id) if vk_id else screen_name
+
+    async with httpx.AsyncClient() as client:
+        # 1) users.get — определяет id, тянет основные поля
+        users_resp = await _call(client, "users.get", {
+            "user_ids": user_ref,
+            "fields": _USER_FIELDS,
+        })
+        if not users_resp:
+            raise RuntimeError(f"VK user '{user_ref}' не найден")
+        user = users_resp[0]
+        resolved_id = user.get("id")
+        if not resolved_id:
+            raise RuntimeError(f"VK не вернул id для '{user_ref}'")
+
+        # 2) wall.get — последние 100 постов
+        wall: Dict[str, Any]
         try:
-            users = await self._call("users.get", {
-                "user_ids": target,
-                "fields": VK_USER_FIELDS,
-            })
-            if not users:
-                raise VKParserError("user_not_found")
-            result["user"] = users[0]
-            real_uid = users[0].get("id")
-        except VKParserError as e:
-            result["errors"]["users.get"] = str(e)
-            return result
-
-        if not real_uid:
-            return result
-
-        # 2) wall.get — открытая стена.
-        try:
-            wall = await self._call("wall.get", {
-                "owner_id": real_uid,
+            wall_resp = await _call(client, "wall.get", {
+                "owner_id": resolved_id,
                 "count": 100,
                 "extended": 0,
-                "filter": "owner",
             })
-            result["wall"] = wall
-        except VKParserError as e:
-            result["errors"]["wall.get"] = str(e)
+            wall = wall_resp if isinstance(wall_resp, dict) else {"raw": wall_resp}
+        except RuntimeError as e:
+            wall = {"error": str(e)}
 
-        # 3) groups.get — часто закрыто для сервисного токена, пробуем.
+        # 3) groups.get — топ-паблики
+        groups: Dict[str, Any]
         try:
-            groups = await self._call("groups.get", {
-                "user_id": real_uid,
+            groups_resp = await _call(client, "groups.get", {
+                "user_id": resolved_id,
                 "extended": 1,
-                "fields": "name,description,members_count,activity",
-                "count": 200,
+                "fields": _GROUP_FIELDS,
+                "count": 100,
             })
-            result["groups"] = groups
-        except VKParserError as e:
-            result["errors"]["groups.get"] = str(e)
+            groups = groups_resp if isinstance(groups_resp, dict) else {"raw": groups_resp}
+        except RuntimeError as e:
+            groups = {"error": str(e)}
 
-        return result
+    return {
+        "user": user,
+        "wall": wall,
+        "groups": groups,
+        "fetched_at": int(time.time()),
+    }
 
 
-_parser_singleton: Optional[VKParser] = None
+def cache_size() -> int:
+    """Утилита для дебага — сколько ключей в кэше."""
+    return len(_cache)
 
 
-def get_parser() -> VKParser:
-    """Singleton, чтобы rate-limit и cache были общими на процесс."""
-    global _parser_singleton
-    if _parser_singleton is None:
-        _parser_singleton = VKParser()
-    return _parser_singleton
+def cache_clear() -> None:
+    _cache.clear()
