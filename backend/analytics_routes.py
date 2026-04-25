@@ -527,6 +527,15 @@ def register_analytics_routes(app, db):
     except Exception as e:
         logger.warning(f"vk_routes register failed: {e}")
 
+    # Phase 2 chain — POST /parse, GET /parsed (vk_phase2_routes.py).
+    # Отдельный файл, потому что 24-КБ vk_routes.py не лезет в один MCP push.
+    try:
+        from vk_phase2_routes import register_vk_phase2_routes as _register_vk_phase2
+        _register_vk_phase2(app, db)
+        logger.info("VK phase 2 routes registered via analytics chain")
+    except Exception as e:
+        logger.warning(f"vk_phase2_routes register failed: {e}")
+
     async def _combined_init():
         await init_analytics_table()
         if _vk_init is not None:
