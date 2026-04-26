@@ -1317,31 +1317,57 @@
       var sexLabel = c.sex === 1 ? '♀' : c.sex === 2 ? '♂' : '';
       var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
       var status = c.status ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:2px">«' + esc(c.status) + '»</div>' : '';
-      // Метка источника: 📰 newsfeed = автор поста на тему (живой по факту);
-      // 👥 group = просто состоит в группе (может быть менее релевантен).
+      // Источник: 📰 пост, 💬 коммент, 👥 группа
       var srcBadge = '';
       if (c.source === 'newsfeed'){
-        srcBadge = '<span style="font-size:10px;color:var(--success);margin-left:6px;border:1px solid var(--success);padding:1px 6px;border-radius:4px" title="Автор поста на тему — живой подтверждённый">📰 автор поста</span>';
+        srcBadge = '<span style="font-size:10px;color:var(--success);margin-left:6px;border:1px solid var(--success);padding:1px 6px;border-radius:4px" title="Автор поста на тему">📰 автор поста</span>';
+      } else if (c.source === 'comment'){
+        srcBadge = '<span style="font-size:10px;color:var(--accent);margin-left:6px;border:1px solid var(--accent);padding:1px 6px;border-radius:4px" title="Оставил комментарий под постом на тему">💬 комментатор</span>';
       } else if (c.source === 'group' && c.from_group && c.from_group.name){
         srcBadge = '<span style="font-size:11px;color:var(--text-dim)" title="Состоит в сообществе">👥 ' + esc(c.from_group.name) + '</span>';
       }
+      // Brightness — насколько ярко выражена проблема (0..100).
+      // Чем выше — тем сильнее текст-маркеры, тем теплее цвет чипа.
+      var br = parseInt(c.brightness || 0, 10);
+      var brColor = br >= 60 ? 'var(--error)' :
+                    br >= 35 ? 'var(--warning)' :
+                    br >= 15 ? 'var(--accent)' : 'var(--text-dim)';
+      var brChip = '<span style="font-size:10px;color:' + brColor + ';margin-left:6px;border:1px solid ' + brColor + ';padding:1px 6px;border-radius:4px" title="Яркость выраженности проблемы (по тексту): чем выше, тем прямее человек её проявляет">🔥 ' + br + '</span>';
       var closed = c.is_closed ? '<span style="font-size:10px;color:var(--warning);margin-left:6px;border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '';
+      // Триггер-блок: коммент или пост, реальные слова человека.
+      var trig = '';
+      if (c.triggering_comment && c.triggering_comment.text){
+        var tc = c.triggering_comment;
+        var postLink = tc.post_url ? '<a href="' + esc(tc.post_url) + '" target="_blank" rel="noopener" style="color:var(--text-dim);font-size:10px;text-decoration:underline" title="Открыть пост, под которым был коммент">↗ пост</a>' : '';
+        trig = '<div style="margin-top:6px;padding:6px 10px;background:rgba(167,139,250,0.06);border-left:3px solid var(--accent);border-radius:4px">' +
+          '<div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">💬 его комментарий ' + postLink + '</div>' +
+          '<div style="font-size:12px;line-height:1.4;font-style:italic">«' + esc(tc.text) + '»</div>' +
+        '</div>';
+      } else if (c.triggering_post && c.triggering_post.text){
+        var tp = c.triggering_post;
+        var postLink2 = tp.post_url ? '<a href="' + esc(tp.post_url) + '" target="_blank" rel="noopener" style="color:var(--text-dim);font-size:10px;text-decoration:underline" title="Открыть пост">↗ пост</a>' : '';
+        trig = '<div style="margin-top:6px;padding:6px 10px;background:rgba(52,211,153,0.06);border-left:3px solid var(--success);border-radius:4px">' +
+          '<div style="font-size:10px;color:var(--success);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">📰 его пост ' + postLink2 + '</div>' +
+          '<div style="font-size:12px;line-height:1.4;font-style:italic">«' + esc(tp.text) + '»</div>' +
+        '</div>';
+      }
       var draftBtn = '<button data-vk="' + c.vk_id + '" class="vk-prob-draft" ' +
         'style="padding:6px 10px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer" ' +
-        'title="Сгенерировать черновик сообщения для этого кандидата">✉️ Сообщение</button>';
+        'title="Сгенерировать черновик сообщения с эхо-зацепкой по его словам">✉️ Сообщение</button>';
       return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
           '<div style="flex:1;min-width:0">' +
             '<a href="' + esc(c.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
               esc(c.full_name||('id'+c.vk_id)) +
             '</a>' +
             ' <span style="font-size:11px;color:var(--text-dim)">' + esc(sexLabel) + ' ' + esc(bdate) + ' ' + esc(c.city||'') + '</span>' +
+            brChip +
             closed +
           '</div>' +
           srcBadge +
           draftBtn +
         '</div>' +
-        status + about +
+        status + about + trig +
       '</div>';
     }).join('');
 
