@@ -428,6 +428,8 @@ async def search_by_problem(
     max_candidates: int = 50,
     geo_scope: str = "auto",  # auto | russia | worldwide — сейчас фильтра нет, поле под будущее
     db: Any = None,  # если передан — читаем phrase override и пишем phrase perf
+    rerank: bool = False,  # если True — после эвристик прогнать топ-30 через DeepSeek
+    rerank_pool: int = 30,  # сколько кандидатов отдать в DeepSeek (потолок)
 ) -> Dict[str, Any]:
     """Главная точка: возвращает {category, candidates, stats, groups_used}.
 
@@ -591,6 +593,41 @@ async def search_by_problem(
         return s
 
     candidates.sort(key=_score, reverse=True)
+
+    # LLM-rerank финального этапа: эвристики дали грубый порядок, DeepSeek
+    # размечает каждого по «реально ли страдает прямо сейчас».
+    rerank_stats: Dict[str, Any] = {}
+    if rerank and candidates:
+        try:
+            from vk_problem_reranker import rerank_candidates as _rerank
+            pool = candidates[:max(rerank_pool, max_candidates)]
+            rr = await _rerank(cat, pool, max_input=rerank_pool)
+            scores = rr.get("scores") or {}
+            reasons = rr.get("reasons") or {}
+            for c in candidates:
+                vid = c.get("vk_id")
+                if vid in scores:
+                    c["rerank_score"] = scores[vid]
+                    c["rerank_reason"] = reasons.get(vid, "")
+                else:
+                    # Не оценённые DeepSeek (вне пула) — отсаживаем в хвост.
+                    c["rerank_score"] = -1
+                    c["rerank_reason"] = "не вошёл в LLM-пул"
+            # Главная сортировка теперь по rerank_score, эвристика — tie-break.
+            candidates.sort(
+                key=lambda c: (c.get("rerank_score", -1), _score(c)),
+                reverse=True,
+            )
+            rerank_stats = {
+                "enabled": True,
+                "input": rr.get("input"),
+                "rated": rr.get("rated"),
+                "error": rr.get("error"),
+            }
+        except Exception as e:
+            logger.warning(f"problem_search: rerank failed: {e}")
+            rerank_stats = {"enabled": True, "error": str(e)}
+
     candidates = candidates[:max_candidates]
 
     by_source = {"newsfeed": 0, "comment": 0, "group": 0}
@@ -649,6 +686,7 @@ async def search_by_problem(
             "by_source": by_source,
             "override_applied": override_applied,
             "phrases_active": list(seed_phrases),
+            "rerank": rerank_stats,
             "returned": len(candidates),
         },
         "groups_used": groups_to_scan,
