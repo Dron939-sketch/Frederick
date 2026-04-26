@@ -281,6 +281,161 @@
     }
   }
 
+  // Phase 5A: lazy-creates a separate overlay for draft messages — отдельно
+  // от vkProfileOverlay, чтобы не конфликтовать с уже открытым drawer'ом
+  // кандидатов. Один экземпляр на DOM, переиспользуется.
+  function ensureDraftOverlay(){
+    var ov = document.getElementById('vkDraftOverlay');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'vkDraftOverlay';
+    ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)';
+    ov.innerHTML =
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:680px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.5)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">' +
+          '<div><div id="vkDraftTitle" style="font-weight:700;font-size:15px">✉️ Черновик сообщения</div>' +
+          '<div id="vkDraftSub" style="font-size:11px;color:var(--text-dim);margin-top:2px"></div></div>' +
+          '<button id="vkDraftClose" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text);cursor:pointer;font:inherit">✕</button>' +
+        '</div>' +
+        '<div id="vkDraftBody" style="flex:1;overflow-y:auto;padding:14px 18px"></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    document.getElementById('vkDraftClose').addEventListener('click', closeDraftModal);
+    ov.addEventListener('click', function(e){ if (e.target === ov) closeDraftModal(); });
+    return ov;
+  }
+  function closeDraftModal(){
+    var ov = document.getElementById('vkDraftOverlay');
+    if (ov) ov.style.display = 'none';
+  }
+
+  async function openDraftModal(sourceUid, candId, candVkId, existing){
+    var ov = ensureDraftOverlay();
+    ov.style.display = 'flex';
+    var name = (existing && existing.data && (existing.data.first_name||'') + ' ' + (existing.data.last_name||''))
+      .trim() || ('id'+candVkId);
+    document.getElementById('vkDraftTitle').textContent = '✉️ ' + name;
+    document.getElementById('vkDraftSub').textContent = 'Кандидат #' + candId + ' · vk.com/id' + candVkId;
+
+    if (existing && existing.draft_message){
+      // Уже сгенерён — показываем сразу
+      renderDraftModal(sourceUid, candId, candVkId, {
+        draft: existing.draft_message,
+        alternatives: existing.draft_alternatives || [],
+        reasoning: (existing.draft_meta && existing.draft_meta.reasoning) || '',
+        hook_used: (existing.draft_meta && existing.draft_meta.hook_used) || '',
+        vk_chat_url: 'https://vk.com/im?sel=' + candVkId,
+        generated_at: existing.draft_generated_at,
+      });
+    } else {
+      document.getElementById('vkDraftBody').innerHTML =
+        '<div class="empty">⏳ Генерирую черновик через DeepSeek (5-10 секунд)…</div>';
+      try {
+        var r = await api('/api/admin/vk/candidates/'+encodeURIComponent(candId)+'/draft-message', { method: 'POST' });
+        renderDraftModal(sourceUid, candId, candVkId, r);
+      } catch(e){
+        document.getElementById('vkDraftBody').innerHTML =
+          '<div class="err">Ошибка генерации: '+esc(e.message)+'</div>';
+      }
+    }
+  }
+
+  function renderDraftModal(sourceUid, candId, candVkId, r){
+    var alts = r.alternatives || [];
+    var info = '';
+    if (r.hook_used) info += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">🪝 <b>Заход:</b> '+esc(r.hook_used)+'</div>';
+    if (r.reasoning) info += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">💭 '+esc(r.reasoning)+'</div>';
+    if (r.generated_at) info += '<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">сгенерировано: '+new Date(r.generated_at).toLocaleString('ru-RU')+'</div>';
+
+    var altsBlock = '';
+    if (alts.length){
+      altsBlock = '<details style="margin-top:10px;background:var(--surface-hi);border:1px solid var(--border);border-radius:10px;padding:8px 12px">' +
+        '<summary style="cursor:pointer;color:var(--accent);font-size:12px">Альтернативные варианты ('+alts.length+')</summary>' +
+        alts.map(function(a, i){
+          return '<div style="margin-top:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:13px;line-height:1.5">' +
+            '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">Вариант '+(i+2)+'</div>' +
+            esc(a) +
+            '<button data-use-alt="'+i+'" style="display:block;margin-top:6px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">↑ Использовать</button>' +
+          '</div>';
+        }).join('') +
+      '</details>';
+    }
+
+    var html =
+      info +
+      '<textarea id="vkDraftText" style="width:100%;min-height:180px;padding:12px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box">'+esc(r.draft||'')+'</textarea>' +
+      '<div style="font-size:10px;color:var(--text-dim);margin-top:4px;text-align:right" id="vkDraftCounter">'+(r.draft||'').length+' символов</div>' +
+      altsBlock +
+      '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">' +
+        '<button id="vkDraftCopy" style="flex:1;min-width:120px;padding:10px 14px;border-radius:10px;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer">📋 Скопировать</button>' +
+        '<a id="vkDraftOpenVk" href="'+esc(r.vk_chat_url||('https://vk.com/im?sel='+candVkId))+'" target="_blank" rel="noopener" '+
+          'style="flex:1;min-width:120px;padding:10px 14px;border-radius:10px;border:1px solid rgba(0,136,204,0.5);background:transparent;color:#0088cc;font:inherit;font-weight:600;cursor:pointer;text-align:center;text-decoration:none">💬 Открыть VK-чат</a>' +
+        '<button id="vkDraftSent" style="flex:1;min-width:120px;padding:10px 14px;border-radius:10px;border:1px solid rgba(52,211,153,0.5);background:transparent;color:var(--success);font:inherit;font-weight:600;cursor:pointer">✓ Отправил</button>' +
+        '<button id="vkDraftRegen" style="padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font:inherit;cursor:pointer" title="Перегенерировать">🔄</button>' +
+      '</div>' +
+      '<div id="vkDraftStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;text-align:center;min-height:14px"></div>';
+    document.getElementById('vkDraftBody').innerHTML = html;
+
+    var ta = document.getElementById('vkDraftText');
+    var counter = document.getElementById('vkDraftCounter');
+    ta.addEventListener('input', function(){ counter.textContent = ta.value.length + ' символов'; });
+
+    document.getElementById('vkDraftCopy').addEventListener('click', async function(){
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText){
+          await navigator.clipboard.writeText(ta.value);
+          document.getElementById('vkDraftStatus').textContent = '✓ Скопировано в буфер. Открой VK-чат и вставь.';
+        } else {
+          ta.select(); document.execCommand('copy');
+          document.getElementById('vkDraftStatus').textContent = '✓ Скопировано (fallback).';
+        }
+      } catch(e){
+        document.getElementById('vkDraftStatus').textContent = '⚠ Не удалось скопировать — выдели текст и Ctrl+C.';
+      }
+    });
+
+    document.getElementById('vkDraftSent').addEventListener('click', async function(){
+      var btn = this;
+      btn.disabled = true; btn.textContent = '…';
+      try {
+        await api('/api/admin/vk/candidates/'+encodeURIComponent(candId), {
+          method: 'PATCH', body: { status: 'contacted' },
+        });
+        document.getElementById('vkDraftStatus').textContent = '✓ Статус → contacted, дата зафиксирована.';
+        // Reload candidates list в фоне
+        if (sourceUid) filterCandidates(sourceUid, '');
+        setTimeout(closeDraftModal, 1200);
+      } catch(e){
+        btn.disabled = false; btn.textContent = '✓ Отправил';
+        document.getElementById('vkDraftStatus').textContent = '⚠ Ошибка обновления: '+esc(e.message);
+      }
+    });
+
+    document.getElementById('vkDraftRegen').addEventListener('click', async function(){
+      var btn = this;
+      btn.disabled = true; btn.textContent = '⏳';
+      document.getElementById('vkDraftStatus').textContent = 'Перегенерирую…';
+      try {
+        var r2 = await api('/api/admin/vk/candidates/'+encodeURIComponent(candId)+'/draft-message', { method: 'POST' });
+        renderDraftModal(sourceUid, candId, candVkId, r2);
+      } catch(e){
+        btn.disabled = false; btn.textContent = '🔄';
+        document.getElementById('vkDraftStatus').textContent = '⚠ Ошибка: '+esc(e.message);
+      }
+    });
+
+    document.querySelectorAll('button[data-use-alt]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var idx = parseInt(b.dataset.useAlt, 10);
+        if (alts[idx]){
+          ta.value = alts[idx];
+          counter.textContent = ta.value.length + ' символов';
+          document.getElementById('vkDraftStatus').textContent = 'Подставлен вариант '+(idx+2)+'. Не забудь скопировать.';
+        }
+      });
+    });
+  }
+
   async function findTwins(uid, btn){
     if (!uid) return;
     var prevHTML = btn ? btn.innerHTML : '';
@@ -371,6 +526,15 @@
       var status = c.status || 'new';
       var rowBg = status === 'rejected' ? 'opacity:0.5;' : '';
 
+      // Кнопка «✉️ Сообщение» — если черновик уже сгенерирован, показываем
+      // зелёным «✉️ ✓», иначе обычную «✉️ Написать».
+      var hasDraft = !!(c.draft_message && c.draft_message.length);
+      var msgBtn = '<button data-cand-id="'+c.id+'" data-cand-vk="'+c.vk_id+'" data-cand-source="'+sourceUid+'" data-act="draft" '+
+        'style="padding:4px 9px;border-radius:6px;border:1px solid '+(hasDraft?'rgba(52,211,153,0.5)':'rgba(167,139,250,0.4)')+';'+
+        'background:transparent;color:'+(hasDraft?'var(--success)':'var(--accent)')+';font:inherit;font-size:11px;cursor:pointer;white-space:nowrap" '+
+        'title="'+(hasDraft?'Открыть готовый черновик':'Сгенерировать черновик через ИИ')+'">'+
+        (hasDraft?'✉️ ✓':'✉️')+'</button>';
+
       return '<tr style="'+rowBg+'">' +
         '<td style="font-size:13px"><a href="'+esc(cd.url||('https://vk.com/id'+c.vk_id))+'" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">'+name+' ↗</a>'+
           (demo?'<div style="font-size:10px;color:var(--text-dim);margin-top:1px">'+demo+'</div>':'')+
@@ -378,18 +542,25 @@
         '<td style="text-align:center;font-weight:700;color:var(--accent)">'+c.match_score+'</td>' +
         '<td style="font-size:11px;max-width:200px">'+grpsHtml+'</td>' +
         '<td>'+statusBtns+'</td>' +
+        '<td style="text-align:center">'+msgBtn+'</td>' +
         '<td style="font-size:11px;color:var(--text-dim);white-space:nowrap">'+(c.found_at?new Date(c.found_at).toLocaleDateString('ru-RU'):'')+'</td>' +
       '</tr>';
     }).join('');
 
     document.getElementById('vkProfileBody').innerHTML =
       filtersBar +
-      '<table><thead><tr><th>Кандидат</th><th>Score</th><th>Совпадение по группам</th><th>Статус</th><th>Найден</th></tr></thead><tbody>'+rows+'</tbody></table>' +
-      '<div style="font-size:11px;color:var(--text-dim);margin-top:8px">Кликни по имени — открыть VK-страницу. Меняй статус через dropdown — сохранится автоматически.</div>';
+      '<table><thead><tr><th>Кандидат</th><th>Score</th><th>Совпадение по группам</th><th>Статус</th><th title="Сообщение">✉️</th><th>Найден</th></tr></thead><tbody>'+rows+'</tbody></table>' +
+      '<div style="font-size:11px;color:var(--text-dim);margin-top:8px">Кликни по имени — открыть VK-страницу. Кликни ✉️ — сгенерить или открыть черновик сообщения. Статус меняй через dropdown.</div>';
 
     document.querySelectorAll('select[data-cand-id][data-act="status"]').forEach(function(sel){
       sel.addEventListener('change', function(){
         updateCandidateStatus(sel.dataset.candId, sel.value, sel);
+      });
+    });
+    document.querySelectorAll('button[data-cand-id][data-act="draft"]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var existingDraft = items.find(function(it){ return String(it.id) === String(b.dataset.candId); });
+        openDraftModal(b.dataset.candSource, b.dataset.candId, b.dataset.candVk, existingDraft);
       });
     });
     document.querySelectorAll('button[data-cand-filter]').forEach(function(b){
