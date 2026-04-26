@@ -1332,7 +1332,14 @@
       var brColor = br >= 60 ? 'var(--error)' :
                     br >= 35 ? 'var(--warning)' :
                     br >= 15 ? 'var(--accent)' : 'var(--text-dim)';
-      var brChip = '<span style="font-size:10px;color:' + brColor + ';margin-left:6px;border:1px solid ' + brColor + ';padding:1px 6px;border-radius:4px" title="Яркость выраженности проблемы (по тексту): чем выше, тем прямее человек её проявляет">🔥 ' + br + '</span>';
+      // Тултип-расшифровка: какие именно слагаемые дали этот балл.
+      var brReasons = (c.brightness_reasons && c.brightness_reasons.length)
+        ? c.brightness_reasons.join('\n')
+        : 'нет данных для разбора';
+      var brTitle = 'Яркость выраженности проблемы (наведи для расшифровки):\n\n' +
+        brReasons + '\n\n' +
+        'Шкала: 0–14 серый, 15–34 синий, 35–59 жёлтый, 60+ красный.';
+      var brChip = '<span style="font-size:10px;color:' + brColor + ';margin-left:6px;border:1px solid ' + brColor + ';padding:1px 6px;border-radius:4px;cursor:help" title="' + esc(brTitle) + '">🔥 ' + br + '</span>';
       var closed = c.is_closed ? '<span style="font-size:10px;color:var(--warning);margin-left:6px;border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '';
       // Триггер-блок: коммент или пост, реальные слова человека.
       var trig = '';

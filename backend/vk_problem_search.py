@@ -43,14 +43,21 @@ _PAIN_MARKERS = re.compile(
 )
 
 
-def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> int:
-    """«Яркость выраженности проблемы» 0..100.
+def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> Dict[str, Any]:
+    """«Яркость выраженности проблемы» 0..100 + расшифровка по слагаемым.
 
-    Берём триггер-текст (коммент или пост), смотрим длину, считаем маркеры
-    боли и совпадения с seed_keywords категории, добавляем бонус за свежесть
-    последнего входа.
+    Возвращает {score: int, reasons: List[str], parts: Dict[str, int]}:
+      • reasons — человекочитаемые строки для тултипа («длинный текст +25», ...)
+      • parts — машинная разбивка: {length, pain, seed, exclam, ellipsis}.
+
+    Метрики:
+      • Длина триггер-текста (коммент / пост / status / about).
+      • Маркеры боли (regex по 20+ универсальным фразам).
+      • Совпадения с seed_keywords категории.
+      • Эмоциональная пунктуация.
     """
-    score = 0
+    parts: Dict[str, int] = {}
+    reasons: List[str] = []
 
     # Триггер-текст: для comment-source это текст коммента, для newsfeed —
     # текст поста, иначе пробуем status/about как слабый сигнал.
@@ -72,35 +79,49 @@ def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> int:
     # 1. Объём «исповеди»: чем больше, тем больше выражена боль.
     L = len(text)
     if L >= 80:
-        score += 25
+        parts["length"] = 25
+        reasons.append(f"длинный текст ({L} симв) +25")
     elif L >= 30:
-        score += 12
+        parts["length"] = 12
+        reasons.append(f"средний текст ({L} симв) +12")
     elif L > 0:
-        score += 5
+        parts["length"] = 5
+        reasons.append(f"короткий текст ({L} симв) +5")
+    else:
+        parts["length"] = 0
 
     # 2. Маркеры боли — каждый матч +5, потолок 30.
-    pain_hits = len(_PAIN_MARKERS.findall(text_lower))
-    score += min(pain_hits * 5, 30)
+    pain_matches = _PAIN_MARKERS.findall(text_lower)
+    pain_hits = len(pain_matches)
+    parts["pain"] = min(pain_hits * 5, 30)
+    if pain_hits:
+        sample = ", ".join(sorted(set(pain_matches))[:3])
+        reasons.append(f"{pain_hits} маркер(ов) боли «{sample}» +{parts['pain']}")
 
     # 3. Совпадения с seed_keywords категории (длинные фразы веса больше).
     keywords = (category_meta or {}).get("seed_keywords") or []
-    kw_hits = 0
+    kw_hits: List[str] = []
     for kw in keywords:
         if kw and kw.lower() in text_lower:
-            kw_hits += 1
-    score += min(kw_hits * 3, 20)
+            kw_hits.append(kw)
+    parts["seed"] = min(len(kw_hits) * 3, 20)
+    if kw_hits:
+        sample = ", ".join(kw_hits[:2])
+        reasons.append(f"{len(kw_hits)} совпад. seed «{sample}» +{parts['seed']}")
 
     # 4. Эмоциональная пунктуация (восклицания, многоточия).
+    parts["exclam"] = 0
+    parts["ellipsis"] = 0
     if "!" in text:
-        score += 3
+        parts["exclam"] = 3
+        reasons.append("восклицание +3")
     if "..." in text or "…" in text:
-        score += 2
+        parts["ellipsis"] = 2
+        reasons.append("многоточие +2")
 
-    # 5. Свежесть last_seen (если у нас есть _last_seen_ts на user-dict
-    # — мы его не сохранили; используем None-fallback).
-    # last_seen в карточку не положили; пропускаем — не критично.
-
-    return max(0, min(100, score))
+    score = sum(parts.values())
+    score = max(0, min(100, score))
+    return {"score": score, "reasons": reasons, "parts": parts}
 
 logger = logging.getLogger(__name__)
 
@@ -394,7 +415,10 @@ async def search_by_problem(
 
     # Считаем brightness один раз, кладём в карточку, чтобы UI мог показать.
     for c in candidates:
-        c["brightness"] = _brightness_score(c, cat)
+        br = _brightness_score(c, cat)
+        c["brightness"] = br["score"]
+        c["brightness_reasons"] = br["reasons"]
+        c["brightness_parts"] = br["parts"]
 
     def _score(c: Dict[str, Any]) -> int:
         s = 0

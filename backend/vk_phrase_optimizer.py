@@ -43,17 +43,24 @@ TIMEOUT_S = 60.0
 
 SYSTEM_PROMPT = (
     "Ты — оптимизатор поисковых фраз для русскоязычного VK. На вход дают категорию "
-    "(описание аудитории и боли) и текущий список фраз с их статистикой "
-    "(posts_seen — сколько постов нашлось, candidates_yielded — сколько живых "
-    "людей прошли наш фильтр).\n\n"
+    "(описание аудитории и боли) и текущий список фраз с их статистикой:\n"
+    "  • posts_seen — сколько постов нашлось\n"
+    "  • candidates_yielded — сколько живых людей прошли фильтр\n"
+    "  • drafts_made — для скольких из них оператор сгенерил черновик сообщения\n"
+    "    (САМЫЙ СИЛЬНЫЙ сигнал: оператор счёл кандидата стоящим — значит фраза\n"
+    "    нашла реально подходящих людей)\n\n"
     "Твоя задача:\n"
     "  • drop — фразы с posts_seen ≥ 30, но candidates_yielded ≤ 1: они слишком "
-    "    общие, ловят мусор. Или posts_seen ≤ 1: вообще не работают.\n"
-    "  • keep — фразы с разумным conversion (posts/candidates).\n"
+    "    общие, ловят мусор. Или posts_seen ≤ 1: вообще не работают. Или\n"
+    "    candidates_yielded ≥ 5, но drafts_made = 0 после нескольких прогонов:\n"
+    "    кандидаты есть, но не цепляют — фраза попадает не в ту аудиторию.\n"
+    "  • keep — фразы с разумной конверсией постов→кандидатов и (особенно)\n"
+    "    с drafts_made > 0.\n"
     "  • suggested — 4–8 НОВЫХ фраз, на которые можно ловить ту же аудиторию.\n"
-    "    Это должны быть РЕАЛЬНЫЕ фразы из бытовой русской речи: то, что человек "
-    "    в этом состоянии действительно пишет в посте/комменте VK. Без терминов, "
-    "    без мотивационных штампов. Длина 3–7 слов.\n\n"
+    "    Опирайся на топ-перформеров (особенно по drafts_made) — что у них\n"
+    "    общего? Это должны быть РЕАЛЬНЫЕ фразы из бытовой русской речи: то, что\n"
+    "    человек в этом состоянии действительно пишет в посте/комменте VK.\n"
+    "    Без терминов, без мотивационных штампов. Длина 3–7 слов.\n\n"
     "ФОРМАТ ВЫХОДА (строгий JSON, без markdown, без префиксов):\n"
     "{\n"
     "  \"keep\":      [\"фраза 1\", \"фраза 2\", ...],\n"
@@ -86,10 +93,11 @@ def _build_user_message(
         posts = r.get("posts_seen") or 0
         cands = r.get("candidates_yielded") or 0
         used = r.get("times_used") or 0
+        drafts = r.get("drafts_made") or 0
         ratio = f"{(cands * 100 / posts):.0f}%" if posts else "—"
         lines.append(
-            f"  • «{phrase}» — постов {posts}, кандидатов {cands} "
-            f"({ratio} конверсия), запусков {used}"
+            f"  • «{phrase}» — постов {posts}, кандидатов {cands}, "
+            f"черновиков {drafts} ({ratio} конверсия), запусков {used}"
         )
     lines.append("\nВерни JSON по схеме.")
     return "\n".join(lines)
@@ -127,6 +135,30 @@ async def track_phrase_performance(
                 """,
                 category, phrase, ps, cy,
             )
+
+
+async def track_drafts_made(db, category: str, phrase: str) -> None:
+    """+1 к drafts_made для фразы. Вызывается после успешного draft-by-problem.
+
+    Это самый сильный сигнал «эта фраза даёт людей, которым реально хочется
+    написать сообщение». Phrase optimizer учитывает этот счётчик при выборе
+    keep/drop.
+    """
+    if not category or not phrase:
+        return
+    async with db.get_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO fredi_vk_phrase_perf
+                (category, phrase, times_used, posts_seen, candidates_yielded,
+                 drafts_made, last_used_at)
+            VALUES ($1, $2, 0, 0, 0, 1, NOW())
+            ON CONFLICT (category, phrase) DO UPDATE SET
+                drafts_made = fredi_vk_phrase_perf.drafts_made + 1,
+                last_used_at = NOW()
+            """,
+            category, phrase,
+        )
 
 
 # ============================================================
@@ -206,6 +238,7 @@ async def optimize_phrases(db, category: str) -> Dict[str, Any]:
             "phrase": p,
             "posts_seen": (perf_by_phrase.get(p) or {}).get("posts_seen", 0),
             "candidates_yielded": (perf_by_phrase.get(p) or {}).get("candidates_yielded", 0),
+            "drafts_made": (perf_by_phrase.get(p) or {}).get("drafts_made", 0),
             "times_used": (perf_by_phrase.get(p) or {}).get("times_used", 0),
         }
         for p in current
