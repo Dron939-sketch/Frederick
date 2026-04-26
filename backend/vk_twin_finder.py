@@ -160,8 +160,16 @@ async def find_twins(
     members_per_group: int = 1000,
     max_candidates: int = 50,
     geo_scope: str = "auto",
+    min_intersections: int = 3,
 ) -> Dict[str, Any]:
     """Возвращает {candidates: [...], stats: {...}, groups_used: [...]}.
+
+    Этап 1 (этот модуль): поиск по интересам (пересечение marker-групп).
+    Этап 2 (опциональный, vk_twin_reranker): re-scoring по тематике постов.
+
+    min_intersections — минимальное число marker-групп, в которых должен
+    одновременно состоять кандидат, чтобы считаться «подходящим по интересам».
+    Default 3 — даёт точное попадание ценой меньшего числа кандидатов.
 
     geo_scope:
       - "auto"      → берём search_recommendation.geo_scope из features (если есть),
@@ -243,9 +251,17 @@ async def find_twins(
                     # тот же юзер в нескольких целевых группах — пересечение
                     member_groups[uid].append(g)
 
-    # Сначала фильтр по demographics (отсекает большинство — дешёвая операция)
+    # Phase 7: фильтр по min_intersections (минимум N marker-групп пересеклось).
+    # Резко режет шум: при min=1 кандидатов тысячи, при min=3 — десятки/сотни.
+    min_int = max(1, int(min_intersections))
+    after_intersect: Dict[int, Dict[str, Any]] = {
+        uid: u for uid, u in members.items()
+        if len(member_groups[uid]) >= min_int
+    }
+
+    # Затем фильтр по demographics
     after_demo: List[Tuple[int, Dict[str, Any]]] = []
-    for uid, u in members.items():
+    for uid, u in after_intersect.items():
         if _matches_demographics(u, target_sex, age_range, city_id, city_name,
                                   geo_scope=geo_scope, country_id=country_id):
             after_demo.append((uid, u))
@@ -266,6 +282,8 @@ async def find_twins(
             "groups_scanned": len(groups_to_scan),
             "members_fetched": members_fetched,
             "unique_members": len(members),
+            "min_intersections": min_int,
+            "after_intersection_filter": len(after_intersect),
             "after_demo_filter": len(after_demo),
             "returned": len(candidates),
         },
