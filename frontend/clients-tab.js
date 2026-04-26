@@ -158,6 +158,7 @@
         '<td style="text-align:right;white-space:nowrap">' +
           '<button data-act="profile" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface-hi);color:var(--text);font:inherit;font-size:12px;cursor:pointer;margin-right:4px">📋 Образ</button>' +
           '<button data-act="dig" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;margin-right:4px" title="Парсить VK-страницу">🔍 Копать</button>' +
+          '<button data-act="features" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(52,211,153,0.4);background:transparent;color:var(--success);font:inherit;font-size:12px;cursor:pointer;margin-right:4px" title="Извлечь признаки через ИИ (нужно сначала «Копать»)">🧠 Признаки</button>' +
           '<button data-act="unlink" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(248,113,113,0.4);background:transparent;color:var(--error);font:inherit;font-size:12px;cursor:pointer">🗑</button>' +
         '</td></tr>';
     }).join('');
@@ -170,6 +171,7 @@
         var uid = b.dataset.uid;
         if (b.dataset.act === 'profile') openProfile(uid);
         else if (b.dataset.act === 'dig') dig(uid, b);
+        else if (b.dataset.act === 'features') extractFeatures(uid, b);
         else if (b.dataset.act === 'unlink') unlink(uid);
       });
     });
@@ -253,6 +255,26 @@
       await loadVkTab();
     } catch(e){
       alert('Ошибка парсинга: ' + (e.message || ''));
+      if (btn){ btn.disabled = false; btn.innerHTML = prevHTML; }
+    }
+  }
+
+  async function extractFeatures(uid, btn){
+    if (!uid) return;
+    var prevHTML = btn ? btn.innerHTML : '';
+    if (btn){ btn.disabled = true; btn.innerHTML = '⏳ думаю…'; }
+    try {
+      var r = await api('/api/admin/vk/extract-features/'+encodeURIComponent(uid), { method: 'POST' });
+      var f = (r && r.features) || {};
+      var lines = ['✓ Признаки извлечены'];
+      if (f.problem_summary) lines.push('• ' + f.problem_summary);
+      if (f.key_themes && f.key_themes.length) lines.push('Темы: ' + f.key_themes.slice(0,5).join(', '));
+      if (f.marker_groups && f.marker_groups.length) lines.push('Marker-группы: ' + f.marker_groups.length);
+      if (f.marker_keywords && f.marker_keywords.length) lines.push('Marker-слов: ' + f.marker_keywords.length);
+      alert(lines.join('\n'));
+      if (btn){ btn.disabled = false; btn.innerHTML = '✓ Признаки'; setTimeout(function(){ btn.innerHTML = prevHTML; }, 1500); }
+    } catch(e){
+      alert('Ошибка извлечения: ' + (e.message || ''));
       if (btn){ btn.disabled = false; btn.innerHTML = prevHTML; }
     }
   }
@@ -342,6 +364,64 @@
           wallLine + grpRows +
           '<details style="margin-top:8px;background:transparent;border:0;padding:0"><summary style="cursor:pointer;color:var(--accent);font-size:11px">сырой JSON</summary>' +
           '<pre style="margin:4px 0 0;font-size:10px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;color:var(--text-dim);max-height:400px;overflow:auto">'+esc(JSON.stringify(vd,null,2))+'</pre></details>' +
+        '</div>';
+      }
+
+      // Phase 3: ИИ-«слепок» — структурированные признаки для поиска близнецов.
+      if (v.features && typeof v.features === 'object'){
+        var ff = v.features;
+        var when = v.features_extracted_at ? new Date(v.features_extracted_at).toLocaleString('ru-RU') : '';
+        var fbits = '';
+        if (ff.problem_summary){
+          fbits += '<div style="font-size:13px;margin-bottom:8px"><b>📝 ' + esc(ff.problem_summary) + '</b></div>';
+        }
+        if (ff.key_themes && ff.key_themes.length){
+          fbits += '<div style="font-size:12px;margin-bottom:6px"><b style="color:var(--accent)">Темы:</b> ' +
+            ff.key_themes.map(function(t){
+              return '<span style="display:inline-block;background:rgba(167,139,250,0.12);border:1px solid rgba(167,139,250,0.3);border-radius:6px;padding:1px 7px;margin:0 4px 4px 0;font-size:11px">'+esc(t)+'</span>';
+            }).join('') + '</div>';
+        }
+        if (ff.marker_groups && ff.marker_groups.length){
+          fbits += '<div style="font-size:12px;margin-bottom:6px"><b style="color:var(--accent)">Marker-группы (' + ff.marker_groups.length + '):</b><ul style="margin:4px 0 0 18px;padding:0">' +
+            ff.marker_groups.slice(0,10).map(function(g){
+              var nm = esc(g && g.name || '—');
+              var url = g && g.id ? 'https://vk.com/club'+g.id : (g && g.screen_name ? 'https://vk.com/'+g.screen_name : '');
+              return '<li>' + (url ? '<a href="'+esc(url)+'" target="_blank" rel="noopener" style="color:var(--text)">'+nm+'</a>' : nm) + '</li>';
+            }).join('') + '</ul></div>';
+        }
+        if (ff.marker_keywords && ff.marker_keywords.length){
+          fbits += '<div style="font-size:12px;margin-bottom:6px"><b style="color:var(--accent)">Marker-слова:</b> ' +
+            ff.marker_keywords.map(function(k){
+              return '<code style="background:rgba(255,255,255,0.06);border-radius:4px;padding:1px 5px;margin:0 3px 3px 0;display:inline-block;font-size:11px">'+esc(k)+'</code>';
+            }).join(' ') + '</div>';
+        }
+        var demo = ff.demographics || {};
+        var demoLine = [];
+        if (demo.sex) demoLine.push('пол: ' + esc(demo.sex));
+        if (demo.age_range && demo.age_range.length === 2) demoLine.push('возраст: ' + demo.age_range[0]+'–'+demo.age_range[1]);
+        if (demo.city) demoLine.push('город: ' + esc(demo.city));
+        if (demoLine.length){
+          fbits += '<div style="font-size:12px;margin-bottom:4px"><b style="color:var(--accent)">Демография:</b> ' + demoLine.join(' · ') + '</div>';
+        }
+        if (ff.post_tone){
+          fbits += '<div style="font-size:12px;margin-bottom:4px"><b style="color:var(--accent)">Тональность постов:</b> ' + esc(ff.post_tone) + '</div>';
+        }
+        if (ff.activity_pattern){
+          fbits += '<div style="font-size:12px;margin-bottom:4px"><b style="color:var(--accent)">Активность:</b> ' + esc(ff.activity_pattern) + '</div>';
+        }
+        if (ff.search_strategies && ff.search_strategies.length){
+          fbits += '<div style="font-size:12px;margin-top:8px"><b style="color:var(--accent)">Стратегии поиска близнецов:</b><ol style="margin:4px 0 0 18px;padding:0">' +
+            ff.search_strategies.map(function(s){ return '<li>'+esc(s)+'</li>'; }).join('') + '</ol></div>';
+        }
+
+        html += '<div style="background:rgba(255,191,36,0.06);border:1px solid rgba(255,191,36,0.3);border-radius:10px;padding:10px 14px;margin-bottom:14px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">' +
+            '<span>🧠 ИИ-слепок (для поиска близнецов)</span>' +
+            (when ? '<span style="text-transform:none;letter-spacing:normal">' + when + '</span>' : '') +
+          '</div>' +
+          fbits +
+          '<details style="margin-top:8px;background:transparent;border:0;padding:0"><summary style="cursor:pointer;color:var(--accent);font-size:11px">сырой JSON слепка</summary>' +
+          '<pre style="margin:4px 0 0;font-size:10px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;color:var(--text-dim);max-height:400px;overflow:auto">'+esc(JSON.stringify(ff,null,2))+'</pre></details>' +
         '</div>';
       }
     }
