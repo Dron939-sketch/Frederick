@@ -159,6 +159,7 @@
           '<button data-act="profile" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface-hi);color:var(--text);font:inherit;font-size:12px;cursor:pointer;margin-right:4px">📋 Образ</button>' +
           '<button data-act="dig" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;margin-right:4px" title="Парсить VK-страницу">🔍 Копать</button>' +
           '<button data-act="features" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(52,211,153,0.4);background:transparent;color:var(--success);font:inherit;font-size:12px;cursor:pointer;margin-right:4px" title="Извлечь признаки через ИИ (нужно сначала «Копать»)">🧠 Признаки</button>' +
+          '<button data-act="twins" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(251,191,36,0.4);background:transparent;color:var(--warning);font:inherit;font-size:12px;cursor:pointer;margin-right:4px" title="Найти близнецов в VK (нужно сначала «Признаки»)">🎯 Близнецы</button>' +
           '<button data-act="unlink" data-uid="'+r.user_id+'" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(248,113,113,0.4);background:transparent;color:var(--error);font:inherit;font-size:12px;cursor:pointer">🗑</button>' +
         '</td></tr>';
     }).join('');
@@ -172,6 +173,7 @@
         if (b.dataset.act === 'profile') openProfile(uid);
         else if (b.dataset.act === 'dig') dig(uid, b);
         else if (b.dataset.act === 'features') extractFeatures(uid, b);
+        else if (b.dataset.act === 'twins') findTwins(uid, b);
         else if (b.dataset.act === 'unlink') unlink(uid);
       });
     });
@@ -276,6 +278,156 @@
     } catch(e){
       alert('Ошибка извлечения: ' + (e.message || ''));
       if (btn){ btn.disabled = false; btn.innerHTML = prevHTML; }
+    }
+  }
+
+  async function findTwins(uid, btn){
+    if (!uid) return;
+    var prevHTML = btn ? btn.innerHTML : '';
+    if (btn){ btn.disabled = true; btn.innerHTML = '⏳ ищу…'; }
+    try {
+      var r = await api('/api/admin/vk/find-twins/'+encodeURIComponent(uid)+'?max_groups=3&max_candidates=50', { method: 'POST' });
+      var s = r.stats || {};
+      var msg = '✓ Поиск завершён\n';
+      msg += 'Просканировано групп: ' + (s.groups_scanned||0) + '\n';
+      msg += 'Загружено участников: ' + (s.members_fetched||0) + '\n';
+      msg += 'Уникальных: ' + (s.unique_members||0) + '\n';
+      msg += 'После фильтра по демографии: ' + (s.after_demo_filter||0) + '\n';
+      msg += 'Записано кандидатов: ' + (s.returned||0);
+      if (r.note) msg += '\n\n' + r.note;
+      alert(msg);
+      if (btn){ btn.disabled = false; btn.innerHTML = prevHTML; }
+      // Сразу открываем drawer кандидатов
+      openCandidates(uid);
+    } catch(e){
+      alert('Ошибка поиска: ' + (e.message || ''));
+      if (btn){ btn.disabled = false; btn.innerHTML = prevHTML; }
+    }
+  }
+
+  // Drawer со списком кандидатов («близнецов»). Используем тот же overlay
+  // что для собирательного образа, но с другим заголовком и контентом.
+  async function openCandidates(uid){
+    var ov = document.getElementById('vkProfileOverlay');
+    ov.style.display = 'flex';
+    document.getElementById('vkProfileTitle').textContent = '🎯 Близнецы для user_id=' + uid;
+    document.getElementById('vkProfileSub').textContent = 'Загружаю…';
+    document.getElementById('vkProfileBody').innerHTML = '<div class="empty">Загрузка…</div>';
+    try {
+      var d = await api('/api/admin/vk/candidates/'+encodeURIComponent(uid)+'?limit=100');
+      renderCandidates(uid, d);
+    } catch(e){
+      document.getElementById('vkProfileBody').innerHTML = '<div class="err">'+esc(e.message)+'</div>';
+    }
+  }
+
+  function renderCandidates(sourceUid, d){
+    var items = (d && d.items) || [];
+    document.getElementById('vkProfileSub').textContent = 'Всего найдено: ' + (d.total||0);
+    if (!items.length){
+      document.getElementById('vkProfileBody').innerHTML =
+        '<div class="empty">Близнецов нет. Жми «🎯 Близнецы» в строке таблицы для запуска поиска.</div>';
+      return;
+    }
+
+    var statusFilters = ['all','new','reviewed','contacted','responded','rejected'];
+    var filtersBar = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">' +
+      statusFilters.map(function(s){
+        return '<button data-cand-filter="'+s+'" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface-hi);color:var(--text);font:inherit;font-size:11px;cursor:pointer">'+
+          (s==='all'?'все':s)+'</button>';
+      }).join('') + '</div>';
+
+    var rows = items.map(function(c){
+      var cd = c.data || {};
+      var name = esc((cd.first_name||'') + ' ' + (cd.last_name||'')).trim() || ('id'+c.vk_id);
+      var demoBits = [];
+      if (cd.sex === 1) demoBits.push('♀');
+      else if (cd.sex === 2) demoBits.push('♂');
+      if (cd.bdate) demoBits.push(esc(cd.bdate));
+      if (cd.city) demoBits.push('🏙 '+esc(cd.city));
+      var demo = demoBits.join(' · ');
+
+      var grpsHtml = (c.matched_groups||[]).map(function(g){
+        return '<span style="display:inline-block;background:rgba(167,139,250,0.12);border:1px solid rgba(167,139,250,0.3);border-radius:4px;padding:1px 5px;margin:0 3px 2px 0;font-size:10px">'+esc(g.name||'?')+'</span>';
+      }).join('');
+
+      var statusColors = {
+        'new': 'var(--text-dim)',
+        'reviewed': 'var(--accent)',
+        'contacted': 'var(--accent-2)',
+        'responded': 'var(--success)',
+        'rejected': 'var(--text-dim)',
+        'scheduled': 'var(--warning)',
+      };
+      var statusColor = statusColors[c.status] || 'var(--text-dim)';
+
+      var statusBtns =
+        '<select data-cand-id="'+c.id+'" data-act="status" style="background:var(--surface-hi);color:'+statusColor+';border:1px solid var(--border);border-radius:5px;padding:2px 6px;font:inherit;font-size:11px;cursor:pointer">' +
+          ['new','reviewed','contacted','responded','rejected','scheduled'].map(function(st){
+            return '<option value="'+st+'"'+(st===c.status?' selected':'')+'>'+st+'</option>';
+          }).join('') +
+        '</select>';
+
+      var status = c.status || 'new';
+      var rowBg = status === 'rejected' ? 'opacity:0.5;' : '';
+
+      return '<tr style="'+rowBg+'">' +
+        '<td style="font-size:13px"><a href="'+esc(cd.url||('https://vk.com/id'+c.vk_id))+'" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">'+name+' ↗</a>'+
+          (demo?'<div style="font-size:10px;color:var(--text-dim);margin-top:1px">'+demo+'</div>':'')+
+          (cd.status?'<div style="font-size:10px;color:var(--text-dim);margin-top:2px;font-style:italic">"'+esc(cd.status.slice(0,80))+'"</div>':'')+'</td>' +
+        '<td style="text-align:center;font-weight:700;color:var(--accent)">'+c.match_score+'</td>' +
+        '<td style="font-size:11px;max-width:200px">'+grpsHtml+'</td>' +
+        '<td>'+statusBtns+'</td>' +
+        '<td style="font-size:11px;color:var(--text-dim);white-space:nowrap">'+(c.found_at?new Date(c.found_at).toLocaleDateString('ru-RU'):'')+'</td>' +
+      '</tr>';
+    }).join('');
+
+    document.getElementById('vkProfileBody').innerHTML =
+      filtersBar +
+      '<table><thead><tr><th>Кандидат</th><th>Score</th><th>Совпадение по группам</th><th>Статус</th><th>Найден</th></tr></thead><tbody>'+rows+'</tbody></table>' +
+      '<div style="font-size:11px;color:var(--text-dim);margin-top:8px">Кликни по имени — открыть VK-страницу. Меняй статус через dropdown — сохранится автоматически.</div>';
+
+    document.querySelectorAll('select[data-cand-id][data-act="status"]').forEach(function(sel){
+      sel.addEventListener('change', function(){
+        updateCandidateStatus(sel.dataset.candId, sel.value, sel);
+      });
+    });
+    document.querySelectorAll('button[data-cand-filter]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var st = b.dataset.candFilter;
+        filterCandidates(sourceUid, st === 'all' ? '' : st);
+      });
+    });
+  }
+
+  async function filterCandidates(uid, status){
+    document.getElementById('vkProfileBody').innerHTML = '<div class="empty">Фильтрую…</div>';
+    try {
+      var d = await api('/api/admin/vk/candidates/'+encodeURIComponent(uid)+'?limit=100' +
+        (status?'&status='+encodeURIComponent(status):''));
+      renderCandidates(uid, d);
+    } catch(e){
+      document.getElementById('vkProfileBody').innerHTML = '<div class="err">'+esc(e.message)+'</div>';
+    }
+  }
+
+  async function updateCandidateStatus(candId, newStatus, sel){
+    var prev = sel.dataset.prev || '';
+    sel.disabled = true;
+    try {
+      await api('/api/admin/vk/candidates/'+encodeURIComponent(candId), {
+        method: 'PATCH', body: { status: newStatus },
+      });
+      sel.dataset.prev = newStatus;
+      // визуальная подсветка успеха
+      sel.style.borderColor = 'var(--success)';
+      setTimeout(function(){ sel.style.borderColor = 'var(--border)'; }, 800);
+    } catch(e){
+      alert('Не удалось обновить статус: ' + (e.message||''));
+      // откатываем визуально
+      sel.value = prev || 'new';
+    } finally {
+      sel.disabled = false;
     }
   }
 
