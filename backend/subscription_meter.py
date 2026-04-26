@@ -1,6 +1,6 @@
 """
 subscription_meter.py - Fading Fredi logic.
-Free sessions: 30 -> 20 -> 10 -> 0 minutes.
+Free sessions: 25 -> 15 -> 5 -> 0 minutes.
 Cooldown: 2 hours between sessions.
 Subscription: unlimited access.
 """
@@ -12,9 +12,9 @@ from typing import Dict, Any, Tuple
 logger = logging.getLogger(__name__)
 
 SESSION_LIMITS = {
-    1: 30,
-    2: 20,
-    3: 10,
+    1: 25,
+    2: 15,
+    3: 5,
 }
 DEFAULT_LIMIT = 0
 
@@ -73,9 +73,9 @@ class SubscriptionMeter:
                 "is_premium": False,
                 "is_on_cooldown": False,
                 "can_send": True,
-                "remaining_minutes": 30,
+                "remaining_minutes": 25,
                 "free_session_count": 0,
-                "next_session_limit_minutes": 30,
+                "next_session_limit_minutes": 25,
                 "used_minutes_today": 0,
             }
 
