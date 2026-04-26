@@ -51,6 +51,14 @@
       '</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">' +
         '<input id="vkSearch" type="text" placeholder="🔍 поиск по user_id, vk_id, имени…" style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit">' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);white-space:nowrap" title="Где искать близнецов при нажатии 🎯 Близнецы">' +
+          '<select id="vkGeoScope" style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px;cursor:pointer">' +
+            '<option value="auto">🎯 авто (по слепку)</option>' +
+            '<option value="same_city">🎯 в том же городе</option>' +
+            '<option value="russia">🎯 по всей России</option>' +
+            '<option value="worldwide">🎯 по всему миру</option>' +
+          '</select>' +
+        '</label>' +
         '<button id="vkRefresh" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄</button>' +
       '</div>' +
       '<div id="vkLinksTable"></div>';
@@ -93,6 +101,15 @@
     });
     document.getElementById('vkProfileClose').addEventListener('click', closeProfile);
     ov.addEventListener('click', function(e){ if (e.target === ov) closeProfile(); });
+
+    // Phase 6: персистим выбор geo_scope в localStorage
+    try {
+      var savedGeo = localStorage.getItem('vk_geo_scope');
+      if (savedGeo) document.getElementById('vkGeoScope').value = savedGeo;
+    } catch(e) {}
+    document.getElementById('vkGeoScope').addEventListener('change', function(e){
+      try { localStorage.setItem('vk_geo_scope', e.target.value); } catch(_){}
+    });
   }
 
   function activateVkTab(){
@@ -324,6 +341,7 @@
         alternatives: existing.draft_alternatives || [],
         reasoning: (existing.draft_meta && existing.draft_meta.reasoning) || '',
         hook_used: (existing.draft_meta && existing.draft_meta.hook_used) || '',
+        pain_targeted: (existing.draft_meta && existing.draft_meta.pain_targeted) || '',
         vk_chat_url: 'https://vk.com/im?sel=' + candVkId,
         generated_at: existing.draft_generated_at,
       });
@@ -343,6 +361,7 @@
   function renderDraftModal(sourceUid, candId, candVkId, r){
     var alts = r.alternatives || [];
     var info = '';
+    if (r.pain_targeted) info += '<div style="background:rgba(248,113,113,0.08);border-left:3px solid var(--error);padding:6px 10px;margin-bottom:8px;border-radius:4px;font-size:12px">🔥 <b>Цель крючка:</b> '+esc(r.pain_targeted)+'</div>';
     if (r.hook_used) info += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">🪝 <b>Заход:</b> '+esc(r.hook_used)+'</div>';
     if (r.reasoning) info += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">💭 '+esc(r.reasoning)+'</div>';
     if (r.generated_at) info += '<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">сгенерировано: '+new Date(r.generated_at).toLocaleString('ru-RU')+'</div>';
@@ -441,7 +460,9 @@
     var prevHTML = btn ? btn.innerHTML : '';
     if (btn){ btn.disabled = true; btn.innerHTML = '⏳ ищу…'; }
     try {
-      var r = await api('/api/admin/vk/find-twins/'+encodeURIComponent(uid)+'?max_groups=3&max_candidates=50', { method: 'POST' });
+      var geoScope = (document.getElementById('vkGeoScope') || {}).value || 'auto';
+      var r = await api('/api/admin/vk/find-twins/'+encodeURIComponent(uid)+
+        '?max_groups=3&max_candidates=50&geo_scope='+encodeURIComponent(geoScope), { method: 'POST' });
       var s = r.stats || {};
       var msg = '✓ Поиск завершён\n';
       msg += 'Просканировано групп: ' + (s.groups_scanned||0) + '\n';
@@ -690,13 +711,37 @@
         '</div>';
       }
 
-      // Phase 3: ИИ-«слепок» — структурированные признаки для поиска близнецов.
+      // Phase 3+6: ИИ-«слепок» — структурированные признаки + pain_point для крючка.
       if (v.features && typeof v.features === 'object'){
         var ff = v.features;
         var when = v.features_extracted_at ? new Date(v.features_extracted_at).toLocaleString('ru-RU') : '';
         var fbits = '';
+        // Phase 6: pain_point — главный крючок. Выделяем красно-розовым.
+        if (ff.pain_point){
+          fbits += '<div style="background:rgba(248,113,113,0.08);border-left:3px solid var(--error);padding:8px 12px;margin-bottom:10px;border-radius:4px">' +
+            '<div style="font-size:10px;color:var(--error);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px">🔥 Активная боль</div>' +
+            '<div style="font-size:14px;font-weight:600;line-height:1.4">'+esc(ff.pain_point)+'</div>' +
+          '</div>';
+        }
+        if (ff.desired_outcome){
+          fbits += '<div style="background:rgba(52,211,153,0.08);border-left:3px solid var(--success);padding:8px 12px;margin-bottom:10px;border-radius:4px">' +
+            '<div style="font-size:10px;color:var(--success);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px">🎯 Чего хочет</div>' +
+            '<div style="font-size:13px;line-height:1.4">'+esc(ff.desired_outcome)+'</div>' +
+          '</div>';
+        }
+        if (ff.evidence_in_dialogue && ff.evidence_in_dialogue.length){
+          fbits += '<div style="font-size:12px;margin-bottom:8px"><b style="color:var(--accent)">📝 Цитаты из диалогов:</b><ul style="margin:4px 0 0 18px;padding:0;font-style:italic;color:var(--text-dim)">' +
+            ff.evidence_in_dialogue.map(function(q){ return '<li>«'+esc(q)+'»</li>'; }).join('') + '</ul></div>';
+        }
+        if (ff.evidence_in_vk && ff.evidence_in_vk.length){
+          fbits += '<div style="font-size:12px;margin-bottom:8px"><b style="color:var(--accent)">👁 Маркеры в VK:</b><ul style="margin:4px 0 0 18px;padding:0;color:var(--text-dim)">' +
+            ff.evidence_in_vk.map(function(o){ return '<li>'+esc(o)+'</li>'; }).join('') + '</ul></div>';
+        }
+        if (ff.vulnerability_window && ff.vulnerability_window !== 'недостаточно данных'){
+          fbits += '<div style="font-size:12px;margin-bottom:8px"><b style="color:var(--accent)">🪟 Окно открытости:</b> '+esc(ff.vulnerability_window)+'</div>';
+        }
         if (ff.problem_summary){
-          fbits += '<div style="font-size:13px;margin-bottom:8px"><b>📝 ' + esc(ff.problem_summary) + '</b></div>';
+          fbits += '<div style="font-size:12px;margin-bottom:8px;color:var(--text-dim)"><b style="color:var(--accent)">Контекст:</b> ' + esc(ff.problem_summary) + '</div>';
         }
         if (ff.key_themes && ff.key_themes.length){
           fbits += '<div style="font-size:12px;margin-bottom:6px"><b style="color:var(--accent)">Темы:</b> ' +
@@ -731,6 +776,19 @@
         }
         if (ff.activity_pattern){
           fbits += '<div style="font-size:12px;margin-bottom:4px"><b style="color:var(--accent)">Активность:</b> ' + esc(ff.activity_pattern) + '</div>';
+        }
+        // Phase 6: ИИ рекомендует географию поиска
+        var rec = ff.search_recommendation || {};
+        if (rec.geo_scope){
+          var geoLabel = ({
+            same_city: 'в том же городе',
+            russia: 'по всей России',
+            worldwide: 'по всему миру',
+          })[rec.geo_scope] || rec.geo_scope;
+          fbits += '<div style="font-size:12px;margin-top:8px;padding:6px 10px;background:rgba(167,139,250,0.08);border-radius:6px">' +
+            '<b style="color:var(--accent)">📍 Где ИИ советует искать:</b> '+esc(geoLabel)+
+            (rec.rationale ? ' <span style="color:var(--text-dim)">— '+esc(rec.rationale)+'</span>' : '') +
+          '</div>';
         }
         if (ff.search_strategies && ff.search_strategies.length){
           fbits += '<div style="font-size:12px;margin-top:8px"><b style="color:var(--accent)">Стратегии поиска близнецов:</b><ol style="margin:4px 0 0 18px;padding:0">' +
