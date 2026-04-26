@@ -143,7 +143,27 @@ def register_vk_routes(app, db):
                 "CREATE INDEX IF NOT EXISTS idx_fredi_vk_candidates_status "
                 "ON fredi_vk_candidates(status)"
             )
-        logger.info("VK profiles + candidates tables ready (phase 4)")
+            # Phase 5A: черновик сообщения и метаданные генерации.
+            try:
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS draft_message TEXT"
+                )
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS draft_alternatives JSONB"
+                )
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS draft_meta JSONB"
+                )
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS draft_generated_at TIMESTAMP WITH TIME ZONE"
+                )
+            except Exception as e:
+                logger.warning(f"draft columns migration skipped: {e}")
+        logger.info("VK profiles + candidates tables ready (phase 5A)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -689,7 +709,8 @@ def register_vk_routes(app, db):
 
         sql = (
             "SELECT id, candidate_vk_id, candidate_data, match_score, matched_groups, "
-            "       status, notes, found_at, contacted_at "
+            "       status, notes, found_at, contacted_at, "
+            "       draft_message, draft_alternatives, draft_meta, draft_generated_at "
             "FROM fredi_vk_candidates WHERE source_user_id = $1 "
         )
         args: list = [uid]
@@ -727,6 +748,12 @@ def register_vk_routes(app, db):
                 "notes": r["notes"] or "",
                 "found_at": r["found_at"].isoformat() if r["found_at"] else None,
                 "contacted_at": r["contacted_at"].isoformat() if r["contacted_at"] else None,
+                "draft_message": r["draft_message"] or "",
+                "draft_alternatives": _jb(r["draft_alternatives"]) or [],
+                "draft_meta": _jb(r["draft_meta"]) or {},
+                "draft_generated_at": (
+                    r["draft_generated_at"].isoformat() if r["draft_generated_at"] else None
+                ),
             } for r in rows],
         }
 
@@ -763,5 +790,105 @@ def register_vk_routes(app, db):
         if res.endswith(" 0"):
             raise HTTPException(status_code=404, detail={"error": "candidate_not_found"})
         return {"ok": True, "id": int(candidate_id)}
+
+    @app.post("/api/admin/vk/candidates/{candidate_id}/draft-message")
+    async def vk_draft_message(
+        candidate_id: int,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Phase 5A: сгенерировать черновик личного сообщения кандидату.
+
+        Берёт features исходного source_user_id (что за проблематика) +
+        candidate_data (имя, статус, общие группы), шлёт в DeepSeek через
+        vk_outreach. Сохраняет черновик в fredi_vk_candidates.draft_message.
+
+        НЕ отправляет — только генерит. Отправляет оператор вручную.
+        """
+        _check_admin(x_admin_token)
+        cid = int(candidate_id)
+
+        async with db.get_connection() as conn:
+            cand = await conn.fetchrow(
+                "SELECT id, source_user_id, candidate_vk_id, candidate_data, matched_groups "
+                "FROM fredi_vk_candidates WHERE id = $1", cid,
+            )
+            if not cand:
+                raise HTTPException(status_code=404, detail={"error": "candidate_not_found"})
+            src = await conn.fetchrow(
+                "SELECT features FROM fredi_vk_profiles WHERE user_id = $1",
+                int(cand["source_user_id"]),
+            )
+
+        if not src or src["features"] is None:
+            raise HTTPException(status_code=409, detail={
+                "error": "no_features",
+                "message": "У source-юзера нет features — сначала «🧠 Признаки»",
+            })
+
+        def _jb(v):
+            if v is None:
+                return None
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return v
+            return v
+
+        features = _jb(src["features"]) or {}
+        cand_payload = {
+            "data": _jb(cand["candidate_data"]) or {},
+            "matched_groups": _jb(cand["matched_groups"]) or [],
+        }
+
+        try:
+            from vk_outreach import draft_message as _draft
+        except Exception as e:
+            logger.error(f"vk_outreach import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_unavailable",
+                "message": "Модуль vk_outreach недоступен",
+            })
+
+        try:
+            result = await _draft(features, cand_payload)
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "deepseek_error", "message": str(e),
+            })
+
+        draft = (result.get("draft") or "").strip()
+        alts = result.get("alternatives") or []
+        meta = {
+            "reasoning": result.get("reasoning") or "",
+            "hook_used": result.get("hook_used") or "",
+            "_meta": result.get("_meta") or {},
+        }
+
+        async with db.get_connection() as conn:
+            # При первой генерации статус new → reviewed (оператор посмотрел
+            # черновик = просмотрел кандидата). Если уже > reviewed, не трогаем.
+            await conn.execute(
+                "UPDATE fredi_vk_candidates "
+                "SET draft_message = $1, draft_alternatives = $2::jsonb, "
+                "    draft_meta = $3::jsonb, draft_generated_at = NOW(), "
+                "    status = CASE WHEN status = 'new' THEN 'reviewed' ELSE status END "
+                "WHERE id = $4",
+                draft,
+                json.dumps(alts, ensure_ascii=False),
+                json.dumps(meta, ensure_ascii=False),
+                cid,
+            )
+
+        return {
+            "ok": True,
+            "candidate_id": cid,
+            "candidate_vk_id": cand["candidate_vk_id"],
+            "draft": draft,
+            "alternatives": alts,
+            "reasoning": meta["reasoning"],
+            "hook_used": meta["hook_used"],
+            "vk_chat_url": f"https://vk.com/im?sel={cand['candidate_vk_id']}",
+        }
 
     return init_vk_table
