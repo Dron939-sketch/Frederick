@@ -406,7 +406,10 @@ def schedule_summarize_in_background(user_id: int) -> None:
 def register_session_memory_routes(app, db):
     """Эндпоинты управления памятью под X-Admin-Token."""
     from fastapi import HTTPException, Header
-    from typing import Optional as _Opt
+    # Раньше тут был `from typing import Optional as _Opt` — алиас в локальной
+    # области функции, который Pydantic v2.5 не видит при разрешении
+    # аннотаций (eval_type ищет в module globals). Берём уже импортированный
+    # на модульном уровне Optional.
 
     def _check_admin(token):
         expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
@@ -418,7 +421,7 @@ def register_session_memory_routes(app, db):
     @app.post("/api/admin/fredi/summarize-session/{user_id}")
     async def summarize_session_endpoint(
         user_id: int,
-        x_admin_token: _Opt[str] = Header(default=None),
+        x_admin_token: Optional[str] = Header(default=None),
     ):
         """Ручной триггер суммаризации последней закрытой сессии юзера."""
         _check_admin(x_admin_token)
@@ -431,7 +434,7 @@ def register_session_memory_routes(app, db):
     async def list_sessions(
         user_id: int,
         limit: int = 20,
-        x_admin_token: _Opt[str] = Header(default=None),
+        x_admin_token: Optional[str] = Header(default=None),
     ):
         """Список сводок сессий юзера."""
         _check_admin(x_admin_token)
