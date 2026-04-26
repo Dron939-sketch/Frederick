@@ -73,6 +73,9 @@ async def search_authors_by_phrases(
     # uid → первая фраза, по которой нашли. Чтобы не атрибутировать одного
     # автора нескольким фразам.
     uid_to_phrase: Dict[int, str] = {}
+    # uid → текст первого поста этого автора + URL. Copywriter использует
+    # реальные слова человека как эхо-зацепку (без прямого цитирования).
+    uid_to_post: Dict[int, Dict[str, Any]] = {}
 
     async with httpx.AsyncClient() as client:
         for phrase in phrases:
@@ -96,6 +99,17 @@ async def search_authors_by_phrases(
                     if fid not in uid_to_phrase:
                         uid_to_phrase[fid] = phrase
                         phrase_breakdown[phrase]["authors"] += 1
+                        # Сохраняем текст и URL первого поста — copywriter
+                        # использует это как «эхо» в крючке.
+                        post_owner = p.get("owner_id")
+                        post_id = p.get("id")
+                        text = (p.get("text") or "").strip()
+                        if text:
+                            uid_to_post[fid] = {
+                                "text": text[:400],
+                                "post_url": f"https://vk.com/wall{post_owner}_{post_id}" if post_owner and post_id else "",
+                                "source_phrase": phrase,
+                            }
                     user_ids.add(fid)
                 if len(user_ids) >= total_limit:
                     break
@@ -119,6 +133,11 @@ async def search_authors_by_phrases(
                     src_phrase = uid_to_phrase.get(u.get("id"))
                     if src_phrase:
                         u["_source_phrase"] = src_phrase
+                    # Триггер-пост (для post-source кандидатов) — текст
+                    # реальной публикации, по которой мы их нашли.
+                    post_meta = uid_to_post.get(u.get("id"))
+                    if post_meta:
+                        u["_triggering_post"] = post_meta
                 users.extend(resp)
 
     return {
