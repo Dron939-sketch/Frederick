@@ -193,11 +193,36 @@ class TrainerMode(BaseMode):
         ]
         return random.choice(greetings)
 
+    # ========== ПАМЯТЬ (cross-session) ==========
+    async def _prepend_memory(self, system_prompt: str) -> str:
+        """Подмешивает блок памяти прошлых сессий в начало system_prompt
+        и параллельно запускает фоновую суммаризацию закрытой сессии."""
+        try:
+            from session_memory import load_memory_block, schedule_summarize_in_background
+            memory_block = await load_memory_block(self.user_id)
+            schedule_summarize_in_background(self.user_id)
+            if memory_block:
+                return memory_block + system_prompt
+        except Exception as e:
+            logger.debug(f"session_memory load failed: {e}")
+        return system_prompt
+
+    # Вместо лозунговой fallback-фразы — конкретный вопрос в духе тренера
+    # навыков (deliberate practice). Срабатывает только если AI вернул пусто.
+    def _calm_fallback(self) -> str:
+        return (
+            "Я тебя слышу. Чтобы построить тебе практику, мне нужны две вещи: "
+            "1) какой именно навык хочешь подтянуть (одним предложением); "
+            "2) где ты сейчас по этому навыку (хоть приблизительно). "
+            "С этого начнём."
+        )
+
     # ========== ПОТОКОВАЯ ОБРАБОТКА (WebSocket) ==========
     async def process_question_streaming(self, question: str):
         """Потоковая обработка через AI с кастомным промптом тренера навыков."""
         profile = self._ai_profile()
         system_prompt = self._build_system_prompt(profile)
+        system_prompt = await self._prepend_memory(system_prompt)
 
         full_response = ""
         async for chunk in self.ai_service.generate_response_streaming(
@@ -213,7 +238,7 @@ class TrainerMode(BaseMode):
                 yield chunk
 
         if not full_response:
-            yield self._set_specific_task(question)
+            yield self._calm_fallback()
 
         self.save_to_history(question, full_response)
 
@@ -224,6 +249,7 @@ class TrainerMode(BaseMode):
 
         profile = self._ai_profile()
         system_prompt = self._build_system_prompt(profile)
+        system_prompt = await self._prepend_memory(system_prompt)
 
         response = await self.ai_service.generate_response(
             user_id=self.user_id,
@@ -236,7 +262,7 @@ class TrainerMode(BaseMode):
         )
 
         if not response or not response.strip():
-            response = self._set_specific_task(question)
+            response = self._calm_fallback()
 
         self.save_to_history(question, response)
         return response
