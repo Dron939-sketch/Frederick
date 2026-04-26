@@ -1293,10 +1293,25 @@
       sourceHtml = ' · 📰 ' + (bySource.newsfeed||0) + ' автор(ов) постов · 👥 ' + (bySource.group||0) + ' из групп';
     }
 
+    var wallReasons = stats.wall_failed_reasons || {};
+    var wallReasonsTxt = '';
+    var wallReasonsTotal = 0;
+    Object.keys(wallReasons).forEach(function(k){ wallReasonsTotal += wallReasons[k]||0; });
+    if (wallReasonsTotal){
+      wallReasonsTxt = ' · 💥 fail: ' + Object.keys(wallReasons).map(function(k){
+        return esc((k.length > 30 ? k.slice(0,30) + '…' : k)) + ': ' + wallReasons[k];
+      }).join(', ');
+    }
+
     var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">' +
       '📰 фраз: ' + (stats.phrases_used||0) + ' · ' +
-      'постов просмотрено: ' + (stats.posts_seen||0) + ' · ' +
+      'постов: ' + (stats.posts_seen||0) + ' · ' +
       'уникальных авторов: ' + (stats.newsfeed_authors||0) +
+      '<br>💬 wall.getComments: ' + (stats.wall_success||0) + '/' + (stats.wall_attempted||0) + ' успешно · ' +
+      'комментов: ' + (stats.comments_seen||0) + ' · ' +
+      'комментаторов: ' + (stats.comment_authors||0) +
+      ' (отсев: коротких ' + (stats.comments_filtered_short||0) + ', от пабликов ' + (stats.comments_filtered_neg_from||0) + ')' +
+      wallReasonsTxt +
       '<br>👥 групп: ' + (stats.groups_scanned||0) + ' из ' + (stats.groups_resolved||0) + ' резолвленных · ' +
       'участников: ' + (stats.members_fetched||0) +
       '<br>после фильтра: ' + (stats.after_demo_filter||0) + sourceHtml + rejHtml +
