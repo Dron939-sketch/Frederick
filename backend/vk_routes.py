@@ -869,6 +869,7 @@ def register_vk_routes(app, db):
         meta = {
             "reasoning": result.get("reasoning") or "",
             "hook_used": result.get("hook_used") or "",
+            "pain_targeted": result.get("pain_targeted") or "",
             "_meta": result.get("_meta") or {},
         }
 
@@ -895,6 +896,7 @@ def register_vk_routes(app, db):
             "alternatives": alts,
             "reasoning": meta["reasoning"],
             "hook_used": meta["hook_used"],
+            "pain_targeted": meta["pain_targeted"],
             "vk_chat_url": f"https://vk.com/im?sel={cand['candidate_vk_id']}",
         }
 
