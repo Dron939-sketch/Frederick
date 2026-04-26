@@ -1296,6 +1296,23 @@ def register_vk_routes(app, db):
                 "error": "deepseek_error", "message": str(e),
             })
 
+        # +1 к drafts_made для фразы-источника кандидата. Это самый сильный
+        # сигнал phrase-оптимизатору: «оператор счёл этого кандидата стоящим».
+        # phrase берём из source_phrase кандидата (newsfeed) или из
+        # triggering_comment.source_phrase (comment). Для group-кандидатов
+        # фразы нет — пропускаем.
+        try:
+            phrase = (
+                candidate.get("source_phrase")
+                or (candidate.get("triggering_comment") or {}).get("source_phrase")
+                or (candidate.get("triggering_post") or {}).get("source_phrase")
+            )
+            if phrase:
+                from vk_phrase_optimizer import track_drafts_made
+                await track_drafts_made(db, str(category), str(phrase))
+        except Exception as _e:
+            logger.debug(f"track_drafts_made failed: {_e}")
+
         return {
             "success": True,
             "category": category,
