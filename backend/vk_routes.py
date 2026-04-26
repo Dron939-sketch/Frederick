@@ -143,6 +143,26 @@ def register_vk_routes(app, db):
                 "CREATE INDEX IF NOT EXISTS idx_fredi_vk_candidates_status "
                 "ON fredi_vk_candidates(status)"
             )
+            # Phase 7: re-rank by post topic similarity (quality_score 0..100).
+            try:
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS quality_score INT"
+                )
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS quality_reasoning TEXT"
+                )
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS quality_signals JSONB"
+                )
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_candidates "
+                    "ADD COLUMN IF NOT EXISTS quality_at TIMESTAMP WITH TIME ZONE"
+                )
+            except Exception as e:
+                logger.warning(f"quality columns migration skipped: {e}")
             # Phase 5A: черновик сообщения и метаданные генерации.
             try:
                 await conn.execute(
@@ -607,20 +627,30 @@ def register_vk_routes(app, db):
         max_groups: int = 3,
         max_candidates: int = 50,
         geo_scope: str = "auto",
+        min_intersections: int = 3,
+        re_rank: bool = False,
+        quality_threshold: int = 60,
         x_admin_token: Optional[str] = Header(default=None),
     ):
-        """Найти «близнецов» в VK по слепку признаков юзера (нужен extract-features).
+        """Найти «близнецов» в VK (Phase 7: двухэтапный поиск).
 
-        Стратегия (см. backend/vk_twin_finder.py):
-          1) groups.getMembers для топ-N marker_groups
-          2) пересечение → фильтр по demographics → скоринг
-          3) запись в fredi_vk_candidates (UPSERT по (source_user_id, candidate_vk_id))
-          4) возвращает stats + первые 50 кандидатов
+        Этап 1 (всегда): groups.getMembers + пересечение по marker_groups
+          — min_intersections (default 3) — минимум групп пересечения
+          — фильтр по demographics + geo_scope
+          — сохранение в fredi_vk_candidates
+
+        Этап 2 (опционально, re_rank=true): для каждого кандидата
+          — wall.get(count=20) → DeepSeek сравнивает посты со слепком
+          — quality_score 0..100, отсев по quality_threshold (default 60)
+          — кандидаты ниже порога помечаются status='rejected'
+          — стоит DeepSeek-токенов и rate-limit'а VK
         """
         _check_admin(x_admin_token)
         uid = int(user_id)
         max_groups = max(1, min(int(max_groups), 5))
         max_candidates = max(10, min(int(max_candidates), 200))
+        min_int = max(1, min(int(min_intersections), 5))
+        q_thr = max(0, min(int(quality_threshold), 100))
 
         async with db.get_connection() as conn:
             row = await conn.fetchrow(
@@ -662,6 +692,7 @@ def register_vk_routes(app, db):
                 max_groups_to_scan=max_groups,
                 max_candidates=max_candidates,
                 geo_scope=gs,
+                min_intersections=min_int,
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={"error": "vk_api_error", "message": str(e)})
@@ -689,6 +720,70 @@ def register_vk_routes(app, db):
                         json.dumps(c.get("matched_groups") or [], ensure_ascii=False),
                     )
 
+        # Phase 7B: опциональный re-rank по постам через DeepSeek
+        rerank_stats = None
+        if re_rank and candidates:
+            try:
+                from vk_twin_reranker import (
+                    fetch_candidate_wall as _fetch_wall,
+                    rerank_candidate as _rerank,
+                )
+                import httpx as _httpx
+            except Exception as e:
+                logger.error(f"vk_twin_reranker import failed: {e}")
+                raise HTTPException(status_code=500, detail={
+                    "error": "reranker_unavailable",
+                    "message": "Модуль vk_twin_reranker недоступен",
+                })
+
+            reranked: list = []
+            failed_reranks = 0
+            try:
+                async with _httpx.AsyncClient() as _vk_client:
+                    for c in candidates:
+                        cvk = int(c.get("vk_id") or 0)
+                        if not cvk:
+                            continue
+                        wall = await _fetch_wall(_vk_client, cvk)
+                        try:
+                            rr = await _rerank(features, c, wall)
+                        except RuntimeError as _e:
+                            logger.warning(f"rerank({cvk}) failed: {_e}")
+                            failed_reranks += 1
+                            continue
+                        reranked.append((c, rr))
+            except RuntimeError as e:
+                raise HTTPException(status_code=502, detail={"error": "vk_api_error", "message": str(e)})
+
+            # Сохраняем quality_* и переводим status
+            async with db.get_connection() as conn:
+                for c, rr in reranked:
+                    cvk = int(c.get("vk_id") or 0)
+                    score = int(rr.get("quality_score") or 0)
+                    new_status = "rejected" if score < q_thr else "reviewed"
+                    await conn.execute(
+                        "UPDATE fredi_vk_candidates "
+                        "SET quality_score = $1, quality_reasoning = $2, "
+                        "    quality_signals = $3::jsonb, quality_at = NOW(), "
+                        "    status = CASE WHEN status IN ('new','reviewed') THEN $4 ELSE status END "
+                        "WHERE source_user_id = $5 AND candidate_vk_id = $6",
+                        score,
+                        rr.get("reasoning") or "",
+                        json.dumps({
+                            "matched": rr.get("matched_signals") or [],
+                            "missing": rr.get("missing_signals") or [],
+                        }, ensure_ascii=False),
+                        new_status,
+                        uid, cvk,
+                    )
+            rerank_stats = {
+                "reranked": len(reranked),
+                "failed": failed_reranks,
+                "passed_threshold": sum(1 for _, rr in reranked if int(rr.get("quality_score") or 0) >= q_thr),
+                "rejected_below_threshold": sum(1 for _, rr in reranked if int(rr.get("quality_score") or 0) < q_thr),
+                "threshold": q_thr,
+            }
+
         return {
             "ok": True,
             "user_id": uid,
@@ -696,6 +791,7 @@ def register_vk_routes(app, db):
             "groups_used": result.get("groups_used"),
             "demographics_used": result.get("demographics_used"),
             "note": result.get("note"),
+            "rerank_stats": rerank_stats,
             "candidates_preview": candidates[:20],  # фронт сам подгрузит остальное через GET
         }
 
@@ -717,7 +813,8 @@ def register_vk_routes(app, db):
         sql = (
             "SELECT id, candidate_vk_id, candidate_data, match_score, matched_groups, "
             "       status, notes, found_at, contacted_at, "
-            "       draft_message, draft_alternatives, draft_meta, draft_generated_at "
+            "       draft_message, draft_alternatives, draft_meta, draft_generated_at, "
+            "       quality_score, quality_reasoning, quality_signals, quality_at "
             "FROM fredi_vk_candidates WHERE source_user_id = $1 "
         )
         args: list = [uid]
@@ -725,7 +822,10 @@ def register_vk_routes(app, db):
             args.append(st)
             sql += f" AND status = ${len(args)}"
         args.extend([lim, off])
-        sql += f" ORDER BY match_score DESC, found_at DESC LIMIT ${len(args)-1} OFFSET ${len(args)}"
+        sql += (
+            f" ORDER BY COALESCE(quality_score, -1) DESC, match_score DESC, found_at DESC "
+            f"LIMIT ${len(args)-1} OFFSET ${len(args)}"
+        )
 
         async with db.get_connection() as conn:
             rows = await conn.fetch(sql, *args)
@@ -760,6 +860,12 @@ def register_vk_routes(app, db):
                 "draft_meta": _jb(r["draft_meta"]) or {},
                 "draft_generated_at": (
                     r["draft_generated_at"].isoformat() if r["draft_generated_at"] else None
+                ),
+                "quality_score": r["quality_score"],
+                "quality_reasoning": r["quality_reasoning"] or "",
+                "quality_signals": _jb(r["quality_signals"]) or {},
+                "quality_at": (
+                    r["quality_at"].isoformat() if r["quality_at"] else None
                 ),
             } for r in rows],
         }
