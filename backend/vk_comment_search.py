@@ -67,6 +67,14 @@ async def search_authors_by_comments(
     # Сначала собираем плоский список постов на тему.
     posts: List[Dict[str, Any]] = []
     posts_seen = 0
+    # Детальная диагностика — без этого непонятно, где comment-search теряет
+    # данные (приватные посты / закрытые стены / эмодзи-комменты).
+    wall_attempted = 0
+    wall_success = 0
+    wall_failed_reasons: Dict[str, int] = {}
+    cm_neg_from = 0  # коммент от паблика (from_id < 0)
+    cm_short = 0     # коммент слишком короткий («+1», «❤»)
+    cm_dup = 0       # автор уже в списке
 
     async with httpx.AsyncClient() as client:
         for phrase in phrases:
@@ -91,6 +99,10 @@ async def search_authors_by_comments(
                         "phrase": phrase,
                     })
 
+        logger.info(
+            f"comment_search: collected {len(posts)} posts from {len(phrases)} phrases"
+        )
+
         # Тащим комменты по каждому посту, пока не наберём total_limit
         # уникальных авторов или пока не пройдём все собранные посты.
         commenters: Dict[int, Dict[str, Any]] = {}
@@ -99,6 +111,7 @@ async def search_authors_by_comments(
         for post in posts:
             if len(commenters) >= total_limit:
                 break
+            wall_attempted += 1
             try:
                 resp = await _call(client, "wall.getComments", {
                     "owner_id": post["owner_id"],
@@ -108,24 +121,37 @@ async def search_authors_by_comments(
                     "thread_items_count": 0,
                     "preview_length": 0,
                 })
+                wall_success += 1
             except RuntimeError as e:
-                # owner может быть приватным сообществом / пост удалён — это
-                # нормально, идём к следующему.
-                logger.debug(
-                    f"wall.getComments(owner={post['owner_id']}, "
-                    f"post={post['post_id']}) failed: {e}"
-                )
+                # Логируем причину с агрегацией — оператор видит, упирается
+                # ли в приватность, удалённые посты или ошибку токена.
+                msg = str(e)
+                # Берём первую часть до двоеточия как ключ
+                key = msg.split(":")[0][:60] if msg else "unknown"
+                wall_failed_reasons[key] = wall_failed_reasons.get(key, 0) + 1
+                # Логируем подробно только первые несколько сбоев
+                if sum(wall_failed_reasons.values()) <= 5:
+                    logger.warning(
+                        f"wall.getComments(owner={post['owner_id']}, "
+                        f"post={post['post_id']}) failed: {e}"
+                    )
                 continue
             items = (resp or {}).get("items") or []
             comments_seen += len(items)
             for c in items:
                 from_id = c.get("from_id")
                 if not isinstance(from_id, int) or from_id <= 0:
-                    continue  # отрицательный = пишет от имени паблика, отбрасываем
+                    cm_neg_from += 1
+                    continue
                 text = (c.get("text") or "").strip()
-                if not text or len(text) < 8:
-                    continue  # «+1», «❤️», эмодзи без смысла
+                # Снижено с 8 до 5: «болит» (5), «знакомо» (7), «у меня тоже» (11)
+                # — это и есть настоящие отклики страдальцев. Эмодзи (1-2 симв)
+                # всё равно отбрасываем.
+                if not text or len(text) < 5:
+                    cm_short += 1
+                    continue
                 if from_id in commenters:
+                    cm_dup += 1
                     continue
                 commenters[from_id] = {
                     "comment_text": text[:300],
@@ -134,6 +160,12 @@ async def search_authors_by_comments(
                 }
                 if len(commenters) >= total_limit:
                     break
+
+        logger.info(
+            f"comment_search: wall_attempted={wall_attempted} success={wall_success} "
+            f"comments_seen={comments_seen} commenters_unique={len(commenters)} "
+            f"reasons={wall_failed_reasons}"
+        )
 
         # Резолвим всех найденных авторов комментов
         ids_list = list(commenters.keys())[:total_limit]
@@ -182,5 +214,12 @@ async def search_authors_by_comments(
             "unique_commenters": len(commenters),
             "fetched": len(users),
             "per_phrase": phrase_breakdown,
+            # Диагностика — оператор видит, где comment-search теряет данные.
+            "wall_attempted": wall_attempted,
+            "wall_success": wall_success,
+            "wall_failed_reasons": wall_failed_reasons,
+            "comments_filtered_neg_from": cm_neg_from,
+            "comments_filtered_short": cm_short,
+            "comments_filtered_dup": cm_dup,
         },
     }
