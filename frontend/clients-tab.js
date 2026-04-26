@@ -1146,6 +1146,7 @@
           '<label style="display:flex;align-items:center;gap:4px">Групп для скана:' +
             '<input id="vkProblemMaxGroups" type="number" min="1" max="5" value="3" style="width:60px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
           '<button id="vkProblemSearch" disabled style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.6">🔎 Найти кандидатов</button>' +
+          '<button id="vkProblemOptimize" disabled style="padding:9px 14px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;opacity:0.5" title="DeepSeek проанализирует перфоманс фраз и предложит улучшения">🧠 Скорректировать фразы</button>' +
           '<span id="vkProblemStatus" style="color:var(--text-dim)"></span>' +
         '</div>' +
       '</div>' +
@@ -1160,6 +1161,7 @@
     });
 
     document.getElementById('vkProblemSearch').addEventListener('click', runSearch);
+    document.getElementById('vkProblemOptimize').addEventListener('click', openOptimize);
   }
 
   function activate(){
@@ -1217,6 +1219,8 @@
         selectedCode = b.dataset.code;
         var btn = document.getElementById('vkProblemSearch');
         btn.disabled = false; btn.style.opacity = '1';
+        var optBtn = document.getElementById('vkProblemOptimize');
+        if (optBtn){ optBtn.disabled = false; optBtn.style.opacity = '1'; }
         var meta = (loadedCategories.find(function(c){ return c.code === selectedCode; }) || {});
         document.getElementById('vkProblemMeta').innerHTML =
           'Аудитория: <span style="color:var(--text)">' + esc(meta.audience_brief || '') + '</span>';
@@ -1279,16 +1283,14 @@
 
     var bySource = stats.by_source || {};
     var sourceHtml = '';
-    if ((bySource.newsfeed||0) || (bySource.comment||0) || (bySource.group||0)){
-      sourceHtml = ' · 📰 ' + (bySource.newsfeed||0) + ' постов · 💬 ' + (bySource.comment||0) + ' комментов · 👥 ' + (bySource.group||0) + ' из групп';
+    if ((bySource.newsfeed||0) || (bySource.group||0)){
+      sourceHtml = ' · 📰 ' + (bySource.newsfeed||0) + ' автор(ов) постов · 👥 ' + (bySource.group||0) + ' из групп';
     }
 
     var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">' +
       '📰 фраз: ' + (stats.phrases_used||0) + ' · ' +
-      'постов: ' + (stats.posts_seen||0) + ' · ' +
+      'постов просмотрено: ' + (stats.posts_seen||0) + ' · ' +
       'уникальных авторов: ' + (stats.newsfeed_authors||0) +
-      '<br>💬 комментов: ' + (stats.comments_seen||0) + ' · ' +
-      'уникальных комментаторов: ' + (stats.comment_authors||0) +
       '<br>👥 групп: ' + (stats.groups_scanned||0) + ' из ' + (stats.groups_resolved||0) + ' резолвленных · ' +
       'участников: ' + (stats.members_fetched||0) +
       '<br>после фильтра: ' + (stats.after_demo_filter||0) + sourceHtml + rejHtml +
@@ -1315,27 +1317,15 @@
       var sexLabel = c.sex === 1 ? '♀' : c.sex === 2 ? '♂' : '';
       var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
       var status = c.status ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:2px">«' + esc(c.status) + '»</div>' : '';
-      // Метка источника: 📰 пост, 💬 коммент, 👥 группа.
+      // Метка источника: 📰 newsfeed = автор поста на тему (живой по факту);
+      // 👥 group = просто состоит в группе (может быть менее релевантен).
       var srcBadge = '';
       if (c.source === 'newsfeed'){
-        srcBadge = '<span style="font-size:10px;color:var(--success);margin-left:6px;border:1px solid var(--success);padding:1px 6px;border-radius:4px" title="Автор поста на тему">📰 автор поста</span>';
-      } else if (c.source === 'comment'){
-        srcBadge = '<span style="font-size:10px;color:var(--accent);margin-left:6px;border:1px solid var(--accent);padding:1px 6px;border-radius:4px" title="Оставил комментарий под постом на тему">💬 комментатор</span>';
+        srcBadge = '<span style="font-size:10px;color:var(--success);margin-left:6px;border:1px solid var(--success);padding:1px 6px;border-radius:4px" title="Автор поста на тему — живой подтверждённый">📰 автор поста</span>';
       } else if (c.source === 'group' && c.from_group && c.from_group.name){
         srcBadge = '<span style="font-size:11px;color:var(--text-dim)" title="Состоит в сообществе">👥 ' + esc(c.from_group.name) + '</span>';
       }
       var closed = c.is_closed ? '<span style="font-size:10px;color:var(--warning);margin-left:6px;border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '';
-      // Триггер-коммент — что человек написал, под каким постом.
-      // Самое сильное «что у тебя сейчас болит» — прямо из его слов.
-      var trig = '';
-      if (c.triggering_comment && c.triggering_comment.text){
-        var tc = c.triggering_comment;
-        var postLink = tc.post_url ? '<a href="' + esc(tc.post_url) + '" target="_blank" rel="noopener" style="color:var(--text-dim);font-size:10px;text-decoration:underline" title="Открыть пост, под которым был коммент">↗ пост</a>' : '';
-        trig = '<div style="margin-top:6px;padding:6px 10px;background:rgba(167,139,250,0.06);border-left:3px solid var(--accent);border-radius:4px">' +
-          '<div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">💬 его комментарий ' + postLink + '</div>' +
-          '<div style="font-size:12px;line-height:1.4;font-style:italic">«' + esc(tc.text) + '»</div>' +
-        '</div>';
-      }
       var draftBtn = '<button data-vk="' + c.vk_id + '" class="vk-prob-draft" ' +
         'style="padding:6px 10px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer" ' +
         'title="Сгенерировать черновик сообщения для этого кандидата">✉️ Сообщение</button>';
@@ -1351,7 +1341,7 @@
           srcBadge +
           draftBtn +
         '</div>' +
-        status + about + trig +
+        status + about +
       '</div>';
     }).join('');
 
@@ -1441,6 +1431,136 @@
       setTimeout(function(){ btn.textContent = '📋 Скопировать'; }, 1500);
     });
     document.getElementById('vkProbDraftRegen').addEventListener('click', function(){ openDraft(c.vk_id); });
+  }
+
+  // ============================================
+  // Self-correction phrases — модалка с диффом
+  // ============================================
+  function ensureOptModal(){
+    var ov = document.getElementById('vkProbOptOv');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'vkProbOptOv';
+    ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10000;align-items:center;justify-content:center;padding:24px';
+    ov.innerHTML =
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:18px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
+          '<div style="font-size:16px;font-weight:700">🧠 Самокоррекция фраз</div>' +
+          '<button id="vkProbOptClose" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">✕</button>' +
+        '</div>' +
+        '<div id="vkProbOptBody" style="font-size:13px"></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    document.getElementById('vkProbOptClose').addEventListener('click', function(){ ov.style.display = 'none'; });
+    ov.addEventListener('click', function(e){ if (e.target === ov) ov.style.display = 'none'; });
+    return ov;
+  }
+
+  async function openOptimize(){
+    if (!selectedCode){ alert('Сначала выбери категорию.'); return; }
+    var ov = ensureOptModal();
+    ov.style.display = 'flex';
+    var body = document.getElementById('vkProbOptBody');
+    body.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px">⏳ DeepSeek анализирует перфоманс…</div>';
+    try {
+      var r = await api('/api/admin/vk/phrases/optimize?category=' + encodeURIComponent(selectedCode), { method: 'POST' });
+      renderOpt(r);
+    } catch (e){
+      body.innerHTML = '<div style="color:var(--error);padding:14px">Ошибка: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderOpt(r){
+    var current = r.current_phrases || [];
+    var keep = r.keep || [];
+    var drop = r.drop || [];
+    var suggested = r.suggested || [];
+    var proposed = r.proposed || [];
+    var perf = r.perf || [];
+    var reasoning = r.reasoning || '';
+
+    var perfRows = perf.map(function(p){
+      var conv = (p.posts_seen > 0) ? Math.round((p.candidates_yielded||0) * 100 / p.posts_seen) + '%' : '—';
+      var color = drop.indexOf(p.phrase) >= 0 ? 'var(--error)' :
+                  keep.indexOf(p.phrase) >= 0 ? 'var(--success)' : 'var(--text-dim)';
+      var marker = drop.indexOf(p.phrase) >= 0 ? '🗑' :
+                   keep.indexOf(p.phrase) >= 0 ? '✓' : '·';
+      return '<tr><td style="padding:4px 8px;color:' + color + '">' + marker + ' ' + esc(p.phrase) + '</td>' +
+        '<td style="padding:4px 8px;color:var(--text-dim);text-align:right">' + (p.posts_seen||0) + '</td>' +
+        '<td style="padding:4px 8px;color:var(--text-dim);text-align:right">' + (p.candidates_yielded||0) + '</td>' +
+        '<td style="padding:4px 8px;color:var(--text-dim);text-align:right">' + conv + '</td></tr>';
+    }).join('');
+
+    var perfHtml = perf.length
+      ? '<div style="margin-bottom:14px"><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Текущие фразы</div>' +
+          '<table style="width:100%;font-size:12px;border-collapse:collapse">' +
+            '<thead><tr style="color:var(--text-dim)"><th style="text-align:left;padding:4px 8px">фраза</th><th style="padding:4px 8px;text-align:right">постов</th><th style="padding:4px 8px;text-align:right">кандидатов</th><th style="padding:4px 8px;text-align:right">конв.</th></tr></thead>' +
+            '<tbody>' + perfRows + '</tbody>' +
+          '</table>' +
+        '</div>'
+      : '<div style="margin-bottom:14px;color:var(--text-dim)">Перфоманс ещё не накоплен — запусти поиск пару раз и приходи.</div>';
+
+    var sugHtml = suggested.length
+      ? '<div style="background:rgba(52,211,153,0.06);border-left:3px solid var(--success);padding:10px 12px;border-radius:6px;margin-bottom:14px">' +
+          '<div style="font-size:10px;color:var(--success);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Новые фразы от DeepSeek</div>' +
+          '<ul style="margin:0;padding-left:20px;line-height:1.5">' +
+            suggested.map(function(s){ return '<li>' + esc(s) + '</li>'; }).join('') +
+          '</ul>' +
+        '</div>'
+      : '<div style="margin-bottom:14px;color:var(--text-dim)">DeepSeek ничего нового не предложил.</div>';
+
+    var reasonHtml = reasoning
+      ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-bottom:14px">💡 ' + esc(reasoning) + '</div>'
+      : '';
+
+    var proposedListHtml = proposed.map(function(p, i){
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">' +
+        '<input type="checkbox" data-idx="' + i + '" class="vk-prob-opt-chk" checked style="margin:0">' +
+        '<input type="text" class="vk-prob-opt-phrase" value="' + esc(p) + '" style="flex:1;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit;font-size:12px">' +
+      '</div>';
+    }).join('');
+
+    var html = reasonHtml + perfHtml + sugHtml +
+      '<div style="margin-bottom:6px;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px">Применить набор фраз (правь и снимай галочки)</div>' +
+      '<div id="vkProbOptList" style="margin-bottom:14px;max-height:220px;overflow:auto">' + proposedListHtml + '</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button id="vkProbOptApply" style="flex:1;padding:9px 14px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer">✓ Применить</button>' +
+        '<button id="vkProbOptCancel" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;cursor:pointer">Отмена</button>' +
+      '</div>';
+
+    document.getElementById('vkProbOptBody').innerHTML = html;
+
+    document.getElementById('vkProbOptCancel').addEventListener('click', function(){
+      document.getElementById('vkProbOptOv').style.display = 'none';
+    });
+    document.getElementById('vkProbOptApply').addEventListener('click', async function(){
+      var picks = [];
+      document.querySelectorAll('#vkProbOptList > div').forEach(function(row){
+        var chk = row.querySelector('.vk-prob-opt-chk');
+        var inp = row.querySelector('.vk-prob-opt-phrase');
+        if (chk && chk.checked && inp && inp.value.trim()){
+          picks.push(inp.value.trim());
+        }
+      });
+      if (!picks.length){ alert('Выбери хотя бы одну фразу.'); return; }
+      this.disabled = true; this.textContent = '⏳…';
+      try {
+        await api('/api/admin/vk/phrases/apply', {
+          method: 'POST',
+          body: { category: selectedCode, phrases: picks, suggested_by: 'auto' },
+        });
+        document.getElementById('vkProbOptBody').innerHTML =
+          '<div style="text-align:center;color:var(--success);padding:20px">' +
+            '✓ Применено ' + picks.length + ' фраз. Следующий поиск возьмёт их.' +
+          '</div>';
+        setTimeout(function(){
+          document.getElementById('vkProbOptOv').style.display = 'none';
+        }, 1500);
+      } catch (e){
+        this.disabled = false; this.textContent = '✓ Применить';
+        alert('Ошибка применения: ' + (e.message || ''));
+      }
+    });
   }
 
   if (document.readyState === 'loading'){

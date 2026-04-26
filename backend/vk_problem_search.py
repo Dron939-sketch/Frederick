@@ -162,6 +162,9 @@ def _candidate_dict(u: Dict[str, Any], from_group: Dict[str, Any], source: str =
             "post_url": triggering.get("post_url") or "",
             "source_phrase": triggering.get("source_phrase") or "",
         } if isinstance(triggering, dict) else None,
+        # Фраза-источник (для newsfeed/comment) — нужна phrase optimizer'у
+        # для атрибуции кандидата к конкретной фразе.
+        "source_phrase": u.get("_source_phrase"),
         "vk_url": f"https://vk.com/id{u.get('id')}",
     }
 
@@ -173,6 +176,7 @@ async def search_by_problem(
     members_per_group: int = 1000,
     max_candidates: int = 50,
     geo_scope: str = "auto",  # auto | russia | worldwide — сейчас фильтра нет, поле под будущее
+    db: Any = None,  # если передан — читаем phrase override и пишем phrase perf
 ) -> Dict[str, Any]:
     """Главная точка: возвращает {category, candidates, stats, groups_used}.
 
@@ -198,6 +202,19 @@ async def search_by_problem(
     demo = cat.get("demographics") or {}
     seed_screen_names: List[str] = cat.get("seed_group_screen_names") or []
     seed_phrases: List[str] = cat.get("seed_search_phrases") or []
+
+    # Если у категории есть применённый override от phrase-optimizer'а —
+    # используем его. Это и есть «учитываем при следующем поиске».
+    override_applied = False
+    if db is not None:
+        try:
+            from vk_phrase_optimizer import get_active_phrases
+            override = await get_active_phrases(db, category_code)
+            if override:
+                seed_phrases = override
+                override_applied = True
+        except Exception as e:
+            logger.debug(f"phrase override read failed: {e}")
 
     members_fetched = 0
     seen: Dict[int, Dict[str, Any]] = {}
@@ -320,6 +337,31 @@ async def search_by_problem(
         s = c.get("source") or "group"
         by_source[s] = by_source.get(s, 0) + 1
 
+    # Per-phrase агрегация: складываем посты-увиденные из обоих источников
+    # (newsfeed + comment) и считаем кандидатов, для которых _source_phrase
+    # фиксировался. Это пишется в fredi_vk_phrase_perf при наличии db.
+    phrase_perf: Dict[str, Dict[str, int]] = {}
+    for ph, br in (keyword_stats.get("per_phrase") or {}).items():
+        rec = phrase_perf.setdefault(ph, {"posts_seen": 0, "candidates_yielded": 0})
+        rec["posts_seen"] += int(br.get("posts_seen") or 0)
+    for ph, br in (comment_stats.get("per_phrase") or {}).items():
+        rec = phrase_perf.setdefault(ph, {"posts_seen": 0, "candidates_yielded": 0})
+        rec["posts_seen"] += int(br.get("posts_seen") or 0)
+    # candidates_yielded — берём из финального списка по полю
+    # candidate.source_phrase (newsfeed) или triggering_comment.source_phrase
+    # (comment). Для group-кандидатов фразы нет — пропускаем.
+    for c in candidates:
+        ph = c.get("source_phrase") or (c.get("triggering_comment") or {}).get("source_phrase")
+        if ph and ph in phrase_perf:
+            phrase_perf[ph]["candidates_yielded"] += 1
+
+    if db is not None and phrase_perf:
+        try:
+            from vk_phrase_optimizer import track_phrase_performance
+            await track_phrase_performance(db, category_code, phrase_perf)
+        except Exception as e:
+            logger.debug(f"track_phrase_performance failed: {e}")
+
     return {
         "category": {
             "code": cat["code"],
@@ -344,6 +386,8 @@ async def search_by_problem(
             "rejected_by_reason": rejected_by_reason,
             "after_demo_filter": len(seen),
             "by_source": by_source,
+            "override_applied": override_applied,
+            "phrases_active": list(seed_phrases),
             "returned": len(candidates),
         },
         "groups_used": groups_to_scan,

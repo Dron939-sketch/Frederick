@@ -61,11 +61,18 @@ async def search_authors_by_phrases(
             "stats": {
                 "phrases_used": 0, "posts_seen": 0,
                 "unique_authors": 0, "fetched": 0,
+                "per_phrase": {},
             },
         }
 
     user_ids: Set[int] = set()
     posts_seen = 0
+    # Per-phrase атрибуция нужна для self-correction: какая именно фраза
+    # сколько постов вернула и сколько уникальных авторов из неё пошли дальше.
+    phrase_breakdown: Dict[str, Dict[str, int]] = {p: {"posts_seen": 0, "authors": 0} for p in phrases}
+    # uid → первая фраза, по которой нашли. Чтобы не атрибутировать одного
+    # автора нескольким фразам.
+    uid_to_phrase: Dict[int, str] = {}
 
     async with httpx.AsyncClient() as client:
         for phrase in phrases:
@@ -82,11 +89,13 @@ async def search_authors_by_phrases(
                 continue
             items = (resp or {}).get("items") or []
             posts_seen += len(items)
+            phrase_breakdown[phrase]["posts_seen"] += len(items)
             for p in items:
-                # Сначала from_id — он и есть автор. owner_id может быть стеной
-                # сообщества (отрицательное).
                 fid = p.get("from_id") or p.get("owner_id")
                 if isinstance(fid, int) and fid > 0:
+                    if fid not in uid_to_phrase:
+                        uid_to_phrase[fid] = phrase
+                        phrase_breakdown[phrase]["authors"] += 1
                     user_ids.add(fid)
                 if len(user_ids) >= total_limit:
                     break
@@ -106,6 +115,10 @@ async def search_authors_by_phrases(
                 logger.warning(f"users.get(batch={len(batch)}) failed: {e}")
                 continue
             if isinstance(resp, list):
+                for u in resp:
+                    src_phrase = uid_to_phrase.get(u.get("id"))
+                    if src_phrase:
+                        u["_source_phrase"] = src_phrase
                 users.extend(resp)
 
     return {
@@ -115,5 +128,6 @@ async def search_authors_by_phrases(
             "posts_seen": posts_seen,
             "unique_authors": len(user_ids),
             "fetched": len(users),
+            "per_phrase": phrase_breakdown,
         },
     }

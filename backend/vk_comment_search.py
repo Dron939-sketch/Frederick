@@ -155,7 +155,23 @@ async def search_authors_by_comments(
                         # Кладём триггер-коммент прямо в user-dict, чтобы
                         # vk_problem_search потом дотащил в карточку.
                         u["_triggering_comment"] = meta
+                        # Дублируем фразу-источник в плоское поле — для
+                        # унифицированного учёта в phrase optimizer
+                        # (в keyword search то же поле _source_phrase).
+                        u["_source_phrase"] = meta.get("source_phrase")
                 users.extend(resp)
+
+    # Per-phrase breakdown — какая фраза дала сколько постов/уникальных
+    # комментаторов. phrase optimizer читает это для self-correction.
+    phrase_breakdown: Dict[str, Dict[str, int]] = {p: {"posts_seen": 0, "authors": 0} for p in phrases}
+    for post in posts:
+        ph = post.get("phrase")
+        if ph in phrase_breakdown:
+            phrase_breakdown[ph]["posts_seen"] += 1
+    for meta in commenters.values():
+        ph = meta.get("source_phrase")
+        if ph in phrase_breakdown:
+            phrase_breakdown[ph]["authors"] += 1
 
     return {
         "users": users,
@@ -165,5 +181,6 @@ async def search_authors_by_comments(
             "comments_seen": comments_seen,
             "unique_commenters": len(commenters),
             "fetched": len(users),
+            "per_phrase": phrase_breakdown,
         },
     }
