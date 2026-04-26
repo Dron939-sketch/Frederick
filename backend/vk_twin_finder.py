@@ -67,7 +67,16 @@ def _matches_demographics(
     age_range: Optional[List[int]],
     city_id: Optional[int],
     city_name: Optional[str],
+    geo_scope: str = "same_city",
+    country_id: Optional[int] = None,
 ) -> bool:
+    """Возвращает True если кандидат подходит под demographics + geo_scope.
+
+    geo_scope:
+      - "same_city": нужен совпадающий city_id или city_name
+      - "russia":    нужен country_id == 1
+      - "worldwide": geo не фильтруем
+    """
     # Закрытый профиль — outreach всё равно невозможен
     if u.get("is_closed") and not u.get("can_access_closed"):
         return False
@@ -87,7 +96,8 @@ def _matches_demographics(
                 return False
         # Если года нет — не отбрасываем, просто без штрафа
 
-    if city_id or city_name:
+    # Geo-scope: same_city → city match; russia → country match; worldwide → пропускаем
+    if geo_scope == "same_city" and (city_id or city_name):
         uc = u.get("city") or {}
         if isinstance(uc, dict):
             uc_id = uc.get("id")
@@ -97,6 +107,18 @@ def _matches_demographics(
             if not city_id and city_name and uc_title and \
                str(uc_title).strip().lower() != str(city_name).strip().lower():
                 return False
+        else:
+            return False
+    elif geo_scope == "russia":
+        # country.id == 1 — Россия в VK справочнике стран.
+        cc = u.get("country") or {}
+        target_country = country_id or 1
+        if isinstance(cc, dict):
+            cc_id = cc.get("id")
+            if cc_id and int(cc_id) != int(target_country):
+                return False
+            # Если country отсутствует у юзера — не отбрасываем, не накажем тех у кого скрыто
+    # geo_scope == "worldwide" — geo фильтр не применяется
     return True
 
 
@@ -137,8 +159,17 @@ async def find_twins(
     max_groups_to_scan: int = 3,
     members_per_group: int = 1000,
     max_candidates: int = 50,
+    geo_scope: str = "auto",
 ) -> Dict[str, Any]:
-    """Возвращает {candidates: [...], stats: {...}, groups_used: [...]}."""
+    """Возвращает {candidates: [...], stats: {...}, groups_used: [...]}.
+
+    geo_scope:
+      - "auto"      → берём search_recommendation.geo_scope из features (если есть),
+                      иначе same_city если есть city_id, иначе russia
+      - "same_city" → искать только в городе seed-юзера
+      - "russia"    → искать по всей России
+      - "worldwide" → без географического фильтра
+    """
     marker_groups = features.get("marker_groups") or []
     demo = features.get("demographics") or {}
 
@@ -146,6 +177,16 @@ async def find_twins(
     age_range = demo.get("age_range") if isinstance(demo.get("age_range"), list) else None
     city_id = demo.get("city_id") if isinstance(demo.get("city_id"), int) else None
     city_name = demo.get("city") if isinstance(demo.get("city"), str) else None
+    country_id = demo.get("country_id") if isinstance(demo.get("country_id"), int) else None
+
+    if geo_scope == "auto":
+        rec = (features.get("search_recommendation") or {}).get("geo_scope")
+        if rec in ("same_city", "russia", "worldwide"):
+            geo_scope = rec
+        elif city_id or city_name:
+            geo_scope = "same_city"
+        else:
+            geo_scope = "russia"
 
     groups_to_scan: List[Dict[str, Any]] = []
     for g in marker_groups[:max_groups_to_scan]:
@@ -205,7 +246,8 @@ async def find_twins(
     # Сначала фильтр по demographics (отсекает большинство — дешёвая операция)
     after_demo: List[Tuple[int, Dict[str, Any]]] = []
     for uid, u in members.items():
-        if _matches_demographics(u, target_sex, age_range, city_id, city_name):
+        if _matches_demographics(u, target_sex, age_range, city_id, city_name,
+                                  geo_scope=geo_scope, country_id=country_id):
             after_demo.append((uid, u))
 
     # Скорим, сортируем
@@ -236,5 +278,7 @@ async def find_twins(
             "age_range": age_range,
             "city_id": city_id,
             "city": city_name,
+            "country_id": country_id,
+            "geo_scope": geo_scope,
         },
     }
