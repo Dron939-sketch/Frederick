@@ -20,10 +20,87 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+import re
+import time
+from datetime import datetime
+
 import httpx
 
 from vk_parser import _call, is_real_active_profile  # rate-limited helper + фильтр живого профиля
 from services.problem_categories import get_category
+
+
+# Универсальные «маркеры боли» — слова, которые человек в состоянии проблемы
+# реально использует. Их наличие в тексте триггер-коммента/поста/about/status
+# повышает «яркость» кандидата.
+_PAIN_MARKERS = re.compile(
+    r"\b(не\s+могу|не\s+сплю|не\s+знаю\s+что\s+делать|помогите|"
+    r"тяжело|больно|устал[а-я]?|выгор[а-я]+|страш[а-я]+|"
+    r"одна|один|никому|пустота|апати[а-я]+|тревог[а-я]+|"
+    r"ненавижу|потерял[а-я]?|не\s+отпускает|сил[а-я]?\s+нет|"
+    r"плохо|боюсь|стыдно|бессмыслен[а-я]+|невыносим[а-я]+)\b",
+    re.IGNORECASE,
+)
+
+
+def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> int:
+    """«Яркость выраженности проблемы» 0..100.
+
+    Берём триггер-текст (коммент или пост), смотрим длину, считаем маркеры
+    боли и совпадения с seed_keywords категории, добавляем бонус за свежесть
+    последнего входа.
+    """
+    score = 0
+
+    # Триггер-текст: для comment-source это текст коммента, для newsfeed —
+    # текст поста, иначе пробуем status/about как слабый сигнал.
+    text_blocks: List[str] = []
+    tc = c.get("triggering_comment") or {}
+    if tc.get("text"):
+        text_blocks.append(tc["text"])
+    tp = c.get("triggering_post") or {}
+    if tp.get("text"):
+        text_blocks.append(tp["text"])
+    if c.get("status"):
+        text_blocks.append(c["status"])
+    if c.get("about"):
+        text_blocks.append(c["about"])
+
+    text = " ".join(text_blocks).strip()
+    text_lower = text.lower()
+
+    # 1. Объём «исповеди»: чем больше, тем больше выражена боль.
+    L = len(text)
+    if L >= 80:
+        score += 25
+    elif L >= 30:
+        score += 12
+    elif L > 0:
+        score += 5
+
+    # 2. Маркеры боли — каждый матч +5, потолок 30.
+    pain_hits = len(_PAIN_MARKERS.findall(text_lower))
+    score += min(pain_hits * 5, 30)
+
+    # 3. Совпадения с seed_keywords категории (длинные фразы веса больше).
+    keywords = (category_meta or {}).get("seed_keywords") or []
+    kw_hits = 0
+    for kw in keywords:
+        if kw and kw.lower() in text_lower:
+            kw_hits += 1
+    score += min(kw_hits * 3, 20)
+
+    # 4. Эмоциональная пунктуация (восклицания, многоточия).
+    if "!" in text:
+        score += 3
+    if "..." in text or "…" in text:
+        score += 2
+
+    # 5. Свежесть last_seen (если у нас есть _last_seen_ts на user-dict
+    # — мы его не сохранили; используем None-fallback).
+    # last_seen в карточку не положили; пропускаем — не критично.
+
+    return max(0, min(100, score))
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +214,7 @@ def _candidate_dict(u: Dict[str, Any], from_group: Dict[str, Any], source: str =
     """
     name = " ".join(filter(None, [u.get("first_name"), u.get("last_name")])).strip()
     triggering = u.get("_triggering_comment")
+    triggering_post = u.get("_triggering_post")
     return {
         "vk_id": u.get("id"),
         "first_name": u.get("first_name") or "",
@@ -150,6 +228,11 @@ def _candidate_dict(u: Dict[str, Any], from_group: Dict[str, Any], source: str =
         "photo_max": u.get("photo_max"),
         "is_closed": bool(u.get("is_closed")),
         "source": source,
+        "triggering_post": {
+            "text": triggering_post.get("text") or "",
+            "post_url": triggering_post.get("post_url") or "",
+            "source_phrase": triggering_post.get("source_phrase") or "",
+        } if isinstance(triggering_post, dict) else None,
         "from_group": {
             "id": from_group.get("id"),
             "name": from_group.get("name"),
@@ -309,6 +392,10 @@ async def search_by_problem(
     # потом по открытости профиля и наличию инфы о себе.
     candidates = list(seen.values())
 
+    # Считаем brightness один раз, кладём в карточку, чтобы UI мог показать.
+    for c in candidates:
+        c["brightness"] = _brightness_score(c, cat)
+
     def _score(c: Dict[str, Any]) -> int:
         s = 0
         # newsfeed = автор поста (initiator), comment = автор коммента
@@ -327,6 +414,9 @@ async def search_by_problem(
             s += 3
         if c.get("city"):
             s += 2
+        # Главный сигнал «яркости» — насколько прямо человек проявляет
+        # проблему. brightness 0..100 — добавляем как самый весомый множитель.
+        s += int(c.get("brightness") or 0)
         return s
 
     candidates.sort(key=_score, reverse=True)
