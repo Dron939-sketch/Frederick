@@ -1145,6 +1145,10 @@
             '<input id="vkProblemLimit" type="number" min="10" max="200" step="10" value="50" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
           '<label style="display:flex;align-items:center;gap:4px">Групп для скана:' +
             '<input id="vkProblemMaxGroups" type="number" min="1" max="5" value="3" style="width:60px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
+          '<label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="После эвристик топ-30 идёт через DeepSeek для финальной оценки «реально ли страдает». +DeepSeek-запрос, +5–10 секунд, заметно лучше качество.">' +
+            '<input type="checkbox" id="vkProblemRerank" style="cursor:pointer">' +
+            '<span style="color:var(--accent);font-size:12px">🧠 ИИ-рерэнк</span>' +
+          '</label>' +
           '<button id="vkProblemSearch" disabled style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.6">🔎 Найти кандидатов</button>' +
           '<button id="vkProblemOptimize" disabled style="padding:9px 14px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;opacity:0.5" title="DeepSeek проанализирует перфоманс фраз и предложит улучшения">🧠 Скорректировать фразы</button>' +
           '<span id="vkProblemStatus" style="color:var(--text-dim)"></span>' +
@@ -1234,11 +1238,13 @@
     var maxGroups = parseInt(document.getElementById('vkProblemMaxGroups').value || '3', 10);
     var status = document.getElementById('vkProblemStatus');
     var results = document.getElementById('vkProblemResults');
-    status.textContent = '⏳ ищу…';
+    var rerank = document.getElementById('vkProblemRerank') && document.getElementById('vkProblemRerank').checked;
+    status.textContent = rerank ? '⏳ ищу + 🧠 ИИ-рерэнк…' : '⏳ ищу…';
     results.innerHTML = '';
     try {
       var r = await api('/api/admin/vk/search-by-problem?category=' + encodeURIComponent(selectedCode) +
-        '&max_candidates=' + limit + '&max_groups=' + maxGroups, { method: 'POST' });
+        '&max_candidates=' + limit + '&max_groups=' + maxGroups +
+        (rerank ? '&rerank=true' : ''), { method: 'POST' });
       status.textContent = '✓ найдено ' + (r.candidates||[]).length;
       renderResults(r);
     } catch (e){
@@ -1340,6 +1346,18 @@
         brReasons + '\n\n' +
         'Шкала: 0–14 серый, 15–34 синий, 35–59 жёлтый, 60+ красный.';
       var brChip = '<span style="font-size:10px;color:' + brColor + ';margin-left:6px;border:1px solid ' + brColor + ';padding:1px 6px;border-radius:4px;cursor:help" title="' + esc(brTitle) + '">🔥 ' + br + '</span>';
+      // Rerank-чип (если был ИИ-рерэнк)
+      var rrChip = '';
+      if (typeof c.rerank_score === 'number' && c.rerank_score >= 0){
+        var rr = c.rerank_score;
+        var rrColor = rr >= 70 ? 'var(--success)' :
+                      rr >= 40 ? 'var(--warning)' :
+                      'var(--error)';
+        var rrTitle = 'ИИ-оценка «реально ли страдает прямо сейчас» 0–100.\n\n' +
+          (c.rerank_reason || 'нет причины') +
+          '\n\n70+ = точно страдает, 40–69 = граничный, <40 = не страдает.';
+        rrChip = '<span style="font-size:10px;color:' + rrColor + ';margin-left:6px;border:1px solid ' + rrColor + ';padding:1px 6px;border-radius:4px;cursor:help;font-weight:600" title="' + esc(rrTitle) + '">🧠 ' + rr + '</span>';
+      }
       var closed = c.is_closed ? '<span style="font-size:10px;color:var(--warning);margin-left:6px;border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '';
       // Триггер-блок: коммент или пост, реальные слова человека.
       var trig = '';
@@ -1369,6 +1387,7 @@
             '</a>' +
             ' <span style="font-size:11px;color:var(--text-dim)">' + esc(sexLabel) + ' ' + esc(bdate) + ' ' + esc(c.city||'') + '</span>' +
             brChip +
+            rrChip +
             closed +
           '</div>' +
           srcBadge +
