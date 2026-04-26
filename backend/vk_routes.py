@@ -163,6 +163,29 @@ def register_vk_routes(app, db):
                 )
             except Exception as e:
                 logger.warning(f"quality columns migration skipped: {e}")
+            # Phase 8: глобальный лог контактов (антиспам + воронка).
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_vk_contacted_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    vk_id BIGINT NOT NULL,
+                    source_user_id BIGINT
+                        REFERENCES fredi_users(user_id) ON DELETE SET NULL,
+                    candidate_id BIGINT,
+                    message TEXT,
+                    contacted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    response_at TIMESTAMP WITH TIME ZONE,
+                    response_text TEXT,
+                    notes TEXT
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fredi_vk_contacted_log_vk_id "
+                "ON fredi_vk_contacted_log(vk_id, contacted_at DESC)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fredi_vk_contacted_log_source "
+                "ON fredi_vk_contacted_log(source_user_id, contacted_at DESC)"
+            )
             # Phase 5A: черновик сообщения и метаданные генерации.
             try:
                 await conn.execute(
@@ -895,13 +918,39 @@ def register_vk_routes(app, db):
         if not sets:
             raise HTTPException(status_code=400, detail={"error": "nothing_to_update"})
         args.append(int(candidate_id))
+        new_status = payload.get("status") if "status" in payload else None
         async with db.get_connection() as conn:
             res = await conn.execute(
                 f"UPDATE fredi_vk_candidates SET {', '.join(sets)} WHERE id = ${len(args)}",
                 *args,
             )
-        if res.endswith(" 0"):
-            raise HTTPException(status_code=404, detail={"error": "candidate_not_found"})
+            if res.endswith(" 0"):
+                raise HTTPException(status_code=404, detail={"error": "candidate_not_found"})
+
+            # Phase 8: при переводе в 'contacted' пишем в глобальный лог
+            # (если ещё не писали для этого кандидата за последний час —
+            # защита от двойного клика).
+            if new_status == "contacted":
+                row = await conn.fetchrow(
+                    "SELECT candidate_vk_id, source_user_id, draft_message "
+                    "FROM fredi_vk_candidates WHERE id = $1", int(candidate_id),
+                )
+                if row and row["candidate_vk_id"]:
+                    recent = await conn.fetchval(
+                        "SELECT 1 FROM fredi_vk_contacted_log "
+                        "WHERE candidate_id = $1 AND contacted_at > NOW() - INTERVAL '1 hour'",
+                        int(candidate_id),
+                    )
+                    if not recent:
+                        await conn.execute(
+                            "INSERT INTO fredi_vk_contacted_log "
+                            "(vk_id, source_user_id, candidate_id, message) "
+                            "VALUES ($1, $2, $3, $4)",
+                            int(row["candidate_vk_id"]),
+                            int(row["source_user_id"]) if row["source_user_id"] else None,
+                            int(candidate_id),
+                            (row["draft_message"] or "")[:2000],
+                        )
         return {"ok": True, "id": int(candidate_id)}
 
     @app.post("/api/admin/vk/candidates/{candidate_id}/draft-message")
@@ -979,6 +1028,36 @@ def register_vk_routes(app, db):
             "_meta": result.get("_meta") or {},
         }
 
+        # Phase 8: проверка cooldown — не писали ли уже этому VK ID
+        # за последние 30 дней (хоть от другого source-юзера).
+        cooldown_warning = None
+        if cand["candidate_vk_id"]:
+            async with db.get_connection() as conn:
+                last = await conn.fetchrow(
+                    "SELECT contacted_at, source_user_id, candidate_id "
+                    "FROM fredi_vk_contacted_log "
+                    "WHERE vk_id = $1 AND contacted_at > NOW() - INTERVAL '30 days' "
+                    "ORDER BY contacted_at DESC LIMIT 1",
+                    int(cand["candidate_vk_id"]),
+                )
+            if last:
+                # Определяем сколько дней прошло
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc)
+                delta = now - last["contacted_at"].replace(tzinfo=timezone.utc) if last["contacted_at"].tzinfo is None else now - last["contacted_at"]
+                days_ago = delta.days
+                same_source = last["source_user_id"] == int(cand["source_user_id"])
+                cooldown_warning = {
+                    "days_ago": days_ago,
+                    "same_source": same_source,
+                    "previous_candidate_id": last["candidate_id"],
+                    "message": (
+                        f"⚠ Этому VK уже писали {days_ago} дн. назад"
+                        + (" (тот же source-юзер)" if same_source else " (другой source-юзер)")
+                        + ". Подумай дважды перед повторным контактом."
+                    ),
+                }
+
         async with db.get_connection() as conn:
             # При первой генерации статус new → reviewed (оператор посмотрел
             # черновик = просмотрел кандидата). Если уже > reviewed, не трогаем.
@@ -1004,6 +1083,97 @@ def register_vk_routes(app, db):
             "hook_used": meta["hook_used"],
             "pain_targeted": meta["pain_targeted"],
             "vk_chat_url": f"https://vk.com/im?sel={cand['candidate_vk_id']}",
+            "cooldown_warning": cooldown_warning,
         }
+
+    @app.get("/api/admin/vk/funnel")
+    async def vk_funnel(
+        user_id: Optional[int] = None,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Phase 8: воронка эффективности подбора.
+
+        Если user_id передан — статистика только по этому source-юзеру.
+        Без user_id — глобальная по всему VK-таргетингу.
+        """
+        _check_admin(x_admin_token)
+        async with db.get_connection() as conn:
+            if user_id is not None:
+                uid = int(user_id)
+                # Per-source funnel
+                linked = await conn.fetchval(
+                    "SELECT 1 FROM fredi_vk_profiles WHERE user_id = $1", uid,
+                )
+                parsed = await conn.fetchval(
+                    "SELECT 1 FROM fredi_vk_profiles WHERE user_id = $1 AND parsed_at IS NOT NULL", uid,
+                )
+                with_features = await conn.fetchval(
+                    "SELECT 1 FROM fredi_vk_profiles WHERE user_id = $1 AND features IS NOT NULL", uid,
+                )
+                cand_total = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_vk_candidates WHERE source_user_id = $1", uid,
+                ) or 0
+                by_status = await conn.fetch(
+                    "SELECT status, COUNT(*) AS c FROM fredi_vk_candidates "
+                    "WHERE source_user_id = $1 GROUP BY status", uid,
+                )
+                contacted = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_vk_contacted_log WHERE source_user_id = $1", uid,
+                ) or 0
+                responded = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_vk_contacted_log "
+                    "WHERE source_user_id = $1 AND response_at IS NOT NULL", uid,
+                ) or 0
+                return {
+                    "scope": "user", "user_id": uid,
+                    "linked": bool(linked), "parsed": bool(parsed),
+                    "with_features": bool(with_features),
+                    "candidates_total": cand_total,
+                    "candidates_by_status": {r["status"]: r["c"] for r in by_status},
+                    "contacted_total": contacted,
+                    "responded_total": responded,
+                    "response_rate_pct": round(100 * responded / contacted, 1) if contacted else 0,
+                }
+
+            # Global funnel
+            linked = await conn.fetchval("SELECT COUNT(*) FROM fredi_vk_profiles") or 0
+            parsed = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_profiles WHERE parsed_at IS NOT NULL"
+            ) or 0
+            with_features = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_profiles WHERE features IS NOT NULL"
+            ) or 0
+            cand_total = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_candidates"
+            ) or 0
+            by_status = await conn.fetch(
+                "SELECT status, COUNT(*) AS c FROM fredi_vk_candidates GROUP BY status"
+            )
+            contacted = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_contacted_log"
+            ) or 0
+            unique_contacted = await conn.fetchval(
+                "SELECT COUNT(DISTINCT vk_id) FROM fredi_vk_contacted_log"
+            ) or 0
+            responded = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_contacted_log WHERE response_at IS NOT NULL"
+            ) or 0
+            recent_7d = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_contacted_log "
+                "WHERE contacted_at > NOW() - INTERVAL '7 days'"
+            ) or 0
+            return {
+                "scope": "global",
+                "linked": linked,
+                "parsed": parsed,
+                "with_features": with_features,
+                "candidates_total": cand_total,
+                "candidates_by_status": {r["status"]: r["c"] for r in by_status},
+                "contacted_total": contacted,
+                "contacted_unique_vk_ids": unique_contacted,
+                "contacted_last_7d": recent_7d,
+                "responded_total": responded,
+                "response_rate_pct": round(100 * responded / contacted, 1) if contacted else 0,
+            }
 
     return init_vk_table
