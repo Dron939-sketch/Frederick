@@ -53,10 +53,8 @@
         '<input id="vkSearch" type="text" placeholder="🔍 поиск по user_id, vk_id, имени…" style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit">' +
         '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);white-space:nowrap" title="Где искать близнецов при нажатии 🎯 Близнецы">' +
           '<select id="vkGeoScope" style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px;cursor:pointer">' +
-            '<option value="auto">🎯 авто (по слепку)</option>' +
-            '<option value="same_city">🎯 в том же городе</option>' +
-            '<option value="russia">🎯 по всей России</option>' +
-            '<option value="worldwide">🎯 по всему миру</option>' +
+            '<option value="same_city">🎯 город пациента</option>' +
+            '<option value="russia">🎯 вся Россия</option>' +
           '</select>' +
         '</label>' +
         '<button id="vkRefresh" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄</button>' +
@@ -102,10 +100,12 @@
     document.getElementById('vkProfileClose').addEventListener('click', closeProfile);
     ov.addEventListener('click', function(e){ if (e.target === ov) closeProfile(); });
 
-    // Phase 6: персистим выбор geo_scope в localStorage
+    // Phase 6: персистим выбор geo_scope в localStorage (две опции: same_city / russia).
     try {
       var savedGeo = localStorage.getItem('vk_geo_scope');
-      if (savedGeo) document.getElementById('vkGeoScope').value = savedGeo;
+      if (savedGeo === 'same_city' || savedGeo === 'russia') {
+        document.getElementById('vkGeoScope').value = savedGeo;
+      }
     } catch(e) {}
     document.getElementById('vkGeoScope').addEventListener('change', function(e){
       try { localStorage.setItem('vk_geo_scope', e.target.value); } catch(_){}
