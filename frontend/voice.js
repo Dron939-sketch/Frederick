@@ -724,6 +724,15 @@ class VoiceTransport {
                     if (this.onThinkingUpdate) this.onThinkingUpdate(msg.message || 'Фреди думает');
                     break;
 
+                case 'action':
+                    // Бэкенд сигналит UI выполнить действие (например, открыть
+                    // тест после согласия юзера в BasicMode).
+                    if (msg.action === 'open_test' && typeof window.startTest === 'function') {
+                        try { window.startTest(); }
+                        catch (e) { console.warn('startTest call failed:', e); }
+                    }
+                    break;
+
                 case 'pong':
                     // heartbeat ответ — OK
                     break;
@@ -901,6 +910,13 @@ class VoiceTransport {
 
             if (result.answer && this.onAIResponse)
                 this.onAIResponse(result.answer);
+
+            // Бэкенд просит фронт открыть тест (юзер согласился на оффер
+            // BasicMode). Без этой ветки тест никогда не стартует.
+            if (result.action === 'open_test' && typeof window.startTest === 'function') {
+                try { window.startTest(); }
+                catch (e) { console.warn('startTest call failed:', e); }
+            }
 
             const audioData = result.audio_base64 || result.audio || result.tts_audio;
             if (audioData && this._onPlayAudio) {
