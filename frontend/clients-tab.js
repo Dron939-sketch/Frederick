@@ -51,13 +51,34 @@
       '</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">' +
         '<input id="vkSearch" type="text" placeholder="🔍 поиск по user_id, vk_id, имени…" style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit">' +
-        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);white-space:nowrap" title="Где искать близнецов при нажатии 🎯 Близнецы">' +
-          '<select id="vkGeoScope" style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px;cursor:pointer">' +
+        '<button id="vkRefresh" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄</button>' +
+      '</div>' +
+      // Phase 6/7: контролы поиска близнецов в отдельной строке (geo + min_intersections + re-rank)
+      '<div style="display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--text-dim)">' +
+        '<span style="font-weight:600;color:var(--text)">Поиск близнецов:</span>' +
+        '<label style="display:flex;align-items:center;gap:4px" title="Где искать">' +
+          '<select id="vkGeoScope" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px;cursor:pointer">' +
             '<option value="same_city">🎯 город пациента</option>' +
             '<option value="russia">🎯 вся Россия</option>' +
           '</select>' +
         '</label>' +
-        '<button id="vkRefresh" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄</button>' +
+        '<label style="display:flex;align-items:center;gap:4px" title="Минимум групп пересечения с marker_groups образца. 3 = более точно, меньше кандидатов">' +
+          'мин. групп:' +
+          '<select id="vkMinInt" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:12px;cursor:pointer">' +
+            '<option value="1">1</option>' +
+            '<option value="2">2</option>' +
+            '<option value="3" selected>3</option>' +
+            '<option value="4">4</option>' +
+            '<option value="5">5</option>' +
+          '</select>' +
+        '</label>' +
+        '<label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Дополнительная проверка через ИИ: посты кандидата сравниваются со слепком. Стоит DeepSeek-токенов и +30-60 сек на поиск.">' +
+          '<input id="vkReRank" type="checkbox" style="cursor:pointer"> 🧠 ИИ-проверка постов' +
+        '</label>' +
+        '<label style="display:flex;align-items:center;gap:4px;font-size:11px" title="Минимальный quality_score после ИИ-проверки (0..100). Кандидаты ниже отбрасываются как rejected.">' +
+          'порог качества:' +
+          '<input id="vkQualThr" type="number" min="0" max="100" value="60" style="width:50px;padding:5px 6px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;font-size:11px">' +
+        '</label>' +
       '</div>' +
       '<div id="vkLinksTable"></div>';
     var container = document.querySelector('.container');
@@ -109,6 +130,23 @@
     } catch(e) {}
     document.getElementById('vkGeoScope').addEventListener('change', function(e){
       try { localStorage.setItem('vk_geo_scope', e.target.value); } catch(_){}
+    });
+    // Phase 7: персистим min_intersections, re_rank, quality_threshold
+    try {
+      var sm = localStorage.getItem('vk_min_int');
+      if (sm && ['1','2','3','4','5'].indexOf(sm) >= 0) document.getElementById('vkMinInt').value = sm;
+      if (localStorage.getItem('vk_rerank') === '1') document.getElementById('vkReRank').checked = true;
+      var sqt = localStorage.getItem('vk_qual_thr');
+      if (sqt) document.getElementById('vkQualThr').value = sqt;
+    } catch(_){}
+    document.getElementById('vkMinInt').addEventListener('change', function(e){
+      try { localStorage.setItem('vk_min_int', e.target.value); } catch(_){}
+    });
+    document.getElementById('vkReRank').addEventListener('change', function(e){
+      try { localStorage.setItem('vk_rerank', e.target.checked ? '1' : '0'); } catch(_){}
+    });
+    document.getElementById('vkQualThr').addEventListener('change', function(e){
+      try { localStorage.setItem('vk_qual_thr', e.target.value); } catch(_){}
     });
   }
 
@@ -460,16 +498,35 @@
     var prevHTML = btn ? btn.innerHTML : '';
     if (btn){ btn.disabled = true; btn.innerHTML = '⏳ ищу…'; }
     try {
-      var geoScope = (document.getElementById('vkGeoScope') || {}).value || 'auto';
-      var r = await api('/api/admin/vk/find-twins/'+encodeURIComponent(uid)+
-        '?max_groups=3&max_candidates=50&geo_scope='+encodeURIComponent(geoScope), { method: 'POST' });
+      var geoScope = (document.getElementById('vkGeoScope') || {}).value || 'same_city';
+      var minInt = (document.getElementById('vkMinInt') || {}).value || '3';
+      var reRank = !!(document.getElementById('vkReRank') || {}).checked;
+      var qThr = (document.getElementById('vkQualThr') || {}).value || '60';
+      if (reRank){ btn.innerHTML = '⏳ ищу + ИИ-проверка (~1 мин)…'; }
+      var qs = '?max_groups=3&max_candidates=50' +
+        '&geo_scope=' + encodeURIComponent(geoScope) +
+        '&min_intersections=' + encodeURIComponent(minInt) +
+        '&re_rank=' + (reRank ? 'true' : 'false') +
+        '&quality_threshold=' + encodeURIComponent(qThr);
+      var r = await api('/api/admin/vk/find-twins/'+encodeURIComponent(uid)+qs, { method: 'POST' });
       var s = r.stats || {};
       var msg = '✓ Поиск завершён\n';
       msg += 'Просканировано групп: ' + (s.groups_scanned||0) + '\n';
       msg += 'Загружено участников: ' + (s.members_fetched||0) + '\n';
       msg += 'Уникальных: ' + (s.unique_members||0) + '\n';
+      if (typeof s.after_intersection_filter === 'number'){
+        msg += 'После пересечения групп (мин ' + (s.min_intersections||3) + '): ' + s.after_intersection_filter + '\n';
+      }
       msg += 'После фильтра по демографии: ' + (s.after_demo_filter||0) + '\n';
       msg += 'Записано кандидатов: ' + (s.returned||0);
+      if (r.rerank_stats){
+        var rs = r.rerank_stats;
+        msg += '\n\n🧠 ИИ-проверка постов:\n';
+        msg += '  Проверено: ' + (rs.reranked||0) + '\n';
+        msg += '  Прошли порог ('+ (rs.threshold||60) +'): ' + (rs.passed_threshold||0) + '\n';
+        msg += '  Отбраковано: ' + (rs.rejected_below_threshold||0);
+        if (rs.failed) msg += '\n  Ошибок: ' + rs.failed;
+      }
       if (r.note) msg += '\n\n' + r.note;
       alert(msg);
       if (btn){ btn.disabled = false; btn.innerHTML = prevHTML; }
@@ -556,11 +613,24 @@
         'title="'+(hasDraft?'Открыть готовый черновик':'Сгенерировать черновик через ИИ')+'">'+
         (hasDraft?'✉️ ✓':'✉️')+'</button>';
 
+      // Phase 7: quality_score после ИИ-проверки постов
+      var qCell = '—';
+      if (typeof c.quality_score === 'number'){
+        var qColor = c.quality_score >= 80 ? 'var(--success)' :
+                     c.quality_score >= 60 ? 'var(--accent)' :
+                     c.quality_score >= 40 ? 'var(--warning)' : 'var(--error)';
+        var qTitle = c.quality_reasoning || 'нет описания';
+        qCell = '<span title="'+esc(qTitle).replace(/"/g,'&quot;')+'" '+
+                'style="display:inline-block;padding:2px 8px;border-radius:6px;background:'+qColor+';color:#fff;font-weight:700;font-size:11px;cursor:help">'+
+                c.quality_score+'</span>';
+      }
+
       return '<tr style="'+rowBg+'">' +
         '<td style="font-size:13px"><a href="'+esc(cd.url||('https://vk.com/id'+c.vk_id))+'" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">'+name+' ↗</a>'+
           (demo?'<div style="font-size:10px;color:var(--text-dim);margin-top:1px">'+demo+'</div>':'')+
           (cd.status?'<div style="font-size:10px;color:var(--text-dim);margin-top:2px;font-style:italic">"'+esc(cd.status.slice(0,80))+'"</div>':'')+'</td>' +
         '<td style="text-align:center;font-weight:700;color:var(--accent)">'+c.match_score+'</td>' +
+        '<td style="text-align:center">'+qCell+'</td>' +
         '<td style="font-size:11px;max-width:200px">'+grpsHtml+'</td>' +
         '<td>'+statusBtns+'</td>' +
         '<td style="text-align:center">'+msgBtn+'</td>' +
@@ -570,7 +640,7 @@
 
     document.getElementById('vkProfileBody').innerHTML =
       filtersBar +
-      '<table><thead><tr><th>Кандидат</th><th>Score</th><th>Совпадение по группам</th><th>Статус</th><th title="Сообщение">✉️</th><th>Найден</th></tr></thead><tbody>'+rows+'</tbody></table>' +
+      '<table><thead><tr><th>Кандидат</th><th title="Score по совпадению групп (Этап 1)">Score</th><th title="Quality 0-100 после ИИ-проверки постов (Этап 2)">🧠 Q</th><th>Совпадение по группам</th><th>Статус</th><th title="Сообщение">✉️</th><th>Найден</th></tr></thead><tbody>'+rows+'</tbody></table>' +
       '<div style="font-size:11px;color:var(--text-dim);margin-top:8px">Кликни по имени — открыть VK-страницу. Кликни ✉️ — сгенерить или открыть черновик сообщения. Статус меняй через dropdown.</div>';
 
     document.querySelectorAll('select[data-cand-id][data-act="status"]').forEach(function(sel){
