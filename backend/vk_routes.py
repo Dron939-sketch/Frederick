@@ -429,6 +429,37 @@ def register_vk_routes(app, db):
         if ctx is not None:
             ctx_dict = {k: _jb(ctx[k]) if k != "user_id" else ctx[k] for k in ctx.keys()}
         msgs_chron = list(messages); msgs_chron.reverse()
+
+        # Phase 9: cross-session memory — отдадим топ-5 сводок прошлых сессий.
+        session_summaries = []
+        try:
+            async with db.get_connection() as conn:
+                srows = await conn.fetch(
+                    "SELECT id, mode, method_code, started_at, ended_at, message_count, "
+                    "       summary, key_facts, continuity_hooks, client_state_at_end, "
+                    "       generated_at "
+                    "FROM fredi_session_summaries WHERE user_id = $1 "
+                    "ORDER BY ended_at DESC LIMIT 5",
+                    uid,
+                )
+            for sr in srows:
+                session_summaries.append({
+                    "id": sr["id"],
+                    "mode": sr["mode"],
+                    "method_code": sr["method_code"],
+                    "started_at": sr["started_at"].isoformat() if sr["started_at"] else None,
+                    "ended_at": sr["ended_at"].isoformat() if sr["ended_at"] else None,
+                    "message_count": sr["message_count"],
+                    "summary": sr["summary"],
+                    "key_facts": _jb(sr["key_facts"]) or {},
+                    "continuity_hooks": _jb(sr["continuity_hooks"]) or [],
+                    "client_state_at_end": sr["client_state_at_end"],
+                    "generated_at": sr["generated_at"].isoformat() if sr["generated_at"] else None,
+                })
+        except Exception as e:
+            # Таблица может ещё не быть создана — это не критично для остального ответа.
+            logger.debug(f"session_summaries fetch skipped: {e}")
+
         return {
             "user_id": uid,
             "user": {
@@ -447,6 +478,7 @@ def register_vk_routes(app, db):
                 "created_at": m["created_at"].isoformat() if m["created_at"] else None,
             } for m in msgs_chron],
             "stats": {"user_msg_count": user_msg_count},
+            "session_summaries": session_summaries,
             "vk": ({
                 "vk_id": vk_link["vk_id"],
                 "vk_screen_name": vk_link["vk_screen_name"],

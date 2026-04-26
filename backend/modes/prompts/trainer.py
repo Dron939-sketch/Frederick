@@ -24,6 +24,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+# Поведенческие правила Фреди — едины для всех режимов.
+try:
+    from .psychologist.base import BEHAVIORAL_GUARD as _BEHAVIORAL_GUARD
+except Exception:
+    _BEHAVIORAL_GUARD = ""
+
 
 TRAINER_GEN_PARAMS: Dict[str, Any] = {
     "temperature": 0.7,
@@ -164,7 +170,9 @@ def build_trainer_system_prompt(profile: Optional[Dict[str, Any]] = None) -> str
     if profile.get("history"):
         memory_note = "\n\nТы помнишь предыдущий разговор — опирайся на прошлые замеры и цели."
 
-    return f"{TRAINER_BASE_PROMPT}{profile_block}{memory_note}"
+    # BEHAVIORAL_GUARD из psychologist/base.py клеится в начало —
+    # общие правила Фреди приоритетнее любого режима.
+    return f"{_BEHAVIORAL_GUARD}{TRAINER_BASE_PROMPT}{profile_block}{memory_note}"
 
 
 def should_include_fewshot(history: Optional[List[Dict[str, Any]]]) -> bool:
