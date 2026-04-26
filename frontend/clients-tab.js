@@ -330,6 +330,12 @@
       if (f.key_themes && f.key_themes.length) lines.push('Темы: ' + f.key_themes.slice(0,5).join(', '));
       if (f.marker_groups && f.marker_groups.length) lines.push('Marker-группы: ' + f.marker_groups.length);
       if (f.marker_keywords && f.marker_keywords.length) lines.push('Marker-слов: ' + f.marker_keywords.length);
+      if (f.data_quality){
+        var dq = f.data_quality;
+        var lvl = dq.level === 'high' ? 'высокое' : dq.level === 'medium' ? 'среднее' : 'низкое';
+        lines.push('Данные: ' + lvl + ' (' + dq.score + '/100)');
+        if (dq.recommendation) lines.push('→ ' + dq.recommendation);
+      }
       alert(lines.join('\n'));
       if (btn){ btn.disabled = false; btn.innerHTML = '✓ Признаки'; setTimeout(function(){ btn.innerHTML = prevHTML; }, 1500); }
     } catch(e){
@@ -873,6 +879,31 @@
         var ff = v.features;
         var when = v.features_extracted_at ? new Date(v.features_extracted_at).toLocaleString('ru-RU') : '';
         var fbits = '';
+        // Бэйдж качества данных — оператор сразу видит, готов ли профиль
+        // к поиску близнецов или нужно дособрать данные.
+        if (ff.data_quality && typeof ff.data_quality === 'object'){
+          var dq = ff.data_quality;
+          var lvl = dq.level || 'low';
+          var lvlLabel = lvl === 'high' ? 'высокое' : lvl === 'medium' ? 'среднее' : 'низкое';
+          var lvlColor = lvl === 'high' ? 'var(--success)' :
+                         lvl === 'medium' ? 'var(--warning)' : 'var(--error)';
+          var lvlBg = lvl === 'high' ? 'rgba(52,211,153,0.10)' :
+                      lvl === 'medium' ? 'rgba(251,191,36,0.10)' : 'rgba(248,113,113,0.10)';
+          var issuesHtml = '';
+          if (dq.issues && dq.issues.length){
+            issuesHtml = '<ul style="margin:6px 0 0 18px;padding:0;font-size:12px;color:var(--text-dim)">' +
+              dq.issues.map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('') + '</ul>';
+          }
+          var recHtml = dq.recommendation
+            ? '<div style="margin-top:6px;font-size:12px;color:var(--text-dim);font-style:italic">→ '+esc(dq.recommendation)+'</div>'
+            : '';
+          fbits += '<div style="background:'+lvlBg+';border-left:3px solid '+lvlColor+';padding:8px 12px;margin-bottom:10px;border-radius:4px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+              '<div style="font-size:10px;color:'+lvlColor+';text-transform:uppercase;letter-spacing:0.4px">📊 Качество данных</div>' +
+              '<div style="font-size:13px;font-weight:600;color:'+lvlColor+'">'+lvlLabel+' · '+(dq.score||0)+'/100</div>' +
+            '</div>' + issuesHtml + recHtml +
+          '</div>';
+        }
         // Phase 6: pain_point — главный крючок. Выделяем красно-розовым.
         if (ff.pain_point){
           fbits += '<div style="background:rgba(248,113,113,0.08);border-left:3px solid var(--error);padding:8px 12px;margin-bottom:10px;border-radius:4px">' +
