@@ -23,6 +23,19 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+# Каталог архетипов (Марк–Пирсон) — DeepSeek опирается на него при выборе
+# поля archetype в слепке. Фолбэк по векторам — если LLM поставил null.
+try:
+    from services.archetype_mapper import (
+        archetype_catalog_for_prompt,
+        infer_archetype_from_vectors,
+        all_codes as _archetype_codes,
+    )
+except Exception:  # noqa: BLE001
+    def archetype_catalog_for_prompt() -> str: return ""
+    def infer_archetype_from_vectors(*_a, **_kw): return None
+    def _archetype_codes(): return []
+
 logger = logging.getLogger(__name__)
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
@@ -54,8 +67,13 @@ SYSTEM_PROMPT = (
     "ОСОБОЕ ВНИМАНИЕ:\n"
     "  • pain_point — конкретная активная боль. Должна звучать так, чтобы человек сказал «это про меня».\n"
     "  • desired_outcome — чего хочет и не получает.\n"
+    "  • archetype — один из ровно этих кодов или null:\n"
+    + "    " + ", ".join(_archetype_codes() or ["INNOCENT","SAGE","EXPLORER","HERO","OUTLAW","MAGICIAN","LOVER","JESTER","EVERYMAN","CREATOR","RULER","CAREGIVER"]) + "\n"
+    "    Выбирай по сочетанию теста, контекста и активности в VK; не пиши русское имя архетипа,\n"
+    "    только code из списка. Если ни один не подходит уверенно — null.\n"
     "  • marker_groups — ТОЛЬКО реальные id из vk_data.groups.items, не выдумывай.\n"
     "  • marker_keywords — слова, которые человек реально использует (из постов и диалогов).\n\n"
+    + archetype_catalog_for_prompt() + "\n\n"
     "Возвращай СТРОГО валидный JSON по схеме, без markdown, без префиксов."
 )
 
@@ -67,6 +85,7 @@ SCHEMA_HINT = """
   "pain_origin": ["test"|"context"|"dialogues"],
   "confidence": "high"|"medium"|"low",
   "desired_outcome": "ОДНО предложение, чего он хочет и не получает. Пример: «Хочет, чтобы он сам написал и предложил вернуться».",
+  "archetype": "INNOCENT|SAGE|EXPLORER|HERO|OUTLAW|MAGICIAN|LOVER|JESTER|EVERYMAN|CREATOR|RULER|CAREGIVER" | null,
   "problem_summary": "Один-два предложения общего описания проблематики (как мост от боли к контексту).",
   "key_themes": ["3–5 ключевых тем словами/короткими фразами"],
   "evidence_in_dialogue": [
@@ -294,6 +313,22 @@ async def extract_features(
     features.setdefault("pain_origin", [])
     features.setdefault("confidence", "low")
     features.setdefault("desired_outcome", "")
+    features.setdefault("archetype", None)
+    # Если LLM не выбрал архетип — дожимаем эвристикой по векторам теста.
+    if not features.get("archetype"):
+        try:
+            test_profile = (composite_profile or {}).get("profile") or {}
+            vectors = test_profile.get("vectors") or {}
+            # Векторы в БД могут лежать как {"СБ": 5} или {"sb": 5} — пробуем оба.
+            features["archetype"] = infer_archetype_from_vectors(
+                sb=vectors.get("СБ") or vectors.get("SB") or vectors.get("sb"),
+                tf=vectors.get("ТФ") or vectors.get("TF") or vectors.get("tf"),
+                ub=vectors.get("УБ") or vectors.get("UB") or vectors.get("ub"),
+                cv=vectors.get("ЧВ") or vectors.get("CV") or vectors.get("cv"),
+            )
+        except Exception as _e:
+            logger.debug(f"archetype heuristic fallback failed: {_e}")
+            features["archetype"] = None
     features.setdefault("problem_summary", "")
     features.setdefault("key_themes", [])
     features.setdefault("evidence_in_dialogue", [])
