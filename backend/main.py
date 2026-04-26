@@ -216,6 +216,7 @@ class ChatResponse(BaseModel):
     response: str
     mode_used: Optional[str] = None
     reflection: Optional[str] = None
+    action: Optional[str] = None
 
 class VoiceProcessResponse(BaseModel):
     success: bool
@@ -224,6 +225,7 @@ class VoiceProcessResponse(BaseModel):
     audio_base64: Optional[str] = None
     audio_mime: Optional[str] = None
     error: Optional[str] = None
+    action: Optional[str] = None
 
 class HealthResponse(BaseModel):
     status: str
@@ -459,6 +461,31 @@ def _normalize_fredi_wake_word(text: str) -> str:
     normalized = _FREDI_WAKE_VARIANTS.sub("Фреди", text)
     normalized = _FREDI_WAKE_START.sub(r"Фреди\1", normalized)
     return normalized
+
+
+_TEST_ACCEPT_RE = re.compile(
+    r"\b(да|давай|погнали|поехали|ок|окей|хочу|тест|тесть|можно|попробую|попробуем|конечно|ага|"
+    r"начнём|начнем|готов|готова|запускай|открой)\b",
+    re.IGNORECASE,
+)
+_TEST_DECLINE_RE = re.compile(
+    r"(\bне\s+(?:хочу|надо|сейчас|буду|готов|готова)\b|\bнет\b|\bпотом\b|\bотстань\b|\bпозже\b)",
+    re.IGNORECASE,
+)
+
+
+def _is_test_acceptance(text: str) -> bool:
+    """True, если сообщение пользователя — согласие на оффер теста.
+
+    Используется только когда `basic_test_offered=True`: после оффера на 4-м
+    сообщении BasicMode мы должны поймать «да/давай/попробую/...» и сообщить
+    фронту `action=open_test`, чтобы открыть тест-интерфейс.
+    """
+    if not text:
+        return False
+    if _TEST_DECLINE_RE.search(text):
+        return False
+    return bool(_TEST_ACCEPT_RE.search(text))
 
 
 @app.middleware("http")
@@ -766,6 +793,43 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
 
             if recognized_text and len(recognized_text.strip()) > 0:
                 await websocket.send_json({"type": "text", "data": f"🎤 Вы: {recognized_text}"})
+
+                # Юзер согласился на оффер теста → подтверждаем голосом и
+                # сигналим фронту type=action/action=open_test, чтобы тест
+                # реально открылся вместо очередного ответа от Freddy.
+                if (mode_name == "basic"
+                        and context.get("basic_test_offered", False)
+                        and _is_test_acceptance(recognized_text)):
+                    ack = random.choice([
+                        "Отлично. Открываю тест.",
+                        "Хорошо. Запускаю.",
+                        "Поехали. Открываю тест.",
+                    ])
+                    context["basic_test_offered"] = False
+                    try:
+                        await context_repo.save(user_id_for_db, context)
+                    except Exception as _e:
+                        logger.warning(f"context save (test-accept) failed: {_e}")
+                    await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {ack}"})
+                    await websocket.send_json({"type": "status", "status": "speaking"})
+                    try:
+                        async for audio_chunk in voice_service.text_to_speech_streaming(
+                            ack, mode_name, chunk_size=4096
+                        ):
+                            if audio_chunk:
+                                audio_b64 = base64.b64encode(audio_chunk).decode()
+                                await websocket.send_json({"type": "audio", "data": audio_b64, "is_final": False})
+                                await asyncio.sleep(0.05)
+                        await websocket.send_json({"type": "audio", "data": "", "is_final": True})
+                    except Exception as _e:
+                        logger.warning(f"TTS for test-accept ack failed: {_e}")
+                    await websocket.send_json({"type": "action", "action": "open_test"})
+                    await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": "basic"})
+                    await message_repo.save(user_id_for_db, "assistant", ack, {"voice": True, "mode": "basic"})
+                    await websocket.send_json({"type": "status", "status": "idle"})
+                    audio_buffer = bytearray()
+                    chunk_count = 0
+                    return
 
                 # --- Freddy SDK для голосового режима (basic) ---
                 response_text = ""
@@ -2112,14 +2176,39 @@ async def chat(request: Request, data: ChatRequest):
 
         # --- Freddy SDK: для пользователей без теста ---
         if not has_profile:
-            # Предложение теста после 4 сообщений (сохраняем логику BasicMode)
             test_offered = context_obj.get("basic_test_offered", False)
+
+            # Юзер согласился на оффер теста → говорим фронту открыть тест.
+            # Без этого блока «да» уходит в FreddyService и тест никогда не
+            # стартует, хотя пользователь дал согласие.
+            if test_offered and _is_test_acceptance(data.message):
+                ack = random.choice([
+                    "Отлично. Открываю тест.",
+                    "Хорошо. Запускаю.",
+                    "Поехали. Открываю тест.",
+                ])
+                # Сбрасываем флаг: если юзер по какой-то причине вернётся
+                # без профиля, оффер сработает снова на 4-м сообщении.
+                context_obj["basic_test_offered"] = False
+                await context_repo.save(data.user_id, context_obj)
+                await message_repo.save(data.user_id, "user", data.message, {"mode": "basic"})
+                await message_repo.save(data.user_id, "assistant", ack, {"mode": "basic"})
+                await log_event(data.user_id, "chat", {
+                    "mode": "basic", "message_length": len(data.message),
+                    "tools_used": ["test_accept"], "has_profile": False
+                })
+                return {
+                    "success": True, "response": ack,
+                    "mode_used": "basic", "reflection": None,
+                    "action": "open_test",
+                }
+
+            # Предложение теста после 4 сообщений (сохраняем логику BasicMode)
             if msg_count >= 4 and not test_offered:
-                import random as _rnd
                 test_offered = True
                 context_obj["basic_test_offered"] = True
                 await context_repo.save(data.user_id, context_obj)
-                test_response = _rnd.choice([
+                test_response = random.choice([
                     "Знаешь... У меня есть одна идея. Небольшой тест — минут на десять. Он помогает понять себя лучше. Попробуешь, да?",
                     "Слушай, я хочу предложить кое-что. Есть тест... Занимает минут десять. Он как зеркало — показывает, что внутри. Интересно?",
                     "Дай-ка подумаю, как тебе помочь лучше... Есть небольшой тест. Десять минут — и я пойму тебя гораздо глубже. Попробуем?",
@@ -2399,6 +2488,39 @@ async def process_voice(
             await context_repo.save(user_id_for_db, context_obj)
         else:
             msg_count = 0
+
+        # Юзер согласился на оффер теста → подтверждаем голосом и сигналим
+        # фронту action=open_test. Выходим до AI-вызова, иначе FreddyService
+        # сгенерит отвлекающий ответ и тест не откроется.
+        if (not has_profile
+                and context_obj.get("basic_test_offered", False)
+                and _is_test_acceptance(recognized_text)):
+            ack = random.choice([
+                "Отлично. Открываю тест.",
+                "Хорошо. Запускаю.",
+                "Поехали. Открываю тест.",
+            ])
+            context_obj["basic_test_offered"] = False
+            await context_repo.save(user_id_for_db, context_obj)
+            try:
+                ack_audio = await voice_service.text_to_speech(ack, "basic")
+            except Exception as _tts_err:
+                logger.warning(f"TTS for test-accept ack failed: {_tts_err}")
+                ack_audio = None
+            await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": "basic"})
+            await message_repo.save(user_id_for_db, "assistant", ack, {"voice": True, "mode": "basic"})
+            await log_event(user_id_for_db, "voice", {
+                "text_length": len(recognized_text), "mode": "basic",
+                "tools_used": ["test_accept"], "has_profile": False,
+            })
+            return {
+                "success": True,
+                "recognized_text": recognized_text,
+                "answer": ack,
+                "audio_base64": ack_audio,
+                "audio_mime": "audio/mpeg",
+                "action": "open_test",
+            }
 
         user_data = {
             "profile_data": profile.get("profile_data", {}),
