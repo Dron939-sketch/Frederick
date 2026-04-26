@@ -173,11 +173,26 @@ class CoachMode(BaseMode):
             "age":  self.context.age  if self.context else None,
         }
 
+    # ========== ПАМЯТЬ (Phase: cross-session memory) ==========
+    async def _prepend_memory(self, system_prompt: str) -> str:
+        """Подмешивает блок памяти прошлых сессий в начало system_prompt
+        и параллельно запускает фоновую суммаризацию закрытой сессии."""
+        try:
+            from session_memory import load_memory_block, schedule_summarize_in_background
+            memory_block = await load_memory_block(self.user_id)
+            schedule_summarize_in_background(self.user_id)
+            if memory_block:
+                return memory_block + system_prompt
+        except Exception as e:
+            logger.debug(f"session_memory load failed: {e}")
+        return system_prompt
+
     # ========== ПОТОКОВАЯ ОБРАБОТКА (WebSocket) ==========
     async def process_question_streaming(self, question: str):
         """Потоковая обработка через AI с кастомным промптом Рассел-коуча."""
         profile = self._ai_profile()
         system_prompt = self._build_system_prompt(profile)
+        system_prompt = await self._prepend_memory(system_prompt)
 
         full_response = ""
         async for chunk in self.ai_service.generate_response_streaming(
@@ -205,6 +220,7 @@ class CoachMode(BaseMode):
 
         profile = self._ai_profile()
         system_prompt = self._build_system_prompt(profile)
+        system_prompt = await self._prepend_memory(system_prompt)
 
         response = await self.ai_service.generate_response(
             user_id=self.user_id,
