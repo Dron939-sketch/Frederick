@@ -51,6 +51,9 @@ class BasicMode(BaseMode):
         self._memory = None
         self._emotion = None
         self._memory_text = ""
+        # Cross-session memory: блок-сводка прошлых сессий (psychologist/coach/
+        # trainer уже подключены, BasicMode подключаем тем же паттерном).
+        self._cross_memory = ""
         self._current_emotion = {"emotion": "neutral", "tone": "friendly", "instruction": ""}
 
         logger.info(f"BasicMode init user_id={user_id}, msgs={self.message_counter}")
@@ -94,6 +97,21 @@ class BasicMode(BaseMode):
                 self._memory_text = await mem.get_facts_text(self.user_id)
             except Exception:
                 self._memory_text = ""
+
+    async def _load_cross_session_memory(self) -> None:
+        """Кросс-сессионная память: подгружаем сводки прошлых закрытых сессий
+        и в фоне суммаризуем сессию, которая только что закрылась.
+        Тот же паттерн, что в psychologist/coach/trainer."""
+        try:
+            from session_memory import (
+                load_memory_block,
+                schedule_summarize_in_background,
+            )
+            self._cross_memory = await load_memory_block(self.user_id) or ""
+            schedule_summarize_in_background(self.user_id)
+        except Exception as e:
+            logger.debug(f"session_memory load failed in BasicMode: {e}")
+            self._cross_memory = ""
 
     async def _save_fact(self, fact: str):
         mem = await self._get_memory()
@@ -291,8 +309,11 @@ class BasicMode(BaseMode):
         )
 
         user_block = self._build_user_block()
+        # Cross-session memory клеим в самое начало — так же, как в
+        # psychologist/coach/trainer (см. _prepend_memory). Если блока нет,
+        # _cross_memory == "" и ничего не меняется.
         return (
-            f"{self.get_system_prompt()}\n\n{user_block}\n{few_shot}\n"
+            f"{self._cross_memory}{self.get_system_prompt()}\n\n{user_block}\n{few_shot}\n"
             f"{memory_text}{rules_text}{golden_text}{emotion_instr}\n"
             f"История:\n{combined}\n\n"
             f"Пользователь: {question}\n\n"
@@ -307,6 +328,9 @@ class BasicMode(BaseMode):
 
         if self.message_counter == 1:
             await self._load_memory()
+            # Кросс-сессионная память: подмешиваем сводки прошлых сессий и
+            # в фоне суммаризуем закрытую сессию (если такая есть).
+            await self._load_cross_session_memory()
 
         # PARALLEL: emotion + rule + golden (saves 2-4 sec)
         emotion_task = asyncio.create_task(self._detect_emotion(question))
