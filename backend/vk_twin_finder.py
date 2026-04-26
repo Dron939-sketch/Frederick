@@ -24,11 +24,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from vk_parser import _call  # type: ignore[attr-defined]
+from vk_parser import _call, is_real_active_profile  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
 
-_VK_USER_FIELDS = "city,country,bdate,sex,about,status,is_closed,can_access_closed,photo_max"
+# В список полей добавлены last_seen и has_photo — они нужны фильтру
+# «живой профиль» (заблокирован/заброшен/фейк). Без них фильтр не сможет
+# отличить рабочую страницу от пустой заглушки.
+_VK_USER_FIELDS = (
+    "city,country,bdate,sex,about,status,is_closed,can_access_closed,"
+    "photo_max,has_photo,last_seen"
+)
 
 
 def _normalise_sex(s: Any) -> Optional[int]:
@@ -266,10 +272,23 @@ async def find_twins(
                                   geo_scope=geo_scope, country_id=country_id):
             after_demo.append((uid, u))
 
+    # Фильтр «живой профиль»: убираем заблокированных / заброшенных /
+    # без аватарки / пустые. С детализацией причин — оператор видит,
+    # сколько отлетело и почему.
+    rejected_by_reason: Dict[str, int] = {}
+    after_real: List[Tuple[int, Dict[str, Any]]] = []
+    for uid, u in after_demo:
+        ok, reason = is_real_active_profile(u)
+        if ok:
+            after_real.append((uid, u))
+        else:
+            key = (reason or "unknown").split(":", 1)[0]
+            rejected_by_reason[key] = rejected_by_reason.get(key, 0) + 1
+
     # Скорим, сортируем
     scored = [
         (uid, u, _score(len(member_groups[uid])))
-        for uid, u in after_demo
+        for uid, u in after_real
     ]
     scored.sort(key=lambda t: t[2], reverse=True)
     top = scored[:max_candidates]
@@ -285,6 +304,8 @@ async def find_twins(
             "min_intersections": min_int,
             "after_intersection_filter": len(after_intersect),
             "after_demo_filter": len(after_demo),
+            "after_quality_filter": len(after_real),
+            "rejected_by_reason": rejected_by_reason,
             "returned": len(candidates),
         },
         "groups_used": [

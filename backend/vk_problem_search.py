@@ -22,12 +22,17 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from vk_parser import _call  # тот же rate-limited helper, что в parser/twin_finder
+from vk_parser import _call, is_real_active_profile  # rate-limited helper + фильтр живого профиля
 from services.problem_categories import get_category
 
 logger = logging.getLogger(__name__)
 
-_VK_USER_FIELDS = "city,country,bdate,sex,about,status,is_closed,can_access_closed,photo_max"
+# last_seen и has_photo нужны фильтру is_real_active_profile,
+# чтобы отсечь заблокированных, заброшенных и фейков.
+_VK_USER_FIELDS = (
+    "city,country,bdate,sex,about,status,is_closed,can_access_closed,"
+    "photo_max,has_photo,last_seen"
+)
 
 
 def _normalise_sex(s: Any) -> Optional[int]:
@@ -178,6 +183,8 @@ async def search_by_problem(
 
     members_fetched = 0
     seen: Dict[int, Dict[str, Any]] = {}
+    rejected_by_reason: Dict[str, int] = {}
+    skipped_demo = 0
 
     async with httpx.AsyncClient() as client:
         resolved = await _resolve_screen_names(client, seed_screen_names)
@@ -205,6 +212,15 @@ async def search_by_problem(
                 if not uid or uid in seen:
                     continue
                 if not _matches_demographics(u, demo):
+                    skipped_demo += 1
+                    continue
+                # Отсекаем заблокированных / заброшенных / фейков ДО того,
+                # как выгребем буфер max_candidates*3 — иначе хорошие кандидаты
+                # не попадут в выборку.
+                ok, reason = is_real_active_profile(u)
+                if not ok:
+                    key = (reason or "unknown").split(":", 1)[0]
+                    rejected_by_reason[key] = rejected_by_reason.get(key, 0) + 1
                     continue
                 seen[uid] = _candidate_dict(u, g)
                 if len(seen) >= max_candidates * 3:
@@ -240,6 +256,8 @@ async def search_by_problem(
             "groups_resolved": len(resolved),
             "groups_scanned": len(groups_to_scan),
             "members_fetched": members_fetched,
+            "skipped_demo": skipped_demo,
+            "rejected_by_reason": rejected_by_reason,
             "after_demo_filter": len(seen),
             "returned": len(candidates),
         },
