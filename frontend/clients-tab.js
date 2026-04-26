@@ -1277,11 +1277,19 @@
       rejHtml = ' · 🧹 отсеяно ' + rejTotal + ' (' + esc(parts) + ')';
     }
 
-    var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">' +
-      '🔍 групп просмотрено: ' + (stats.groups_scanned||0) + ' из ' + (stats.groups_resolved||0) + ' резолвленных · ' +
-      'участников загружено: ' + (stats.members_fetched||0) + ' · ' +
-      'после фильтра: ' + (stats.after_demo_filter||0) +
-      rejHtml +
+    var bySource = stats.by_source || {};
+    var sourceHtml = '';
+    if ((bySource.newsfeed||0) || (bySource.group||0)){
+      sourceHtml = ' · 📰 ' + (bySource.newsfeed||0) + ' автор(ов) постов · 👥 ' + (bySource.group||0) + ' из групп';
+    }
+
+    var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">' +
+      '📰 фраз: ' + (stats.phrases_used||0) + ' · ' +
+      'постов просмотрено: ' + (stats.posts_seen||0) + ' · ' +
+      'уникальных авторов: ' + (stats.newsfeed_authors||0) +
+      '<br>👥 групп: ' + (stats.groups_scanned||0) + ' из ' + (stats.groups_resolved||0) + ' резолвленных · ' +
+      'участников: ' + (stats.members_fetched||0) +
+      '<br>после фильтра: ' + (stats.after_demo_filter||0) + sourceHtml + rejHtml +
       '</div>';
 
     var groupsHtml = '';
@@ -1305,7 +1313,14 @@
       var sexLabel = c.sex === 1 ? '♀' : c.sex === 2 ? '♂' : '';
       var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
       var status = c.status ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:2px">«' + esc(c.status) + '»</div>' : '';
-      var fromGroup = c.from_group ? '<span style="font-size:11px;color:var(--text-dim)">из ' + esc(c.from_group.name||'') + '</span>' : '';
+      // Метка источника: 📰 newsfeed = автор поста на тему (живой по факту);
+      // 👥 group = просто состоит в группе (может быть менее релевантен).
+      var srcBadge = '';
+      if (c.source === 'newsfeed'){
+        srcBadge = '<span style="font-size:10px;color:var(--success);margin-left:6px;border:1px solid var(--success);padding:1px 6px;border-radius:4px" title="Автор поста на тему — живой подтверждённый">📰 автор поста</span>';
+      } else if (c.source === 'group' && c.from_group && c.from_group.name){
+        srcBadge = '<span style="font-size:11px;color:var(--text-dim)" title="Состоит в сообществе">👥 ' + esc(c.from_group.name) + '</span>';
+      }
       var closed = c.is_closed ? '<span style="font-size:10px;color:var(--warning);margin-left:6px;border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '';
       var draftBtn = '<button data-vk="' + c.vk_id + '" class="vk-prob-draft" ' +
         'style="padding:6px 10px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer" ' +
@@ -1319,7 +1334,7 @@
             ' <span style="font-size:11px;color:var(--text-dim)">' + esc(sexLabel) + ' ' + esc(bdate) + ' ' + esc(c.city||'') + '</span>' +
             closed +
           '</div>' +
-          fromGroup +
+          srcBadge +
           draftBtn +
         '</div>' +
         status + about +
