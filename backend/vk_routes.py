@@ -606,6 +606,7 @@ def register_vk_routes(app, db):
         user_id: int,
         max_groups: int = 3,
         max_candidates: int = 50,
+        geo_scope: str = "auto",
         x_admin_token: Optional[str] = Header(default=None),
     ):
         """Найти «близнецов» в VK по слепку признаков юзера (нужен extract-features).
@@ -649,12 +650,18 @@ def register_vk_routes(app, db):
                 "message": "Модуль vk_twin_finder недоступен",
             })
 
+        # Whitelist geo_scope; невалидные значения → "auto"
+        gs = (geo_scope or "auto").strip().lower()
+        if gs not in ("auto", "same_city", "russia", "worldwide"):
+            gs = "auto"
+
         try:
             result = await _find_twins(
                 seed_vk_id=int(seed_vk_id),
                 features=features,
                 max_groups_to_scan=max_groups,
                 max_candidates=max_candidates,
+                geo_scope=gs,
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={"error": "vk_api_error", "message": str(e)})
