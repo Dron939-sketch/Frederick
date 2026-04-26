@@ -536,6 +536,20 @@ def register_analytics_routes(app, db):
     except Exception as e:
         logger.warning(f"vk_phase2_routes register failed: {e}")
 
+    # Кросс-сессионная память Фреди (session_memory.py).
+    # Таблица fredi_session_summaries + admin endpoints для управления.
+    _sm_init = None
+    try:
+        from session_memory import (
+            register_session_memory as _register_sm,
+            register_session_memory_routes as _register_sm_routes,
+        )
+        _sm_init = _register_sm(app, db)
+        _register_sm_routes(app, db)
+        logger.info("Session-memory registered via analytics chain")
+    except Exception as e:
+        logger.warning(f"session_memory register failed: {e}")
+
     async def _combined_init():
         await init_analytics_table()
         if _vk_init is not None:
@@ -543,5 +557,10 @@ def register_analytics_routes(app, db):
                 await _vk_init()
             except Exception as e:
                 logger.warning(f"vk init failed: {e}")
+        if _sm_init is not None:
+            try:
+                await _sm_init()
+            except Exception as e:
+                logger.warning(f"session_memory init failed: {e}")
 
     return _combined_init

@@ -262,11 +262,23 @@ class PsychologistMode(BaseMode):
             history=self.history,
             is_first_turn=is_first
         )
-        
+
+        # 4b. Phase: Кросс-сессионная память. Подмешиваем в начало system_prompt
+        # сводки прошлых сессий (если есть). Параллельно — фоновая задача
+        # сcammarize прошлой сессии (если она «закрылась»).
+        memory_block = ""
+        try:
+            from session_memory import load_memory_block, schedule_summarize_in_background
+            memory_block = await load_memory_block(self.user_id)
+            schedule_summarize_in_background(self.user_id)
+        except Exception as e:
+            logger.debug(f"session_memory load failed: {e}")
+        prompt_with_memory = (memory_block + method.system_prompt) if memory_block else method.system_prompt
+
         # 5. Отправляем вступительное сообщение (если есть)
         if intro_or_notice:
             yield intro_or_notice
-        
+
         # 6. Вызов AI с динамическим системным промптом
         full_response = ""
         try:
@@ -274,7 +286,7 @@ class PsychologistMode(BaseMode):
                 message=question,
                 context=self._build_context_dict(),
                 profile=self._build_profile_dict(),
-                system_prompt=method.system_prompt,  # ключевое: передаём промпт автора
+                system_prompt=prompt_with_memory,  # система + память + метод
                 temperature=method.temperature,
                 top_p=method.top_p,
                 max_tokens=method.max_tokens,
