@@ -27,6 +27,13 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+# Архетипный пакет (Марк–Пирсон) подмешиваем в system prompt, когда экстрактор
+# его определил. Тон голоса и характер крючка зависят от архетипа.
+try:
+    from services.archetype_mapper import archetype_directives_for_outreach
+except Exception:  # noqa: BLE001
+    def archetype_directives_for_outreach(_code): return ""
+
 logger = logging.getLogger(__name__)
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
@@ -154,10 +161,17 @@ async def draft_message(
 
     user_msg = _build_user_prompt(source_features, candidate)
 
+    # Архетип получателя — общий с исходным клиентом (мы ищем близнецов).
+    # Если архетип определён, подмешиваем его директивы в system prompt:
+    # тон, какую боль бить, что обещать. Без этого copywriter может писать
+    # Бунтарю как Невинному.
+    archetype_block = archetype_directives_for_outreach(source_features.get("archetype"))
+    system_content = SYSTEM_PROMPT + ("\n\n" + archetype_block if archetype_block else "")
+
     payload = {
         "model": model or DEEPSEEK_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_msg},
         ],
         "temperature": temperature,
