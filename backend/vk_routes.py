@@ -118,7 +118,32 @@ def register_vk_routes(app, db):
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_fredi_vk_profiles_screen "
                 "ON fredi_vk_profiles(vk_screen_name) WHERE vk_screen_name IS NOT NULL"
             )
-        logger.info("VK profiles table ready (with features column)")
+            # Phase 4: «близнецы» — кандидаты на outreach.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_vk_candidates (
+                    id BIGSERIAL PRIMARY KEY,
+                    source_user_id BIGINT NOT NULL
+                        REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                    candidate_vk_id BIGINT NOT NULL,
+                    candidate_data JSONB,
+                    match_score INT NOT NULL DEFAULT 0,
+                    matched_groups JSONB DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'new',
+                    notes TEXT DEFAULT '',
+                    found_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    contacted_at TIMESTAMP WITH TIME ZONE,
+                    UNIQUE(source_user_id, candidate_vk_id)
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fredi_vk_candidates_source "
+                "ON fredi_vk_candidates(source_user_id, match_score DESC)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fredi_vk_candidates_status "
+                "ON fredi_vk_candidates(status)"
+            )
+        logger.info("VK profiles + candidates tables ready (phase 4)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -555,5 +580,188 @@ def register_vk_routes(app, db):
             "features": features,
             "extracted_at_unix": None,  # фронт сам через features_extracted_at в profile-summary возьмёт
         }
+
+    @app.post("/api/admin/vk/find-twins/{user_id}")
+    async def vk_find_twins(
+        user_id: int,
+        max_groups: int = 3,
+        max_candidates: int = 50,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Найти «близнецов» в VK по слепку признаков юзера (нужен extract-features).
+
+        Стратегия (см. backend/vk_twin_finder.py):
+          1) groups.getMembers для топ-N marker_groups
+          2) пересечение → фильтр по demographics → скоринг
+          3) запись в fredi_vk_candidates (UPSERT по (source_user_id, candidate_vk_id))
+          4) возвращает stats + первые 50 кандидатов
+        """
+        _check_admin(x_admin_token)
+        uid = int(user_id)
+        max_groups = max(1, min(int(max_groups), 5))
+        max_candidates = max(10, min(int(max_candidates), 200))
+
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT vk_id, vk_screen_name, features "
+                "FROM fredi_vk_profiles WHERE user_id = $1", uid,
+            )
+        if not row:
+            raise HTTPException(status_code=404, detail={"error": "link_not_found"})
+        if row["features"] is None:
+            raise HTTPException(status_code=409, detail={
+                "error": "no_features",
+                "message": "Сначала «🧠 Признаки» — без слепка нечего искать",
+            })
+
+        features_raw = row["features"]
+        features = (
+            json.loads(features_raw) if isinstance(features_raw, str) else features_raw
+        )
+        seed_vk_id = row["vk_id"] or 0
+
+        try:
+            from vk_twin_finder import find_twins as _find_twins
+        except Exception as e:
+            logger.error(f"vk_twin_finder import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "twin_finder_unavailable",
+                "message": "Модуль vk_twin_finder недоступен",
+            })
+
+        try:
+            result = await _find_twins(
+                seed_vk_id=int(seed_vk_id),
+                features=features,
+                max_groups_to_scan=max_groups,
+                max_candidates=max_candidates,
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={"error": "vk_api_error", "message": str(e)})
+
+        candidates = result.get("candidates") or []
+        # Записываем кандидатов в БД (UPSERT). Сохраняем match_score, обновляем
+        # candidate_data при повторном поиске — чтобы свежие данные ложились.
+        if candidates:
+            async with db.get_connection() as conn:
+                for c in candidates:
+                    cvk = int(c.get("vk_id") or 0)
+                    if not cvk:
+                        continue
+                    await conn.execute(
+                        "INSERT INTO fredi_vk_candidates "
+                        "(source_user_id, candidate_vk_id, candidate_data, match_score, matched_groups, status) "
+                        "VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, 'new') "
+                        "ON CONFLICT (source_user_id, candidate_vk_id) DO UPDATE SET "
+                        "  candidate_data = EXCLUDED.candidate_data, "
+                        "  match_score = GREATEST(fredi_vk_candidates.match_score, EXCLUDED.match_score), "
+                        "  matched_groups = EXCLUDED.matched_groups",
+                        uid, cvk,
+                        json.dumps(c, ensure_ascii=False),
+                        int(c.get("match_score") or 0),
+                        json.dumps(c.get("matched_groups") or [], ensure_ascii=False),
+                    )
+
+        return {
+            "ok": True,
+            "user_id": uid,
+            "stats": result.get("stats"),
+            "groups_used": result.get("groups_used"),
+            "demographics_used": result.get("demographics_used"),
+            "note": result.get("note"),
+            "candidates_preview": candidates[:20],  # фронт сам подгрузит остальное через GET
+        }
+
+    @app.get("/api/admin/vk/candidates/{user_id}")
+    async def vk_list_candidates(
+        user_id: int,
+        status: str = "",
+        limit: int = 100,
+        offset: int = 0,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Список найденных близнецов для конкретного source-юзера."""
+        _check_admin(x_admin_token)
+        uid = int(user_id)
+        lim = max(1, min(int(limit), 500))
+        off = max(0, int(offset))
+        st = (status or "").strip()
+
+        sql = (
+            "SELECT id, candidate_vk_id, candidate_data, match_score, matched_groups, "
+            "       status, notes, found_at, contacted_at "
+            "FROM fredi_vk_candidates WHERE source_user_id = $1 "
+        )
+        args: list = [uid]
+        if st:
+            args.append(st)
+            sql += f" AND status = ${len(args)}"
+        args.extend([lim, off])
+        sql += f" ORDER BY match_score DESC, found_at DESC LIMIT ${len(args)-1} OFFSET ${len(args)}"
+
+        async with db.get_connection() as conn:
+            rows = await conn.fetch(sql, *args)
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_candidates WHERE source_user_id = $1", uid,
+            ) or 0
+
+        def _jb(v):
+            if v is None:
+                return None
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return v
+            return v
+
+        return {
+            "total": total,
+            "items": [{
+                "id": r["id"],
+                "vk_id": r["candidate_vk_id"],
+                "data": _jb(r["candidate_data"]) or {},
+                "match_score": r["match_score"],
+                "matched_groups": _jb(r["matched_groups"]) or [],
+                "status": r["status"],
+                "notes": r["notes"] or "",
+                "found_at": r["found_at"].isoformat() if r["found_at"] else None,
+                "contacted_at": r["contacted_at"].isoformat() if r["contacted_at"] else None,
+            } for r in rows],
+        }
+
+    @app.patch("/api/admin/vk/candidates/{candidate_id}")
+    async def vk_update_candidate(
+        candidate_id: int,
+        payload: dict,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Обновить статус и/или заметку кандидата."""
+        _check_admin(x_admin_token)
+        sets: list = []
+        args: list = []
+        if "status" in payload:
+            allowed = {"new", "reviewed", "contacted", "responded", "rejected", "scheduled"}
+            st = str(payload.get("status") or "").strip()
+            if st not in allowed:
+                raise HTTPException(status_code=400, detail={"error": "bad_status",
+                                                              "allowed": sorted(allowed)})
+            args.append(st); sets.append(f"status = ${len(args)}")
+            if st == "contacted":
+                sets.append("contacted_at = NOW()")
+        if "notes" in payload:
+            args.append(str(payload.get("notes") or "").strip()[:500])
+            sets.append(f"notes = ${len(args)}")
+        if not sets:
+            raise HTTPException(status_code=400, detail={"error": "nothing_to_update"})
+        args.append(int(candidate_id))
+        async with db.get_connection() as conn:
+            res = await conn.execute(
+                f"UPDATE fredi_vk_candidates SET {', '.join(sets)} WHERE id = ${len(args)}",
+                *args,
+            )
+        if res.endswith(" 0"):
+            raise HTTPException(status_code=404, detail={"error": "candidate_not_found"})
+        return {"ok": True, "id": int(candidate_id)}
 
     return init_vk_table
