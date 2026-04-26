@@ -1183,6 +1183,7 @@ def register_vk_routes(app, db):
         max_candidates: int = 10,
         members_per_group: int = 1000,
         geo_scope: str = "auto",
+        rerank: bool = False,
         x_admin_token: Optional[str] = Header(default=None),
     ):
         """Найти кандидатов по проблемной категории.
@@ -1190,6 +1191,11 @@ def register_vk_routes(app, db):
         Работает напрямую с VK API — `groups.getById` → `groups.getMembers` →
         фильтр по `category.demographics`. Не сохраняет в БД (транзитный
         результат для оператора). Возвращает список кандидатов с VK-ссылками.
+
+        rerank=True: после эвристик прогоняет топ-30 через DeepSeek для
+        финальной оценки «реально ли автор страдает от категории». Стоит
+        одного DeepSeek-запроса (+несколько секунд + токены), но сильно
+        улучшает качество выдачи на граничных случаях.
         """
         _check_admin(x_admin_token)
         max_groups = max(1, min(int(max_groups), 5))
@@ -1213,6 +1219,7 @@ def register_vk_routes(app, db):
                 max_candidates=max_candidates,
                 geo_scope=str(geo_scope or "auto"),
                 db=db,  # читаем phrase override + пишем phrase perf
+                rerank=bool(rerank),
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={
