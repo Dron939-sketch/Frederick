@@ -1243,15 +1243,45 @@
     }
   }
 
+  // Кеш кандидатов по vk_id — нужен, чтобы при клике на ✉️ передать
+  // на бэк весь объект кандидата (имя, статус, from_group и т.д.).
+  var candidateById = {};
+  var lastSearchPayload = null; // запоминаем category для перегенерации
+
   function renderResults(r){
     var cands = r.candidates || [];
     var stats = r.stats || {};
     var groups = r.groups_used || [];
 
+    candidateById = {};
+    cands.forEach(function(c){ if (c && c.vk_id) candidateById[c.vk_id] = c; });
+    lastSearchPayload = { category: (r.category && r.category.code) || null };
+
+    // Стата с разбивкой по причинам отсева — оператор видит, сколько
+    // битых страниц фильтр срезал и почему.
+    var rejected = stats.rejected_by_reason || {};
+    var rejHtml = '';
+    var rejTotal = 0;
+    Object.keys(rejected).forEach(function(k){ rejTotal += rejected[k]||0; });
+    if (rejTotal){
+      var rejLabels = {
+        deactivated: 'забанен/удалён',
+        abandoned: 'давно не заходил',
+        no_photo: 'без аватарки',
+        no_name: 'без имени',
+        empty_profile: 'пустой профиль'
+      };
+      var parts = Object.keys(rejected).map(function(k){
+        return (rejLabels[k]||k) + ': ' + rejected[k];
+      }).join(', ');
+      rejHtml = ' · 🧹 отсеяно ' + rejTotal + ' (' + esc(parts) + ')';
+    }
+
     var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">' +
       '🔍 групп просмотрено: ' + (stats.groups_scanned||0) + ' из ' + (stats.groups_resolved||0) + ' резолвленных · ' +
       'участников загружено: ' + (stats.members_fetched||0) + ' · ' +
       'после фильтра: ' + (stats.after_demo_filter||0) +
+      rejHtml +
       '</div>';
 
     var groupsHtml = '';
@@ -1277,6 +1307,9 @@
       var status = c.status ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:2px">«' + esc(c.status) + '»</div>' : '';
       var fromGroup = c.from_group ? '<span style="font-size:11px;color:var(--text-dim)">из ' + esc(c.from_group.name||'') + '</span>' : '';
       var closed = c.is_closed ? '<span style="font-size:10px;color:var(--warning);margin-left:6px;border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '';
+      var draftBtn = '<button data-vk="' + c.vk_id + '" class="vk-prob-draft" ' +
+        'style="padding:6px 10px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer" ' +
+        'title="Сгенерировать черновик сообщения для этого кандидата">✉️ Сообщение</button>';
       return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
           '<div style="flex:1;min-width:0">' +
@@ -1287,12 +1320,98 @@
             closed +
           '</div>' +
           fromGroup +
+          draftBtn +
         '</div>' +
         status + about +
       '</div>';
     }).join('');
 
     document.getElementById('vkProblemResults').innerHTML = statsHtml + groupsHtml + rows;
+    document.querySelectorAll('.vk-prob-draft').forEach(function(b){
+      b.addEventListener('click', function(){ openDraft(parseInt(b.dataset.vk, 10)); });
+    });
+  }
+
+  // ============================================
+  // Драфт-модал для кандидата из «По проблеме»
+  // ============================================
+  function ensureModal(){
+    var ov = document.getElementById('vkProbDraftOv');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'vkProbDraftOv';
+    ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10000;align-items:center;justify-content:center;padding:24px';
+    ov.innerHTML =
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;overflow:auto;padding:18px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
+          '<div style="font-size:16px;font-weight:700">✉️ Черновик сообщения</div>' +
+          '<button id="vkProbDraftClose" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">✕</button>' +
+        '</div>' +
+        '<div id="vkProbDraftBody" style="font-size:13px"></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    document.getElementById('vkProbDraftClose').addEventListener('click', function(){ ov.style.display = 'none'; });
+    ov.addEventListener('click', function(e){ if (e.target === ov) ov.style.display = 'none'; });
+    return ov;
+  }
+
+  async function openDraft(vkId){
+    var c = candidateById[vkId];
+    if (!c || !lastSearchPayload || !lastSearchPayload.category){
+      alert('Сначала запусти поиск.');
+      return;
+    }
+    var ov = ensureModal();
+    ov.style.display = 'flex';
+    var body = document.getElementById('vkProbDraftBody');
+    body.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px">⏳ DeepSeek пишет крючок…</div>';
+    try {
+      var r = await api('/api/admin/vk/draft-by-problem', {
+        method: 'POST',
+        body: { category: lastSearchPayload.category, candidate: c },
+      });
+      renderDraft(r, c);
+    } catch (e){
+      body.innerHTML = '<div style="color:var(--error);padding:14px">Ошибка: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderDraft(r, c){
+    var alts = r.alternatives || [];
+    var html = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Получатель: <a href="' + esc(c.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + esc(c.full_name||('id'+c.vk_id)) + '</a></div>';
+    if (r.reasoning){
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;font-style:italic">💡 ' + esc(r.reasoning) + '</div>';
+    }
+    html += '<div style="background:rgba(167,139,250,0.06);border-left:3px solid var(--accent);padding:10px 12px;border-radius:6px;margin-bottom:12px">' +
+      '<div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Основной вариант</div>' +
+      '<div id="vkProbDraftMain" style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(r.draft||'') + '</div>' +
+    '</div>';
+    if (alts.length){
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Альтернативы:</div>';
+      alts.forEach(function(a, i){
+        html += '<div style="background:var(--surface);border:1px solid var(--border);padding:8px 10px;border-radius:6px;margin-bottom:6px">' +
+          '<div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Вариант ' + (i+2) + '</div>' +
+          '<div style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(a) + '</div>' +
+        '</div>';
+      });
+    }
+    html += '<div style="display:flex;gap:8px;margin-top:14px">' +
+      '<button id="vkProbDraftCopy" style="flex:1;padding:9px 14px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer">📋 Скопировать</button>' +
+      '<button id="vkProbDraftRegen" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;cursor:pointer">🔄 Перегенерить</button>' +
+      (r.vk_chat_url
+        ? '<a href="' + esc(r.vk_chat_url) + '" target="_blank" rel="noopener" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(52,211,153,0.4);background:transparent;color:var(--success);font:inherit;text-decoration:none">💬 Открыть VK</a>'
+        : '') +
+    '</div>';
+    document.getElementById('vkProbDraftBody').innerHTML = html;
+
+    document.getElementById('vkProbDraftCopy').addEventListener('click', async function(){
+      var txt = document.getElementById('vkProbDraftMain').innerText || (r.draft||'');
+      try { await navigator.clipboard.writeText(txt); this.textContent = '✓ Скопировано'; }
+      catch (_e) { this.textContent = '⚠️ не вышло'; }
+      var btn = this;
+      setTimeout(function(){ btn.textContent = '📋 Скопировать'; }, 1500);
+    });
+    document.getElementById('vkProbDraftRegen').addEventListener('click', function(){ openDraft(c.vk_id); });
   }
 
   if (document.readyState === 'loading'){

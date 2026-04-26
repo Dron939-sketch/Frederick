@@ -8,7 +8,7 @@ import os
 import re
 from typing import Optional
 
-from fastapi import HTTPException, Header
+from fastapi import HTTPException, Header, Body
 
 logger = logging.getLogger(__name__)
 
@@ -1200,6 +1200,88 @@ def register_vk_routes(app, db):
                 "message": f"Категория не найдена: {category}",
             })
         return {"success": True, **result}
+
+    @app.post("/api/admin/vk/draft-by-problem")
+    async def vk_draft_by_problem(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Сгенерить черновик для кандидата из поиска по проблеме.
+
+        В отличие от твин-драфта, тут нет источника-Fredi-юзера. Поэтому
+        строим синтетический source_features из категории
+        (problem_categories.synthesize_features) и кормим существующий
+        vk_outreach.draft_message — он пишет в нашем этичном регистре,
+        с подтянутыми архетипными директивами.
+
+        Тело запроса:
+          {
+            "category": "BURNOUT",
+            "candidate": { vk_id, first_name, last_name, sex,
+                           bdate, city, status, about, from_group: {...} }
+          }
+        Ответ — то же, что у обычного draft-message: draft, alternatives,
+        reasoning, hook_used, pain_targeted.
+        """
+        _check_admin(x_admin_token)
+        category = (body or {}).get("category")
+        candidate = (body or {}).get("candidate")
+        if not category or not isinstance(candidate, dict):
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_request",
+                "message": "category и candidate обязательны",
+            })
+
+        try:
+            from services.problem_categories import synthesize_features
+        except Exception as e:
+            logger.error(f"problem_categories import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "problem_categories_unavailable", "message": str(e),
+            })
+
+        source_features = synthesize_features(str(category))
+        if not source_features:
+            raise HTTPException(status_code=400, detail={
+                "error": "unknown_category",
+                "message": f"Категория не найдена: {category}",
+            })
+
+        # Передаём from_group как matched_groups — copywriter использует
+        # это как «нейтральный мостик» при формировании крючка.
+        from_group = candidate.get("from_group") or {}
+        cand_for_outreach = dict(candidate)
+        if from_group and not cand_for_outreach.get("matched_groups"):
+            cand_for_outreach["matched_groups"] = [{
+                "id": from_group.get("id"),
+                "name": from_group.get("name"),
+            }]
+
+        try:
+            from vk_outreach import draft_message as _draft
+        except Exception as e:
+            logger.error(f"vk_outreach import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_unavailable", "message": str(e),
+            })
+
+        try:
+            result = await _draft(source_features, cand_for_outreach)
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "deepseek_error", "message": str(e),
+            })
+
+        return {
+            "success": True,
+            "category": category,
+            "draft": result.get("draft", ""),
+            "alternatives": result.get("alternatives") or [],
+            "reasoning": result.get("reasoning") or "",
+            "hook_used": result.get("hook_used") or "",
+            "pain_targeted": result.get("pain_targeted") or "",
+            "vk_chat_url": f"https://vk.com/im?sel={candidate.get('vk_id')}" if candidate.get("vk_id") else None,
+        }
 
     @app.get("/api/admin/vk/funnel")
     async def vk_funnel(
