@@ -51,6 +51,68 @@ _USER_FIELDS = (
 _GROUP_FIELDS = "name,description,activity,members_count,is_closed"
 
 
+# ============================================================
+# Фильтр «живой настоящий профиль» — общий для twin-search
+# и problem-search. Отсекает заблокированных, заброшенных
+# и фейков с пустой страницей. Перфекционизма нет — нам нужен
+# сигнал «есть смысл писать этому человеку».
+# ============================================================
+
+ABANDONED_DAYS_THRESHOLD = 180  # 6 месяцев без последнего входа → заброшен
+
+
+def is_real_active_profile(user: Dict[str, Any]) -> Tuple[bool, str]:
+    """Возвращает (ok, reason). reason пуст, если профиль ок.
+
+    Отказы:
+      • 'deactivated:<x>'  — забанен или удалён
+      • 'no_name'          — нет ни first_name, ни last_name
+      • 'no_photo'         — стоит дефолтная аватарка (has_photo=0)
+      • 'abandoned'        — последний вход >180 дней назад
+      • 'empty_profile'    — нет ни bdate/city/status/about (вообще пусто)
+
+    Поля, которые модуль ждёт в users-response — должны быть в _VK_USER_FIELDS:
+      last_seen, has_photo, sex, bdate, city, about, status, deactivated.
+    """
+    # 1. Заблокирован / удалён
+    deact = user.get("deactivated")
+    if deact:
+        return False, f"deactivated:{deact}"
+
+    # 2. Без имени — почти всегда битая запись
+    fn = (user.get("first_name") or "").strip()
+    ln = (user.get("last_name") or "").strip()
+    if not fn and not ln:
+        return False, "no_name"
+
+    # 3. Дефолтная аватарка → почти всегда фейк/заброшен.
+    # has_photo: VK возвращает 1 если есть своя аватарка, 0 если стандартная.
+    has_photo = user.get("has_photo")
+    if has_photo == 0 or has_photo is False:
+        return False, "no_photo"
+
+    # 4. Заброшен — давно не заходил.
+    last_seen = user.get("last_seen") or {}
+    if isinstance(last_seen, dict):
+        ts = last_seen.get("time")
+        if isinstance(ts, (int, float)) and ts > 0:
+            days_ago = (time.time() - ts) / 86400.0
+            if days_ago > ABANDONED_DAYS_THRESHOLD:
+                return False, "abandoned"
+
+    # 5. Пустой профиль — нет личной инфы вообще.
+    has_any_info = (
+        user.get("bdate")
+        or user.get("city")
+        or (user.get("status") or "").strip()
+        or (user.get("about") or "").strip()
+    )
+    if not has_any_info:
+        return False, "empty_profile"
+
+    return True, ""
+
+
 def _get_token() -> str:
     tok = (os.environ.get("VK_SERVICE_TOKEN") or "").strip()
     if not tok:
