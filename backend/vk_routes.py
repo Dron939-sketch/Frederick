@@ -1118,6 +1118,89 @@ def register_vk_routes(app, db):
             "cooldown_warning": cooldown_warning,
         }
 
+    # =========================================================
+    # ПОИСК ПО ПРОБЛЕМЕ — альтернативный вход в воронку.
+    # Не требует source-юзера Фреди: оператор выбирает категорию,
+    # бэк тащит участников из тематических сообществ + фильтрует
+    # по демографии. Кандидаты возвращаются транзитом, без записи
+    # в fredi_vk_candidates (черновик и отметка «отправил» — отдельным
+    # шагом, через драфт по категории, в следующей итерации).
+    # =========================================================
+    @app.get("/api/admin/vk/problem-categories")
+    async def vk_problem_categories(
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Список доступных проблемных категорий для UI."""
+        _check_admin(x_admin_token)
+        try:
+            from services.problem_categories import all_categories
+        except Exception as e:
+            logger.error(f"problem_categories import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "problem_categories_unavailable",
+                "message": "Модуль problem_categories недоступен",
+            })
+        items = []
+        for c in all_categories():
+            items.append({
+                "code": c["code"],
+                "name_ru": c["name_ru"],
+                "icon": c["icon"],
+                "audience_brief": c.get("audience_brief", ""),
+                "best_send_hours": c.get("best_send_hours") or [],
+                "demographics": c.get("demographics") or {},
+                "archetype_affinity": c.get("archetype_affinity") or [],
+            })
+        return {"success": True, "categories": items}
+
+    @app.post("/api/admin/vk/search-by-problem")
+    async def vk_search_by_problem(
+        category: str,
+        max_groups: int = 3,
+        max_candidates: int = 50,
+        members_per_group: int = 1000,
+        geo_scope: str = "auto",
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Найти кандидатов по проблемной категории.
+
+        Работает напрямую с VK API — `groups.getById` → `groups.getMembers` →
+        фильтр по `category.demographics`. Не сохраняет в БД (транзитный
+        результат для оператора). Возвращает список кандидатов с VK-ссылками.
+        """
+        _check_admin(x_admin_token)
+        max_groups = max(1, min(int(max_groups), 5))
+        max_candidates = max(10, min(int(max_candidates), 200))
+        members_per_group = max(100, min(int(members_per_group), 1000))
+
+        try:
+            from vk_problem_search import search_by_problem as _search
+        except Exception as e:
+            logger.error(f"vk_problem_search import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "problem_search_unavailable",
+                "message": "Модуль vk_problem_search недоступен",
+            })
+
+        try:
+            result = await _search(
+                category_code=str(category),
+                max_groups_to_scan=max_groups,
+                members_per_group=members_per_group,
+                max_candidates=max_candidates,
+                geo_scope=str(geo_scope or "auto"),
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "vk_api_error", "message": str(e),
+            })
+        if not result.get("category"):
+            raise HTTPException(status_code=400, detail={
+                "error": "unknown_category",
+                "message": f"Категория не найдена: {category}",
+            })
+        return {"success": True, **result}
+
     @app.get("/api/admin/vk/funnel")
     async def vk_funnel(
         user_id: Optional[int] = None,

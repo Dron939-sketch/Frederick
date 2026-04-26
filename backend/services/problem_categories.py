@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+backend/services/problem_categories.py
+Каталог проблемных категорий — для альтернативного входа в воронку
+«Поиск по проблеме» (в отличие от твин-поиска от конкретного юзера Фреди).
+
+Каждая категория описывает АУДИТОРИЮ и СПОСОБ ЕЁ НАЙТИ. Шаблонов
+сообщений тут НЕТ — copywriter всегда генерит DeepSeek'ом в нашем
+этичном регистре (без признаний в слежке, без гарантий, без диагнозов).
+
+Поля категории:
+  • code, name_ru, icon — отображение
+  • audience_brief — короткое описание аудитории для DeepSeek
+  • pain_hint, desire_hint — шаблонные «подсказки» pain_point/desired_outcome
+    которые передаются в outreach как синтетические source_features. Сам
+    copywriter всё равно их перепишет своим языком.
+  • archetype_affinity — какие архетипы чаще всего попадают в эту категорию
+    (мать-одиночка → CAREGIVER/EVERYMAN, выгоревший — RULER/HERO).
+  • demographics — пол + возрастная вилка для фильтра кандидатов.
+  • seed_group_screen_names — список реальных VK-сообществ (через @screen_name)
+    откуда тянем участников через groups.getMembers. Должны быть открытыми.
+  • seed_keywords — слова в постах/статусе для DeepSeek-фильтра кандидата
+    (соответствует ли он категории на самом деле).
+  • best_send_hours — час дня (0..23), когда сообщения такой аудитории заходят
+    лучше — мягкий хинт оператору, не жёсткое правило.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+
+PROBLEM_CATEGORIES: Dict[str, Dict[str, Any]] = {
+    "SINGLE_PARENT": {
+        "code": "SINGLE_PARENT",
+        "name_ru": "Одинокий родитель",
+        "icon": "👩‍👧",
+        "audience_brief": "Воспитывает ребёнка без партнёра. Хроническая усталость, "
+                          "вина за «срывы», нет ресурса на себя.",
+        "pain_hint": "Тянет ребёнка в одиночку, выгорает, винит себя за усталость и срывы.",
+        "desire_hint": "Хочет хоть какую-то опору и право на минуту для себя без вины.",
+        "archetype_affinity": ["CAREGIVER", "EVERYMAN"],
+        "demographics": {"sex": "f", "age_from": 22, "age_to": 45},
+        "seed_group_screen_names": ["mama_club", "mama.deti", "mamablog"],
+        "seed_keywords": [
+            "одна воспитываю", "мать одиночка", "без отца", "мама и сын",
+            "развод с детьми", "алименты", "одна с ребенком", "не справляюсь",
+        ],
+        "best_send_hours": [21, 22],
+    },
+    "AFTER_BREAKUP": {
+        "code": "AFTER_BREAKUP",
+        "name_ru": "После расставания",
+        "icon": "💔",
+        "audience_brief": "Свежий разрыв или развод. Не отпускает, прокручивает, бессонница.",
+        "pain_hint": "Не отпускает бывшего/бывшую, ночные приступы тоски и прокрутки.",
+        "desire_hint": "Хочет вернуть точку покоя — спать без прокрутки, выйти из «приёмника».",
+        "archetype_affinity": ["LOVER", "INNOCENT"],
+        "demographics": {"sex": "any", "age_from": 22, "age_to": 50},
+        "seed_group_screen_names": ["razryv_otnoshenij", "razvod_zhenshchin"],
+        "seed_keywords": [
+            "после расставания", "не могу забыть", "бывший", "бывшая",
+            "развод", "одиночество после", "как пережить",
+        ],
+        "best_send_hours": [22, 23, 0],
+    },
+    "ANXIETY": {
+        "code": "ANXIETY",
+        "name_ru": "Тревога / панические атаки",
+        "icon": "😰",
+        "audience_brief": "Хроническая тревога, ПА, бессонница, фоновое ощущение «что-то случится».",
+        "pain_hint": "Постоянная фоновая тревога, не отпускает, мешает спать и работать.",
+        "desire_hint": "Хочет научиться выключать тревогу, спать без прокрутки, чувствовать опору.",
+        "archetype_affinity": ["SAGE", "EVERYMAN"],
+        "demographics": {"sex": "any", "age_from": 18, "age_to": 50},
+        "seed_group_screen_names": ["panicheskie_ataki", "trevoga_psy"],
+        "seed_keywords": [
+            "паническая атака", "тревога не отпускает", "не могу уснуть",
+            "сердце колотится", "страшно", "что-то случится",
+        ],
+        "best_send_hours": [21, 22, 23],
+    },
+    "DEPRESSION": {
+        "code": "DEPRESSION",
+        "name_ru": "Подавленность / апатия",
+        "icon": "😔",
+        "audience_brief": "Апатия, ничего не радует, нет сил вставать, упало всё.",
+        "pain_hint": "Нет сил и интереса, ничего не радует, утром тяжело подняться.",
+        "desire_hint": "Хочет вернуть хоть что-то живое — интерес, энергию, желание выйти к людям.",
+        "archetype_affinity": ["EVERYMAN", "SAGE"],
+        "demographics": {"sex": "any", "age_from": 18, "age_to": 55},
+        "seed_group_screen_names": ["depressiya_help"],
+        "seed_keywords": [
+            "ничего не хочу", "нет сил", "апатия", "пустота внутри",
+            "ничего не радует", "утром тяжело", "бессмысленно",
+        ],
+        "best_send_hours": [11, 12, 21],
+    },
+    "RELATIONSHIP_CRISIS": {
+        "code": "RELATIONSHIP_CRISIS",
+        "name_ru": "Кризис в паре",
+        "icon": "💑",
+        "audience_brief": "Отношения в браке/в паре, конфликты, отдалились, не слышат друг друга.",
+        "pain_hint": "Близость пропала, конфликты по кругу, друг друга не слышат — и устали.",
+        "desire_hint": "Хочет тёплого контакта, разговора без претензий, чтобы услышали.",
+        "archetype_affinity": ["LOVER", "EVERYMAN"],
+        "demographics": {"sex": "any", "age_from": 24, "age_to": 50},
+        "seed_group_screen_names": ["psy_relations"],
+        "seed_keywords": [
+            "поссорились", "не понимает", "охладели", "отдалились",
+            "хочет развода", "кризис отношений",
+        ],
+        "best_send_hours": [13, 14, 19, 21],
+    },
+    "TEEN_PARENT": {
+        "code": "TEEN_PARENT",
+        "name_ru": "Родитель подростка",
+        "icon": "🧒",
+        "audience_brief": "Подросток замкнулся, грубит, ушёл в телефон. Контакт потерян.",
+        "pain_hint": "Подросток не разговаривает, грубит, замкнулся — родитель не понимает что делать.",
+        "desire_hint": "Хочет вернуть контакт без давления, чтобы подросток снова открылся.",
+        "archetype_affinity": ["CAREGIVER", "RULER"],
+        "demographics": {"sex": "any", "age_from": 35, "age_to": 55},
+        "seed_group_screen_names": ["psy_podrostki", "trudnyi_rebenok"],
+        "seed_keywords": [
+            "подросток не слушается", "сын замкнулся", "дочь грубит",
+            "потеряла контакт", "трудный возраст", "сидит в телефоне",
+        ],
+        "best_send_hours": [21, 22],
+    },
+    "LONELINESS": {
+        "code": "LONELINESS",
+        "name_ru": "Одиночество",
+        "icon": "😢",
+        "audience_brief": "Долгое одиночество, поиск пары, тоска по близости и поддержке.",
+        "pain_hint": "Долго один/одна, тоскливо вечерами, никто не пишет — кажется что не нужен.",
+        "desire_hint": "Хочет тепла и контакта, перестать чувствовать себя «нелюбимым».",
+        "archetype_affinity": ["LOVER", "INNOCENT", "EVERYMAN"],
+        "demographics": {"sex": "any", "age_from": 22, "age_to": 50},
+        "seed_group_screen_names": ["odinochestvo_help"],
+        "seed_keywords": [
+            "одиночество", "никому не нужен", "никому не нужна",
+            "тяжело одной", "тяжело одному", "обнять некому",
+        ],
+        "best_send_hours": [21, 22, 23],
+    },
+    "BURNOUT": {
+        "code": "BURNOUT",
+        "name_ru": "Выгорание на работе",
+        "icon": "🔥",
+        "audience_brief": "Профессиональное выгорание. Работа есть, но нет смысла и энергии.",
+        "pain_hint": "Сгорел на работе — деньги есть, смысл и интерес ушли, утром «опять».",
+        "desire_hint": "Хочет вернуть интерес и энергию, понять что реально важно, не уволившись с разбегу.",
+        "archetype_affinity": ["RULER", "HERO", "SAGE"],
+        "demographics": {"sex": "any", "age_from": 25, "age_to": 50},
+        "seed_group_screen_names": ["vygoranie_psy"],
+        "seed_keywords": [
+            "выгорел", "выгорела", "ненавижу работу", "хочу уволиться",
+            "потерял смысл", "беличье колесо",
+        ],
+        "best_send_hours": [9, 10, 21],
+    },
+    "LOW_SELF_ESTEEM": {
+        "code": "LOW_SELF_ESTEEM",
+        "name_ru": "Низкая самооценка",
+        "icon": "😞",
+        "audience_brief": "Сравнивает себя с другими, не может сказать «нет», стыдится себя.",
+        "pain_hint": "Постоянно сравнивает себя с другими и проигрывает, не умеет отстоять себя.",
+        "desire_hint": "Хочет почувствовать что «достаточно хорош/хороша», научиться говорить «нет».",
+        "archetype_affinity": ["INNOCENT", "EVERYMAN", "CAREGIVER"],
+        "demographics": {"sex": "any", "age_from": 16, "age_to": 40},
+        "seed_group_screen_names": ["samoocenka_psy"],
+        "seed_keywords": [
+            "низкая самооценка", "не уверена в себе", "не уверен в себе",
+            "стесняюсь", "комплексы", "не могу сказать нет",
+        ],
+        "best_send_hours": [18, 20, 21],
+    },
+    "TOXIC_RELATIONSHIP": {
+        "code": "TOXIC_RELATIONSHIP",
+        "name_ru": "Токсичные отношения / абьюз",
+        "icon": "⚠️",
+        "audience_brief": "В отношениях с манипулятивным/абьюзивным партнёром. Не может выйти.",
+        "pain_hint": "В отношениях, где обесценивают, манипулируют, газлайтят — а уйти страшно.",
+        "desire_hint": "Хочет понять что с ней/ним происходит, увидеть что это не норма, найти точку опоры.",
+        "archetype_affinity": ["LOVER", "INNOCENT", "CAREGIVER"],
+        "demographics": {"sex": "any", "age_from": 18, "age_to": 50},
+        "seed_group_screen_names": ["abyuz_help"],
+        "seed_keywords": [
+            "газлайтинг", "манипуляции", "абьюз", "токсичные отношения",
+            "обесценивает", "контролирует", "после ссоры всегда виновата",
+        ],
+        "best_send_hours": [22, 23],
+    },
+}
+
+
+def get_category(code: str) -> Optional[Dict[str, Any]]:
+    if not code:
+        return None
+    return PROBLEM_CATEGORIES.get(code.upper())
+
+
+def all_categories() -> List[Dict[str, Any]]:
+    return list(PROBLEM_CATEGORIES.values())
+
+
+def synthesize_features(code: str, geo_scope: str = "auto") -> Dict[str, Any]:
+    """Из категории строим синтетический «слепок» в формате, который понимает
+    vk_outreach (pain_point, desired_outcome, archetype, marker_keywords...).
+    Используется при поиске по проблеме, когда исходного Fredi-юзера нет.
+    """
+    cat = get_category(code)
+    if not cat:
+        return {}
+    affinities = cat.get("archetype_affinity") or []
+    return {
+        "pain_point": cat.get("pain_hint", ""),
+        "desired_outcome": cat.get("desire_hint", ""),
+        "archetype": affinities[0] if affinities else None,
+        "key_themes": cat.get("seed_keywords", [])[:5],
+        "marker_keywords": cat.get("seed_keywords", []),
+        "demographics": cat.get("demographics", {}),
+        "search_recommendation": {
+            "geo_scope": geo_scope,
+            "rationale": f"Поиск по проблемной категории {cat.get('name_ru', code)}",
+        },
+    }
