@@ -51,6 +51,7 @@
       '</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">' +
         '<input id="vkSearch" type="text" placeholder="🔍 поиск по user_id, vk_id, имени…" style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit">' +
+        '<button id="vkFunnel" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap" title="Воронка эффективности">📊 Воронка</button>' +
         '<button id="vkRefresh" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄</button>' +
       '</div>' +
       // Phase 6/7: контролы поиска близнецов в отдельной строке (geo + min_intersections + re-rank)
@@ -105,6 +106,7 @@
     });
     document.getElementById('vkSubmit').addEventListener('click', submitLink);
     document.getElementById('vkRefresh').addEventListener('click', loadVkTab);
+    document.getElementById('vkFunnel').addEventListener('click', openFunnel);
     document.getElementById('vkSearch').addEventListener('input', function(e){
       currentSearch = e.target.value;
       clearTimeout(debTimer);
@@ -399,6 +401,12 @@
   function renderDraftModal(sourceUid, candId, candVkId, r){
     var alts = r.alternatives || [];
     var info = '';
+    // Phase 8: красный варнинг если этому VK ID уже писали за последние 30 дней
+    if (r.cooldown_warning && r.cooldown_warning.message){
+      info += '<div style="background:rgba(248,113,113,0.15);border:2px solid var(--error);padding:10px 14px;margin-bottom:10px;border-radius:8px;font-size:13px;color:var(--error);font-weight:600">' +
+        esc(r.cooldown_warning.message) +
+        '</div>';
+    }
     if (r.pain_targeted) info += '<div style="background:rgba(248,113,113,0.08);border-left:3px solid var(--error);padding:6px 10px;margin-bottom:8px;border-radius:4px;font-size:12px">🔥 <b>Цель крючка:</b> '+esc(r.pain_targeted)+'</div>';
     if (r.hook_used) info += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">🪝 <b>Заход:</b> '+esc(r.hook_used)+'</div>';
     if (r.reasoning) info += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">💭 '+esc(r.reasoning)+'</div>';
@@ -491,6 +499,85 @@
         }
       });
     });
+  }
+
+  // Phase 8: воронка эффективности — открывает modal со счётчиками.
+  async function openFunnel(){
+    var ov = document.getElementById('vkProfileOverlay');
+    ov.style.display = 'flex';
+    document.getElementById('vkProfileTitle').textContent = '📊 Воронка эффективности';
+    document.getElementById('vkProfileSub').textContent = 'Загружаю…';
+    document.getElementById('vkProfileBody').innerHTML = '<div class="empty">Загрузка…</div>';
+    try {
+      var d = await api('/api/admin/vk/funnel');
+      renderFunnel(d);
+    } catch(e){
+      document.getElementById('vkProfileBody').innerHTML = '<div class="err">'+esc(e.message)+'</div>';
+    }
+  }
+
+  function renderFunnel(d){
+    document.getElementById('vkProfileSub').textContent =
+      'Глобальные метрики · обновлено ' + new Date().toLocaleString('ru-RU');
+    var byStatus = d.candidates_by_status || {};
+    var stages = [
+      {label: '🔗 Привязано VK к юзерам', value: d.linked || 0, color: 'var(--text)'},
+      {label: '🔍 Спарсено публичных данных', value: d.parsed || 0, color: 'var(--accent)'},
+      {label: '🧠 С извлечёнными признаками', value: d.with_features || 0, color: 'var(--success)'},
+      {label: '🎯 Найдено кандидатов всего', value: d.candidates_total || 0, color: 'var(--warning)'},
+      {label: '📩 Контактировано (сообщений отправлено)', value: d.contacted_total || 0, color: 'var(--accent-2)'},
+      {label: '   из них уникальных VK ID', value: d.contacted_unique_vk_ids || 0, color: 'var(--text-dim)'},
+      {label: '   за последние 7 дней', value: d.contacted_last_7d || 0, color: 'var(--text-dim)'},
+      {label: '💬 Ответили', value: d.responded_total || 0, color: 'var(--success)'},
+    ];
+    var maxVal = Math.max.apply(null, stages.slice(0,5).map(function(s){return s.value;}).concat([1]));
+    var rowsHtml = stages.map(function(s, i){
+      var pct = maxVal > 0 ? Math.round(s.value / maxVal * 100) : 0;
+      var bar = i < 5
+        ? '<div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden;margin-left:12px"><div style="width:'+pct+'%;height:100%;background:'+s.color+';transition:width 0.4s"></div></div>'
+        : '';
+      return '<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">' +
+        '<div style="flex:1;color:var(--text)">'+s.label+'</div>' +
+        '<div style="font-weight:700;font-size:16px;color:'+s.color+';min-width:60px;text-align:right">'+s.value+'</div>' +
+        bar +
+      '</div>';
+    }).join('');
+
+    var rrPct = d.response_rate_pct || 0;
+    var rrColor = rrPct >= 10 ? 'var(--success)' : (rrPct >= 3 ? 'var(--warning)' : 'var(--error)');
+    var responseRate = '<div style="margin-top:14px;padding:14px;background:'+rrColor+';color:#fff;border-radius:10px;display:flex;justify-content:space-between;align-items:center">' +
+      '<div><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;opacity:0.8">Response rate</div>' +
+      '<div style="font-size:28px;font-weight:800">'+rrPct+'%</div></div>' +
+      '<div style="font-size:12px;opacity:0.85;text-align:right">отвечают на сообщения<br>(норма: 5–15%)</div>' +
+    '</div>';
+
+    var statusBars = '';
+    if (Object.keys(byStatus).length){
+      var statusOrder = ['new','reviewed','contacted','responded','rejected','scheduled'];
+      var statusColors = {
+        'new':'var(--text-dim)', 'reviewed':'var(--accent)',
+        'contacted':'var(--accent-2)', 'responded':'var(--success)',
+        'rejected':'var(--text-dim)', 'scheduled':'var(--warning)',
+      };
+      var totalCands = Object.values(byStatus).reduce(function(a,b){return a+b;}, 0) || 1;
+      statusBars = '<h3 style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin:18px 0 8px">Кандидаты по статусу</h3>' +
+        statusOrder.filter(function(s){return byStatus[s];}).map(function(s){
+          var cnt = byStatus[s] || 0;
+          var pct = Math.round(cnt / totalCands * 100);
+          return '<div style="display:flex;align-items:center;padding:6px 0;font-size:12px">' +
+            '<div style="width:120px;color:'+statusColors[s]+'">'+s+'</div>' +
+            '<div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:3px;margin-right:10px"><div style="width:'+pct+'%;height:100%;background:'+statusColors[s]+';border-radius:3px"></div></div>' +
+            '<div style="font-weight:700;min-width:50px;text-align:right">'+cnt+'</div>' +
+            '<div style="font-size:11px;color:var(--text-dim);min-width:40px;text-align:right">'+pct+'%</div>' +
+          '</div>';
+        }).join('');
+    }
+
+    document.getElementById('vkProfileBody').innerHTML = rowsHtml + responseRate + statusBars +
+      '<details style="margin-top:14px;background:var(--surface-hi);border:1px solid var(--border);border-radius:10px;padding:8px 12px">' +
+        '<summary style="cursor:pointer;color:var(--accent);font-size:11px">сырой JSON</summary>' +
+        '<pre style="margin:6px 0 0;font-size:10px;white-space:pre-wrap;color:var(--text-dim)">'+esc(JSON.stringify(d,null,2))+'</pre>' +
+      '</details>';
   }
 
   async function findTwins(uid, btn){
