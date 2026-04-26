@@ -1088,3 +1088,214 @@
     document.addEventListener('DOMContentLoaded', injectUI);
   } else { injectUI(); }
 })();
+
+
+// ============================================
+// «🔎 Поиск по проблеме» — отдельный таб рядом с «Клиентами».
+// Полностью изолированная IIFE, ничего не ломает в клиентах.
+// Вход: оператор выбирает категорию и геообласть → бэк тащит
+// участников тематических сообществ → возвращает список ссылок
+// и базовых полей. Драфт по клику — следующим шагом.
+// ============================================
+(function(){
+  'use strict';
+  var API = (window.API_BASE_URL) || 'https://fredi-backend-flz2.onrender.com';
+  var LS = 'fredi_admin_token';
+  function tok(){ try { return localStorage.getItem(LS) || ''; } catch(e){ return ''; } }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  async function api(path, opts){
+    opts = opts || {};
+    var h = { 'X-Admin-Token': tok(), 'Accept':'application/json' };
+    if (opts.body) h['Content-Type'] = 'application/json';
+    var r = await fetch(API + path, { method: opts.method||'GET', headers: h, body: opts.body?JSON.stringify(opts.body):undefined });
+    if (r.status === 401) throw new Error('Неверный ADMIN_TOKEN');
+    var j = null; try { j = await r.json(); } catch(e){}
+    if (!r.ok){ var m = (j && (j.detail && (j.detail.message||j.detail.error)||j.error))||('HTTP '+r.status); throw new Error(m); }
+    return j;
+  }
+
+  var loadedCategories = null;
+
+  function injectUI(){
+    var nav = document.getElementById('navBar');
+    if (!nav){ return setTimeout(injectUI, 500); }
+    if (document.getElementById('vkProblemTabBtn')) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'vkProblemTabBtn'; btn.dataset.tab = 'vkproblem'; btn.textContent = '🔎 По проблеме';
+    btn.style.cssText = 'flex:0 0 auto';
+    var anchor = document.getElementById('vkTabBtn') || document.getElementById('exportClaudeBtn');
+    if (anchor && anchor.nextSibling) nav.insertBefore(btn, anchor.nextSibling);
+    else if (anchor) nav.appendChild(btn);
+    else nav.appendChild(btn);
+
+    var sec = document.createElement('section');
+    sec.id = 'vkProblemTab'; sec.style.display = 'none';
+    sec.innerHTML =
+      '<h2>🔎 Поиск клиентов по проблеме</h2>' +
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">' +
+        '<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">' +
+          'Выбираешь категорию → бэкенд тянет участников из тематических сообществ ВКонтакте, ' +
+          'фильтрует по полу/возрасту, возвращает список с открытыми профилями. ' +
+          'Источник Fredi-юзер не нужен.' +
+        '</div>' +
+        '<div id="vkProblemCats" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">— загружаю категории —</div>' +
+        '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">' +
+          '<label style="display:flex;align-items:center;gap:4px">Лимит:' +
+            '<input id="vkProblemLimit" type="number" min="10" max="200" step="10" value="50" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
+          '<label style="display:flex;align-items:center;gap:4px">Групп для скана:' +
+            '<input id="vkProblemMaxGroups" type="number" min="1" max="5" value="3" style="width:60px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
+          '<button id="vkProblemSearch" disabled style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.6">🔎 Найти кандидатов</button>' +
+          '<span id="vkProblemStatus" style="color:var(--text-dim)"></span>' +
+        '</div>' +
+      '</div>' +
+      '<div id="vkProblemMeta" style="margin-bottom:10px;font-size:12px;color:var(--text-dim)"></div>' +
+      '<div id="vkProblemResults"></div>';
+    document.body.appendChild(sec);
+
+    btn.addEventListener('click', activate);
+    document.querySelectorAll('#navBar button').forEach(function(b){
+      if (b.id === 'vkProblemTabBtn') return;
+      b.addEventListener('click', deactivate);
+    });
+
+    document.getElementById('vkProblemSearch').addEventListener('click', runSearch);
+  }
+
+  function activate(){
+    document.querySelectorAll('#navBar button').forEach(function(x){ x.classList.remove('active'); });
+    document.getElementById('vkProblemTabBtn').classList.add('active');
+    ['summaryTab','recentTab','dialogsTab','vkTab'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.style.display = 'none';
+    });
+    var ld = document.getElementById('loading'); if (ld) ld.style.display = 'none';
+    document.getElementById('vkProblemTab').style.display = 'block';
+    if (!loadedCategories) loadCategories();
+  }
+  function deactivate(){
+    var t = document.getElementById('vkProblemTab'); if (t) t.style.display = 'none';
+    var b = document.getElementById('vkProblemTabBtn'); if (b) b.classList.remove('active');
+  }
+
+  var selectedCode = null;
+
+  async function loadCategories(){
+    try {
+      var r = await api('/api/admin/vk/problem-categories');
+      loadedCategories = r.categories || [];
+      renderCategoryChips();
+    } catch (e){
+      document.getElementById('vkProblemCats').innerHTML =
+        '<span style="color:var(--error)">Ошибка загрузки категорий: ' + esc(e.message) + '</span>';
+    }
+  }
+
+  function renderCategoryChips(){
+    var html = loadedCategories.map(function(c){
+      var demo = c.demographics || {};
+      var demoText = '';
+      if (demo.sex && demo.sex !== 'any') demoText += demo.sex === 'f' ? '♀ ' : '♂ ';
+      if (demo.age_from || demo.age_to) demoText += (demo.age_from||'') + '–' + (demo.age_to||'') + ' лет';
+      var hours = (c.best_send_hours||[]).length ? ' · ⏰ ' + c.best_send_hours.join(', ') + ':00' : '';
+      return '<button data-code="' + esc(c.code) + '" class="vk-prob-chip" ' +
+        'style="padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer;text-align:left;line-height:1.3" ' +
+        'title="' + esc(c.audience_brief || '') + '">' +
+          '<div style="font-size:13px;font-weight:600">' + c.icon + ' ' + esc(c.name_ru) + '</div>' +
+          '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">' + esc(demoText + hours) + '</div>' +
+        '</button>';
+    }).join('');
+    document.getElementById('vkProblemCats').innerHTML = html;
+
+    document.querySelectorAll('.vk-prob-chip').forEach(function(b){
+      b.addEventListener('click', function(){
+        document.querySelectorAll('.vk-prob-chip').forEach(function(x){
+          x.style.borderColor = 'var(--border)';
+          x.style.background = 'var(--surface)';
+        });
+        b.style.borderColor = 'var(--accent)';
+        b.style.background = 'rgba(167,139,250,0.10)';
+        selectedCode = b.dataset.code;
+        var btn = document.getElementById('vkProblemSearch');
+        btn.disabled = false; btn.style.opacity = '1';
+        var meta = (loadedCategories.find(function(c){ return c.code === selectedCode; }) || {});
+        document.getElementById('vkProblemMeta').innerHTML =
+          'Аудитория: <span style="color:var(--text)">' + esc(meta.audience_brief || '') + '</span>';
+      });
+    });
+  }
+
+  async function runSearch(){
+    if (!selectedCode) return;
+    var limit = parseInt(document.getElementById('vkProblemLimit').value || '50', 10);
+    var maxGroups = parseInt(document.getElementById('vkProblemMaxGroups').value || '3', 10);
+    var status = document.getElementById('vkProblemStatus');
+    var results = document.getElementById('vkProblemResults');
+    status.textContent = '⏳ ищу…';
+    results.innerHTML = '';
+    try {
+      var r = await api('/api/admin/vk/search-by-problem?category=' + encodeURIComponent(selectedCode) +
+        '&max_candidates=' + limit + '&max_groups=' + maxGroups, { method: 'POST' });
+      status.textContent = '✓ найдено ' + (r.candidates||[]).length;
+      renderResults(r);
+    } catch (e){
+      status.textContent = '';
+      results.innerHTML = '<div style="color:var(--error);padding:14px">Ошибка: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderResults(r){
+    var cands = r.candidates || [];
+    var stats = r.stats || {};
+    var groups = r.groups_used || [];
+
+    var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">' +
+      '🔍 групп просмотрено: ' + (stats.groups_scanned||0) + ' из ' + (stats.groups_resolved||0) + ' резолвленных · ' +
+      'участников загружено: ' + (stats.members_fetched||0) + ' · ' +
+      'после фильтра: ' + (stats.after_demo_filter||0) +
+      '</div>';
+
+    var groupsHtml = '';
+    if (groups.length){
+      groupsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Источники: ' +
+        groups.map(function(g){
+          return '<a href="https://vk.com/' + esc(g.screen_name||('club'+g.id)) + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">' +
+            esc(g.name||g.screen_name) + '</a>';
+        }).join(' · ') +
+      '</div>';
+    }
+
+    if (!cands.length){
+      document.getElementById('vkProblemResults').innerHTML = statsHtml + groupsHtml +
+        '<div style="padding:24px;text-align:center;color:var(--text-dim)">Никого не нашли. Возможно, seed-сообщества категории закрыты или малочисленны — попробуй другую категорию или открой их в админке.</div>';
+      return;
+    }
+
+    var rows = cands.map(function(c){
+      var bdate = c.bdate || '';
+      var sexLabel = c.sex === 1 ? '♀' : c.sex === 2 ? '♂' : '';
+      var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
+      var status = c.status ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:2px">«' + esc(c.status) + '»</div>' : '';
+      var fromGroup = c.from_group ? '<span style="font-size:11px;color:var(--text-dim)">из ' + esc(c.from_group.name||'') + '</span>' : '';
+      var closed = c.is_closed ? '<span style="font-size:10px;color:var(--warning);margin-left:6px;border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<a href="' + esc(c.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
+              esc(c.full_name||('id'+c.vk_id)) +
+            '</a>' +
+            ' <span style="font-size:11px;color:var(--text-dim)">' + esc(sexLabel) + ' ' + esc(bdate) + ' ' + esc(c.city||'') + '</span>' +
+            closed +
+          '</div>' +
+          fromGroup +
+        '</div>' +
+        status + about +
+      '</div>';
+    }).join('');
+
+    document.getElementById('vkProblemResults').innerHTML = statsHtml + groupsHtml + rows;
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', injectUI);
+  } else { injectUI(); }
+})();
