@@ -160,11 +160,11 @@ def _build_user_message(composite: Dict[str, Any], vk_data: Dict[str, Any]) -> s
     blocks: List[str] = []
 
     blocks.append("=== Психологический профиль (тест + что Фреди про юзера записал) ===")
-    blocks.append(json.dumps(profile, ensure_ascii=False, indent=2))
+    blocks.append(json.dumps(profile, ensure_ascii=False, indent=2, default=str))
 
     if context:
         blocks.append("\n=== Контекст пользователя (что он рассказал о себе) ===")
-        blocks.append(json.dumps(context, ensure_ascii=False, indent=2)[:3000])
+        blocks.append(json.dumps(context, ensure_ascii=False, indent=2, default=str)[:3000])
 
     if user_meta:
         blocks.append("\n=== Telegram/web-учётка ===")
@@ -172,13 +172,13 @@ def _build_user_message(composite: Dict[str, Any], vk_data: Dict[str, Any]) -> s
             "first_name": user_meta.get("first_name"),
             "last_name": user_meta.get("last_name"),
             "language": user_meta.get("language_code"),
-        }, ensure_ascii=False))
+        }, ensure_ascii=False, default=str))
 
     blocks.append("\n=== Последние user-сообщения Фреди (чем человек живёт сейчас) ===")
     blocks.append(_summarize_messages(msgs))
 
     blocks.append("\n=== Спарсенные публичные данные VK ===")
-    blocks.append(json.dumps(_summarize_vk(vk_data), ensure_ascii=False, indent=2))
+    blocks.append(json.dumps(_summarize_vk(vk_data), ensure_ascii=False, indent=2, default=str))
 
     blocks.append("\n" + SCHEMA_HINT.strip())
     blocks.append("\nВерни JSON.")
