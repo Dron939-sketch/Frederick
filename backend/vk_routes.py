@@ -1,5 +1,5 @@
 """
-vk_routes.py — Привязка VK-профилей к юзерам Фреди (Фаза 1) + парс (Фаза 2).
+vk_routes.py — Привязка VK-профилей к юзерам Фреди (Фаза 1) + парс (Фаза 2) + признаки (Фаза 3).
 """
 
 import json
@@ -99,6 +99,17 @@ def register_vk_routes(app, db):
                         CHECK (vk_id IS NOT NULL OR vk_screen_name IS NOT NULL)
                 )
             """)
+            # Phase 3: «слепок признаков» от DeepSeek + время последнего извлечения.
+            try:
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_profiles ADD COLUMN IF NOT EXISTS features JSONB"
+                )
+                await conn.execute(
+                    "ALTER TABLE fredi_vk_profiles "
+                    "ADD COLUMN IF NOT EXISTS features_extracted_at TIMESTAMP WITH TIME ZONE"
+                )
+            except Exception as e:
+                logger.warning(f"features column migration skipped: {e}")
             await conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_fredi_vk_profiles_vk_id "
                 "ON fredi_vk_profiles(vk_id) WHERE vk_id IS NOT NULL"
@@ -107,7 +118,7 @@ def register_vk_routes(app, db):
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_fredi_vk_profiles_screen "
                 "ON fredi_vk_profiles(vk_screen_name) WHERE vk_screen_name IS NOT NULL"
             )
-        logger.info("VK profiles table ready")
+        logger.info("VK profiles table ready (with features column)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -307,7 +318,8 @@ def register_vk_routes(app, db):
                 "WHERE user_id = $1 ORDER BY id DESC LIMIT $2", uid, msg_lim,
             )
             vk_link = await conn.fetchrow(
-                "SELECT vk_id, vk_screen_name, notes, linked_at, parsed_at, vk_data "
+                "SELECT vk_id, vk_screen_name, notes, linked_at, parsed_at, vk_data, "
+                "       features, features_extracted_at "
                 "FROM fredi_vk_profiles WHERE user_id = $1", uid,
             )
             user_msg_count = await conn.fetchval(
@@ -354,6 +366,11 @@ def register_vk_routes(app, db):
                 "linked_at": vk_link["linked_at"].isoformat() if vk_link["linked_at"] else None,
                 "parsed_at": vk_link["parsed_at"].isoformat() if vk_link["parsed_at"] else None,
                 "vk_data": _jb(vk_link["vk_data"]),
+                "features": _jb(vk_link["features"]),
+                "features_extracted_at": (
+                    vk_link["features_extracted_at"].isoformat()
+                    if vk_link["features_extracted_at"] else None
+                ),
             } if vk_link else None),
         }
 
@@ -364,22 +381,20 @@ def register_vk_routes(app, db):
             linked = await conn.fetchval("SELECT COUNT(*) FROM fredi_vk_profiles") or 0
             with_vk_id = await conn.fetchval("SELECT COUNT(*) FROM fredi_vk_profiles WHERE vk_id IS NOT NULL") or 0
             parsed = await conn.fetchval("SELECT COUNT(*) FROM fredi_vk_profiles WHERE parsed_at IS NOT NULL") or 0
+            extracted = await conn.fetchval(
+                "SELECT COUNT(*) FROM fredi_vk_profiles WHERE features IS NOT NULL"
+            ) or 0
             total_users = await conn.fetchval("SELECT COUNT(*) FROM fredi_users") or 0
         return {
             "linked": linked, "with_vk_id": with_vk_id, "parsed": parsed,
+            "extracted": extracted,
             "total_users": total_users,
             "coverage_pct": round((linked / total_users) * 100, 1) if total_users else 0,
         }
 
     @app.post("/api/admin/vk/parse/{user_id}")
     async def vk_parse_user(user_id: int, x_admin_token: Optional[str] = Header(default=None)):
-        """«Копать» — выкачать публичные данные VK-страницы привязанного юзера.
-
-        Тащит users.get + wall.get + groups.get через VK API (нужен
-        VK_SERVICE_TOKEN в env), кладёт результат в fredi_vk_profiles.vk_data,
-        ставит parsed_at=NOW(). Если ранее был только screen_name — резолвит
-        и записывает числовой vk_id. Кэш 7 дней, rate-limit 3 rps.
-        """
+        """«Копать» — выкачать публичные данные VK-страницы привязанного юзера."""
         _check_admin(x_admin_token)
         uid = int(user_id)
         async with db.get_connection() as conn:
@@ -437,6 +452,108 @@ def register_vk_routes(app, db):
                 "groups_count": groups.get("count") if "count" in groups else (None if "error" in groups else 0),
                 "groups_error": groups.get("error"),
             },
+        }
+
+    @app.post("/api/admin/vk/extract-features/{user_id}")
+    async def vk_extract_features_endpoint(
+        user_id: int,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """«Извлечь признаки» — DeepSeek-анализ собирательного образа + VK-данных.
+
+        На вход берёт всё что есть в БД о юзере: профиль (тест), контекст,
+        последние 30 user-сообщений, спарсенный VK. Шлёт в DeepSeek с
+        промптом, который требует строгого JSON-слепка с ключевыми темами,
+        marker-группами, marker-словами, демографией и стратегиями поиска
+        близнецов. Кладёт результат в fredi_vk_profiles.features JSONB.
+        """
+        _check_admin(x_admin_token)
+        uid = int(user_id)
+
+        async with db.get_connection() as conn:
+            link = await conn.fetchrow(
+                "SELECT vk_id, vk_screen_name, vk_data, parsed_at "
+                "FROM fredi_vk_profiles WHERE user_id = $1", uid,
+            )
+            if not link:
+                raise HTTPException(status_code=404, detail={"error": "link_not_found"})
+            if not link["parsed_at"]:
+                raise HTTPException(status_code=409, detail={
+                    "error": "not_parsed",
+                    "message": "Сначала нажми «Копать», потом извлекай признаки",
+                })
+            user = await conn.fetchrow(
+                "SELECT user_id, username, first_name, last_name, language_code, "
+                "platform, profile FROM fredi_users WHERE user_id = $1", uid,
+            )
+            if not user:
+                raise HTTPException(status_code=404, detail={"error": "user_not_found"})
+            ctx = await conn.fetchrow("SELECT * FROM fredi_user_contexts WHERE user_id = $1", uid)
+            # Берём больше сообщений чем в profile-summary — модели нужен материал.
+            messages = await conn.fetch(
+                "SELECT role, content, metadata, created_at FROM fredi_messages "
+                "WHERE user_id = $1 ORDER BY id DESC LIMIT 30", uid,
+            )
+
+        def _jb(v):
+            if v is None:
+                return None
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return v
+            return v
+
+        composite = {
+            "user": {
+                "username": user["username"] or "",
+                "first_name": user["first_name"] or "",
+                "last_name": user["last_name"] or "",
+                "language_code": user["language_code"] or "",
+                "platform": user["platform"] or "",
+            },
+            "profile": _jb(user["profile"]) or {},
+            "context": (
+                {k: _jb(ctx[k]) if k != "user_id" else ctx[k] for k in ctx.keys()}
+                if ctx is not None else {}
+            ),
+            "messages": list(reversed([{
+                "role": m["role"], "content": m["content"],
+                "created_at": m["created_at"].isoformat() if m["created_at"] else None,
+            } for m in messages])),
+        }
+        vk_data = _jb(link["vk_data"]) or {}
+
+        try:
+            from vk_feature_extractor import extract_features as _extract
+        except Exception as e:
+            logger.error(f"vk_feature_extractor import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "extractor_unavailable",
+                "message": "Модуль vk_feature_extractor недоступен",
+            })
+
+        try:
+            features = await _extract(composite, vk_data)
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "deepseek_error", "message": str(e),
+            })
+
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "UPDATE fredi_vk_profiles "
+                "SET features = $1::jsonb, features_extracted_at = NOW() "
+                "WHERE user_id = $2",
+                json.dumps(features, ensure_ascii=False), uid,
+            )
+
+        return {
+            "ok": True,
+            "user_id": uid,
+            "features": features,
+            "extracted_at_unix": None,  # фронт сам через features_extracted_at в profile-summary возьмёт
         }
 
     return init_vk_table
