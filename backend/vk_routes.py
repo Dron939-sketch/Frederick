@@ -1180,7 +1180,7 @@ def register_vk_routes(app, db):
     async def vk_search_by_problem(
         category: str,
         max_groups: int = 3,
-        max_candidates: int = 50,
+        max_candidates: int = 10,
         members_per_group: int = 1000,
         geo_scope: str = "auto",
         x_admin_token: Optional[str] = Header(default=None),
