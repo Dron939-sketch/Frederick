@@ -206,7 +206,30 @@ def register_vk_routes(app, db):
                 )
             except Exception as e:
                 logger.warning(f"draft columns migration skipped: {e}")
-        logger.info("VK profiles + candidates tables ready (phase 5A)")
+
+            # Phase 9: per-phrase performance + override storage для
+            # самокоррекции фраз поиска по проблеме.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_vk_phrase_perf (
+                    category TEXT NOT NULL,
+                    phrase   TEXT NOT NULL,
+                    times_used         INTEGER NOT NULL DEFAULT 0,
+                    posts_seen         INTEGER NOT NULL DEFAULT 0,
+                    candidates_yielded INTEGER NOT NULL DEFAULT 0,
+                    drafts_made        INTEGER NOT NULL DEFAULT 0,
+                    last_used_at       TIMESTAMPTZ,
+                    PRIMARY KEY (category, phrase)
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_vk_phrase_overrides (
+                    category    TEXT PRIMARY KEY,
+                    phrases     JSONB NOT NULL,
+                    suggested_by TEXT,
+                    updated_at  TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+        logger.info("VK profiles + candidates + phrase tables ready (phase 9)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -1189,6 +1212,7 @@ def register_vk_routes(app, db):
                 members_per_group=members_per_group,
                 max_candidates=max_candidates,
                 geo_scope=str(geo_scope or "auto"),
+                db=db,  # читаем phrase override + пишем phrase perf
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={
@@ -1282,6 +1306,63 @@ def register_vk_routes(app, db):
             "pain_targeted": result.get("pain_targeted") or "",
             "vk_chat_url": f"https://vk.com/im?sel={candidate.get('vk_id')}" if candidate.get("vk_id") else None,
         }
+
+    # =========================================================
+    # САМОКОРРЕКЦИЯ ФРАЗ (Phase 9)
+    # =========================================================
+    @app.post("/api/admin/vk/phrases/optimize")
+    async def vk_phrases_optimize(
+        category: str,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """DeepSeek анализирует перфоманс текущих фраз категории и
+        предлагает: какие оставить, какие выкинуть, какие добавить."""
+        _check_admin(x_admin_token)
+        try:
+            from vk_phrase_optimizer import optimize_phrases as _optimize
+        except Exception as e:
+            logger.error(f"vk_phrase_optimizer import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "phrase_optimizer_unavailable", "message": str(e),
+            })
+        try:
+            result = await _optimize(db, str(category))
+        except Exception as e:
+            logger.error(f"phrase optimize failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "optimize_failed", "message": str(e),
+            })
+        if result.get("error") and result["error"] not in ("deepseek_error", "deepseek_unavailable"):
+            raise HTTPException(status_code=400, detail=result)
+        return {"success": True, **result}
+
+    @app.post("/api/admin/vk/phrases/apply")
+    async def vk_phrases_apply(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Применить набор фраз к категории — следующий поиск возьмёт их.
+        Тело: {category, phrases: [...]}"""
+        _check_admin(x_admin_token)
+        category = (body or {}).get("category")
+        phrases = (body or {}).get("phrases")
+        if not category or not isinstance(phrases, list):
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_request", "message": "category и phrases обязательны",
+            })
+        try:
+            from vk_phrase_optimizer import save_override
+            await save_override(
+                db, str(category),
+                [str(p) for p in phrases if str(p).strip()],
+                suggested_by=str((body or {}).get("suggested_by") or "manual"),
+            )
+        except Exception as e:
+            logger.error(f"phrase apply failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "apply_failed", "message": str(e),
+            })
+        return {"success": True, "category": category, "applied": len([p for p in phrases if str(p).strip()])}
 
     @app.get("/api/admin/vk/funnel")
     async def vk_funnel(
