@@ -43,6 +43,33 @@ _PAIN_MARKERS = re.compile(
 )
 
 
+# Сильные маркеры «это провайдер услуг, а не страдалец» — в about/status.
+# Если человек называет себя психологом/коучем/таро-практиком, его «пост про
+# выгорание» — это маркетинг чужой боли, а не своя боль.
+_PROVIDER_HARD_MARKERS = re.compile(
+    r"\b(психолог[а-я]*|коуч[а-я]*|консультант[а-я]*|терапевт[а-я]*|тренер|"
+    r"эксперт[а-я]*|астролог[а-я]*|таролог[а-я]*|нумеролог[а-я]*|целитель[а-я]*|"
+    r"проводник|шаман[а-я]*|нейрокоуч[а-я]*|расстановщик[а-я]*|"
+    r"профориентолог[а-я]*|карьерн[а-я]+\s+консультант|hr[\-]бренд|hr[\s\-]консульт|"
+    r"бизнес[\-\s]коуч|life[\s\-]коуч|family[\s\-]коуч|"
+    r"автор\s+книги|соавтор\s+книги|номер\s+регистрации|"
+    r"запис[аы]ться\s+на\s+консультаци|whats\s*app|telegram\s*[:@]|"
+    r"\d{3}[\s-]?\d{3}[\s-]?\d{4})\b",
+    re.IGNORECASE,
+)
+
+# Маркеры «пост про чужих клиентов» (провайдер пишет про свою практику).
+_PROVIDER_PRACTICE_MARKERS = re.compile(
+    r"(\bко\s+мне\s+(?:приход|обращ|на\s+консульт)|"
+    r"\bна\s+консультаци[яи]|\bмо[еих]+\s+клиент|"
+    r"\bпомога[юе]|\bя\s+проводник|\bя\s+психолог|"
+    r"\bкак\s+психолог|\bкак\s+коуч|\bкак\s+эксперт|"
+    r"\bпр[оа]ходи(л|т)\s+ко\s+мне|\bкак\s+я\s+помог|"
+    r"\bобъявля[юе]\s+поход|\bкрестов[а-я]+\s+поход)",
+    re.IGNORECASE,
+)
+
+
 def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> Dict[str, Any]:
     """«Яркость выраженности проблемы» 0..100 + расшифровка по слагаемым.
 
@@ -118,6 +145,37 @@ def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> Dict[
     if "..." in text or "…" in text:
         parts["ellipsis"] = 2
         reasons.append("многоточие +2")
+
+    # 5. Штрафы за «провайдер услуг»: психолог/коуч/таро-практик пишут о
+    # выгорании в маркетинге, а не от своего имени. Проверяем about+status
+    # отдельно (там самые сильные сигналы) и текст поста (там практика).
+    parts["provider_role"] = 0
+    parts["provider_practice"] = 0
+
+    role_text = " ".join([
+        (c.get("about") or ""),
+        (c.get("status") or ""),
+    ]).lower()
+    role_hits = _PROVIDER_HARD_MARKERS.findall(role_text)
+    if role_hits:
+        sample = ", ".join(sorted(set(map(str.lower, role_hits)))[:2])
+        # -40 если 1+ маркер. Это почти всегда провайдер.
+        parts["provider_role"] = -40
+        reasons.append(f"провайдер услуг в about/status «{sample}» -40")
+
+    practice_hits = _PROVIDER_PRACTICE_MARKERS.findall(text_lower)
+    if practice_hits:
+        # Каждый матч (ко мне приходят / на консультации / помогаю / ...) -10,
+        # потолок -30 (вряд ли больше трёх будет в коротком посте).
+        n = len(practice_hits)
+        pen = -min(n * 10, 30)
+        parts["provider_practice"] = pen
+        # Покажем фрагменты для прозрачности.
+        sample_p = "; ".join(
+            (h if isinstance(h, str) else (h[0] if h else ""))[:40]
+            for h in practice_hits[:2]
+        )
+        reasons.append(f"маркетинг практики «{sample_p}» {pen}")
 
     score = sum(parts.values())
     score = max(0, min(100, score))
