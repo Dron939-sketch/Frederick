@@ -240,6 +240,79 @@ def _build_user_message(composite: Dict[str, Any], vk_data: Dict[str, Any]) -> s
     return "\n".join(blocks)
 
 
+def _assess_data_quality(features: Dict[str, Any], vk_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Считаем «качество данных» 0..100 для решения, стоит ли запускать поиск
+    близнецов сейчас. Работаем по факту того, что лежит в `features` после
+    DeepSeek-экстракции и в `vk_data` от VK API.
+
+    Шкала:
+      • группы:    5+ → +30, 1–4 → +15, 0 → +0
+      • маркер.слова: 10+ → +30, 1–9 → +15, 0 → +0
+      • город:     есть → +20
+      • биография/about/status: есть → +10
+      • стена не закрыта (есть посты) → +10
+    """
+    score = 0
+    issues: List[str] = []
+
+    marker_groups = features.get("marker_groups") or []
+    if len(marker_groups) >= 5:
+        score += 30
+    elif len(marker_groups) > 0:
+        score += 15
+        issues.append(f"мало релевантных групп ({len(marker_groups)} — нужно от 5)")
+    else:
+        issues.append("нет маркер-групп — профиль может быть закрыт или пуст")
+
+    marker_keywords = features.get("marker_keywords") or []
+    if len(marker_keywords) >= 10:
+        score += 30
+    elif len(marker_keywords) > 0:
+        score += 15
+        issues.append(f"мало маркер-слов ({len(marker_keywords)} — нужно от 10)")
+    else:
+        issues.append("нет маркер-слов — слишком мало постов для анализа")
+
+    demo = features.get("demographics") or {}
+    if demo.get("city") or demo.get("city_id"):
+        score += 20
+    else:
+        issues.append("не указан город — сложнее фильтровать по гео")
+
+    user = (vk_data or {}).get("user") or {}
+    if (user.get("about") or "").strip() or (user.get("status") or "").strip():
+        score += 10
+    else:
+        issues.append("пустые about/status — мало личного контента")
+
+    wall = (vk_data or {}).get("wall") or {}
+    wall_items = wall.get("items") or []
+    if "error" in wall:
+        issues.append(f"стена закрыта/ошибка: {wall.get('error')}")
+    elif len(wall_items) >= 5:
+        score += 10
+    else:
+        issues.append("на стене меньше 5 постов")
+
+    score = max(0, min(100, score))
+    if score >= 70:
+        level = "high"
+        recommendation = "можно запускать поиск близнецов прямо сейчас"
+    elif score >= 40:
+        level = "medium"
+        recommendation = "можно искать, но точность будет средней — рассмотри попросить юзера дополнить профиль"
+    else:
+        level = "low"
+        recommendation = "сначала добери данные: попроси открыть профиль / дописать о себе / указать город"
+
+    return {
+        "score": score,
+        "level": level,
+        "issues": issues,
+        "recommendation": recommendation,
+    }
+
+
 async def extract_features(
     composite_profile: Dict[str, Any],
     vk_data: Dict[str, Any],
@@ -314,6 +387,11 @@ async def extract_features(
     features.setdefault("confidence", "low")
     features.setdefault("desired_outcome", "")
     features.setdefault("archetype", None)
+    # Оценка качества данных — оператор видит, имеет ли смысл звать
+    # Близнецов сейчас или сначала просить у юзера больше данных
+    # (открыть профиль, дописать пост, указать город). Считается из реальных
+    # vk_data, чтобы не зависеть от качества LLM-экстракции.
+    features["data_quality"] = _assess_data_quality(features, vk_data)
     # Если LLM не выбрал архетип — дожимаем эвристикой по векторам теста.
     if not features.get("archetype"):
         try:
