@@ -986,6 +986,53 @@
         '<pre style="margin:6px 0 0;font-size:11px;white-space:pre-wrap;word-wrap:break-word;color:var(--text)">'+esc(JSON.stringify(c,null,2))+'</pre></details>';
     }
 
+    // Cross-session memory: что Фреди помнит о юзере из прошлых сессий.
+    var summaries = (d.session_summaries || []);
+    if (summaries.length){
+      html += '<h3 style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin:18px 0 8px">🧠 Память Фреди (' + summaries.length + ' сесс.)</h3>';
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;font-style:italic">Это сводки прошлых сессий, которые Фреди подмешивает в системный промпт при следующей встрече. Так он «помнит» клиента.</div>';
+      summaries.forEach(function(s, i){
+        var when = s.ended_at ? new Date(s.ended_at).toLocaleString('ru-RU', {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+        var modeBadge = '';
+        if (s.mode){
+          var modeColors = {'psychologist':'rgba(167,139,250,0.22)','coach':'rgba(52,211,153,0.22)','trainer':'rgba(251,191,36,0.22)'};
+          var modeIcons = {'psychologist':'🧠','coach':'🎯','trainer':'💪'};
+          modeBadge = '<span style="display:inline-block;padding:2px 7px;border-radius:6px;background:'+(modeColors[s.mode]||'rgba(180,180,200,0.18)')+';font-size:10px;margin-right:6px">'+(modeIcons[s.mode]||'•')+' '+esc(s.mode)+(s.method_code?(' / '+esc(s.method_code)):'')+'</span>';
+        }
+        var kf = s.key_facts || {};
+        var hooks = s.continuity_hooks || [];
+        html += '<div style="background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.25);border-radius:10px;padding:10px 14px;margin-bottom:8px">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">' +
+            '<div>'+modeBadge+'<span style="font-size:11px;color:var(--text-dim)">'+esc(when)+' · '+(s.message_count||0)+' сообщ.</span></div>' +
+            (s.client_state_at_end?'<span style="font-size:10px;color:var(--text-dim);font-style:italic">→ '+esc(s.client_state_at_end)+'</span>':'') +
+          '</div>';
+        if (s.summary){
+          html += '<div style="font-size:13px;line-height:1.45;margin-bottom:8px">'+esc(s.summary)+'</div>';
+        }
+        // Key facts compact display
+        var kfBits = [];
+        ['persons','events','themes','emotions','hypotheses','actions_or_tools'].forEach(function(key){
+          var arr = kf[key] || [];
+          if (Array.isArray(arr) && arr.length){
+            var label = ({persons:'👤 Люди',events:'📅 События',themes:'📋 Темы',emotions:'💔 Эмоции',hypotheses:'💡 Гипотезы',actions_or_tools:'🛠 Шаги'})[key] || key;
+            kfBits.push('<div style="font-size:11px;margin-bottom:3px"><b style="color:var(--accent);font-weight:600">'+label+':</b> '+arr.slice(0,5).map(function(x){return esc(String(x).slice(0,80));}).join(', ')+'</div>');
+          }
+        });
+        if (kfBits.length){
+          html += '<div style="margin-top:6px">'+kfBits.join('')+'</div>';
+        }
+        if (hooks.length){
+          html += '<div style="margin-top:6px;font-size:11px;background:rgba(255,191,36,0.06);border-left:3px solid var(--warning);padding:4px 8px;border-radius:3px">' +
+            '<b style="color:var(--warning)">🪝 Зацепки на следующий раз:</b> ' +
+            hooks.slice(0,3).map(function(h){return esc(String(h).slice(0,150));}).join(' | ') +
+          '</div>';
+        }
+        html += '</div>';
+      });
+      html += '<details style="margin-top:6px;background:var(--surface-hi);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin-bottom:14px"><summary style="cursor:pointer;color:var(--accent);font-size:11px">сырой JSON всех сводок</summary>' +
+        '<pre style="margin:6px 0 0;font-size:10px;white-space:pre-wrap;word-wrap:break-word;color:var(--text-dim);max-height:300px;overflow:auto">'+esc(JSON.stringify(summaries,null,2))+'</pre></details>';
+    }
+
     html += '<h3 style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin:0 0 6px">Последние ' + msgs.length + ' сообщений (хронологически)</h3>';
     if (!msgs.length){
       html += '<div class="empty">Нет сообщений</div>';
