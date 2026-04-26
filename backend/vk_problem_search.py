@@ -130,10 +130,13 @@ async def _resolve_screen_names(
 def _candidate_dict(u: Dict[str, Any], from_group: Dict[str, Any], source: str = "group") -> Dict[str, Any]:
     """Формируем карточку кандидата.
 
-    source: 'group' — взят из groups.getMembers сообщества;
-            'newsfeed' — автор поста из newsfeed.search (живой по факту публикации).
+    source: 'group'    — из groups.getMembers сообщества;
+            'newsfeed' — автор поста из newsfeed.search;
+            'comment'  — автор комментария из wall.getComments
+                         (плюс триггер-коммент в `triggering_comment`).
     """
     name = " ".join(filter(None, [u.get("first_name"), u.get("last_name")])).strip()
+    triggering = u.get("_triggering_comment")
     return {
         "vk_id": u.get("id"),
         "first_name": u.get("first_name") or "",
@@ -152,6 +155,13 @@ def _candidate_dict(u: Dict[str, Any], from_group: Dict[str, Any], source: str =
             "name": from_group.get("name"),
             "screen_name": from_group.get("screen_name"),
         } if from_group else None,
+        # Текст и ссылка на пост, под которым человек оставил коммент —
+        # оператор сразу видит, на что именно он реагировал.
+        "triggering_comment": {
+            "text": triggering.get("comment_text") or "",
+            "post_url": triggering.get("post_url") or "",
+            "source_phrase": triggering.get("source_phrase") or "",
+        } if isinstance(triggering, dict) else None,
         "vk_url": f"https://vk.com/id{u.get('id')}",
     }
 
@@ -213,6 +223,8 @@ async def search_by_problem(
             return
         seen[uid] = _candidate_dict(user, from_group, source=source)
 
+    comment_stats: Dict[str, Any] = {}
+
     # 1) ОСНОВНОЙ источник — авторы постов (newsfeed.search).
     if seed_phrases:
         try:
@@ -228,7 +240,26 @@ async def search_by_problem(
         except Exception as e:
             logger.warning(f"problem_search: keyword search failed: {e}")
 
-    # 2) ДОПОЛНИТЕЛЬНО — участники сообществ (если seed-группы вообще есть и
+    # 2) ДОПОЛНИТЕЛЬНЫЙ источник — комментаторы постов на тему. Часто
+    # эмоционально сильнее, чем сами посты («у меня то же самое»).
+    if seed_phrases and len(seen) < max_candidates * 3:
+        try:
+            from vk_comment_search import search_authors_by_comments
+            cm_result = await search_authors_by_comments(
+                seed_phrases,
+                posts_per_phrase=20,
+                comments_per_post=20,
+                total_limit=max_candidates * 4,
+            )
+            comment_stats = cm_result.get("stats") or {}
+            for u in cm_result.get("users") or []:
+                _absorb(u, {}, source="comment")
+                if len(seen) >= max_candidates * 3:
+                    break
+        except Exception as e:
+            logger.warning(f"problem_search: comment search failed: {e}")
+
+    # 3) ДОПОЛНИТЕЛЬНО — участники сообществ (если seed-группы вообще есть и
     # хотя бы одна резолвится в открытое community).
     if seed_screen_names and len(seen) < max_candidates * 3:
         async with httpx.AsyncClient() as client:
@@ -263,8 +294,14 @@ async def search_by_problem(
 
     def _score(c: Dict[str, Any]) -> int:
         s = 0
-        if c.get("source") == "newsfeed":
-            s += 20
+        # newsfeed = автор поста (initiator), comment = автор коммента
+        # (reaction). Initiator обычно более активный таргет, но
+        # коммент-автор подтверждает живучесть и эмоцию.
+        src = c.get("source")
+        if src == "newsfeed":
+            s += 25
+        elif src == "comment":
+            s += 18
         if not c.get("is_closed"):
             s += 10
         if c.get("about"):
@@ -278,9 +315,10 @@ async def search_by_problem(
     candidates.sort(key=_score, reverse=True)
     candidates = candidates[:max_candidates]
 
-    by_source = {"newsfeed": 0, "group": 0}
+    by_source = {"newsfeed": 0, "comment": 0, "group": 0}
     for c in candidates:
-        by_source[c.get("source") or "group"] = by_source.get(c.get("source") or "group", 0) + 1
+        s = c.get("source") or "group"
+        by_source[s] = by_source.get(s, 0) + 1
 
     return {
         "category": {
@@ -296,6 +334,9 @@ async def search_by_problem(
             "posts_seen": keyword_stats.get("posts_seen", 0),
             "newsfeed_authors": keyword_stats.get("unique_authors", 0),
             "newsfeed_resolved": keyword_stats.get("fetched", 0),
+            "comments_seen": comment_stats.get("comments_seen", 0),
+            "comment_authors": comment_stats.get("unique_commenters", 0),
+            "comment_resolved": comment_stats.get("fetched", 0),
             "groups_resolved": len(resolved),
             "groups_scanned": len(groups_to_scan),
             "members_fetched": members_fetched,
