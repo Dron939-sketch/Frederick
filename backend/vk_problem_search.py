@@ -80,10 +80,36 @@ _PROVIDER_PRACTICE_MARKERS = re.compile(
 _NARRATIVE_DIALOGUE = re.compile(r"—\s+[А-ЯЁ]")
 _NARRATIVE_SAID_VERB = re.compile(
     r"\b(сказал[а-я]?|жаловал[а-я]+|воскликн[а-я]+|"
-    r"подумал[а-я]?|пробормотал[а-я]?|ответил[а-я]?|спросил[а-я]?)\b",
+    r"подумал[а-я]?|пробормотал[а-я]?|ответил[а-я]?|спросил[а-я]?|"
+    r"ютил[а-я]+|прошептал[а-я]?|крикн[а-я]+|всхлипн[а-я]+|"
+    r"расхохотал[а-я]+|хмыкн[а-я]+|процедил[а-я]?|улыбнул[а-я]+)\b",
     re.IGNORECASE,
 )
 _PROPER_NAME = re.compile(r"\b[А-ЯЁ][а-яё]{2,}\b")
+
+# Дополнительные маркеры блогер-форматов и продаж.
+_BLOG_FORMAT = re.compile(
+    r"(\b\d+\s+(?:столп|правил|шаг|секрет|способ|урок|причин|ошиб|закон)|"
+    r"ridero\.ru|rutube\.ru|youtube\.com|youtu\.be|wildberries|"
+    r"https?://\S+\.(?:ru|com|me|app)/\S*book|"
+    r"\bкнига\s+(?:доступн|вышла|купить)|"
+    r"\bподпис[аи]сь|\bподпиш[ие]т)",
+    re.IGNORECASE,
+)
+
+# CONFESSION — фразы исповеди от первого лица. Если в тексте нет ни одной —
+# это не своя боль (блог, рассказ, реклама).
+_CONFESSION_MARKERS = re.compile(
+    r"\b(я\s+устал[а-я]?|я\s+выгор[а-я]+|я\s+(?:не\s+могу|больше\s+не\s+могу)|"
+    r"у\s+меня\s+нет\s+сил|у\s+меня\s+(?:апати|тревог|пустота)|"
+    r"я\s+ненавижу\s+(?:свою|эту|работу|жизнь)|"
+    r"мне\s+тяжело|мне\s+плохо|мне\s+страшно|"
+    r"я\s+потерял[а-я]?\s+(?:смысл|интерес|надежд|себя)|"
+    r"хочу\s+уволиться|не\s+хочу\s+на\s+работу|"
+    r"я\s+(?:одна|один|одинок)|"
+    r"я\s+(?:заёб|заеб|задолб|устал|выгор))",
+    re.IGNORECASE,
+)
 
 
 def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -219,6 +245,26 @@ def _brightness_score(c: Dict[str, Any], category_meta: Dict[str, Any]) -> Dict[
         if not has_topic:
             parts["off_topic"] = -20
             reasons.append("нет ни одного слова темы категории -20")
+
+    # 8. Блог-формат («5 столпов», «5 шагов», ссылка на книгу/курс) — это
+    # контент-маркетинг, не своя исповедь.
+    parts["blog_format"] = 0
+    if text:
+        blog_hits = _BLOG_FORMAT.findall(text_lower) + _BLOG_FORMAT.findall(text)
+        if blog_hits:
+            parts["blog_format"] = -15
+            sample = (blog_hits[0] if isinstance(blog_hits[0], str)
+                      else " ".join(x for x in blog_hits[0] if x))[:40]
+            reasons.append(f"блог-формат «{sample}» -15")
+
+    # 9. Нет фразы исповеди от первого лица — текст не про себя.
+    # Это самый разделяющий фильтр между «настоящий страдалец» и
+    # «блогер/рассказчик/реклама».
+    parts["no_confession"] = 0
+    if text:
+        if not _CONFESSION_MARKERS.search(text_lower):
+            parts["no_confession"] = -15
+            reasons.append("нет фразы от первого лица о своей боли -15")
 
     score = sum(parts.values())
     score = max(0, min(100, score))
