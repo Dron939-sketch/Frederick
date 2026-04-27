@@ -126,9 +126,22 @@ def _compose_body(
     pain: Dict[str, Any],
     hooks: Dict[str, Any],
     full_name: str,
+    first_name: str = "",
 ) -> str:
-    """Детерминированно собрать тело сообщения из вывода b2c_analyzer."""
-    blocks: List[str] = [f"Привет, {full_name}!" if full_name else "Привет!"]
+    """Детерминированно собрать тело сообщения из вывода b2c_analyzer.
+
+    Для приветствия используем ТОЛЬКО first_name — фамилия часто содержит
+    личный бренд («Петров Астролог»), и «Привет, Дмитрий Петров Астролог!»
+    звучит криво.
+
+    Намеренно не включаем hooks: hook от b2c_analyzer — заход на страдальца
+    («Я — бесплатный AI-психолог, могу помочь разобраться»), что в B2B
+    создаёт диссонанс с product-pitch в tail-е (мы продаём инструмент,
+    а не терапию). Hooks остаются в response.analysis для информации
+    оператора, но в текст не уходят.
+    """
+    greet = (first_name or full_name or "").strip()
+    blocks: List[str] = [f"Привет, {greet}!" if greet else "Привет!"]
 
     blocks.append("")
     blocks.append("🧠 ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ")
@@ -165,20 +178,6 @@ def _compose_body(
         if pain.get("desired_outcome"):
             blocks.append(f"Хочет: {pain['desired_outcome']}")
 
-    variants = hooks.get("variants") or []
-    best_tone = hooks.get("best_tone") or ""
-    best: Optional[Dict[str, Any]] = None
-    for v in variants:
-        if v.get("tone") == best_tone:
-            best = v
-            break
-    if not best and variants:
-        best = variants[0]
-    if best and best.get("text"):
-        blocks.append("")
-        blocks.append("✉️ КАК С ТОБОЙ МОЖНО ЗАЙТИ В РАЗГОВОР")
-        blocks.append(best["text"])
-
     return "\n".join(blocks)
 
 
@@ -210,17 +209,23 @@ async def generate_mirror_pitch(
         return {"error": analysis["error"], "details": analysis}
 
     ub = (analysis.get("vk_data") or {}).get("user_basic") or {}
-    full_name = " ".join([ub.get("first_name") or "", ub.get("last_name") or ""]).strip()
+    first_name = (ub.get("first_name") or "").strip()
+    last_name = (ub.get("last_name") or "").strip()
+    full_name = " ".join(filter(None, [first_name, last_name])).strip()
     if not full_name:
         full_name = fisherman.get("full_name") or ""
+    if not first_name and full_name:
+        # На случай если ФИ пришли только в full_name fisherman-объекта.
+        first_name = full_name.split()[0]
 
     body = _compose_body(
         analysis.get("profile") or {},
         analysis.get("pain") or {},
         analysis.get("hooks") or {},
         full_name,
+        first_name=first_name,
     )
-    tail = await _llm_tail(category_meta, full_name or "коллега")
+    tail = await _llm_tail(category_meta, first_name or "коллега")
 
     message = body + "\n\n—\n\n" + tail
 
