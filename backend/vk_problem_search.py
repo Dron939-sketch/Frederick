@@ -506,13 +506,29 @@ async def search_by_problem(
         seen[uid] = _candidate_dict(user, from_group, source=source)
 
     comment_stats: Dict[str, Any] = {}
+    anchor_stats: Dict[str, Any] = {}
+
+    # SHARED POOL: один `newsfeed.search` для всех трёх каналов.
+    # Раньше keyword/comment/anchor дёргали newsfeed независимо — это 18+
+    # одинаковых запросов и rate-limit, из-за которого anchor получал 0
+    # постов. Теперь ОДИН проход, потом все каналы работают с общим списком.
+    shared_posts: List[Dict[str, Any]] = []
+    if seed_phrases:
+        try:
+            from vk_keyword_search import fetch_newsfeed_posts
+            shared_posts = await fetch_newsfeed_posts(
+                seed_phrases, per_phrase=200
+            )
+        except Exception as e:
+            logger.warning(f"problem_search: shared newsfeed fetch failed: {e}")
 
     # 1) ОСНОВНОЙ источник — авторы постов (newsfeed.search).
     if seed_phrases:
         try:
             from vk_keyword_search import search_authors_by_phrases
             kw_result = await search_authors_by_phrases(
-                seed_phrases, per_phrase=200, total_limit=max_candidates * 4
+                seed_phrases, per_phrase=200, total_limit=max_candidates * 4,
+                shared_posts=shared_posts or None,
             )
             keyword_stats = kw_result.get("stats") or {}
             for u in kw_result.get("users") or []:
@@ -522,8 +538,7 @@ async def search_by_problem(
         except Exception as e:
             logger.warning(f"problem_search: keyword search failed: {e}")
 
-    # 2) ДОПОЛНИТЕЛЬНЫЙ источник — комментаторы постов на тему. Часто
-    # эмоционально сильнее, чем сами посты («у меня то же самое»).
+    # 2) ДОПОЛНИТЕЛЬНЫЙ источник — комментаторы постов на тему.
     if seed_phrases and len(seen) < max_candidates * 3:
         try:
             from vk_comment_search import search_authors_by_comments
@@ -532,6 +547,7 @@ async def search_by_problem(
                 posts_per_phrase=20,
                 comments_per_post=20,
                 total_limit=max_candidates * 4,
+                shared_posts=shared_posts or None,
             )
             comment_stats = cm_result.get("stats") or {}
             for u in cm_result.get("users") or []:
@@ -544,7 +560,6 @@ async def search_by_problem(
     # 3) ANCHOR — лайкеры и репостеры маркетинговых «магнитов».
     # Психологи/коучи пишут вирусные посты про боль, чтобы привлечь страдальцев.
     # Кто поставил ❤️ или репостнул — уже узнал себя в боли.
-    anchor_stats: Dict[str, Any] = {}
     if seed_phrases and len(seen) < max_candidates * 3:
         try:
             from vk_anchor_search import search_engagers_of_anchor_posts
@@ -555,6 +570,7 @@ async def search_by_problem(
                 likes_per_anchor=1000,
                 reposts_per_anchor=200,
                 total_limit=max_candidates * 4,
+                shared_posts=shared_posts or None,
             )
             anchor_stats = anc_result.get("stats") or {}
             for u in anc_result.get("users") or []:
