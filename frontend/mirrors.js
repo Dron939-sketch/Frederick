@@ -487,6 +487,9 @@ async function showMirrorsScreen() {
                 <button class="mirror-tab-btn inactive" id="tab-create" onclick="switchMirrorTab('create')">
                     🔗 Создать ссылку
                 </button>
+                <button class="mirror-tab-btn inactive" id="tab-vk-analyze" onclick="switchMirrorTab('vk-analyze')">
+                    🔍 Анализ VK
+                </button>
             </div>
 
             <div id="mirrorTabContent"></div>
@@ -499,20 +502,21 @@ async function showMirrorsScreen() {
 
 function switchMirrorTab(tab) {
     log.info('Mirrors', 'switchMirrorTab called', { tab });
-    ['reflections','create'].forEach(t => {
+    ['reflections','create','vk-analyze'].forEach(t => {
         const btn = document.getElementById(`tab-${t}`);
         if (!btn) return;
         if (t === tab) {
-            btn.classList.add('active'); 
+            btn.classList.add('active');
             btn.classList.remove('inactive');
         } else {
-            btn.classList.remove('active'); 
+            btn.classList.remove('active');
             btn.classList.add('inactive');
         }
     });
     const content = document.getElementById('mirrorTabContent');
     if (tab === 'reflections') showReflectionsTab(content);
-    else showCreateLinkTab(content);
+    else if (tab === 'create') showCreateLinkTab(content);
+    else if (tab === 'vk-analyze') showVkAnalyzeTab(content);
 }
 
 // ============================================
@@ -859,6 +863,397 @@ function shareMirrorLink(link, text) {
     } else {
         copyMirrorLink(link);
     }
+}
+
+// ============================================
+// ТАБ: 🔍 АНАЛИЗ VK-СТРАНИЦЫ
+// Бесплатно — 2 анализа суммарно. Подписка снимает лимит.
+// ============================================
+async function showVkAnalyzeTab(container) {
+    log.info('Mirrors', 'showVkAnalyzeTab called');
+    const userId = getSafeUserId();
+
+    container.innerHTML = `
+        <div style="animation:mirrorFadeIn 0.4s ease;">
+            <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);
+                        border-radius:20px;padding:20px;margin-bottom:16px;">
+                <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;">
+                    <div style="width:38px;height:38px;border-radius:12px;
+                                background:linear-gradient(135deg,#a78bfa,#7c3aed);
+                                display:flex;align-items:center;justify-content:center;
+                                font-size:18px;flex-shrink:0;box-shadow:0 6px 18px rgba(124,58,237,0.25);">🔍</div>
+                    <div>
+                        <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:3px;">
+                            Анализ VK-страницы
+                        </div>
+                        <div style="font-size:12px;color:rgba(255,255,255,0.5);line-height:1.5;">
+                            Психологический портрет, активная боль и крючок —
+                            как лучше зайти в разговор.
+                        </div>
+                    </div>
+                </div>
+
+                <div id="vkAnalyzeQuota" style="font-size:11px;color:rgba(255,255,255,0.4);
+                            background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);
+                            border-radius:10px;padding:8px 12px;margin-bottom:12px;">
+                    Загружаем квоту…
+                </div>
+
+                <input id="vkAnalyzeInput" type="text"
+                    placeholder="vk.com/example или example"
+                    style="width:100%;background:rgba(255,255,255,0.04);
+                           border:1px solid rgba(255,255,255,0.1);border-radius:12px;
+                           padding:13px 16px;color:#fff;font-size:14px;
+                           font-family:inherit;box-sizing:border-box;margin-bottom:10px;
+                           outline:none;"
+                    onfocus="this.style.borderColor='rgba(167,139,250,0.4)'"
+                    onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                <button id="vkAnalyzeBtn" onclick="runVkAnalyze()"
+                    style="width:100%;background:linear-gradient(135deg,#a78bfa,#7c3aed);
+                           color:#fff;border:none;border-radius:12px;padding:13px 28px;
+                           font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;
+                           box-shadow:0 6px 18px rgba(124,58,237,0.25);">
+                    🔬 Проанализировать
+                </button>
+            </div>
+
+            <div id="vkAnalyzeResult"></div>
+        </div>
+    `;
+
+    // Подгружаем квоту, чтобы показать сразу.
+    try {
+        const r = await fetch(`${API_BASE}/api/mirrors/vk-analyze/quota?user_id=${encodeURIComponent(userId)}`);
+        if (r.ok) {
+            const data = await r.json();
+            _renderVkQuotaBadge(data);
+        }
+    } catch(e) {
+        log.warn('Mirrors', 'vk quota fetch failed', { error: e.message });
+        const badge = document.getElementById('vkAnalyzeQuota');
+        if (badge) badge.textContent = 'Бесплатно — 2 анализа. Подписка снимает лимит.';
+    }
+}
+
+function _renderVkQuotaBadge(data) {
+    const badge = document.getElementById('vkAnalyzeQuota');
+    if (!badge) return;
+    if (data.has_subscription) {
+        badge.style.color = '#ffaa3b';
+        badge.style.borderColor = 'rgba(255,170,59,0.25)';
+        badge.style.background = 'rgba(255,170,59,0.06)';
+        badge.innerHTML = '✨ Подписка активна — анализы без лимита';
+    } else {
+        const used = data.used || 0;
+        const limit = data.limit || 2;
+        const left = Math.max(0, limit - used);
+        badge.style.color = left > 0 ? 'rgba(255,255,255,0.55)' : '#ff6b3b';
+        badge.innerHTML = `Использовано <b>${used}/${limit}</b> · осталось <b>${left}</b>${left === 0 ? ' (лимит исчерпан — оформи подписку)' : ''}`;
+    }
+}
+
+async function runVkAnalyze() {
+    const input = document.getElementById('vkAnalyzeInput');
+    const btn = document.getElementById('vkAnalyzeBtn');
+    const result = document.getElementById('vkAnalyzeResult');
+    if (!input || !btn || !result) return;
+
+    const url = (input.value || '').trim();
+    if (!url) {
+        result.innerHTML = `
+            <div style="color:#ff6b3b;background:rgba(255,107,59,0.06);
+                        border:1px solid rgba(255,107,59,0.2);border-radius:12px;
+                        padding:14px;text-align:center;font-size:13px;">
+                Введи ссылку или короткое имя страницы VK
+            </div>`;
+        return;
+    }
+
+    const userId = getSafeUserId();
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.innerHTML = '⏳ Анализируем (30-60 сек)...';
+    result.innerHTML = `
+        <div style="text-align:center;padding:40px 20px;
+                    background:rgba(255,255,255,0.02);
+                    border:1px solid rgba(255,255,255,0.06);
+                    border-radius:20px;color:rgba(255,255,255,0.45);">
+            <div style="font-size:42px;margin-bottom:12px;animation:mirrorPulse 1.6s ease-in-out infinite;">🔬</div>
+            <div style="font-size:13px;line-height:1.6;">
+                Парсим VK · читаем посты · строим профиль…<br>
+                <span style="font-size:11px;color:rgba(255,255,255,0.3);">~30-60 секунд, не закрывай</span>
+            </div>
+        </div>`;
+
+    try {
+        const resp = await fetch(`${API_BASE}/api/mirrors/vk-analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, url }),
+        });
+        const data = await resp.json();
+
+        if (resp.status === 402) {
+            const detail = data.detail || data;
+            result.innerHTML = `
+                <div style="background:rgba(255,170,59,0.08);
+                            border:1px solid rgba(255,170,59,0.3);
+                            border-radius:20px;padding:24px;text-align:center;">
+                    <div style="font-size:42px;margin-bottom:10px;">🔒</div>
+                    <div style="font-size:15px;font-weight:600;color:#ffaa3b;margin-bottom:8px;">
+                        Лимит исчерпан
+                    </div>
+                    <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.6;">
+                        ${_escapeHtml(detail.message || 'Бесплатно — 2 анализа. Оформи подписку для безлимита.')}
+                    </div>
+                </div>`;
+            _resetVkAnalyzeBtn();
+            return;
+        }
+
+        if (!resp.ok || !data.success) {
+            const msg = (data.detail && (data.detail.message || data.detail.error))
+                || data.message || data.error || 'Не удалось проанализировать';
+            result.innerHTML = `
+                <div style="color:#ff6b3b;background:rgba(255,107,59,0.06);
+                            border:1px solid rgba(255,107,59,0.2);border-radius:12px;
+                            padding:16px;text-align:center;font-size:13px;">
+                    ⚠ ${_escapeHtml(String(msg))}
+                </div>`;
+            _resetVkAnalyzeBtn();
+            return;
+        }
+
+        _renderVkAnalysisResult(data, result);
+        _renderVkQuotaBadge({
+            has_subscription: !!data.has_subscription,
+            used: data.used,
+            limit: data.limit || 2,
+        });
+        _resetVkAnalyzeBtn();
+    } catch(e) {
+        log.error('Mirrors', 'vk-analyze failed', { error: e.message });
+        result.innerHTML = `
+            <div style="color:#ff6b3b;background:rgba(255,107,59,0.06);
+                        border:1px solid rgba(255,107,59,0.2);border-radius:12px;
+                        padding:16px;text-align:center;font-size:13px;">
+                ⚠ Сеть/сервер недоступен: ${_escapeHtml(e.message || 'unknown')}
+            </div>`;
+        _resetVkAnalyzeBtn();
+    }
+}
+
+function _resetVkAnalyzeBtn() {
+    const btn = document.getElementById('vkAnalyzeBtn');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = '🔬 Проанализировать';
+}
+
+function _renderVkAnalysisResult(data, container) {
+    const profile = data.profile || {};
+    const pain = data.pain || {};
+    const hooks = data.hooks || {};
+    const vkUrl = data.vk_url || '';
+    const userBasic = (data.vk_data && data.vk_data.user_basic) || {};
+
+    const name = [(userBasic.first_name || ''), (userBasic.last_name || '')].join(' ').trim() || 'Профиль VK';
+    const archetype = profile.archetype || '';
+    const archetypeRu = _archetypeRu(archetype);
+    const openness = profile.openness || '';
+    const defenses = Array.isArray(profile.defenses) ? profile.defenses : [];
+    const patterns = Array.isArray(profile.patterns) ? profile.patterns : [];
+    const profileText = profile.profile || '';
+    const painText = pain.pain_active || '';
+    const painIntensity = pain.pain_intensity || '';
+    const evidenceQuotes = Array.isArray(pain.evidence_quotes) ? pain.evidence_quotes : [];
+    const desiredOutcome = pain.desired_outcome || '';
+    const vulnWindow = pain.vulnerability_window || '';
+    const variants = Array.isArray(hooks.variants) ? hooks.variants : [];
+    const bestTone = hooks.best_tone || '';
+    const strategy = hooks.strategy_summary || '';
+
+    const toneLabels = { soft: '🌿 Мягкий', direct: '🎯 Прямой', emotional: '💔 Эмоциональный' };
+    const intensityColor = painIntensity === 'высокая' ? '#ff6b3b'
+        : painIntensity === 'средняя' ? '#f39c12' : '#3b82ff';
+
+    let html = '';
+
+    // Шапка с именем + ссылкой
+    html += `
+        <div style="background:linear-gradient(135deg,rgba(167,139,250,0.1),rgba(124,58,237,0.05));
+                    border:1px solid rgba(167,139,250,0.2);border-radius:20px;
+                    padding:18px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+            <div style="width:46px;height:46px;border-radius:50%;
+                        background:linear-gradient(135deg,#a78bfa,#7c3aed);
+                        display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🪞</div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:3px;
+                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    ${_escapeHtml(name)}
+                </div>
+                ${vkUrl ? `<a href="${_escapeHtml(vkUrl)}" target="_blank" rel="noopener"
+                              style="font-size:11px;color:rgba(167,139,250,0.85);text-decoration:none;">
+                              ${_escapeHtml(vkUrl)} ↗
+                          </a>` : ''}
+            </div>
+        </div>`;
+
+    // Карточка 1: психологический профиль
+    html += `
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
+                    border-radius:20px;padding:18px;margin-bottom:14px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.4px;
+                        color:#a78bfa;text-transform:uppercase;margin-bottom:10px;">
+                🧠 Психологический профиль
+            </div>
+            ${profileText ? `<div style="font-size:13px;line-height:1.6;color:rgba(255,255,255,0.8);margin-bottom:12px;">
+                ${_escapeHtml(profileText)}
+            </div>` : ''}
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+                ${archetype ? `<span style="background:rgba(167,139,250,0.12);color:#c4b5fd;
+                    padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;">
+                    ⚡ ${_escapeHtml(archetypeRu)}
+                </span>` : ''}
+                ${openness ? `<span style="background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.7);
+                    padding:4px 10px;border-radius:8px;font-size:11px;">
+                    Открытость: ${_escapeHtml(openness)}
+                </span>` : ''}
+            </div>
+            ${defenses.length ? `
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin:8px 0 4px;
+                            text-transform:uppercase;letter-spacing:0.3px;">Защиты</div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.75);line-height:1.6;">
+                    ${defenses.map(d => '• ' + _escapeHtml(d)).join('<br>')}
+                </div>` : ''}
+            ${patterns.length ? `
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin:10px 0 4px;
+                            text-transform:uppercase;letter-spacing:0.3px;">Паттерны</div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.75);line-height:1.6;">
+                    ${patterns.map(p => '• ' + _escapeHtml(p)).join('<br>')}
+                </div>` : ''}
+        </div>`;
+
+    // Карточка 2: активная боль
+    if (painText) {
+        html += `
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
+                        border-radius:20px;padding:18px;margin-bottom:14px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:0.4px;
+                                color:#ff6b3b;text-transform:uppercase;">
+                        💔 Активная боль
+                    </div>
+                    ${painIntensity ? `<span style="font-size:10px;font-weight:600;
+                        background:${intensityColor}26;color:${intensityColor};
+                        padding:3px 9px;border-radius:8px;text-transform:uppercase;letter-spacing:0.3px;">
+                        ${_escapeHtml(painIntensity)}
+                    </span>` : ''}
+                </div>
+                <div style="font-size:13px;line-height:1.6;color:rgba(255,255,255,0.85);margin-bottom:10px;">
+                    ${_escapeHtml(painText)}
+                </div>
+                ${evidenceQuotes.length ? `
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin:10px 0 6px;
+                                text-transform:uppercase;letter-spacing:0.3px;">Цитаты из его постов</div>
+                    ${evidenceQuotes.map(q => `
+                        <div style="font-size:12px;font-style:italic;color:rgba(255,255,255,0.7);
+                                    border-left:2px solid rgba(255,107,59,0.4);padding:6px 0 6px 12px;
+                                    margin-bottom:6px;line-height:1.55;">
+                            «${_escapeHtml(q)}»
+                        </div>`).join('')}
+                ` : ''}
+                ${desiredOutcome ? `
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin:10px 0 4px;
+                                text-transform:uppercase;letter-spacing:0.3px;">Чего хочет</div>
+                    <div style="font-size:12px;color:rgba(255,255,255,0.75);line-height:1.55;">
+                        ${_escapeHtml(desiredOutcome)}
+                    </div>` : ''}
+                ${vulnWindow ? `
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin:10px 0 4px;
+                                text-transform:uppercase;letter-spacing:0.3px;">Окно открытости</div>
+                    <div style="font-size:12px;color:rgba(255,255,255,0.75);line-height:1.55;">
+                        ${_escapeHtml(vulnWindow)}
+                    </div>` : ''}
+            </div>`;
+    }
+
+    // Карточка 3: крючки
+    if (variants.length) {
+        html += `
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
+                        border-radius:20px;padding:18px;margin-bottom:14px;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.4px;
+                            color:#3b82ff;text-transform:uppercase;margin-bottom:10px;">
+                    🎯 Крючки — варианты захода
+                </div>
+                ${strategy ? `<div style="font-size:12px;color:rgba(255,255,255,0.55);
+                            font-style:italic;margin-bottom:12px;line-height:1.5;">
+                    💡 ${_escapeHtml(strategy)}
+                </div>` : ''}`;
+        variants.forEach((v, i) => {
+            const isBest = v.tone === bestTone;
+            const score = (typeof v.score === 'number') ? v.score : null;
+            const label = toneLabels[v.tone] || _escapeHtml(v.tone || '');
+            const text = v.text || '';
+            const reasoning = v.reasoning || '';
+            html += `
+                <div style="background:${isBest ? 'rgba(59,130,255,0.06)' : 'rgba(255,255,255,0.02)'};
+                            border:1px solid ${isBest ? 'rgba(59,130,255,0.3)' : 'rgba(255,255,255,0.06)'};
+                            border-radius:14px;padding:12px 14px;margin-bottom:8px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                        <div style="font-size:11px;font-weight:600;color:${isBest ? '#3b82ff' : 'rgba(255,255,255,0.7)'};">
+                            ${label}${isBest ? ' ⭐ рекоменд' : ''}
+                        </div>
+                        ${score !== null ? `<span style="font-size:10px;color:rgba(255,255,255,0.5);
+                            background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:6px;">
+                            ${score}/100
+                        </span>` : ''}
+                    </div>
+                    <div class="vk-hook-text" style="font-size:13px;line-height:1.55;color:rgba(255,255,255,0.85);
+                                white-space:pre-wrap;margin-bottom:8px;">
+                        ${_escapeHtml(text)}
+                    </div>
+                    ${reasoning ? `<div style="font-size:11px;color:rgba(255,255,255,0.4);
+                                font-style:italic;line-height:1.5;margin-bottom:8px;">
+                        💡 ${_escapeHtml(reasoning)}
+                    </div>` : ''}
+                    <button onclick="_copyVkHook(this)"
+                        style="background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.85);
+                               border:1px solid rgba(255,255,255,0.12);border-radius:8px;
+                               padding:5px 11px;font-size:11px;cursor:pointer;font-family:inherit;">
+                        📋 Скопировать
+                    </button>
+                </div>`;
+        });
+        html += `</div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function _copyVkHook(btn) {
+    if (!btn) return;
+    const card = btn.closest('div');
+    const txtEl = card ? card.querySelector('.vk-hook-text') : null;
+    if (!txtEl) return;
+    const txt = (txtEl.innerText || '').trim();
+    _copyToClipboard(txt).then(success => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = success ? '✓ Скопировано' : '⚠ не вышло';
+        setTimeout(() => { btn.innerHTML = orig; }, 1500);
+    });
+}
+
+function _archetypeRu(code) {
+    const map = {
+        INNOCENT: 'Невинный', SAGE: 'Мудрец', EXPLORER: 'Искатель',
+        HERO: 'Герой', OUTLAW: 'Бунтарь', MAGICIAN: 'Маг',
+        LOVER: 'Любовник', JESTER: 'Шут', EVERYMAN: 'Свой парень',
+        CREATOR: 'Творец', RULER: 'Правитель', CAREGIVER: 'Заботливый',
+    };
+    return map[String(code || '').toUpperCase()] || code || '';
 }
 
 // ============================================
