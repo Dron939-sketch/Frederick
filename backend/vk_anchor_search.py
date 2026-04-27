@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -91,6 +91,7 @@ async def search_engagers_of_anchor_posts(
     likes_per_anchor: int = 1000,
     reposts_per_anchor: int = 200,
     total_limit: int = 300,
+    shared_posts: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Возвращает {users, stats}.
 
@@ -123,25 +124,36 @@ async def search_engagers_of_anchor_posts(
     reposters_unique = 0
 
     async with httpx.AsyncClient() as client:
-        for phrase in phrases:
-            try:
-                resp = await _call(client, "newsfeed.search", {
-                    "q": phrase,
-                    "count": min(posts_per_phrase, 200),
-                    "extended": 0,
-                })
-            except RuntimeError as e:
-                logger.warning(f"newsfeed.search('{phrase}') for anchor failed: {e}")
-                continue
-            items = (resp or {}).get("items") or []
-            for p in items:
+        if shared_posts is not None:
+            # Используем shared pool — без повторного запроса newsfeed.
+            for p in shared_posts:
                 pid = p.get("id")
                 oid = p.get("owner_id")
                 if not (isinstance(pid, int) and isinstance(oid, int)):
                     continue
-                p["_phrase"] = phrase
-                p["_engagement"] = _engagement_score(p)
+                if "_engagement" not in p:
+                    p["_engagement"] = _engagement_score(p)
                 all_posts.append(p)
+        else:
+            for phrase in phrases:
+                try:
+                    resp = await _call(client, "newsfeed.search", {
+                        "q": phrase,
+                        "count": min(posts_per_phrase, 200),
+                        "extended": 0,
+                    })
+                except RuntimeError as e:
+                    logger.warning(f"newsfeed.search('{phrase}') for anchor failed: {e}")
+                    continue
+                items = (resp or {}).get("items") or []
+                for p in items:
+                    pid = p.get("id")
+                    oid = p.get("owner_id")
+                    if not (isinstance(pid, int) and isinstance(oid, int)):
+                        continue
+                    p["_phrase"] = phrase
+                    p["_engagement"] = _engagement_score(p)
+                    all_posts.append(p)
 
         # Этап 2: фильтруем только маркетинговые посты (рыбаков), сортируем
         # по engagement, берём топ-N. Без этой фильтрации в anchors попадают
