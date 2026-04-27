@@ -1794,6 +1794,7 @@
     var pain = r.pain || {};
     var hooks = r.hooks || {};
     var ub = (r.vk_data || {}).user_basic || {};
+    var chatUrl = ub.id ? ('https://vk.com/im?sel=' + ub.id) : '';
 
     var profileHtml =
       '<div style="background:rgba(167,139,250,0.06);border-left:3px solid var(--accent);padding:10px 12px;border-radius:6px;margin-bottom:12px">' +
@@ -1831,7 +1832,10 @@
             '</div>' +
             '<div class="vk-b2c-hook" style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(v.text || '') + '</div>' +
             (v.reasoning ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px;font-style:italic">💡 ' + esc(v.reasoning) + '</div>' : '') +
-            '<button data-i="' + i + '" class="vk-b2c-copy" style="margin-top:6px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
+            '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' +
+              '<button data-i="' + i + '" class="vk-b2c-copy" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
+              (chatUrl ? '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:11px;font-weight:700;text-decoration:none">💬 Открыть чат</a>' : '') +
+            '</div>' +
           '</div>';
       });
       if (hooks.strategy_summary){
@@ -1842,12 +1846,13 @@
     }
 
     var head =
-      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">' +
         '<a href="' + esc(r.vk_url || '#') + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
           esc(((ub.first_name||'') + ' ' + (ub.last_name||'')).trim()) +
         '</a>' +
         ' <span style="font-size:11px;color:var(--text-dim)">' + ((r.vk_data||{}).wall_count||0) + ' постов · ' + ((r.vk_data||{}).groups_count||0) + ' групп</span>' +
         (ub.is_closed ? '<span style="font-size:10px;color:var(--warning);border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '') +
+        (chatUrl ? '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="margin-left:auto;padding:5px 10px;border-radius:6px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:11px;font-weight:700;text-decoration:none">💬 Открыть чат</a>' : '') +
       '</div>';
 
     document.getElementById('vkB2AnalyzeBody').innerHTML = head + profileHtml + painHtml + hooksHtml;
