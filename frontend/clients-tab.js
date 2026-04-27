@@ -1935,11 +1935,19 @@
     var cands = r.candidates || [];
     var stats = r.stats || {};
 
+    var rej = stats.rejected_reasons || {};
+    var rejParts = [];
+    Object.keys(rej).forEach(function(k){ rejParts.push(k + '=' + rej[k]); });
+    var rejHtml = rejParts.length
+      ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">отсев: ' + esc(rejParts.join(' · ')) + '</div>'
+      : '';
+
     var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">' +
       '🔍 users.search: ' + (stats.search_success||0) + '/' + (stats.search_attempts||0) + ' · ' +
       'найдено: ' + (stats.candidates_total||0) + ' · ' +
       'с маркерами категории: ' + (stats.after_marker_filter||0) + ' · ' +
       'с аудиторией ≥' + (stats.min_audience||0) + ': ' + (stats.after_audience_filter||0) +
+      rejHtml +
       '</div>';
 
     if (!cands.length){
