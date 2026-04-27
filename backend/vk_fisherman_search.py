@@ -52,8 +52,14 @@ def _audience_size(user: Dict[str, Any]) -> int:
 
 
 def _bio_text(user: Dict[str, Any]) -> str:
-    """Склейка всех bio-полей для regex-проверки маркеров."""
+    """Склейка всех bio-полей + имя/фамилия для regex-проверки маркеров.
+
+    Имя и фамилия включены сознательно: эзотерики/тарологи часто пишут
+    профессию прямо в display-name («Алёна-Таролог», «Astro Анна»).
+    """
     parts = [
+        (user.get("first_name") or ""),
+        (user.get("last_name") or ""),
         (user.get("about") or ""),
         (user.get("status") or ""),
         (user.get("activities") or ""),
@@ -66,13 +72,41 @@ def _bio_text(user: Dict[str, Any]) -> str:
     return " ".join(p for p in parts if p).lower()
 
 
+def _is_closed_no_data(user: Dict[str, Any]) -> bool:
+    """Закрытый профиль, к которому у нас нет доступа.
+
+    Для таких VK возвращает только id/first_name/last_name/photo — bio пустой.
+    Раз VK сматчил их на наш service_term, считаем рыбаком на доверии.
+    """
+    is_closed = bool(user.get("is_closed"))
+    can_access = user.get("can_access_closed")
+    if not is_closed:
+        return False
+    if can_access is False or can_access == 0:
+        return True
+    if can_access is None:
+        # VK не вернул поле — вероятнее закрытый.
+        about = (user.get("about") or "").strip()
+        status = (user.get("status") or "").strip()
+        if not about and not status:
+            return True
+    return False
+
+
 def _matches_markers(user: Dict[str, Any], markers: List[str]) -> bool:
-    """True если в bio юзера встречается хотя бы один маркер категории."""
+    """True если bio юзера содержит маркер ИЛИ это закрытый профиль.
+
+    Закрытые профили проходят на доверии: VK уже сматчил их на
+    service_term, иначе их бы не было в выдаче users.search.
+    """
+    if _is_closed_no_data(user):
+        return True
     if not markers:
         return False
     text = _bio_text(user)
     if not text:
-        return False
+        # Не закрытый, но VK не вернул bio — тоже доверяем VK-индексу.
+        return True
     for m in markers:
         if (m or "").lower() in text:
             return True
@@ -157,18 +191,17 @@ async def search_fishermen(
                 seen[uid] = u
 
         candidates_total = len(seen)
-        logger.info(
-            f"fisherman_search({category_code}): users.search returned "
-            f"{candidates_total} unique candidates"
-        )
 
-        # Фильтрация: bio_markers + audience + реальный профиль.
+        # Фильтрация: bio_markers (или закрытый профиль) + реальность.
         after_markers: Dict[int, Dict[str, Any]] = {}
+        rejected_reasons: Dict[str, int] = {}
         for uid, u in seen.items():
             if not _matches_markers(u, bio_markers):
+                rejected_reasons["no_marker"] = rejected_reasons.get("no_marker", 0) + 1
                 continue
-            ok, _reason = is_real_active_profile(u)
+            ok, reason = is_real_active_profile(u)
             if not ok:
+                rejected_reasons[reason or "unreal"] = rejected_reasons.get(reason or "unreal", 0) + 1
                 continue
             after_markers[uid] = u
 
@@ -176,9 +209,21 @@ async def search_fishermen(
             u for u in after_markers.values()
             if _audience_size(u) >= min_audience
         ]
+        rejected_audience = len(after_markers) - len(after_audience)
+        if rejected_audience > 0:
+            rejected_reasons[f"audience<{min_audience}"] = rejected_audience
+
         # Сортируем по размеру аудитории — крупные «рыбаки» наверху.
         after_audience.sort(key=_audience_size, reverse=True)
         after_audience = after_audience[:max_results]
+
+        logger.info(
+            f"fisherman_search({category_code}): "
+            f"VK={candidates_total} → markers/real={len(after_markers)} → "
+            f"audience>={min_audience}={len(after_audience)} → "
+            f"returned={min(len(after_audience), max_results)} "
+            f"(rejects: {rejected_reasons})"
+        )
 
     candidates = [_candidate_dict(u, category_code) for u in after_audience]
 
@@ -200,5 +245,6 @@ async def search_fishermen(
             "after_audience_filter": len(after_audience),
             "returned": len(candidates),
             "min_audience": min_audience,
+            "rejected_reasons": rejected_reasons,
         },
     }
