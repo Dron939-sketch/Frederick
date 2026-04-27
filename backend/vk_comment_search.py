@@ -27,7 +27,7 @@ backend/vk_comment_search.py
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -48,6 +48,7 @@ async def search_authors_by_comments(
     posts_per_phrase: int = 20,
     comments_per_post: int = 20,
     total_limit: int = 300,
+    shared_posts: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Возвращает {users: [user_dict, ...], stats: {...}}.
 
@@ -77,27 +78,42 @@ async def search_authors_by_comments(
     cm_dup = 0       # автор уже в списке
 
     async with httpx.AsyncClient() as client:
-        for phrase in phrases:
-            try:
-                resp = await _call(client, "newsfeed.search", {
-                    "q": phrase,
-                    "count": min(posts_per_phrase, 200),
-                    "extended": 0,
-                })
-            except RuntimeError as e:
-                logger.warning(f"newsfeed.search('{phrase}') failed: {e}")
-                continue
-            items = (resp or {}).get("items") or []
-            posts_seen += len(items)
-            for p in items:
+        if shared_posts is not None:
+            # Используем уже собранные newsfeed-посты — без повторного дёргания
+            # newsfeed.search (избегаем rate-limit и дублирования).
+            posts_seen = len(shared_posts)
+            for p in shared_posts:
                 pid = p.get("id")
                 oid = p.get("owner_id")
-                if isinstance(pid, int) and isinstance(oid, int):
+                phrase = p.get("_phrase") or ""
+                if isinstance(pid, int) and isinstance(oid, int) and phrase:
                     posts.append({
                         "owner_id": oid,
                         "post_id": pid,
                         "phrase": phrase,
                     })
+        else:
+            for phrase in phrases:
+                try:
+                    resp = await _call(client, "newsfeed.search", {
+                        "q": phrase,
+                        "count": min(posts_per_phrase, 200),
+                        "extended": 0,
+                    })
+                except RuntimeError as e:
+                    logger.warning(f"newsfeed.search('{phrase}') failed: {e}")
+                    continue
+                items = (resp or {}).get("items") or []
+                posts_seen += len(items)
+                for p in items:
+                    pid = p.get("id")
+                    oid = p.get("owner_id")
+                    if isinstance(pid, int) and isinstance(oid, int):
+                        posts.append({
+                            "owner_id": oid,
+                            "post_id": pid,
+                            "phrase": phrase,
+                        })
 
         logger.info(
             f"comment_search: collected {len(posts)} posts from {len(phrases)} phrases"
