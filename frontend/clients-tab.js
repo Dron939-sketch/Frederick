@@ -1736,6 +1736,8 @@
             '<input id="vkFishMax" type="number" min="5" max="100" step="5" value="20" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
           '<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Не показывать тех, кому уже отправляли">' +
             '<input id="vkFishHideSent" type="checkbox" style="margin:0">скрыть отправленных</label>' +
+          '<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Дополнительно искать по постам в ленте за последний месяц — авторов на тему ниши. Активные рыбаки. Медленнее на 10-30 сек.">' +
+            '<input id="vkFishUseNewsfeed" type="checkbox" style="margin:0">📡 + посты из ленты</label>' +
           '<button id="vkFishSearchBtn" disabled style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.6">🎣 Найти рыбаков</button>' +
           '<span id="vkFishStatus" style="color:var(--text-dim)"></span>' +
         '</div>' +
@@ -1930,8 +1932,10 @@
     status.textContent = '⏳ ищу рыбаков…';
     results.innerHTML = '';
     try {
+      var useNF = !!(document.getElementById('vkFishUseNewsfeed') && document.getElementById('vkFishUseNewsfeed').checked);
       var r = await api('/api/admin/vk/fisherman-search?category=' + encodeURIComponent(fishSelectedCode) +
-        '&min_audience=' + minAud + '&max_results=' + maxRes, { method: 'POST' });
+        '&min_audience=' + minAud + '&max_results=' + maxRes +
+        '&include_newsfeed=' + (useNF ? 'true' : 'false'), { method: 'POST' });
       lastFishermenSearch = { category: fishSelectedCode, candidates: r.candidates || [], stats: r.stats || {} };
       status.textContent = '✓ найдено ' + (r.candidates||[]).length;
       renderFish(r);
@@ -1952,12 +1956,34 @@
       ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">отсев: ' + esc(rejParts.join(' · ')) + '</div>'
       : '';
 
+    var nfHtml = '';
+    if (stats.newsfeed){
+      var nf = stats.newsfeed;
+      if (nf.error){
+        nfHtml = '<div style="font-size:11px;color:var(--warning);margin-top:4px">📡 newsfeed: ' + esc(nf.error) + '</div>';
+      } else {
+        nfHtml = '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">📡 newsfeed: '
+          + (nf.posts_seen||0) + ' постов · +' + (nf.users_fetched||0) + ' авторов в кандидатах</div>';
+      }
+    }
+
+    var src = stats.source_counts || {};
+    var srcHtml = '';
+    if ((src.users_search||0) + (src.newsfeed||0) > 0){
+      srcHtml = '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">источники в выдаче: '
+        + '🔍 users.search=' + (src.users_search||0)
+        + (src.newsfeed > 0 ? ' · 📡 newsfeed=' + src.newsfeed : '')
+        + '</div>';
+    }
+
     var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">' +
       '🔍 users.search: ' + (stats.search_success||0) + '/' + (stats.search_attempts||0) + ' · ' +
       'найдено: ' + (stats.candidates_total||0) + ' · ' +
       'с маркерами категории: ' + (stats.after_marker_filter||0) + ' · ' +
       'с аудиторией ≥' + (stats.min_audience||0) + ': ' + (stats.after_audience_filter||0) +
       rejHtml +
+      nfHtml +
+      srcHtml +
       '</div>';
 
     if (!cands.length){
@@ -1998,6 +2024,11 @@
         cardOpacity = '0.65';
       }
 
+      var sourceBadge = '';
+      if (c.source === 'newsfeed'){
+        sourceBadge = ' <span style="display:inline-block;font-size:10px;color:#a78bfa;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);padding:2px 7px;border-radius:6px" title="Найден через newsfeed.search — активный автор постов на тему ниши за последний месяц">📡 активный</span>';
+      }
+
       var pitchBtn = '<button data-vk="' + c.vk_id + '" class="vk-fish-pitch" ' +
         'style="padding:6px 12px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer" ' +
         'title="Парсим страницу рыбака → персональный анализ + крючок + объяснение Фреди (30-60 сек)">🪞 Сгенерировать сообщение</button>';
@@ -2007,7 +2038,7 @@
           '<div style="flex:1;min-width:0">' +
             '<a href="' + esc(c.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
               esc(name) +
-            '</a>' + markedBadge +
+            '</a>' + sourceBadge + markedBadge +
             ' <span style="font-size:11px;color:var(--text-dim)">' + (c.city ? esc(c.city) + ' · ' : '') +
             '👥 ' + followers + ' подп · ' + aud + ' всего</span>' +
             ' ' + site +
