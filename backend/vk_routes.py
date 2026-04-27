@@ -229,6 +229,7 @@ def register_vk_routes(app, db):
                     updated_at  TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+
         logger.info("VK profiles + candidates + phrase tables ready (phase 9)")
 
     @app.get("/api/admin/vk/links")

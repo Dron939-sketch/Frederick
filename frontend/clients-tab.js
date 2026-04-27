@@ -2030,15 +2030,16 @@
       var isRec = v.tone === rec;
       var bg = isRec ? 'rgba(167,139,250,0.06)' : 'var(--surface)';
       var br = isRec ? '3px solid var(--accent)' : '1px solid var(--border)';
-      html += '<div style="background:' + bg + ';border-left:' + br + ';padding:10px 12px;border-radius:6px;margin-bottom:10px">' +
+      var chatUrl = r.vk_chat_url || ('https://vk.com/im?sel=' + (cand.vk_id || ''));
+      html += '<div style="background:' + bg + ';border-left:' + br + ';padding:10px 12px;border-radius:6px;margin-bottom:10px" data-tone="' + esc(v.tone || '') + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
           '<div style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px">' + esc(labels[v.tone] || v.tone) + (isRec ? ' ⭐ рекоменд' : '') + '</div>' +
         '</div>' +
         '<div class="vk-fish-pitch-text" style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(v.text || '') + '</div>' +
         (v.reasoning ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px;font-style:italic">💡 ' + esc(v.reasoning) + '</div>' : '') +
-        '<div style="margin-top:6px;display:flex;gap:6px">' +
+        '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
           '<button data-i="' + i + '" class="vk-fish-pitch-copy" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
-          (r.vk_chat_url ? '<a href="' + esc(r.vk_chat_url) + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(52,211,153,0.4);background:transparent;color:var(--success);font:inherit;font-size:11px;text-decoration:none">💬 VK</a>' : '') +
+          '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:11px;font-weight:700;text-decoration:none">💬 Открыть чат</a>' +
         '</div>' +
       '</div>';
     });
