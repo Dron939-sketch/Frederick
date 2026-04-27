@@ -100,13 +100,27 @@ def _build_user_message(category_meta: Dict[str, Any], candidates: List[Dict[str
         status = (c.get("status") or "").strip()[:100]
         post = ((c.get("triggering_post") or {}).get("text") or "")[:400]
         comment = ((c.get("triggering_comment") or {}).get("text") or "")[:300]
-        blocks.append(f"\n--- id={i} ({c.get('full_name', '?')}) ---")
+        anchor = c.get("anchor") or {}
+        src = c.get("source") or ""
+        blocks.append(f"\n--- id={i} ({c.get('full_name', '?')}) source={src} ---")
         if about:
             blocks.append(f"about: «{about}»")
         if status:
             blocks.append(f"status: «{status}»")
         if comment:
             blocks.append(f"comment: «{comment}»")
+        # Если кандидат — лайкер/репостер маркетингового поста, дадим LLM
+        # текст самого якорного поста и тип действия. Рерэнкер должен
+        # понимать: «человек ничего не пишет, но он лайкнул пост про
+        # выгорание у которого 500 лайков» — это сигнал «узнал себя».
+        if anchor.get("post_excerpt"):
+            action_label = (
+                "лайкнул" if anchor.get("action") == "like" else "репостнул"
+            )
+            blocks.append(
+                f"{action_label} пост (engagement={anchor.get('engagement', 0)}): "
+                f"«{anchor.get('post_excerpt', '')[:300]}»"
+            )
         if post:
             blocks.append(f"post: «{post}»")
         if not (about or status or post or comment):
