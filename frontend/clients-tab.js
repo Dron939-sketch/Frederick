@@ -1956,8 +1956,8 @@
       var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
       var site = c.site ? '<a href="' + esc(c.site) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);text-decoration:none">↗ сайт</a>' : '';
       var pitchBtn = '<button data-vk="' + c.vk_id + '" class="vk-fish-pitch" ' +
-        'style="padding:6px 12px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer" ' +
-        'title="Сгенерировать B2B-питч для этого рыбака">✉️ Предложить Фреди</button>';
+        'style="padding:6px 12px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer" ' +
+        'title="Парсим страницу рыбака → персональный анализ + крючок + объяснение Фреди (30-60 сек)">🪞 Сгенерировать сообщение</button>';
       return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
           '<div style="flex:1;min-width:0">' +
@@ -1990,7 +1990,7 @@
     ov.innerHTML =
       '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:720px;width:100%;max-height:90vh;overflow:auto;padding:18px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
-          '<div style="font-size:16px;font-weight:700">✉️ B2B-питч рыбаку</div>' +
+          '<div style="font-size:16px;font-weight:700">🪞 Mirror-pitch (личный анализ + объяснение)</div>' +
           '<button id="vkFishPitchClose" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">✕</button>' +
         '</div>' +
         '<div id="vkFishPitchBody" style="font-size:13px"></div>' +
@@ -2008,56 +2008,63 @@
     var ov = ensurePitchModal();
     ov.style.display = 'flex';
     var body = document.getElementById('vkFishPitchBody');
-    body.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px">⏳ DeepSeek пишет питч под этого рыбака…</div>';
+    body.innerHTML =
+      '<div style="text-align:center;color:var(--text-dim);padding:30px 20px">' +
+        '<div style="font-size:36px;margin-bottom:12px">🔬</div>' +
+        '<div style="font-size:13px;line-height:1.6">Парсим страницу · читаем посты · собираем личный анализ…</div>' +
+        '<div style="font-size:11px;margin-top:6px;color:var(--text-dim)">~30–60 сек, не закрывай окно</div>' +
+      '</div>';
     try {
-      var r = await api('/api/admin/vk/fisherman-pitch', {
+      var r = await api('/api/admin/vk/mirror-pitch', {
         method: 'POST',
         body: { category: lastFishermenSearch.category, fisherman: cand },
       });
-      renderPitch(r, cand);
+      renderMirrorPitch(r, cand);
     } catch (e){
       body.innerHTML = '<div style="color:var(--error);padding:14px">Ошибка: ' + esc(e.message) + '</div>';
     }
   }
 
-  function renderPitch(r, cand){
-    var variants = r.variants || [];
-    var label = r.product_label || '';
-    var rec = r.recommended_tone || '';
-    var head = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Получатель: <a href="' + esc(cand.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + esc(cand.full_name||('id'+cand.vk_id)) + '</a> · продукт: <b style="color:var(--accent)">' + esc(label) + '</b></div>';
-    if (r.strategy_summary){
-      head += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;font-style:italic">💡 ' + esc(r.strategy_summary) + '</div>';
-    }
+  function renderMirrorPitch(r, cand){
+    var msg = r.message || '';
+    var fullName = r.full_name || cand.full_name || ('id' + cand.vk_id);
+    var vkUrl = r.vk_url || cand.vk_url || '';
+    var chatUrl = r.vk_chat_url || ('https://vk.com/im?sel=' + (cand.vk_id || ''));
+    var cached = !!r.cached;
 
-    var html = head;
-    var labels = { short: 'Короткий', detail: 'Развёрнутый', case: 'С кейсом' };
-    variants.forEach(function(v, i){
-      var isRec = v.tone === rec;
-      var bg = isRec ? 'rgba(167,139,250,0.06)' : 'var(--surface)';
-      var br = isRec ? '3px solid var(--accent)' : '1px solid var(--border)';
-      var chatUrl = r.vk_chat_url || ('https://vk.com/im?sel=' + (cand.vk_id || ''));
-      html += '<div style="background:' + bg + ';border-left:' + br + ';padding:10px 12px;border-radius:6px;margin-bottom:10px" data-tone="' + esc(v.tone || '') + '">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-          '<div style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px">' + esc(labels[v.tone] || v.tone) + (isRec ? ' ⭐ рекоменд' : '') + '</div>' +
-        '</div>' +
-        '<div class="vk-fish-pitch-text" style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(v.text || '') + '</div>' +
-        (v.reasoning ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px;font-style:italic">💡 ' + esc(v.reasoning) + '</div>' : '') +
-        '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
-          '<button data-i="' + i + '" class="vk-fish-pitch-copy" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
-          '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:11px;font-weight:700;text-decoration:none">💬 Открыть чат</a>' +
+    var head =
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">' +
+        '<div style="font-size:12px;color:var(--text-dim)">Получатель: ' +
+          '<a href="' + esc(vkUrl) + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
+            esc(fullName) + '</a>' +
+          (cached ? ' <span style="font-size:10px;color:var(--text-dim);border:1px solid var(--border);padding:1px 6px;border-radius:4px;margin-left:6px" title="Сообщение взято из кеша — повторно не платили DeepSeek">🗂 кеш</span>' : '') +
         '</div>' +
       '</div>';
-    });
 
-    document.getElementById('vkFishPitchBody').innerHTML = html;
-    document.querySelectorAll('.vk-fish-pitch-copy').forEach(function(b){
-      b.addEventListener('click', async function(){
-        var txt = b.parentElement.parentElement.querySelector('.vk-fish-pitch-text').innerText || '';
-        try { await navigator.clipboard.writeText(txt); b.textContent = '✓ Скопировано'; }
-        catch(e){ b.textContent = '⚠️ не вышло'; }
-        setTimeout(function(){ b.textContent = '📋 Скопировать'; }, 1500);
+    var msgBlock =
+      '<div class="vk-mirror-msg" style="white-space:pre-wrap;line-height:1.6;font-size:13px;' +
+                  'background:rgba(167,139,250,0.05);border-left:3px solid var(--accent);' +
+                  'border-radius:6px;padding:14px 16px;margin-bottom:14px">' +
+        esc(msg) +
+      '</div>';
+
+    var actions =
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button id="vkMirrorCopy" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-weight:600;cursor:pointer">📋 Скопировать</button>' +
+        '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:9px 14px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;text-decoration:none">💬 Открыть чат</a>' +
+      '</div>';
+
+    document.getElementById('vkFishPitchBody').innerHTML = head + msgBlock + actions;
+
+    var copyBtn = document.getElementById('vkMirrorCopy');
+    if (copyBtn){
+      copyBtn.addEventListener('click', async function(){
+        var txt = (document.querySelector('.vk-mirror-msg').innerText || '').trim();
+        try { await navigator.clipboard.writeText(txt); copyBtn.textContent = '✓ Скопировано'; }
+        catch(e){ copyBtn.textContent = '⚠️ не вышло'; }
+        setTimeout(function(){ copyBtn.textContent = '📋 Скопировать'; }, 1500);
       });
-    });
+    }
   }
 
   if (document.readyState === 'loading'){
