@@ -986,6 +986,10 @@ function _tabStyle(a, name) {
 function _tabBrand(a, name) {
     const audience = (_AUDIENCE[name]||[]).map(x=>`<span class="brand-tag">${x}</span>`).join('');
     return `
+        <div id="vkAuditCard" class="brand-section">
+            <div class="brand-section-label">🔍 Аудит VK-канала</div>
+            <div class="brand-section-body" style="color:var(--text-secondary);font-size:12px;">⏳ Загружаем привязку…</div>
+        </div>
         <div class="brand-section">
             <div class="brand-section-label">📊 Позиционирование</div>
             <div class="brand-section-body">${a.brand}</div>
@@ -1575,6 +1579,10 @@ function _renderBrand() {
     if (tab === 'plan') {
         _bindTransformationHandlers();
     }
+    // Подгружаем VK-link и рендерим карточку аудита, когда открыта вкладка «Бренд».
+    if (tab === 'brand') {
+        _brandLoadVkLink();
+    }
 
     document.getElementById('brandPdf').addEventListener('click', () => _brandExportPdf(arch, name));
     
@@ -1653,7 +1661,389 @@ window.showActionDetail = function(actionId) {
 };
 
 // ============================================
+// 🔍 АУДИТ VK-КАНАЛА (карточка в табе «Бренд»)
+// ============================================
+function _brandEsc(s){
+    return String(s == null ? '' : s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+async function _brandLoadVkLink(){
+    const card = document.getElementById('vkAuditCard');
+    if (!card) return;
+    const uid = (window.CONFIG && window.CONFIG.USER_ID) || _brandGetUserId();
+    if (!uid){
+        _brandRenderVkAuditCard({ has_link: false, no_user: true });
+        return;
+    }
+    try {
+        const r = await fetch(_brandGetApiUrl() + '/api/brand/vk-link?user_id=' + encodeURIComponent(uid));
+        const data = await r.json();
+        _brandRenderVkAuditCard(data || { has_link: false });
+    } catch (e){
+        _brandRenderVkAuditCard({ has_link: false, error: e.message });
+    }
+}
+
+function _brandRenderVkAuditCard(state){
+    const card = document.getElementById('vkAuditCard');
+    if (!card) return;
+
+    if (state.no_user){
+        card.innerHTML =
+            '<div class="brand-section-label">🔍 Аудит VK-канала</div>' +
+            '<div class="brand-section-body" style="color:var(--text-secondary);font-size:12px">Войди в аккаунт, чтобы привязать VK-страницу.</div>';
+        return;
+    }
+
+    if (!state.has_link){
+        card.innerHTML =
+            '<div class="brand-section-label">🔍 Аудит VK-канала</div>' +
+            '<div class="brand-section-body" style="font-size:13px;line-height:1.5;margin-bottom:12px">' +
+                'Привяжи свою VK-страницу — мы покажем, насколько твой канал бьётся с архетипом и куда вести.' +
+            '</div>' +
+            '<input id="vkAuditInput" type="text" placeholder="vk.com/example" ' +
+                'style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);' +
+                'background:rgba(255,255,255,0.04);color:var(--text);font:inherit;font-size:13px;' +
+                'box-sizing:border-box;margin-bottom:8px;outline:none">' +
+            '<button id="vkAuditLinkBtn" class="brand-footer-btn" style="width:100%;font-weight:700">' +
+                '💎 Сохранить и запустить аудит' +
+            '</button>' +
+            (state.error ? '<div style="font-size:11px;color:var(--error);margin-top:6px">⚠ ' + _brandEsc(state.error) + '</div>' : '');
+
+        const btn = document.getElementById('vkAuditLinkBtn');
+        if (btn) btn.addEventListener('click', _brandHandleLinkAndAudit);
+        const inp = document.getElementById('vkAuditInput');
+        if (inp){
+            inp.addEventListener('keydown', function(e){
+                if (e.key === 'Enter') _brandHandleLinkAndAudit();
+            });
+        }
+        return;
+    }
+
+    const sn = state.vk_screen_name || ('id' + (state.vk_id || ''));
+    const url = state.vk_url || ('https://vk.com/' + sn);
+    card.innerHTML =
+        '<div class="brand-section-label">🔍 Аудит VK-канала</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:13px">' +
+            '<span style="color:var(--text-secondary)">🔗 Твой VK:</span> ' +
+            '<a href="' + _brandEsc(url) + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-weight:600">' +
+                _brandEsc(sn) +
+            '</a>' +
+            '<button id="vkAuditEditBtn" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font:inherit;font-size:11px;cursor:pointer">✏️ изменить</button>' +
+        '</div>' +
+        '<button id="vkAuditRunBtn" class="brand-footer-btn" style="width:100%;font-weight:700">' +
+            '🔍 Запустить аудит (~30–60 сек)' +
+        '</button>';
+
+    const editBtn = document.getElementById('vkAuditEditBtn');
+    if (editBtn){
+        editBtn.addEventListener('click', function(){
+            _brandRenderVkAuditCard({ has_link: false });
+            const inp = document.getElementById('vkAuditInput');
+            if (inp) inp.value = url;
+        });
+    }
+    const runBtn = document.getElementById('vkAuditRunBtn');
+    if (runBtn){
+        runBtn.addEventListener('click', _brandRunAudit);
+    }
+}
+
+async function _brandHandleLinkAndAudit(){
+    const inp = document.getElementById('vkAuditInput');
+    const btn = document.getElementById('vkAuditLinkBtn');
+    if (!inp || !btn) return;
+    const url = (inp.value || '').trim();
+    if (!url){
+        _brandToast('Введи ссылку на VK');
+        return;
+    }
+    const uid = (window.CONFIG && window.CONFIG.USER_ID) || _brandGetUserId();
+    if (!uid){ _brandToast('Не определён user_id'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Привязываем…';
+    try {
+        const r = await fetch(_brandGetApiUrl() + '/api/brand/vk-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: uid, url }),
+        });
+        const data = await r.json();
+        if (!r.ok || !data.success){
+            const msg = (data && data.detail && data.detail.message) || data.message || 'Не удалось привязать';
+            _brandToast('⚠ ' + msg);
+            btn.disabled = false;
+            btn.textContent = '💎 Сохранить и запустить аудит';
+            return;
+        }
+        // Связка готова — перерендерим карточку и сразу запустим аудит.
+        _brandRenderVkAuditCard({
+            has_link: true,
+            vk_id: data.vk_id,
+            vk_screen_name: data.vk_screen_name,
+            vk_url: data.vk_url,
+        });
+        _brandRunAudit();
+    } catch (e){
+        _brandToast('⚠ Ошибка: ' + (e.message || 'сеть'));
+        btn.disabled = false;
+        btn.textContent = '💎 Сохранить и запустить аудит';
+    }
+}
+
+async function _brandRunAudit(){
+    const uid = (window.CONFIG && window.CONFIG.USER_ID) || _brandGetUserId();
+    if (!uid){ _brandToast('Не определён user_id'); return; }
+
+    const internalArch = _brandState.archetypeKey || _detectArchetypeFromVectors() || 'EXPLORER';
+    const trans = _brandState.transformation || {};
+    const targetArch = trans.target_key || trans.target || internalArch;
+
+    const ov = _brandEnsureAuditModal();
+    ov.style.display = 'flex';
+    _brandShowAuditLoader();
+
+    try {
+        const r = await fetch(_brandGetApiUrl() + '/api/brand/vk-audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: uid,
+                internal_archetype: internalArch,
+                target_archetype: targetArch,
+            }),
+        });
+        const data = await r.json();
+        _brandStopAuditLoader();
+
+        if (r.status === 402){
+            const detail = data.detail || data;
+            document.getElementById('vkAuditBody').innerHTML =
+                '<div style="text-align:center;padding:24px">' +
+                    '<div style="font-size:42px;margin-bottom:10px">🔒</div>' +
+                    '<div style="font-size:15px;font-weight:600;color:#ffaa3b;margin-bottom:8px">Лимит исчерпан</div>' +
+                    '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6">' +
+                        _brandEsc(detail.message || 'Бесплатно — 2 анализа. Оформи подписку для безлимита.') +
+                    '</div>' +
+                '</div>';
+            return;
+        }
+
+        if (!r.ok || !data.success){
+            const msg = (data && data.detail && data.detail.message) || data.message || 'Не удалось провести аудит';
+            document.getElementById('vkAuditBody').innerHTML =
+                '<div style="color:var(--error);padding:14px;text-align:center">⚠ ' + _brandEsc(msg) + '</div>';
+            return;
+        }
+
+        _brandRenderAuditResult(data);
+    } catch (e){
+        _brandStopAuditLoader();
+        document.getElementById('vkAuditBody').innerHTML =
+            '<div style="color:var(--error);padding:14px;text-align:center">⚠ ' + _brandEsc(e.message || 'сеть') + '</div>';
+    }
+}
+
+function _brandEnsureAuditModal(){
+    let ov = document.getElementById('vkAuditOv');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'vkAuditOv';
+    ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10000;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML =
+        '<div style="background:var(--surface,#1a1a1a);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:14px;max-width:680px;width:100%;max-height:92vh;overflow:auto;padding:18px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
+                '<div style="font-size:16px;font-weight:700">🔍 Аудит VK-канала</div>' +
+                '<button id="vkAuditClose" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text,#fff);cursor:pointer">✕</button>' +
+            '</div>' +
+            '<div id="vkAuditBody" style="font-size:13px"></div>' +
+        '</div>';
+    document.body.appendChild(ov);
+    document.getElementById('vkAuditClose').addEventListener('click', _brandCloseAuditModal);
+    ov.addEventListener('click', function(e){ if (e.target === ov) _brandCloseAuditModal(); });
+    return ov;
+}
+
+function _brandCloseAuditModal(){
+    _brandStopAuditLoader();
+    const ov = document.getElementById('vkAuditOv');
+    if (ov) ov.style.display = 'none';
+}
+
+let _brandAuditTimer = null;
+
+function _brandShowAuditLoader(){
+    const body = document.getElementById('vkAuditBody');
+    if (!body) return;
+    const stages = [
+        '🔍 Парсим страницу VK…',
+        '📰 Читаем последние посты…',
+        '🧠 Определяем архетип канала…',
+        '✨ Сравниваем с твоим архетипом…',
+        '🛠 Готовим рекомендации…',
+        '✍️ Пишем пример поста…',
+    ];
+    const ESTIMATE = 50; // секунд
+    let elapsed = 0;
+    let stageIdx = 0;
+
+    body.innerHTML =
+        '<div id="vkAuditLoader" style="text-align:center;padding:36px 20px">' +
+            '<div style="font-size:42px;margin-bottom:12px;animation:vkAuditSpin 1.6s ease-in-out infinite">🔬</div>' +
+            '<div id="vkAuditStage" style="font-size:14px;line-height:1.6;margin-bottom:10px">' + stages[0] + '</div>' +
+            '<div id="vkAuditTimer" style="font-size:11px;color:var(--text-secondary)">Осталось ~' + ESTIMATE + ' сек</div>' +
+            '<div id="vkAuditBar" style="margin-top:14px;height:4px;width:100%;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden">' +
+                '<div id="vkAuditBarFill" style="height:100%;width:0%;background:linear-gradient(90deg,#a78bfa,#7c3aed);transition:width 0.4s linear"></div>' +
+            '</div>' +
+            '<style>@keyframes vkAuditSpin{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}</style>' +
+        '</div>';
+
+    if (_brandAuditTimer) clearInterval(_brandAuditTimer);
+    _brandAuditTimer = setInterval(function(){
+        elapsed++;
+        const stageEl = document.getElementById('vkAuditStage');
+        const timerEl = document.getElementById('vkAuditTimer');
+        const barEl = document.getElementById('vkAuditBarFill');
+        if (!stageEl){ clearInterval(_brandAuditTimer); _brandAuditTimer = null; return; }
+        // Стадия — каждые ~ESTIMATE/stages.length сек.
+        const newStage = Math.min(stages.length - 1, Math.floor(elapsed / Math.max(1, Math.floor(ESTIMATE / stages.length))));
+        if (newStage !== stageIdx){
+            stageIdx = newStage;
+            stageEl.textContent = stages[stageIdx];
+        }
+        const remaining = Math.max(0, ESTIMATE - elapsed);
+        if (timerEl){
+            if (elapsed > ESTIMATE){
+                timerEl.textContent = 'Ещё немного, обычно занимает чуть больше…';
+            } else {
+                timerEl.textContent = 'Осталось ~' + remaining + ' сек';
+            }
+        }
+        if (barEl){
+            const pct = Math.min(95, (elapsed / ESTIMATE) * 100);
+            barEl.style.width = pct + '%';
+        }
+    }, 1000);
+}
+
+function _brandStopAuditLoader(){
+    if (_brandAuditTimer){
+        clearInterval(_brandAuditTimer);
+        _brandAuditTimer = null;
+    }
+}
+
+function _brandRenderAuditResult(data){
+    const body = document.getElementById('vkAuditBody');
+    if (!body) return;
+    const audit = data.audit || {};
+
+    const score = parseInt(audit.alignment_score || 0, 10);
+    const scoreColor = score >= 75 ? '#22c55e' : score >= 50 ? '#f59e0b' : '#ef4444';
+    const label = audit.alignment_label || (score >= 75 ? 'бьётся' : score >= 50 ? 'частично' : 'большой разрыв');
+
+    const internalRu = audit.internal_archetype_ru || audit.internal_archetype || '';
+    const targetRu = audit.target_archetype_ru || audit.target_archetype || '';
+    const vkRu = audit.vk_archetype_ru || audit.vk_archetype || '';
+
+    let html = '';
+
+    // Шапка с архетипами и score.
+    html += '<div style="background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:14px;padding:14px;margin-bottom:14px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px">' +
+            '<div style="font-size:13px;line-height:1.6">' +
+                '<div>🎭 По тесту: <b>' + _brandEsc(internalRu) + '</b></div>' +
+                (targetRu && targetRu !== internalRu ? '<div>🎯 Целевой: <b>' + _brandEsc(targetRu) + '</b></div>' : '') +
+                '<div>📡 По VK: <b>' + _brandEsc(vkRu || '—') + '</b></div>' +
+            '</div>' +
+            '<div style="text-align:center">' +
+                '<div style="font-size:32px;font-weight:800;color:' + scoreColor + ';line-height:1">' + score + '%</div>' +
+                '<div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">' + _brandEsc(label) + '</div>' +
+            '</div>' +
+        '</div>' +
+        (audit.summary ? '<div style="font-size:12px;color:var(--text-secondary);line-height:1.55;margin-top:8px">💡 ' + _brandEsc(audit.summary) + '</div>' : '') +
+    '</div>';
+
+    // Что работает.
+    const works = audit.what_works || [];
+    if (works.length){
+        html += '<div style="background:rgba(34,197,94,0.05);border-left:3px solid #22c55e;border-radius:6px;padding:12px 14px;margin-bottom:12px">' +
+            '<div style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">💎 что работает на бренд</div>' +
+            works.map(function(w){
+                const o = (typeof w === 'string') ? w : (w.observation || '');
+                const q = (typeof w === 'object' && w.quote) ? w.quote : '';
+                return '<div style="margin-bottom:8px;font-size:13px;line-height:1.55">' +
+                    '• ' + _brandEsc(o) +
+                    (q ? '<div style="font-size:12px;font-style:italic;color:var(--text-secondary);margin-top:3px;padding-left:10px;border-left:2px solid rgba(34,197,94,0.3)">«' + _brandEsc(q) + '»</div>' : '') +
+                '</div>';
+            }).join('') +
+        '</div>';
+    }
+
+    // Что разрушает.
+    const hurts = audit.what_hurts || [];
+    if (hurts.length){
+        html += '<div style="background:rgba(239,68,68,0.05);border-left:3px solid #ef4444;border-radius:6px;padding:12px 14px;margin-bottom:12px">' +
+            '<div style="font-size:11px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">💔 что разрушает бренд</div>' +
+            hurts.map(function(h){
+                const o = (typeof h === 'string') ? h : (h.observation || '');
+                const q = (typeof h === 'object' && h.quote) ? h.quote : '';
+                return '<div style="margin-bottom:8px;font-size:13px;line-height:1.55">' +
+                    '• ' + _brandEsc(o) +
+                    (q ? '<div style="font-size:12px;font-style:italic;color:var(--text-secondary);margin-top:3px;padding-left:10px;border-left:2px solid rgba(239,68,68,0.3)">«' + _brandEsc(q) + '»</div>' : '') +
+                '</div>';
+            }).join('') +
+        '</div>';
+    }
+
+    // Рекомендации.
+    const recs = audit.recommendations || [];
+    if (recs.length){
+        html += '<div style="background:rgba(167,139,250,0.05);border-left:3px solid #a78bfa;border-radius:6px;padding:12px 14px;margin-bottom:12px">' +
+            '<div style="font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">🛠 рекомендации</div>' +
+            '<ol style="margin:0 0 0 18px;padding:0;font-size:13px;line-height:1.55">' +
+                recs.map(function(r){ return '<li style="margin-bottom:6px">' + _brandEsc(r) + '</li>'; }).join('') +
+            '</ol>' +
+        '</div>';
+    }
+
+    // Sample post.
+    if (audit.sample_post){
+        html += '<div style="background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.15);border-radius:10px;padding:12px 14px;margin-bottom:12px">' +
+            '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">✍️ пример поста под бренд</div>' +
+            '<div id="vkAuditSampleText" style="white-space:pre-wrap;font-size:13px;line-height:1.6">' + _brandEsc(audit.sample_post) + '</div>' +
+            '<button id="vkAuditCopySample" style="margin-top:8px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
+        '</div>';
+    }
+
+    // Квота-бейдж.
+    if (data.has_subscription){
+        html += '<div style="font-size:11px;color:#ffaa3b;text-align:center;margin-top:6px">✨ Подписка активна — анализы без лимита</div>';
+    } else if (typeof data.used === 'number' && typeof data.limit === 'number'){
+        html += '<div style="font-size:11px;color:var(--text-secondary);text-align:center;margin-top:6px">' +
+            'Использовано ' + data.used + '/' + data.limit + ' (без подписки)' +
+        '</div>';
+    }
+
+    body.innerHTML = html;
+
+    const copyBtn = document.getElementById('vkAuditCopySample');
+    if (copyBtn){
+        copyBtn.addEventListener('click', async function(){
+            const txt = (document.getElementById('vkAuditSampleText').innerText || '').trim();
+            try { await navigator.clipboard.writeText(txt); copyBtn.textContent = '✓ Скопировано'; }
+            catch(e){ copyBtn.textContent = '⚠️ не вышло'; }
+            setTimeout(function(){ copyBtn.textContent = '📋 Скопировать'; }, 1500);
+        });
+    }
+}
+
+// ============================================
 // ЭКСПОРТ
 // ============================================
 window.showPersonalBrandScreen = showPersonalBrandScreen;
-console.log('✅ brand.js v3.0 загружен (с AI-генерацией плана)');
+console.log('✅ brand.js v3.1 загружен (с AI-генерацией плана + VK-аудитом)');

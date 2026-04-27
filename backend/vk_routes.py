@@ -1602,6 +1602,226 @@ def register_vk_routes(app, db):
         }
 
     # =========================================================
+    # USER-facing: BRAND VK-AUDIT (модуль «Бренд», таб «📊 Бренд»).
+    # Привязка VK-страницы к юзеру + аудит в контексте архетипа.
+    # Квота шарится с /api/mirrors/vk-analyze (fredi_vk_analysis_usage).
+    # =========================================================
+
+    def _resolve_screen(raw: str) -> str:
+        s = (raw or "").strip()
+        if not s:
+            return ""
+        s = s.split("?")[0].rstrip("/")
+        if s.startswith("https://") or s.startswith("http://"):
+            s = s.split("//", 1)[1]
+        if s.startswith("vk.com/"):
+            s = s[len("vk.com/"):]
+        if s.startswith("m.vk.com/"):
+            s = s[len("m.vk.com/"):]
+        return s
+
+    @app.post("/api/brand/vk-link")
+    async def brand_vk_link_post(body: Dict[str, Any] = Body(...)):
+        """Привязать VK-страницу к юзеру (или обновить).
+
+        Body: {user_id, url}.
+        Резолвит screen_name через VK users.get → vk_id.
+        UPSERT в fredi_vk_profiles (PRIMARY KEY user_id).
+        """
+        user_id = (body or {}).get("user_id")
+        url = ((body or {}).get("url") or "").strip()
+        if not user_id:
+            raise HTTPException(status_code=400, detail={"error": "user_id_required"})
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={"error": "user_id_invalid"})
+        if not url:
+            raise HTTPException(status_code=400, detail={"error": "url_required"})
+
+        sn = _resolve_screen(url)
+        if not sn:
+            raise HTTPException(status_code=400, detail={"error": "url_invalid"})
+
+        # Резолвим vk_id через users.get.
+        try:
+            from vk_parser import _call
+            import httpx as _httpx
+            async with _httpx.AsyncClient() as client:
+                resp = await _call(client, "users.get", {"user_ids": sn})
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "vk_api_error", "message": str(e),
+            })
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "vk_resolve_failed", "message": str(e),
+            })
+
+        if not isinstance(resp, list) or not resp:
+            raise HTTPException(status_code=400, detail={
+                "error": "vk_user_not_found", "message": f"Не нашёл VK-юзера: {sn}",
+            })
+        u = resp[0]
+        vk_id = u.get("id")
+        # screen_name VK не отдаёт в users.get без fields — но есть ли он в нашем ответе?
+        vk_screen = sn  # сохраняем то, что юзер вбил (это и есть resolved screen)
+        if not vk_id:
+            raise HTTPException(status_code=400, detail={
+                "error": "vk_user_not_found", "message": "VK не вернул id",
+            })
+
+        try:
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO fredi_vk_profiles (user_id, vk_id, vk_screen_name, linked_at)
+                    VALUES ($1, $2, $3, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        vk_id = EXCLUDED.vk_id,
+                        vk_screen_name = EXCLUDED.vk_screen_name,
+                        linked_at = NOW()
+                    """,
+                    uid, int(vk_id), vk_screen[:128],
+                )
+        except Exception as e:
+            logger.error(f"brand vk-link upsert failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "db_write_failed", "message": str(e),
+            })
+
+        return {
+            "success": True,
+            "vk_id": int(vk_id),
+            "vk_screen_name": vk_screen,
+            "vk_url": f"https://vk.com/{vk_screen}",
+            "first_name": u.get("first_name") or "",
+            "last_name": u.get("last_name") or "",
+        }
+
+    @app.get("/api/brand/vk-link")
+    async def brand_vk_link_get(user_id: int):
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={"error": "user_id_invalid"})
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT vk_id, vk_screen_name, linked_at, parsed_at "
+                "FROM fredi_vk_profiles WHERE user_id = $1",
+                uid,
+            )
+        if not row or not row["vk_id"]:
+            return {"has_link": False}
+        sn = row["vk_screen_name"] or f"id{row['vk_id']}"
+        return {
+            "has_link": True,
+            "vk_id": int(row["vk_id"]),
+            "vk_screen_name": sn,
+            "vk_url": f"https://vk.com/{sn}",
+            "linked_at": row["linked_at"].isoformat() if row["linked_at"] else None,
+            "parsed_at": row["parsed_at"].isoformat() if row["parsed_at"] else None,
+        }
+
+    @app.post("/api/brand/vk-audit")
+    async def brand_vk_audit(body: Dict[str, Any] = Body(...)):
+        """Аудит VK-канала юзера в контексте его архетипа.
+
+        Body: {user_id, internal_archetype, target_archetype?, url?}.
+        Если url не передан — берём привязанный из fredi_vk_profiles.
+        Квота шарится с /api/mirrors/vk-analyze.
+        """
+        user_id = (body or {}).get("user_id")
+        internal_arch = ((body or {}).get("internal_archetype") or "").strip()
+        target_arch = ((body or {}).get("target_archetype") or "").strip()
+        url_override = ((body or {}).get("url") or "").strip()
+
+        if not user_id:
+            raise HTTPException(status_code=400, detail={"error": "user_id_required"})
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={"error": "user_id_invalid"})
+        if not internal_arch:
+            raise HTTPException(status_code=400, detail={
+                "error": "internal_archetype_required",
+                "message": "Сначала пройди психо-тест, чтобы определить твой внутренний архетип",
+            })
+
+        # Берём URL: либо переданный, либо из связки.
+        url = url_override
+        if not url:
+            async with db.get_connection() as conn:
+                row = await conn.fetchrow(
+                    "SELECT vk_screen_name, vk_id FROM fredi_vk_profiles WHERE user_id = $1",
+                    uid,
+                )
+            if not row or not (row["vk_screen_name"] or row["vk_id"]):
+                raise HTTPException(status_code=400, detail={
+                    "error": "vk_not_linked",
+                    "message": "Сначала привяжи свою VK-страницу",
+                })
+            url = row["vk_screen_name"] or f"id{row['vk_id']}"
+
+        # Квота (та же таблица fredi_vk_analysis_usage).
+        has_sub = await _user_has_active_subscription(uid)
+        used = await _user_analysis_used(uid) if not has_sub else 0
+        if not has_sub and used >= FREE_ANALYSIS_LIMIT:
+            raise HTTPException(status_code=402, detail={
+                "error": "paywall",
+                "message": (
+                    f"Бесплатный лимит — {FREE_ANALYSIS_LIMIT} анализа. "
+                    "Оформи подписку для безлимита."
+                ),
+                "used": used,
+                "limit": FREE_ANALYSIS_LIMIT,
+                "has_subscription": False,
+            })
+
+        try:
+            from vk_brand_audit import run_audit
+        except Exception as e:
+            logger.error(f"vk_brand_audit import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "audit_unavailable", "message": str(e),
+            })
+
+        try:
+            result = await run_audit(url, internal_arch, target_arch or None)
+        except Exception as e:
+            logger.error(f"brand vk-audit failed for uid={uid}: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "audit_failed", "message": str(e),
+            })
+
+        if result.get("error"):
+            raise HTTPException(
+                status_code=400 if result["error"] in (
+                    "invalid_url", "no_user", "internal_archetype_required"
+                ) else 502,
+                detail=result,
+            )
+
+        # Списать слот квоты на успешный аудит.
+        try:
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    "INSERT INTO fredi_vk_analysis_usage (user_id, vk_target) "
+                    "VALUES ($1, $2)",
+                    uid, str(url)[:200],
+                )
+        except Exception as e:
+            logger.warning(f"brand vk-audit usage log failed: {e}")
+
+        return {
+            "success": True,
+            "has_subscription": has_sub,
+            "used": (used + 1) if not has_sub else None,
+            "limit": FREE_ANALYSIS_LIMIT if not has_sub else None,
+            **result,
+        }
+
+    # =========================================================
     # B2B: каталог рыбаков (категории) + поиск + питч.
     # =========================================================
     @app.get("/api/admin/vk/fisherman-categories")
