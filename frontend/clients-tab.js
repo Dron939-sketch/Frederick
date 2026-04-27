@@ -1959,8 +1959,9 @@
     var rows = cands.map(function(c){
       var name = c.full_name || ('id'+c.vk_id);
       var subtitle = (c.occupation || c.status || '').substring(0, 200);
-      var followers = c.followers || 0;
-      var aud = c.audience_size || 0;
+      var known = (c.audience_known !== false);
+      var followers = known ? (c.followers || 0) : '?';
+      var aud = known ? (c.audience_size || 0) : '?';
       var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
       var site = c.site ? '<a href="' + esc(c.site) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);text-decoration:none">↗ сайт</a>' : '';
       var pitchBtn = '<button data-vk="' + c.vk_id + '" class="vk-fish-pitch" ' +

@@ -46,9 +46,23 @@ _VK_USER_FIELDS = (
 
 
 def _audience_size(user: Dict[str, Any]) -> int:
-    """Размер аудитории: followers + friends (грубая оценка)."""
+    """Размер аудитории: followers + friends (грубая оценка). 0 если данных нет."""
     counters = user.get("counters") or {}
     return int(counters.get("followers") or 0) + int(counters.get("friends") or 0)
+
+
+def _audience_known(user: Dict[str, Any]) -> bool:
+    """True если у нас есть какие-то данные о counters от VK.
+
+    users.search часто отдаёт юзеров без поля counters вообще — для таких
+    нельзя сказать «маленькая аудитория», только «неизвестно».
+    """
+    counters = user.get("counters")
+    if not isinstance(counters, dict) or not counters:
+        return False
+    return any(
+        counters.get(k) is not None for k in ("followers", "friends", "subscriptions")
+    )
 
 
 def _bio_text(user: Dict[str, Any]) -> str:
@@ -134,6 +148,7 @@ def _candidate_dict(u: Dict[str, Any], cat_code: str) -> Dict[str, Any]:
         "followers": int(counters.get("followers") or 0),
         "friends": int(counters.get("friends") or 0),
         "audience_size": _audience_size(u),
+        "audience_known": _audience_known(u),
         "category": cat_code,
         "vk_url": f"https://vk.com/id{u.get('id')}",
     }
@@ -205,22 +220,66 @@ async def search_fishermen(
                 continue
             after_markers[uid] = u
 
-        after_audience = [
-            u for u in after_markers.values()
-            if _audience_size(u) >= min_audience
-        ]
-        rejected_audience = len(after_markers) - len(after_audience)
+        # users.search часто отдаёт юзеров без поля counters. Дотягиваем
+        # реальные числа подписчиков/друзей через users.get для тех,
+        # у кого counters пустой. До 1000 id в одном вызове.
+        unknown_uids = [uid for uid, u in after_markers.items() if not _audience_known(u)]
+        if unknown_uids:
+            CHUNK = 500
+            enriched = 0
+            for i in range(0, len(unknown_uids), CHUNK):
+                chunk = unknown_uids[i:i + CHUNK]
+                try:
+                    resp = await _call(client, "users.get", {
+                        "user_ids": ",".join(str(x) for x in chunk),
+                        "fields": "counters",
+                    })
+                except RuntimeError as e:
+                    logger.warning(f"users.get(counters) chunk failed: {e}")
+                    continue
+                if isinstance(resp, list):
+                    for u_full in resp:
+                        uid_full = u_full.get("id")
+                        if uid_full in after_markers:
+                            c = u_full.get("counters")
+                            if isinstance(c, dict) and c:
+                                after_markers[uid_full]["counters"] = c
+                                enriched += 1
+            logger.info(
+                f"fisherman_search({category_code}): enriched counters "
+                f"for {enriched}/{len(unknown_uids)} candidates"
+            )
+
+        # Аудиторный фильтр: отсекаем только тех, у кого audience ИЗВЕСТНА
+        # и < min. С неизвестной (counters не вернулся от VK) — пускаем,
+        # иначе режем закрытые/слим-ответы users.search.
+        after_audience: List[Dict[str, Any]] = []
+        audience_unknown = 0
+        rejected_audience = 0
+        for u in after_markers.values():
+            if _audience_known(u):
+                if _audience_size(u) >= min_audience:
+                    after_audience.append(u)
+                else:
+                    rejected_audience += 1
+            else:
+                # Неизвестная аудитория — оставляем.
+                after_audience.append(u)
+                audience_unknown += 1
+
         if rejected_audience > 0:
             rejected_reasons[f"audience<{min_audience}"] = rejected_audience
 
-        # Сортируем по размеру аудитории — крупные «рыбаки» наверху.
+        # Сортируем по размеру аудитории — крупные «рыбаки» наверху,
+        # неизвестные (audience=0) — внизу.
         after_audience.sort(key=_audience_size, reverse=True)
         after_audience = after_audience[:max_results]
 
         logger.info(
             f"fisherman_search({category_code}): "
             f"VK={candidates_total} → markers/real={len(after_markers)} → "
-            f"audience>={min_audience}={len(after_audience)} → "
+            f"audience>={min_audience}={len(after_audience)} "
+            f"(of which {audience_unknown} unknown) → "
             f"returned={min(len(after_audience), max_results)} "
             f"(rejects: {rejected_reasons})"
         )
@@ -243,6 +302,7 @@ async def search_fishermen(
             "candidates_total": candidates_total,
             "after_marker_filter": len(after_markers),
             "after_audience_filter": len(after_audience),
+            "audience_unknown": audience_unknown,
             "returned": len(candidates),
             "min_audience": min_audience,
             "rejected_reasons": rejected_reasons,
