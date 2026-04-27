@@ -1689,10 +1689,11 @@ def register_vk_routes(app, db):
         x_admin_token: Optional[str] = Header(default=None),
     ):
         """Mirror-pitch: запускает b2c-анализ страницы рыбака и собирает
-        персонализированное сообщение (профиль → боль → крючок → tail).
+        персонализированное сообщение (профиль → боль → product-tail).
 
         Кеш по vk_id в fredi_vk_mirror_pitches — повторный клик возвращает
-        сохранённое сообщение без новых LLM-вызовов.
+        сохранённое сообщение без новых LLM-вызовов. Старый формат с
+        секцией крючка считается stale и регенерится.
         """
         _check_admin(x_admin_token)
         category = (body or {}).get("category") or ""
@@ -1711,7 +1712,9 @@ def register_vk_routes(app, db):
             except (TypeError, ValueError):
                 vk_id_int = None
 
-        # Кеш-чтение по vk_id.
+        # Кеш-чтение по vk_id. Если в кеше старая структура (с секцией
+        # «КАК С ТОБОЙ МОЖНО ЗАЙТИ В РАЗГОВОР» — заход на страдальца,
+        # не подходит для B2B), считаем кеш stale и регенерим.
         if vk_id_int:
             try:
                 async with db.get_connection() as conn:
@@ -1720,6 +1723,8 @@ def register_vk_routes(app, db):
                         "FROM fredi_vk_mirror_pitches WHERE vk_id = $1",
                         vk_id_int,
                     )
+                if cached and "КАК С ТОБОЙ МОЖНО ЗАЙТИ" in (cached["message"] or ""):
+                    cached = None  # stale, regenerate
                 if cached:
                     return {
                         "success": True,
