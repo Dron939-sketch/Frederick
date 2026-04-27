@@ -230,7 +230,23 @@ def register_vk_routes(app, db):
                 )
             """)
 
-        logger.info("VK profiles + candidates + phrase tables ready (phase 9)")
+            # Phase 10: лог использований VK-анализа из dashboard.
+            # Бесплатный лимит — 2 успешных анализа на user_id (lifetime).
+            # С активной подпиской — без лимита.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_vk_analysis_usage (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id   BIGINT NOT NULL,
+                    vk_target TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vk_analysis_usage_user "
+                "ON fredi_vk_analysis_usage(user_id, created_at DESC)"
+            )
+
+        logger.info("VK profiles + candidates + phrase tables ready (phase 10)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -1423,6 +1439,135 @@ def register_vk_routes(app, db):
             raise HTTPException(status_code=400 if result["error"] in ("invalid_url", "no_user")
                                 else 502, detail=result)
         return {"success": True, **result}
+
+    # =========================================================
+    # USER-facing: VK-анализ из dashboard (модуль "Зеркало").
+    # Бесплатный лимит: 2 анализа суммарно. Подписка — без лимита.
+    # =========================================================
+
+    FREE_ANALYSIS_LIMIT = 2
+
+    async def _user_has_active_subscription(uid: int) -> bool:
+        from datetime import datetime as _dt
+        try:
+            async with db.get_connection() as conn:
+                sub = await conn.fetchrow(
+                    "SELECT status, expires_at FROM fredi_subscriptions "
+                    "WHERE user_id = $1 ORDER BY expires_at DESC LIMIT 1",
+                    uid,
+                )
+        except Exception as e:
+            logger.warning(f"vk-analyze sub check failed: {e}")
+            return False
+        if not sub:
+            return False
+        return bool(
+            sub["status"] == "active"
+            and sub["expires_at"]
+            and sub["expires_at"] > _dt.utcnow()
+        )
+
+    async def _user_analysis_used(uid: int) -> int:
+        try:
+            async with db.get_connection() as conn:
+                n = await conn.fetchval(
+                    "SELECT COUNT(*) FROM fredi_vk_analysis_usage WHERE user_id = $1",
+                    uid,
+                )
+            return int(n or 0)
+        except Exception as e:
+            logger.warning(f"vk-analyze usage count failed: {e}")
+            return 0
+
+    @app.get("/api/mirrors/vk-analyze/quota")
+    async def vk_user_analyze_quota(user_id: int):
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={"error": "user_id_invalid"})
+        has_sub = await _user_has_active_subscription(uid)
+        used = await _user_analysis_used(uid)
+        return {
+            "has_subscription": has_sub,
+            "used": used,
+            "limit": FREE_ANALYSIS_LIMIT,
+            "remaining": None if has_sub else max(0, FREE_ANALYSIS_LIMIT - used),
+        }
+
+    @app.post("/api/mirrors/vk-analyze")
+    async def vk_user_analyze(body: Dict[str, Any] = Body(...)):
+        """Анализ VK-страницы для пользователя dashboard.
+
+        Body: {user_id, url}.
+        Бесплатно — 2 успешных анализа суммарно. Подписка снимает лимит.
+        Неудачный анализ (invalid_url / vk_failed) лимит не тратит.
+        """
+        user_id = (body or {}).get("user_id")
+        url = (body or {}).get("url") or (body or {}).get("screen_name") or ""
+        if not user_id:
+            raise HTTPException(status_code=400, detail={"error": "user_id_required"})
+        if not url:
+            raise HTTPException(status_code=400, detail={"error": "url_required"})
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={"error": "user_id_invalid"})
+
+        has_sub = await _user_has_active_subscription(uid)
+        used = await _user_analysis_used(uid) if not has_sub else 0
+        if not has_sub and used >= FREE_ANALYSIS_LIMIT:
+            raise HTTPException(status_code=402, detail={
+                "error": "paywall",
+                "message": (
+                    f"Бесплатный лимит — {FREE_ANALYSIS_LIMIT} анализа. "
+                    "Оформи подписку для безлимита."
+                ),
+                "used": used,
+                "limit": FREE_ANALYSIS_LIMIT,
+                "has_subscription": False,
+            })
+
+        try:
+            from vk_b2c_analyzer import analyze_profile
+        except Exception as e:
+            logger.error(f"vk_b2c_analyzer import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "analyzer_unavailable", "message": str(e),
+            })
+
+        try:
+            result = await analyze_profile(str(url))
+        except Exception as e:
+            logger.error(f"user vk-analyze failed for user_id={uid}: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "analysis_failed", "message": str(e),
+            })
+
+        if result.get("error"):
+            raise HTTPException(
+                status_code=400 if result["error"] in ("invalid_url", "no_user") else 502,
+                detail=result,
+            )
+
+        # Лимит тратится только на успешный анализ.
+        try:
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    "INSERT INTO fredi_vk_analysis_usage (user_id, vk_target) "
+                    "VALUES ($1, $2)",
+                    uid, str(url)[:200],
+                )
+        except Exception as e:
+            logger.warning(f"vk-analyze usage log failed for uid={uid}: {e}")
+
+        new_used = used + 1 if not has_sub else None
+        return {
+            "success": True,
+            "has_subscription": has_sub,
+            "used": new_used,
+            "limit": FREE_ANALYSIS_LIMIT if not has_sub else None,
+            **result,
+        }
 
     # =========================================================
     # B2B: каталог рыбаков (категории) + поиск + питч.
