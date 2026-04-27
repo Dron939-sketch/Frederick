@@ -246,7 +246,21 @@ def register_vk_routes(app, db):
                 "ON fredi_vk_analysis_usage(user_id, created_at DESC)"
             )
 
-        logger.info("VK profiles + candidates + phrase tables ready (phase 10)")
+            # Phase 11: кеш персонализированных mirror-pitch'ей по vk_id.
+            # 4 LLM-вызова на рыбака (~$0.05) — повторно не платим.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_vk_mirror_pitches (
+                    vk_id        BIGINT PRIMARY KEY,
+                    message      TEXT NOT NULL,
+                    vk_url       TEXT,
+                    vk_chat_url  TEXT,
+                    full_name    TEXT,
+                    category     TEXT,
+                    created_at   TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+        logger.info("VK profiles + candidates + phrase tables ready (phase 11)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -1668,6 +1682,119 @@ def register_vk_routes(app, db):
             "vk_chat_url": f"https://vk.com/im?sel={vk_id}" if vk_id else None,
             **result,
         }
+
+    @app.post("/api/admin/vk/mirror-pitch")
+    async def vk_mirror_pitch_endpoint(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Mirror-pitch: запускает b2c-анализ страницы рыбака и собирает
+        персонализированное сообщение (профиль → боль → крючок → tail).
+
+        Кеш по vk_id в fredi_vk_mirror_pitches — повторный клик возвращает
+        сохранённое сообщение без новых LLM-вызовов.
+        """
+        _check_admin(x_admin_token)
+        category = (body or {}).get("category") or ""
+        fisherman = (body or {}).get("fisherman") or {}
+        if not isinstance(fisherman, dict) or not fisherman:
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_request",
+                "message": "fisherman обязателен (vk_id/vk_url/screen_name)",
+            })
+
+        vk_id_raw = fisherman.get("vk_id")
+        vk_id_int: Optional[int] = None
+        if vk_id_raw is not None:
+            try:
+                vk_id_int = int(vk_id_raw)
+            except (TypeError, ValueError):
+                vk_id_int = None
+
+        # Кеш-чтение по vk_id.
+        if vk_id_int:
+            try:
+                async with db.get_connection() as conn:
+                    cached = await conn.fetchrow(
+                        "SELECT message, vk_url, vk_chat_url, full_name, category "
+                        "FROM fredi_vk_mirror_pitches WHERE vk_id = $1",
+                        vk_id_int,
+                    )
+                if cached:
+                    return {
+                        "success": True,
+                        "cached": True,
+                        "vk_id": vk_id_int,
+                        "message": cached["message"],
+                        "vk_url": cached["vk_url"] or "",
+                        "vk_chat_url": cached["vk_chat_url"] or f"https://vk.com/im?sel={vk_id_int}",
+                        "full_name": cached["full_name"] or "",
+                        "category": cached["category"] or category,
+                    }
+            except Exception as e:
+                logger.warning(f"mirror-pitch cache read failed: {e}")
+
+        # Категория-метаданные (для tail-а).
+        cat_meta: Dict[str, Any] = {}
+        try:
+            from services.fisherman_categories import get_fisherman
+            m = get_fisherman(str(category)) if category else None
+            if m:
+                cat_meta = m
+        except Exception as e:
+            logger.warning(f"mirror-pitch category meta load failed: {e}")
+
+        try:
+            from vk_mirror_pitch import generate_mirror_pitch
+        except Exception as e:
+            logger.error(f"vk_mirror_pitch import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "module_unavailable", "message": str(e),
+            })
+
+        try:
+            result = await generate_mirror_pitch(cat_meta, fisherman)
+        except Exception as e:
+            logger.error(f"generate_mirror_pitch failed: {e}")
+            raise HTTPException(status_code=502, detail={
+                "error": "generation_failed", "message": str(e),
+            })
+
+        if result.get("error"):
+            raise HTTPException(
+                status_code=400 if result["error"] in ("invalid_url", "no_user", "no_target") else 502,
+                detail=result,
+            )
+
+        # Кеш-запись (по vk_id из ответа b2c-анализатора, если есть).
+        new_vk_id = result.get("vk_id") or vk_id_int
+        if new_vk_id:
+            try:
+                async with db.get_connection() as conn:
+                    await conn.execute(
+                        """
+                        INSERT INTO fredi_vk_mirror_pitches
+                            (vk_id, message, vk_url, vk_chat_url, full_name, category)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        ON CONFLICT (vk_id) DO UPDATE SET
+                            message     = EXCLUDED.message,
+                            vk_url      = EXCLUDED.vk_url,
+                            vk_chat_url = EXCLUDED.vk_chat_url,
+                            full_name   = EXCLUDED.full_name,
+                            category    = EXCLUDED.category,
+                            created_at  = NOW()
+                        """,
+                        int(new_vk_id),
+                        result["message"],
+                        (result.get("vk_url") or "")[:500],
+                        (result.get("vk_chat_url") or "")[:500],
+                        (result.get("full_name") or "")[:200],
+                        str(category)[:64],
+                    )
+            except Exception as e:
+                logger.warning(f"mirror-pitch cache write failed: {e}")
+
+        return {"success": True, "cached": False, "category": category, **result}
 
     @app.get("/api/admin/vk/funnel")
     async def vk_funnel(
