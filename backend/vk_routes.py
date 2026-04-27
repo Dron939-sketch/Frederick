@@ -1633,6 +1633,7 @@ def register_vk_routes(app, db):
         max_per_term: int = 100,
         min_audience: int = 100,
         max_results: int = 30,
+        include_newsfeed: bool = False,
         x_admin_token: Optional[str] = Header(default=None),
     ):
         _check_admin(x_admin_token)
@@ -1649,6 +1650,7 @@ def register_vk_routes(app, db):
                 max_per_term=max(10, min(int(max_per_term), 1000)),
                 min_audience=max(0, int(min_audience)),
                 max_results=max(5, min(int(max_results), 100)),
+                include_newsfeed=bool(include_newsfeed),
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={

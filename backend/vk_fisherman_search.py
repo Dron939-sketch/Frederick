@@ -127,7 +127,7 @@ def _matches_markers(user: Dict[str, Any], markers: List[str]) -> bool:
     return False
 
 
-def _candidate_dict(u: Dict[str, Any], cat_code: str) -> Dict[str, Any]:
+def _candidate_dict(u: Dict[str, Any], cat_code: str, source: str = "users_search") -> Dict[str, Any]:
     name = " ".join(filter(None, [u.get("first_name"), u.get("last_name")])).strip()
     counters = u.get("counters") or {}
     occupation = u.get("occupation") or {}
@@ -150,6 +150,7 @@ def _candidate_dict(u: Dict[str, Any], cat_code: str) -> Dict[str, Any]:
         "audience_size": _audience_size(u),
         "audience_known": _audience_known(u),
         "category": cat_code,
+        "source": source,
         "vk_url": f"https://vk.com/id{u.get('id')}",
     }
 
@@ -160,8 +161,16 @@ async def search_fishermen(
     max_per_term: int = 100,
     min_audience: int = 100,
     max_results: int = 30,
+    include_newsfeed: bool = False,
 ) -> Dict[str, Any]:
-    """Возвращает {category, candidates, stats}."""
+    """Возвращает {category, candidates, stats}.
+
+    include_newsfeed: добавить второй источник — newsfeed.search по
+    topic_phrases категории. Берём авторов постов на тему ниши за
+    последний ~месяц — это рыбаки, которые **активны прямо сейчас**.
+    Старая идея «ловить рыбаков, ловящих страдальцев» (раньше мы их
+    отсеивали как ложноположительные в проблем-поиске).
+    """
     cat = get_fisherman(category_code)
     if not cat:
         return {
@@ -172,14 +181,18 @@ async def search_fishermen(
 
     service_terms: List[str] = cat.get("service_terms") or []
     bio_markers: List[str] = cat.get("bio_markers") or []
+    topic_phrases: List[str] = cat.get("topic_phrases") or []
 
+    # uid → (user_dict, source). source: "users_search" | "newsfeed"
     seen: Dict[int, Dict[str, Any]] = {}
+    source_by_uid: Dict[int, str] = {}
     search_attempts = 0
     search_success = 0
     search_failed_reasons: Dict[str, int] = {}
+    newsfeed_stats = {"phrases_used": 0, "posts_seen": 0, "users_fetched": 0, "error": None}
 
     async with httpx.AsyncClient() as client:
-        # users.search по сервисным термам.
+        # === Источник 1: users.search по service_terms ===
         for term in service_terms:
             search_attempts += 1
             try:
@@ -204,6 +217,73 @@ async def search_fishermen(
                 if uid in seen:
                     continue
                 seen[uid] = u
+                source_by_uid[uid] = "users_search"
+
+        # === Источник 2 (опц.): newsfeed.search по topic_phrases ===
+        # Авторы постов на тему ниши за ~месяц = активные рыбаки.
+        if include_newsfeed and topic_phrases:
+            try:
+                from_newsfeed_uids: List[int] = []
+                posts_seen = 0
+                for phrase in topic_phrases:
+                    try:
+                        nf_resp = await _call(client, "newsfeed.search", {
+                            "q": phrase,
+                            "count": 200,
+                            "extended": 0,
+                        })
+                    except RuntimeError as e:
+                        # Если только service-токен в env — newsfeed.search
+                        # вернёт ошибку 27 (нужен user-токен). Не падаем.
+                        msg = str(e)
+                        if not newsfeed_stats["error"]:
+                            newsfeed_stats["error"] = msg[:120]
+                        logger.warning(f"newsfeed.search('{phrase}') failed: {e}")
+                        continue
+                    items = (nf_resp or {}).get("items") or []
+                    posts_seen += len(items)
+                    for p in items:
+                        fid = p.get("from_id") or p.get("owner_id")
+                        if isinstance(fid, int) and fid > 0 and fid not in seen:
+                            from_newsfeed_uids.append(fid)
+                newsfeed_stats["phrases_used"] = len(topic_phrases)
+                newsfeed_stats["posts_seen"] = posts_seen
+
+                # Резолвим карточки чанками по 500 (через users.get с полным fields).
+                CHUNK = 500
+                # Дедуп пред-резолва (один автор может постить несколько раз).
+                from_newsfeed_uids = list(dict.fromkeys(from_newsfeed_uids))
+                fetched = 0
+                for i in range(0, len(from_newsfeed_uids), CHUNK):
+                    chunk = from_newsfeed_uids[i:i + CHUNK]
+                    try:
+                        ug_resp = await _call(client, "users.get", {
+                            "user_ids": ",".join(str(x) for x in chunk),
+                            "fields": _VK_USER_FIELDS,
+                        })
+                    except RuntimeError as e:
+                        logger.warning(f"users.get(newsfeed chunk) failed: {e}")
+                        continue
+                    if isinstance(ug_resp, list):
+                        for u in ug_resp:
+                            uid = u.get("id")
+                            if not isinstance(uid, int) or uid <= 0:
+                                continue
+                            if uid in seen:
+                                continue
+                            seen[uid] = u
+                            source_by_uid[uid] = "newsfeed"
+                            fetched += 1
+                newsfeed_stats["users_fetched"] = fetched
+                logger.info(
+                    f"fisherman_search({category_code}): newsfeed source "
+                    f"+{fetched} candidates (from {posts_seen} posts in "
+                    f"{len(topic_phrases)} phrases)"
+                )
+            except Exception as e:
+                logger.warning(f"newsfeed source failed: {e}")
+                if not newsfeed_stats["error"]:
+                    newsfeed_stats["error"] = str(e)[:120]
 
         candidates_total = len(seen)
 
@@ -284,7 +364,16 @@ async def search_fishermen(
             f"(rejects: {rejected_reasons})"
         )
 
-    candidates = [_candidate_dict(u, category_code) for u in after_audience]
+    candidates = [
+        _candidate_dict(u, category_code, source_by_uid.get(u.get("id"), "users_search"))
+        for u in after_audience
+    ]
+
+    # Подсчёт распределения источников среди финальных кандидатов.
+    source_counts = {"users_search": 0, "newsfeed": 0}
+    for c in candidates:
+        s = c.get("source") or "users_search"
+        source_counts[s] = source_counts.get(s, 0) + 1
 
     return {
         "category": {
@@ -306,5 +395,7 @@ async def search_fishermen(
             "returned": len(candidates),
             "min_audience": min_audience,
             "rejected_reasons": rejected_reasons,
+            "newsfeed": newsfeed_stats if include_newsfeed else None,
+            "source_counts": source_counts,
         },
     }
