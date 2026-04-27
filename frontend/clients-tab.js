@@ -1289,19 +1289,26 @@
 
     var bySource = stats.by_source || {};
     var sourceHtml = '';
-    if ((bySource.newsfeed||0) || (bySource.group||0)){
-      sourceHtml = ' · 📰 ' + (bySource.newsfeed||0) + ' автор(ов) постов · 👥 ' + (bySource.group||0) + ' из групп';
+    var totalSrc = (bySource.newsfeed||0) + (bySource.comment||0) + (bySource.like||0) + (bySource.repost||0) + (bySource.group||0);
+    if (totalSrc){
+      sourceHtml = ' · 📰 ' + (bySource.newsfeed||0) +
+        ' · 💬 ' + (bySource.comment||0) +
+        ' · 🔁 ' + (bySource.repost||0) +
+        ' · ❤️ ' + (bySource.like||0) +
+        ' · 👥 ' + (bySource.group||0);
     }
 
-    var wallReasons = stats.wall_failed_reasons || {};
-    var wallReasonsTxt = '';
-    var wallReasonsTotal = 0;
-    Object.keys(wallReasons).forEach(function(k){ wallReasonsTotal += wallReasons[k]||0; });
-    if (wallReasonsTotal){
-      wallReasonsTxt = ' · 💥 fail: ' + Object.keys(wallReasons).map(function(k){
-        return esc((k.length > 30 ? k.slice(0,30) + '…' : k)) + ': ' + wallReasons[k];
+    function aggReasons(obj, label){
+      var total = 0;
+      Object.keys(obj||{}).forEach(function(k){ total += obj[k]||0; });
+      if (!total) return '';
+      return ' · ' + label + ' ' + Object.keys(obj).map(function(k){
+        return esc((k.length > 30 ? k.slice(0,30) + '…' : k)) + ': ' + obj[k];
       }).join(', ');
     }
+    var wallReasonsTxt   = aggReasons(stats.wall_failed_reasons, '💥 wall fail:');
+    var likeReasonsTxt   = aggReasons(stats.likes_failed_reasons, '💥 likes fail:');
+    var repostReasonsTxt = aggReasons(stats.reposts_failed_reasons, '💥 reposts fail:');
 
     var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">' +
       '📰 фраз: ' + (stats.phrases_used||0) + ' · ' +
@@ -1312,6 +1319,11 @@
       'комментаторов: ' + (stats.comment_authors||0) +
       ' (отсев: коротких ' + (stats.comments_filtered_short||0) + ', от пабликов ' + (stats.comments_filtered_neg_from||0) + ')' +
       wallReasonsTxt +
+      '<br>🎣 рыбаков-постов: ' + (stats.fishermen_posts||0) + '/' + (stats.anchors_total||0) + ' · ' +
+      'якорей: ' + (stats.anchors_used||0) + ' · ' +
+      '❤️ лайков ' + (stats.likes_success||0) + '/' + (stats.likes_attempted||0) + ' (' + (stats.likers_unique||0) + ' уник.) · ' +
+      '🔁 репостов ' + (stats.reposts_success||0) + '/' + (stats.reposts_attempted||0) + ' (' + (stats.reposters_unique||0) + ' уник.)' +
+      likeReasonsTxt + repostReasonsTxt +
       '<br>👥 групп: ' + (stats.groups_scanned||0) + ' из ' + (stats.groups_resolved||0) + ' резолвленных · ' +
       'участников: ' + (stats.members_fetched||0) +
       '<br>после фильтра: ' + (stats.after_demo_filter||0) + sourceHtml + rejHtml +
@@ -1338,12 +1350,16 @@
       var sexLabel = c.sex === 1 ? '♀' : c.sex === 2 ? '♂' : '';
       var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
       var status = c.status ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:2px">«' + esc(c.status) + '»</div>' : '';
-      // Источник: 📰 пост, 💬 коммент, 👥 группа
+      // Источник: 📰 пост, 💬 коммент, ❤️ лайкер магнита, 🔁 репостер магнита, 👥 группа
       var srcBadge = '';
       if (c.source === 'newsfeed'){
         srcBadge = '<span style="font-size:10px;color:var(--success);margin-left:6px;border:1px solid var(--success);padding:1px 6px;border-radius:4px" title="Автор поста на тему">📰 автор поста</span>';
       } else if (c.source === 'comment'){
         srcBadge = '<span style="font-size:10px;color:var(--accent);margin-left:6px;border:1px solid var(--accent);padding:1px 6px;border-radius:4px" title="Оставил комментарий под постом на тему">💬 комментатор</span>';
+      } else if (c.source === 'repost'){
+        srcBadge = '<span style="font-size:10px;color:#f472b6;margin-left:6px;border:1px solid #f472b6;padding:1px 6px;border-radius:4px" title="Репостнул маркетинговый пост рыбака про эту боль — узнал себя сильно">🔁 репостнул магнит</span>';
+      } else if (c.source === 'like'){
+        srcBadge = '<span style="font-size:10px;color:#fb7185;margin-left:6px;border:1px solid #fb7185;padding:1px 6px;border-radius:4px" title="Лайкнул маркетинговый пост рыбака про эту боль — узнал себя">❤️ лайкер магнита</span>';
       } else if (c.source === 'group' && c.from_group && c.from_group.name){
         srcBadge = '<span style="font-size:11px;color:var(--text-dim)" title="Состоит в сообществе">👥 ' + esc(c.from_group.name) + '</span>';
       }
@@ -1389,6 +1405,17 @@
         trig = '<div style="margin-top:6px;padding:6px 10px;background:rgba(52,211,153,0.06);border-left:3px solid var(--success);border-radius:4px">' +
           '<div style="font-size:10px;color:var(--success);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">📰 его пост ' + postLink2 + '</div>' +
           '<div style="font-size:12px;line-height:1.4;font-style:italic">«' + esc(tp.text) + '»</div>' +
+        '</div>';
+      } else if (c.anchor && c.anchor.post_excerpt){
+        // Anchor — лайк/репост маркетингового поста рыбака.
+        // Цитата якорного поста + engagement = «вот что зацепило».
+        var an = c.anchor;
+        var anLink = an.post_url ? '<a href="' + esc(an.post_url) + '" target="_blank" rel="noopener" style="color:var(--text-dim);font-size:10px;text-decoration:underline" title="Открыть якорный пост рыбака">↗ пост</a>' : '';
+        var anLabel = an.action === 'repost' ? '🔁 репостнул' : '❤️ лайкнул';
+        var anEng = an.engagement ? ' · ' + an.engagement + ' реакций' : '';
+        trig = '<div style="margin-top:6px;padding:6px 10px;background:rgba(244,114,182,0.06);border-left:3px solid #f472b6;border-radius:4px">' +
+          '<div style="font-size:10px;color:#f472b6;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">' + anLabel + ' пост рыбака' + anEng + ' ' + anLink + '</div>' +
+          '<div style="font-size:12px;line-height:1.4;font-style:italic">«' + esc(an.post_excerpt) + '»</div>' +
         '</div>';
       }
       var draftBtn = '<button data-vk="' + c.vk_id + '" class="vk-prob-draft" ' +

@@ -378,11 +378,14 @@ def _candidate_dict(u: Dict[str, Any], from_group: Dict[str, Any], source: str =
     source: 'group'    — из groups.getMembers сообщества;
             'newsfeed' — автор поста из newsfeed.search;
             'comment'  — автор комментария из wall.getComments
-                         (плюс триггер-коммент в `triggering_comment`).
+                         (плюс триггер-коммент в `triggering_comment`);
+            'like'     — поставил ❤️ под маркетинговым «магнитом» (anchor);
+            'repost'   — репостнул маркетинговый «магнит».
     """
     name = " ".join(filter(None, [u.get("first_name"), u.get("last_name")])).strip()
     triggering = u.get("_triggering_comment")
     triggering_post = u.get("_triggering_post")
+    anchor = u.get("_anchor")
     return {
         "vk_id": u.get("id"),
         "first_name": u.get("first_name") or "",
@@ -413,7 +416,16 @@ def _candidate_dict(u: Dict[str, Any], from_group: Dict[str, Any], source: str =
             "post_url": triggering.get("post_url") or "",
             "source_phrase": triggering.get("source_phrase") or "",
         } if isinstance(triggering, dict) else None,
-        # Фраза-источник (для newsfeed/comment) — нужна phrase optimizer'у
+        # Anchor — лайк/репост маркетингового магнита; ссылка на якорный пост,
+        # тип действия и engagement (популярность поста).
+        "anchor": {
+            "action": anchor.get("action") or "",
+            "post_url": anchor.get("post_url") or "",
+            "post_excerpt": anchor.get("post_excerpt") or "",
+            "engagement": int(anchor.get("engagement") or 0),
+            "source_phrase": anchor.get("source_phrase") or "",
+        } if isinstance(anchor, dict) else None,
+        # Фраза-источник (для newsfeed/comment/anchor) — нужна phrase optimizer'у
         # для атрибуции кандидата к конкретной фразе.
         "source_phrase": u.get("_source_phrase"),
         "vk_url": f"https://vk.com/id{u.get('id')}",
@@ -529,7 +541,32 @@ async def search_by_problem(
         except Exception as e:
             logger.warning(f"problem_search: comment search failed: {e}")
 
-    # 3) ДОПОЛНИТЕЛЬНО — участники сообществ (если seed-группы вообще есть и
+    # 3) ANCHOR — лайкеры и репостеры маркетинговых «магнитов».
+    # Психологи/коучи пишут вирусные посты про боль, чтобы привлечь страдальцев.
+    # Кто поставил ❤️ или репостнул — уже узнал себя в боли.
+    anchor_stats: Dict[str, Any] = {}
+    if seed_phrases and len(seen) < max_candidates * 3:
+        try:
+            from vk_anchor_search import search_engagers_of_anchor_posts
+            anc_result = await search_engagers_of_anchor_posts(
+                seed_phrases,
+                posts_per_phrase=30,
+                max_anchors=15,
+                likes_per_anchor=1000,
+                reposts_per_anchor=200,
+                total_limit=max_candidates * 4,
+            )
+            anchor_stats = anc_result.get("stats") or {}
+            for u in anc_result.get("users") or []:
+                action = (u.get("_anchor") or {}).get("action") or "like"
+                src = "repost" if action == "repost" else "like"
+                _absorb(u, {}, source=src)
+                if len(seen) >= max_candidates * 3:
+                    break
+        except Exception as e:
+            logger.warning(f"problem_search: anchor search failed: {e}")
+
+    # 4) ДОПОЛНИТЕЛЬНО — участники сообществ (если seed-группы вообще есть и
     # хотя бы одна резолвится в открытое community).
     if seed_screen_names and len(seen) < max_candidates * 3:
         async with httpx.AsyncClient() as client:
@@ -571,14 +608,21 @@ async def search_by_problem(
 
     def _score(c: Dict[str, Any]) -> int:
         s = 0
-        # newsfeed = автор поста (initiator), comment = автор коммента
-        # (reaction). Initiator обычно более активный таргет, но
-        # коммент-автор подтверждает живучесть и эмоцию.
+        # Веса по источнику:
+        #   newsfeed = автор тематического поста (написал сам — initiator).
+        #   comment = автор коммента под темой (отреагировал словами).
+        #   repost = репостнул маркетинговый магнит (отдал свою стену под чужой
+        #     пост про боль — сильный сигнал «узнал себя»).
+        #   like = лайкнул маркетинговый магнит (слабее, но массовее).
         src = c.get("source")
         if src == "newsfeed":
             s += 25
         elif src == "comment":
             s += 18
+        elif src == "repost":
+            s += 22
+        elif src == "like":
+            s += 10
         if not c.get("is_closed"):
             s += 10
         if c.get("about"):
@@ -630,7 +674,7 @@ async def search_by_problem(
 
     candidates = candidates[:max_candidates]
 
-    by_source = {"newsfeed": 0, "comment": 0, "group": 0}
+    by_source = {"newsfeed": 0, "comment": 0, "like": 0, "repost": 0, "group": 0}
     for c in candidates:
         s = c.get("source") or "group"
         by_source[s] = by_source.get(s, 0) + 1
@@ -682,6 +726,17 @@ async def search_by_problem(
             "wall_failed_reasons": comment_stats.get("wall_failed_reasons", {}),
             "comments_filtered_short": comment_stats.get("comments_filtered_short", 0),
             "comments_filtered_neg_from": comment_stats.get("comments_filtered_neg_from", 0),
+            "anchors_total": anchor_stats.get("anchors_total", 0),
+            "fishermen_posts": anchor_stats.get("fishermen_posts", 0),
+            "anchors_used": anchor_stats.get("anchors_used", 0),
+            "likes_attempted": anchor_stats.get("likes_attempted", 0),
+            "likes_success": anchor_stats.get("likes_success", 0),
+            "likes_failed_reasons": anchor_stats.get("likes_failed_reasons", {}),
+            "reposts_attempted": anchor_stats.get("reposts_attempted", 0),
+            "reposts_success": anchor_stats.get("reposts_success", 0),
+            "reposts_failed_reasons": anchor_stats.get("reposts_failed_reasons", {}),
+            "likers_unique": anchor_stats.get("likers_unique", 0),
+            "reposters_unique": anchor_stats.get("reposters_unique", 0),
             "groups_resolved": len(resolved),
             "groups_scanned": len(groups_to_scan),
             "members_fetched": members_fetched,
