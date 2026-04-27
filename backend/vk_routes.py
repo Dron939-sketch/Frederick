@@ -260,7 +260,25 @@ def register_vk_routes(app, db):
                 )
             """)
 
-        logger.info("VK profiles + candidates + phrase tables ready (phase 11)")
+            # Phase 12: пометки «кому отправляли» — защита от повторной
+            # рассылки. Оператор сам жмёт «отметить отправленным» в UI
+            # после реальной отправки в VK.
+            # status: sent | replied | converted | declined (расширяемо).
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS fredi_vk_b2b_outreach (
+                    vk_id     BIGINT PRIMARY KEY,
+                    status    TEXT NOT NULL DEFAULT 'sent',
+                    note      TEXT,
+                    category  TEXT,
+                    marked_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vk_b2b_outreach_marked "
+                "ON fredi_vk_b2b_outreach(marked_at DESC)"
+            )
+
+        logger.info("VK profiles + candidates + phrase tables ready (phase 12)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -1638,7 +1656,113 @@ def register_vk_routes(app, db):
             })
         if not result.get("category"):
             raise HTTPException(status_code=400, detail=result.get("stats") or {})
+
+        # Подмешиваем outreach-метки: для каждого кандидата проверяем,
+        # есть ли он в fredi_vk_b2b_outreach. Если да — флаг marked + статус.
+        cands = result.get("candidates") or []
+        if cands:
+            ids = [int(c["vk_id"]) for c in cands if c.get("vk_id")]
+            if ids:
+                try:
+                    async with db.get_connection() as conn:
+                        rows = await conn.fetch(
+                            "SELECT vk_id, status, marked_at, note "
+                            "FROM fredi_vk_b2b_outreach WHERE vk_id = ANY($1::bigint[])",
+                            ids,
+                        )
+                    by_id = {int(r["vk_id"]): r for r in rows}
+                    for c in cands:
+                        row = by_id.get(int(c.get("vk_id") or 0))
+                        if row:
+                            c["marked"] = True
+                            c["marked_status"] = row["status"]
+                            c["marked_at"] = (
+                                row["marked_at"].isoformat() if row["marked_at"] else None
+                            )
+                            c["marked_note"] = row["note"] or ""
+                        else:
+                            c["marked"] = False
+                except Exception as e:
+                    logger.warning(f"outreach LEFT JOIN failed: {e}")
+
         return {"success": True, **result}
+
+    @app.post("/api/admin/vk/outreach-mark")
+    async def vk_outreach_mark(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Пометить рыбака как «отправили» (или с другим статусом).
+
+        Body: {vk_id, status?='sent', note?, category?}.
+        UPSERT по vk_id — повторный клик обновит статус/время.
+        """
+        _check_admin(x_admin_token)
+        vk_id_raw = (body or {}).get("vk_id")
+        try:
+            vk_id = int(vk_id_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={
+                "error": "vk_id_required",
+                "message": "vk_id обязателен и должен быть числом",
+            })
+        status = ((body or {}).get("status") or "sent").strip()[:32]
+        note = ((body or {}).get("note") or "").strip()[:500]
+        category = ((body or {}).get("category") or "").strip()[:64]
+
+        async with db.get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO fredi_vk_b2b_outreach (vk_id, status, note, category)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (vk_id) DO UPDATE SET
+                    status    = EXCLUDED.status,
+                    note      = EXCLUDED.note,
+                    category  = EXCLUDED.category,
+                    marked_at = NOW()
+                """,
+                vk_id, status, note or None, category or None,
+            )
+        return {"success": True, "vk_id": vk_id, "status": status}
+
+    @app.delete("/api/admin/vk/outreach-mark")
+    async def vk_outreach_unmark(
+        vk_id: int,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Снять пометку (если ошиблись)."""
+        _check_admin(x_admin_token)
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "DELETE FROM fredi_vk_b2b_outreach WHERE vk_id = $1", int(vk_id),
+            )
+        return {"success": True, "vk_id": int(vk_id)}
+
+    @app.get("/api/admin/vk/outreach-list")
+    async def vk_outreach_list(
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Все помеченные рыбаки (для воронки/отчёта)."""
+        _check_admin(x_admin_token)
+        async with db.get_connection() as conn:
+            rows = await conn.fetch(
+                "SELECT vk_id, status, note, category, marked_at "
+                "FROM fredi_vk_b2b_outreach ORDER BY marked_at DESC LIMIT 1000"
+            )
+        return {
+            "success": True,
+            "count": len(rows),
+            "items": [
+                {
+                    "vk_id": int(r["vk_id"]),
+                    "status": r["status"],
+                    "note": r["note"] or "",
+                    "category": r["category"] or "",
+                    "marked_at": r["marked_at"].isoformat() if r["marked_at"] else None,
+                }
+                for r in rows
+            ],
+        }
 
     @app.post("/api/admin/vk/fisherman-pitch")
     async def vk_fisherman_pitch_endpoint(

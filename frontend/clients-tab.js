@@ -1734,6 +1734,8 @@
             '<input id="vkFishMinAud" type="number" min="0" max="100000" step="100" value="100" style="width:80px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
           '<label style="display:flex;align-items:center;gap:4px">Лимит:' +
             '<input id="vkFishMax" type="number" min="5" max="100" step="5" value="20" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
+          '<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Не показывать тех, кому уже отправляли">' +
+            '<input id="vkFishHideSent" type="checkbox" style="margin:0">скрыть отправленных</label>' +
           '<button id="vkFishSearchBtn" disabled style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.6">🎣 Найти рыбаков</button>' +
           '<span id="vkFishStatus" style="color:var(--text-dim)"></span>' +
         '</div>' +
@@ -1753,6 +1755,14 @@
       if (e.key === 'Enter') runB2C();
     });
     document.getElementById('vkFishSearchBtn').addEventListener('click', runFish);
+    var hideSentCb = document.getElementById('vkFishHideSent');
+    if (hideSentCb){
+      hideSentCb.addEventListener('change', function(){
+        if (lastFishermenSearch && lastFishermenSearch.candidates){
+          renderFish({ candidates: lastFishermenSearch.candidates, stats: lastFishermenSearch.stats || {} });
+        }
+      });
+    }
   }
 
   function activate(){
@@ -1922,7 +1932,7 @@
     try {
       var r = await api('/api/admin/vk/fisherman-search?category=' + encodeURIComponent(fishSelectedCode) +
         '&min_audience=' + minAud + '&max_results=' + maxRes, { method: 'POST' });
-      lastFishermenSearch = { category: fishSelectedCode, candidates: r.candidates || [] };
+      lastFishermenSearch = { category: fishSelectedCode, candidates: r.candidates || [], stats: r.stats || {} };
       status.textContent = '✓ найдено ' + (r.candidates||[]).length;
       renderFish(r);
     } catch (e){
@@ -1956,7 +1966,20 @@
       return;
     }
 
-    var rows = cands.map(function(c){
+    var hideSent = !!(document.getElementById('vkFishHideSent') && document.getElementById('vkFishHideSent').checked);
+    var visible = hideSent ? cands.filter(function(c){ return !c.marked; }) : cands;
+    var hiddenCount = cands.length - visible.length;
+    var hiddenHint = hiddenCount > 0
+      ? '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">скрыто отправленных: ' + hiddenCount + '</div>'
+      : '';
+
+    if (!visible.length){
+      document.getElementById('vkFishResults').innerHTML = statsHtml + hiddenHint +
+        '<div style="padding:24px;text-align:center;color:var(--text-dim)">Никого не нашли. Попробуй снизить мин. аудиторию или другую категорию.</div>';
+      return;
+    }
+
+    var rows = visible.map(function(c){
       var name = c.full_name || ('id'+c.vk_id);
       var subtitle = (c.occupation || c.status || '').substring(0, 200);
       var known = (c.audience_known !== false);
@@ -1964,29 +1987,55 @@
       var aud = known ? (c.audience_size || 0) : '?';
       var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
       var site = c.site ? '<a href="' + esc(c.site) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);text-decoration:none">↗ сайт</a>' : '';
+
+      var markedBadge = '';
+      var unmarkBtn = '';
+      var cardOpacity = '1';
+      if (c.marked){
+        var dt = c.marked_at ? new Date(c.marked_at).toLocaleDateString('ru') : '';
+        markedBadge = '<span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:0.3px;color:var(--success);background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.4);padding:2px 7px;border-radius:6px;margin-left:6px" title="Отправлено ' + esc(dt) + '">📤 уже писали' + (dt ? ' · ' + esc(dt) : '') + '</span>';
+        unmarkBtn = ' <button data-vk="' + c.vk_id + '" class="vk-fish-unmark" style="padding:5px 9px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font:inherit;font-size:11px;cursor:pointer" title="Снять метку отправленного">↺ снять</button>';
+        cardOpacity = '0.65';
+      }
+
       var pitchBtn = '<button data-vk="' + c.vk_id + '" class="vk-fish-pitch" ' +
         'style="padding:6px 12px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer" ' +
         'title="Парсим страницу рыбака → персональный анализ + крючок + объяснение Фреди (30-60 сек)">🪞 Сгенерировать сообщение</button>';
-      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">' +
+
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px;opacity:' + cardOpacity + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
           '<div style="flex:1;min-width:0">' +
             '<a href="' + esc(c.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
               esc(name) +
-            '</a>' +
+            '</a>' + markedBadge +
             ' <span style="font-size:11px;color:var(--text-dim)">' + (c.city ? esc(c.city) + ' · ' : '') +
             '👥 ' + followers + ' подп · ' + aud + ' всего</span>' +
             ' ' + site +
           '</div>' +
-          pitchBtn +
+          pitchBtn + unmarkBtn +
         '</div>' +
         (subtitle ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:4px">«' + esc(subtitle) + '»</div>' : '') +
         about +
       '</div>';
     }).join('');
 
-    document.getElementById('vkFishResults').innerHTML = statsHtml + rows;
+    document.getElementById('vkFishResults').innerHTML = statsHtml + hiddenHint + rows;
     document.querySelectorAll('.vk-fish-pitch').forEach(function(b){
       b.addEventListener('click', function(){ openPitch(parseInt(b.dataset.vk, 10)); });
+    });
+    document.querySelectorAll('.vk-fish-unmark').forEach(function(b){
+      b.addEventListener('click', async function(){
+        var vk = parseInt(b.dataset.vk, 10);
+        b.disabled = true; b.textContent = '⏳';
+        try {
+          await api('/api/admin/vk/outreach-mark?vk_id=' + vk, { method: 'DELETE' });
+          // Локально снимаем метку и перерисовываем.
+          (lastFishermenSearch.candidates || []).forEach(function(c){
+            if (c.vk_id === vk){ c.marked = false; c.marked_status = null; c.marked_at = null; }
+          });
+          renderFish({ candidates: lastFishermenSearch.candidates, stats: lastFishermenSearch.stats || {} });
+        } catch(e){ b.disabled = false; b.textContent = '↺ снять'; alert('Не вышло снять метку: ' + e.message); }
+      });
     });
   }
 
@@ -2057,10 +2106,16 @@
         esc(msg) +
       '</div>';
 
+    var alreadyMarked = !!cand.marked;
+    var markBtnHtml = alreadyMarked
+      ? '<button id="vkMirrorMarked" disabled style="padding:9px 14px;border-radius:8px;border:1px solid rgba(52,211,153,0.4);background:rgba(52,211,153,0.1);color:var(--success);font:inherit;font-weight:600;cursor:default">✅ Уже отмечен отправленным</button>'
+      : '<button id="vkMirrorMark" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(52,211,153,0.4);background:transparent;color:var(--success);font:inherit;font-weight:600;cursor:pointer" title="Жми после того как отправил сообщение в VK — больше не будем подсовывать этого рыбака">✅ Отметил отправленным</button>';
+
     var actions =
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
         '<button id="vkMirrorCopy" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-weight:600;cursor:pointer">📋 Скопировать</button>' +
         '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:9px 14px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;text-decoration:none">💬 Открыть чат</a>' +
+        markBtnHtml +
       '</div>';
 
     document.getElementById('vkFishPitchBody').innerHTML = head + msgBlock + actions;
@@ -2072,6 +2127,35 @@
         try { await navigator.clipboard.writeText(txt); copyBtn.textContent = '✓ Скопировано'; }
         catch(e){ copyBtn.textContent = '⚠️ не вышло'; }
         setTimeout(function(){ copyBtn.textContent = '📋 Скопировать'; }, 1500);
+      });
+    }
+
+    var markBtn = document.getElementById('vkMirrorMark');
+    if (markBtn){
+      markBtn.addEventListener('click', async function(){
+        markBtn.disabled = true; markBtn.textContent = '⏳…';
+        try {
+          await api('/api/admin/vk/outreach-mark', {
+            method: 'POST',
+            body: {
+              vk_id: cand.vk_id,
+              status: 'sent',
+              category: (lastFishermenSearch && lastFishermenSearch.category) || '',
+            },
+          });
+          // Локально обновляем флаг, чтобы при закрытии модалки и фильтре «скрыть отправленных» работало.
+          cand.marked = true;
+          cand.marked_status = 'sent';
+          cand.marked_at = new Date().toISOString();
+          markBtn.outerHTML = '<button disabled style="padding:9px 14px;border-radius:8px;border:1px solid rgba(52,211,153,0.4);background:rgba(52,211,153,0.1);color:var(--success);font:inherit;font-weight:600;cursor:default">✅ Уже отмечен отправленным</button>';
+          // Перерендерим список, чтобы карточка тоже получила бейдж.
+          if (lastFishermenSearch && lastFishermenSearch.candidates){
+            renderFish({ candidates: lastFishermenSearch.candidates, stats: lastFishermenSearch.stats || {} });
+          }
+        } catch(e){
+          markBtn.disabled = false; markBtn.textContent = '✅ Отметил отправленным';
+          alert('Не вышло пометить: ' + e.message);
+        }
       });
     }
   }
