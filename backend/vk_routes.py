@@ -1388,6 +1388,141 @@ def register_vk_routes(app, db):
             })
         return {"success": True, "category": category, "applied": len([p for p in phrases if str(p).strip()])}
 
+    # =========================================================
+    # B2C: глубокий анализ одной страницы по URL.
+    # Транзитный режим (без БД), возвращает профиль + боль + 3 крючка.
+    # =========================================================
+    @app.post("/api/admin/vk/profile-analysis")
+    async def vk_profile_analysis(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        url = (body or {}).get("url") or (body or {}).get("screen_name")
+        if not url:
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_request",
+                "message": "укажи url (vk.com/...) или screen_name",
+            })
+        try:
+            from vk_b2c_analyzer import analyze_profile
+        except Exception as e:
+            logger.error(f"vk_b2c_analyzer import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "b2c_unavailable", "message": str(e),
+            })
+        try:
+            result = await analyze_profile(str(url))
+        except Exception as e:
+            logger.error(f"profile_analysis failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "analysis_failed", "message": str(e),
+            })
+        if result.get("error"):
+            raise HTTPException(status_code=400 if result["error"] in ("invalid_url", "no_user")
+                                else 502, detail=result)
+        return {"success": True, **result}
+
+    # =========================================================
+    # B2B: каталог рыбаков (категории) + поиск + питч.
+    # =========================================================
+    @app.get("/api/admin/vk/fisherman-categories")
+    async def vk_fisherman_categories(
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        try:
+            from services.fisherman_categories import all_fishermen
+        except Exception as e:
+            logger.error(f"fisherman_categories import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "fisherman_categories_unavailable", "message": str(e),
+            })
+        items = []
+        for c in all_fishermen():
+            items.append({
+                "code": c["code"],
+                "name_ru": c["name_ru"],
+                "icon": c["icon"],
+                "description": c.get("description", ""),
+                "product_hint": c.get("product_hint", ""),
+            })
+        return {"success": True, "categories": items}
+
+    @app.post("/api/admin/vk/fisherman-search")
+    async def vk_fisherman_search_endpoint(
+        category: str,
+        max_per_term: int = 100,
+        min_audience: int = 100,
+        max_results: int = 30,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        try:
+            from vk_fisherman_search import search_fishermen
+        except Exception as e:
+            logger.error(f"vk_fisherman_search import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "fisherman_search_unavailable", "message": str(e),
+            })
+        try:
+            result = await search_fishermen(
+                category_code=str(category),
+                max_per_term=max(10, min(int(max_per_term), 1000)),
+                min_audience=max(0, int(min_audience)),
+                max_results=max(5, min(int(max_results), 100)),
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "vk_api_error", "message": str(e),
+            })
+        if not result.get("category"):
+            raise HTTPException(status_code=400, detail=result.get("stats") or {})
+        return {"success": True, **result}
+
+    @app.post("/api/admin/vk/fisherman-pitch")
+    async def vk_fisherman_pitch_endpoint(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        category = (body or {}).get("category")
+        fisherman = (body or {}).get("fisherman")
+        if not category or not isinstance(fisherman, dict):
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_request",
+                "message": "category и fisherman обязательны",
+            })
+        try:
+            from services.fisherman_categories import get_fisherman
+            from vk_pitcher import generate_pitch
+        except Exception as e:
+            logger.error(f"vk_pitcher import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "pitcher_unavailable", "message": str(e),
+            })
+        cat_meta = get_fisherman(str(category))
+        if not cat_meta:
+            raise HTTPException(status_code=400, detail={
+                "error": "unknown_category", "message": str(category),
+            })
+        try:
+            result = await generate_pitch(cat_meta, fisherman)
+        except Exception as e:
+            logger.error(f"generate_pitch failed: {e}")
+            raise HTTPException(status_code=502, detail={
+                "error": "deepseek_error", "message": str(e),
+            })
+        if result.get("error"):
+            raise HTTPException(status_code=502, detail=result)
+        vk_id = fisherman.get("vk_id")
+        return {
+            "success": True,
+            "category": category,
+            "vk_chat_url": f"https://vk.com/im?sel={vk_id}" if vk_id else None,
+            **result,
+        }
+
     @app.get("/api/admin/vk/funnel")
     async def vk_funnel(
         user_id: Optional[int] = None,

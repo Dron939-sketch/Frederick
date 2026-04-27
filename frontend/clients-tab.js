@@ -1123,7 +1123,8 @@
 
     var btn = document.createElement('button');
     btn.id = 'vkProblemTabBtn'; btn.dataset.tab = 'vkproblem'; btn.textContent = '🔎 По проблеме';
-    btn.style.cssText = 'flex:0 0 auto';
+    // Скрыта: старый поиск страдальцев. Заменён вкладкой 🎯 VK B2B/B2C ниже.
+    btn.style.cssText = 'flex:0 0 auto;display:none';
     var anchor = document.getElementById('vkTabBtn') || document.getElementById('exportClaudeBtn');
     if (anchor && anchor.nextSibling) nav.insertBefore(btn, anchor.nextSibling);
     else if (anchor) nav.appendChild(btn);
@@ -1654,6 +1655,402 @@
         this.disabled = false; this.textContent = '✓ Применить';
         alert('Ошибка применения: ' + (e.message || ''));
       }
+    });
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', injectUI);
+  } else { injectUI(); }
+})();
+
+
+// ============================================
+// 🎯 VK B2B/B2C — отдельный IIFE с двумя секциями:
+//   1) 🔬 B2C: глубокий анализ одной страницы по URL (без БД)
+//   2) 🎣 B2B: поиск рыбаков (психологи/коучи/нутрициологи и т.д.)
+//      и питч-генератор «продаём AI-помощника под их нишу».
+// Заменяет старый таб «🔎 По проблеме» (там же скрыта кнопка).
+// ============================================
+(function(){
+  'use strict';
+  var API = (window.API_BASE_URL) || 'https://fredi-backend-flz2.onrender.com';
+  var LS = 'fredi_admin_token';
+  function tok(){ try { return localStorage.getItem(LS) || ''; } catch(e){ return ''; } }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  async function api(path, opts){
+    opts = opts || {};
+    var h = { 'X-Admin-Token': tok(), 'Accept':'application/json' };
+    if (opts.body) h['Content-Type'] = 'application/json';
+    var r = await fetch(API + path, { method: opts.method||'GET', headers: h, body: opts.body?JSON.stringify(opts.body):undefined });
+    if (r.status === 401) throw new Error('Неверный ADMIN_TOKEN');
+    var j = null; try { j = await r.json(); } catch(e){}
+    if (!r.ok){ var m = (j && (j.detail && (j.detail.message||j.detail.error)||j.error))||('HTTP '+r.status); throw new Error(m); }
+    return j;
+  }
+
+  var fishCats = null;
+  var lastFishermenSearch = null;
+
+  function injectUI(){
+    var nav = document.getElementById('navBar');
+    if (!nav){ return setTimeout(injectUI, 500); }
+    if (document.getElementById('vkB2Btn')) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'vkB2Btn'; btn.dataset.tab = 'vkB2'; btn.textContent = '🎯 VK B2B/B2C';
+    btn.style.cssText = 'flex:0 0 auto';
+    var anchor = document.getElementById('vkProblemTabBtn') || document.getElementById('vkTabBtn') || document.getElementById('exportClaudeBtn');
+    if (anchor && anchor.nextSibling) nav.insertBefore(btn, anchor.nextSibling);
+    else nav.appendChild(btn);
+
+    var sec = document.createElement('section');
+    sec.id = 'vkB2Tab'; sec.style.display = 'none';
+    sec.innerHTML =
+      '<h2>🔬 B2C: Глубокий анализ VK-профиля</h2>' +
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:24px">' +
+        '<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">' +
+          'Вставь ссылку на VK-профиль. DeepSeek проходит по нему в три прохода: ' +
+          'психологический портрет → активная боль → 3 крючка с self-оценкой. ' +
+          'Цель — крючок такой силы, чтобы 9 из 10 ответили.' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<input id="vkB2Url" type="text" placeholder="vk.com/durov или durov или id1" ' +
+            'style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit">' +
+          '<button id="vkB2AnalyzeBtn" style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer">🔬 Проанализировать</button>' +
+          '<span id="vkB2AnalyzeStatus" style="font-size:12px;color:var(--text-dim)"></span>' +
+        '</div>' +
+        '<div id="vkB2AnalyzeBody" style="margin-top:14px"></div>' +
+      '</div>' +
+      '<h2>🎣 B2B: Поиск рыбаков (продажа AI-инструмента)</h2>' +
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">' +
+        '<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">' +
+          'Психологи, коучи, нутрициологи, тарологи и др. — кому продаём <b>конфигурируемого AI-помощника</b>: ' +
+          'он работает в их стиле, под их брендом, держит клиентов между сессиями, сам находит новых. ' +
+          'Фреди — наш референс-кейс (виртуальный психолог).' +
+        '</div>' +
+        '<div id="vkFishCats" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">— загружаю категории —</div>' +
+        '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">' +
+          '<label style="display:flex;align-items:center;gap:4px" title="Минимум подписчиков+друзей у рыбака">Мин. аудитория:' +
+            '<input id="vkFishMinAud" type="number" min="0" max="100000" step="100" value="100" style="width:80px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
+          '<label style="display:flex;align-items:center;gap:4px">Лимит:' +
+            '<input id="vkFishMax" type="number" min="5" max="100" step="5" value="20" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
+          '<button id="vkFishSearchBtn" disabled style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.6">🎣 Найти рыбаков</button>' +
+          '<span id="vkFishStatus" style="color:var(--text-dim)"></span>' +
+        '</div>' +
+      '</div>' +
+      '<div id="vkFishMeta" style="margin-bottom:10px;font-size:12px;color:var(--text-dim)"></div>' +
+      '<div id="vkFishResults"></div>';
+    document.body.appendChild(sec);
+
+    btn.addEventListener('click', activate);
+    document.querySelectorAll('#navBar button').forEach(function(b){
+      if (b.id === 'vkB2Btn') return;
+      b.addEventListener('click', deactivate);
+    });
+
+    document.getElementById('vkB2AnalyzeBtn').addEventListener('click', runB2C);
+    document.getElementById('vkB2Url').addEventListener('keydown', function(e){
+      if (e.key === 'Enter') runB2C();
+    });
+    document.getElementById('vkFishSearchBtn').addEventListener('click', runFish);
+  }
+
+  function activate(){
+    document.querySelectorAll('#navBar button').forEach(function(x){ x.classList.remove('active'); });
+    document.getElementById('vkB2Btn').classList.add('active');
+    ['summaryTab','recentTab','dialogsTab','vkTab','vkProblemTab'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.style.display = 'none';
+    });
+    var ld = document.getElementById('loading'); if (ld) ld.style.display = 'none';
+    document.getElementById('vkB2Tab').style.display = 'block';
+    if (!fishCats) loadFishCats();
+  }
+  function deactivate(){
+    var t = document.getElementById('vkB2Tab'); if (t) t.style.display = 'none';
+    var b = document.getElementById('vkB2Btn'); if (b) b.classList.remove('active');
+  }
+
+  async function runB2C(){
+    var url = (document.getElementById('vkB2Url').value || '').trim();
+    if (!url){ alert('Вставь ссылку или username'); return; }
+    var status = document.getElementById('vkB2AnalyzeStatus');
+    var body = document.getElementById('vkB2AnalyzeBody');
+    status.textContent = '⏳ парсинг VK + DeepSeek (3 прохода)…';
+    body.innerHTML = '';
+    try {
+      var r = await api('/api/admin/vk/profile-analysis', {
+        method: 'POST', body: { url: url },
+      });
+      status.textContent = '✓ готово';
+      renderB2C(r);
+    } catch (e){
+      status.textContent = '';
+      body.innerHTML = '<div style="color:var(--error);padding:14px">Ошибка: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderB2C(r){
+    var p = r.profile || {};
+    var pain = r.pain || {};
+    var hooks = r.hooks || {};
+    var ub = (r.vk_data || {}).user_basic || {};
+
+    var profileHtml =
+      '<div style="background:rgba(167,139,250,0.06);border-left:3px solid var(--accent);padding:10px 12px;border-radius:6px;margin-bottom:12px">' +
+        '<div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🧠 Психологический портрет</div>' +
+        '<div style="font-size:13px;line-height:1.5">' + esc(p.profile || '—') + '</div>' +
+        (p.archetype ? '<div style="font-size:11px;color:var(--text-dim);margin-top:6px">Архетип: <b>' + esc(p.archetype) + '</b> · Открытость: ' + esc(p.openness || '—') + '</div>' : '') +
+        (p.defenses && p.defenses.length ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">Защиты: ' + p.defenses.map(esc).join(', ') + '</div>' : '') +
+        (p.patterns && p.patterns.length ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Паттерны: ' + p.patterns.map(esc).join(', ') + '</div>' : '') +
+      '</div>';
+
+    var painHtml =
+      '<div style="background:rgba(248,113,113,0.08);border-left:3px solid var(--error);padding:10px 12px;border-radius:6px;margin-bottom:12px">' +
+        '<div style="font-size:10px;color:var(--error);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🔥 Активная боль (' + esc(pain.pain_intensity || '—') + ')</div>' +
+        '<div style="font-size:14px;font-weight:600;line-height:1.4">' + esc(pain.pain_active || '—') + '</div>' +
+        (pain.evidence_quotes && pain.evidence_quotes.length ?
+          '<ul style="margin:6px 0 0 18px;padding:0;font-style:italic;color:var(--text-dim);font-size:12px">' +
+          pain.evidence_quotes.map(function(q){ return '<li>«' + esc(q) + '»</li>'; }).join('') + '</ul>' : '') +
+        (pain.desired_outcome ? '<div style="margin-top:6px;font-size:12px;color:var(--text-dim)">Хочет: ' + esc(pain.desired_outcome) + '</div>' : '') +
+        (pain.vulnerability_window ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Окно открытости: ' + esc(pain.vulnerability_window) + '</div>' : '') +
+      '</div>';
+
+    var variants = (hooks.variants || []);
+    var hooksHtml = '';
+    if (variants.length){
+      hooksHtml += '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">✉️ Крючки (3 варианта, рекомендуем: <b>' + esc(hooks.best_tone || '—') + '</b>)</div>';
+      variants.forEach(function(v, i){
+        var label = v.tone === 'soft' ? 'Мягкий' : v.tone === 'direct' ? 'Прямой' : v.tone === 'emotional' ? 'Эмоциональный' : v.tone;
+        var sc = parseInt(v.score || 0, 10);
+        var scColor = sc >= 70 ? 'var(--success)' : sc >= 40 ? 'var(--warning)' : 'var(--error)';
+        hooksHtml +=
+          '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+              '<div style="font-size:12px;font-weight:600">' + esc(label) + '</div>' +
+              '<span style="font-size:10px;color:' + scColor + ';border:1px solid ' + scColor + ';padding:1px 6px;border-radius:4px">🧠 ' + sc + '</span>' +
+            '</div>' +
+            '<div class="vk-b2c-hook" style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(v.text || '') + '</div>' +
+            (v.reasoning ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px;font-style:italic">💡 ' + esc(v.reasoning) + '</div>' : '') +
+            '<button data-i="' + i + '" class="vk-b2c-copy" style="margin-top:6px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
+          '</div>';
+      });
+      if (hooks.strategy_summary){
+        hooksHtml += '<div style="font-size:11px;color:var(--text-dim);font-style:italic">💡 ' + esc(hooks.strategy_summary) + '</div>';
+      }
+    } else if (hooks.error){
+      hooksHtml = '<div style="color:var(--error);font-size:12px">DeepSeek не справился: ' + esc(hooks.error) + '</div>';
+    }
+
+    var head =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+        '<a href="' + esc(r.vk_url || '#') + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
+          esc(((ub.first_name||'') + ' ' + (ub.last_name||'')).trim()) +
+        '</a>' +
+        ' <span style="font-size:11px;color:var(--text-dim)">' + ((r.vk_data||{}).wall_count||0) + ' постов · ' + ((r.vk_data||{}).groups_count||0) + ' групп</span>' +
+        (ub.is_closed ? '<span style="font-size:10px;color:var(--warning);border:1px solid var(--warning);padding:1px 6px;border-radius:4px">закрыт</span>' : '') +
+      '</div>';
+
+    document.getElementById('vkB2AnalyzeBody').innerHTML = head + profileHtml + painHtml + hooksHtml;
+
+    document.querySelectorAll('.vk-b2c-copy').forEach(function(b){
+      b.addEventListener('click', async function(){
+        var hookEl = b.parentElement.querySelector('.vk-b2c-hook');
+        if (!hookEl) return;
+        try { await navigator.clipboard.writeText(hookEl.innerText || ''); b.textContent = '✓ Скопировано'; }
+        catch(e){ b.textContent = '⚠️ не вышло'; }
+        setTimeout(function(){ b.textContent = '📋 Скопировать'; }, 1500);
+      });
+    });
+  }
+
+  async function loadFishCats(){
+    try {
+      var r = await api('/api/admin/vk/fisherman-categories');
+      fishCats = r.categories || [];
+      renderFishCats();
+    } catch (e){
+      document.getElementById('vkFishCats').innerHTML =
+        '<span style="color:var(--error)">Ошибка загрузки категорий: ' + esc(e.message) + '</span>';
+    }
+  }
+
+  var fishSelectedCode = null;
+
+  function renderFishCats(){
+    var html = fishCats.map(function(c){
+      return '<button data-code="' + esc(c.code) + '" class="vk-fish-chip" ' +
+        'style="padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer;text-align:left;line-height:1.3" ' +
+        'title="' + esc(c.description || '') + ' · продукт: ' + esc(c.product_hint || '') + '">' +
+          '<div style="font-size:13px;font-weight:600">' + c.icon + ' ' + esc(c.name_ru) + '</div>' +
+          '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">' + esc(c.product_hint || '') + '</div>' +
+        '</button>';
+    }).join('');
+    document.getElementById('vkFishCats').innerHTML = html;
+
+    document.querySelectorAll('.vk-fish-chip').forEach(function(b){
+      b.addEventListener('click', function(){
+        document.querySelectorAll('.vk-fish-chip').forEach(function(x){
+          x.style.borderColor = 'var(--border)';
+          x.style.background = 'var(--surface)';
+        });
+        b.style.borderColor = 'var(--accent)';
+        b.style.background = 'rgba(167,139,250,0.10)';
+        fishSelectedCode = b.dataset.code;
+        var btn = document.getElementById('vkFishSearchBtn');
+        btn.disabled = false; btn.style.opacity = '1';
+        var meta = (fishCats.find(function(c){ return c.code === fishSelectedCode; }) || {});
+        document.getElementById('vkFishMeta').innerHTML =
+          'Ниша: <span style="color:var(--text)">' + esc(meta.description || '') + '</span> · ' +
+          'Продукт: <span style="color:var(--accent)">' + esc(meta.product_hint || '') + '</span>';
+      });
+    });
+  }
+
+  async function runFish(){
+    if (!fishSelectedCode){ return; }
+    var minAud = parseInt(document.getElementById('vkFishMinAud').value || '100', 10);
+    var maxRes = parseInt(document.getElementById('vkFishMax').value || '20', 10);
+    var status = document.getElementById('vkFishStatus');
+    var results = document.getElementById('vkFishResults');
+    status.textContent = '⏳ ищу рыбаков…';
+    results.innerHTML = '';
+    try {
+      var r = await api('/api/admin/vk/fisherman-search?category=' + encodeURIComponent(fishSelectedCode) +
+        '&min_audience=' + minAud + '&max_results=' + maxRes, { method: 'POST' });
+      lastFishermenSearch = { category: fishSelectedCode, candidates: r.candidates || [] };
+      status.textContent = '✓ найдено ' + (r.candidates||[]).length;
+      renderFish(r);
+    } catch (e){
+      status.textContent = '';
+      results.innerHTML = '<div style="color:var(--error);padding:14px">Ошибка: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderFish(r){
+    var cands = r.candidates || [];
+    var stats = r.stats || {};
+
+    var statsHtml = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">' +
+      '🔍 users.search: ' + (stats.search_success||0) + '/' + (stats.search_attempts||0) + ' · ' +
+      'найдено: ' + (stats.candidates_total||0) + ' · ' +
+      'с маркерами категории: ' + (stats.after_marker_filter||0) + ' · ' +
+      'с аудиторией ≥' + (stats.min_audience||0) + ': ' + (stats.after_audience_filter||0) +
+      '</div>';
+
+    if (!cands.length){
+      document.getElementById('vkFishResults').innerHTML = statsHtml +
+        '<div style="padding:24px;text-align:center;color:var(--text-dim)">Никого не нашли. Попробуй снизить мин. аудиторию или другую категорию.</div>';
+      return;
+    }
+
+    var rows = cands.map(function(c){
+      var name = c.full_name || ('id'+c.vk_id);
+      var subtitle = (c.occupation || c.status || '').substring(0, 200);
+      var followers = c.followers || 0;
+      var aud = c.audience_size || 0;
+      var about = c.about ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4">' + esc(c.about) + '</div>' : '';
+      var site = c.site ? '<a href="' + esc(c.site) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);text-decoration:none">↗ сайт</a>' : '';
+      var pitchBtn = '<button data-vk="' + c.vk_id + '" class="vk-fish-pitch" ' +
+        'style="padding:6px 12px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer" ' +
+        'title="Сгенерировать B2B-питч для этого рыбака">✉️ Предложить Фреди</button>';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:0">' +
+            '<a href="' + esc(c.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">' +
+              esc(name) +
+            '</a>' +
+            ' <span style="font-size:11px;color:var(--text-dim)">' + (c.city ? esc(c.city) + ' · ' : '') +
+            '👥 ' + followers + ' подп · ' + aud + ' всего</span>' +
+            ' ' + site +
+          '</div>' +
+          pitchBtn +
+        '</div>' +
+        (subtitle ? '<div style="font-size:12px;font-style:italic;color:var(--text-dim);margin-top:4px">«' + esc(subtitle) + '»</div>' : '') +
+        about +
+      '</div>';
+    }).join('');
+
+    document.getElementById('vkFishResults').innerHTML = statsHtml + rows;
+    document.querySelectorAll('.vk-fish-pitch').forEach(function(b){
+      b.addEventListener('click', function(){ openPitch(parseInt(b.dataset.vk, 10)); });
+    });
+  }
+
+  function ensurePitchModal(){
+    var ov = document.getElementById('vkFishPitchOv');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'vkFishPitchOv';
+    ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10000;align-items:center;justify-content:center;padding:24px';
+    ov.innerHTML =
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:720px;width:100%;max-height:90vh;overflow:auto;padding:18px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
+          '<div style="font-size:16px;font-weight:700">✉️ B2B-питч рыбаку</div>' +
+          '<button id="vkFishPitchClose" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">✕</button>' +
+        '</div>' +
+        '<div id="vkFishPitchBody" style="font-size:13px"></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    document.getElementById('vkFishPitchClose').addEventListener('click', function(){ ov.style.display = 'none'; });
+    ov.addEventListener('click', function(e){ if (e.target === ov) ov.style.display = 'none'; });
+    return ov;
+  }
+
+  async function openPitch(vkId){
+    if (!lastFishermenSearch) return;
+    var cand = (lastFishermenSearch.candidates || []).find(function(c){ return c.vk_id === vkId; });
+    if (!cand) return;
+    var ov = ensurePitchModal();
+    ov.style.display = 'flex';
+    var body = document.getElementById('vkFishPitchBody');
+    body.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px">⏳ DeepSeek пишет питч под этого рыбака…</div>';
+    try {
+      var r = await api('/api/admin/vk/fisherman-pitch', {
+        method: 'POST',
+        body: { category: lastFishermenSearch.category, fisherman: cand },
+      });
+      renderPitch(r, cand);
+    } catch (e){
+      body.innerHTML = '<div style="color:var(--error);padding:14px">Ошибка: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderPitch(r, cand){
+    var variants = r.variants || [];
+    var label = r.product_label || '';
+    var rec = r.recommended_tone || '';
+    var head = '<div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Получатель: <a href="' + esc(cand.vk_url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + esc(cand.full_name||('id'+cand.vk_id)) + '</a> · продукт: <b style="color:var(--accent)">' + esc(label) + '</b></div>';
+    if (r.strategy_summary){
+      head += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;font-style:italic">💡 ' + esc(r.strategy_summary) + '</div>';
+    }
+
+    var html = head;
+    var labels = { short: 'Короткий', detail: 'Развёрнутый', case: 'С кейсом' };
+    variants.forEach(function(v, i){
+      var isRec = v.tone === rec;
+      var bg = isRec ? 'rgba(167,139,250,0.06)' : 'var(--surface)';
+      var br = isRec ? '3px solid var(--accent)' : '1px solid var(--border)';
+      html += '<div style="background:' + bg + ';border-left:' + br + ';padding:10px 12px;border-radius:6px;margin-bottom:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<div style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px">' + esc(labels[v.tone] || v.tone) + (isRec ? ' ⭐ рекоменд' : '') + '</div>' +
+        '</div>' +
+        '<div class="vk-fish-pitch-text" style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(v.text || '') + '</div>' +
+        (v.reasoning ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px;font-style:italic">💡 ' + esc(v.reasoning) + '</div>' : '') +
+        '<div style="margin-top:6px;display:flex;gap:6px">' +
+          '<button data-i="' + i + '" class="vk-fish-pitch-copy" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
+          (r.vk_chat_url ? '<a href="' + esc(r.vk_chat_url) + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(52,211,153,0.4);background:transparent;color:var(--success);font:inherit;font-size:11px;text-decoration:none">💬 VK</a>' : '') +
+        '</div>' +
+      '</div>';
+    });
+
+    document.getElementById('vkFishPitchBody').innerHTML = html;
+    document.querySelectorAll('.vk-fish-pitch-copy').forEach(function(b){
+      b.addEventListener('click', async function(){
+        var txt = b.parentElement.parentElement.querySelector('.vk-fish-pitch-text').innerText || '';
+        try { await navigator.clipboard.writeText(txt); b.textContent = '✓ Скопировано'; }
+        catch(e){ b.textContent = '⚠️ не вышло'; }
+        setTimeout(function(){ b.textContent = '📋 Скопировать'; }, 1500);
+      });
     });
   }
 
