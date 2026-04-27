@@ -230,26 +230,7 @@ def register_vk_routes(app, db):
                 )
             """)
 
-            # Phase 10: лог отправок B2B-питчей рыбакам.
-            # Используется для воронки и предотвращения двойной отправки.
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS fredi_vk_b2b_sent (
-                    id BIGSERIAL PRIMARY KEY,
-                    vk_id    BIGINT NOT NULL,
-                    category TEXT,
-                    tone     TEXT,
-                    message  TEXT,
-                    status   TEXT NOT NULL DEFAULT 'sent',
-                    error    TEXT,
-                    sent_at  TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_fredi_vk_b2b_sent_vk "
-                "ON fredi_vk_b2b_sent(vk_id, sent_at DESC)"
-            )
-
-        logger.info("VK profiles + candidates + phrase tables ready (phase 10)")
+        logger.info("VK profiles + candidates + phrase tables ready (phase 9)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -1541,92 +1522,6 @@ def register_vk_routes(app, db):
             "category": category,
             "vk_chat_url": f"https://vk.com/im?sel={vk_id}" if vk_id else None,
             **result,
-        }
-
-    @app.post("/api/admin/vk/fisherman-send")
-    async def vk_fisherman_send(
-        body: Dict[str, Any] = Body(...),
-        x_admin_token: Optional[str] = Header(default=None),
-    ):
-        """Отправить B2B-питч рыбаку через VK messages.send.
-
-        Тело: {vk_id, text, category?, tone?}.
-        Требует user-token в VK_SERVICE_TOKEN с scope=messages.
-        Логирует в fredi_vk_b2b_sent (status=sent или error+error_msg).
-        """
-        _check_admin(x_admin_token)
-        vk_id = (body or {}).get("vk_id")
-        text = ((body or {}).get("text") or "").strip()
-        category = (body or {}).get("category") or ""
-        tone = (body or {}).get("tone") or ""
-        try:
-            vk_id = int(vk_id)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail={
-                "error": "bad_request", "message": "vk_id обязателен и должен быть числом",
-            })
-        if not text:
-            raise HTTPException(status_code=400, detail={
-                "error": "bad_request", "message": "text не может быть пустым",
-            })
-        if vk_id <= 0:
-            raise HTTPException(status_code=400, detail={
-                "error": "bad_request", "message": "vk_id должен быть положительным",
-            })
-
-        try:
-            from vk_parser import _call
-            import httpx as _httpx
-            import random as _random
-        except Exception as e:
-            raise HTTPException(status_code=500, detail={
-                "error": "imports_failed", "message": str(e),
-            })
-
-        sent_status = "sent"
-        sent_error: Optional[str] = None
-        try:
-            async with _httpx.AsyncClient() as client:
-                resp = await _call(client, "messages.send", {
-                    "user_id": vk_id,
-                    "message": text,
-                    "random_id": _random.randint(1, 2_000_000_000),
-                })
-            # messages.send возвращает либо int (id сообщения), либо dict
-            # с error. Если успех — resp = int.
-            if not (isinstance(resp, int) and resp > 0):
-                sent_status = "error"
-                sent_error = f"unexpected response: {str(resp)[:200]}"
-        except RuntimeError as e:
-            sent_status = "error"
-            sent_error = str(e)[:300]
-
-        # Лог независимо от результата.
-        try:
-            async with db.get_connection() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO fredi_vk_b2b_sent
-                        (vk_id, category, tone, message, status, error)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                    """,
-                    vk_id, str(category)[:64], str(tone)[:32],
-                    text[:4000], sent_status, sent_error,
-                )
-        except Exception as e:
-            logger.warning(f"fisherman-send log write failed: {e}")
-
-        if sent_status == "error":
-            return {
-                "success": False,
-                "error": "vk_send_failed",
-                "message": sent_error,
-                "vk_chat_url": f"https://vk.com/im?sel={vk_id}",
-            }
-        return {
-            "success": True,
-            "status": "sent",
-            "vk_chat_url": f"https://vk.com/im?sel={vk_id}",
         }
 
     @app.get("/api/admin/vk/funnel")

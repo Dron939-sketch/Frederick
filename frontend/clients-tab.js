@@ -2030,17 +2030,16 @@
       var isRec = v.tone === rec;
       var bg = isRec ? 'rgba(167,139,250,0.06)' : 'var(--surface)';
       var br = isRec ? '3px solid var(--accent)' : '1px solid var(--border)';
+      var chatUrl = r.vk_chat_url || ('https://vk.com/im?sel=' + (cand.vk_id || ''));
       html += '<div style="background:' + bg + ';border-left:' + br + ';padding:10px 12px;border-radius:6px;margin-bottom:10px" data-tone="' + esc(v.tone || '') + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
           '<div style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px">' + esc(labels[v.tone] || v.tone) + (isRec ? ' ⭐ рекоменд' : '') + '</div>' +
         '</div>' +
         '<div class="vk-fish-pitch-text" style="white-space:pre-wrap;line-height:1.5;font-size:13px">' + esc(v.text || '') + '</div>' +
         (v.reasoning ? '<div style="font-size:11px;color:var(--text-dim);margin-top:4px;font-style:italic">💡 ' + esc(v.reasoning) + '</div>' : '') +
-        '<div class="vk-fish-pitch-status" style="font-size:11px;margin-top:6px;min-height:14px"></div>' +
-        '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' +
+        '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
           '<button data-i="' + i + '" class="vk-fish-pitch-copy" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
-          '<button data-vk="' + (cand.vk_id || '') + '" class="vk-fish-pitch-send" style="padding:5px 10px;border-radius:6px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:11px;font-weight:700;cursor:pointer">📤 Отправить</button>' +
-          (r.vk_chat_url ? '<a href="' + esc(r.vk_chat_url) + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(52,211,153,0.4);background:transparent;color:var(--success);font:inherit;font-size:11px;text-decoration:none">💬 VK-чат</a>' : '') +
+          '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:11px;font-weight:700;text-decoration:none">💬 Открыть чат</a>' +
         '</div>' +
       '</div>';
     });
@@ -2052,50 +2051,6 @@
         try { await navigator.clipboard.writeText(txt); b.textContent = '✓ Скопировано'; }
         catch(e){ b.textContent = '⚠️ не вышло'; }
         setTimeout(function(){ b.textContent = '📋 Скопировать'; }, 1500);
-      });
-    });
-    // Кнопка «📤 Отправить» — реальная отправка через VK messages.send.
-    document.querySelectorAll('.vk-fish-pitch-send').forEach(function(b){
-      b.addEventListener('click', async function(){
-        var box = b.parentElement.parentElement;
-        var txtEl = box.querySelector('.vk-fish-pitch-text');
-        var statusEl = box.querySelector('.vk-fish-pitch-status');
-        var tone = box.getAttribute('data-tone') || '';
-        var vkId = parseInt(b.dataset.vk, 10);
-        var name = (cand && cand.full_name) || ('id' + vkId);
-        var txt = (txtEl && txtEl.innerText || '').trim();
-        if (!vkId || !txt){ return; }
-        if (!confirm('Отправить это сообщение «' + name + '»? Действие необратимо.')) return;
-        b.disabled = true; b.textContent = '⏳…';
-        if (statusEl) statusEl.innerHTML = '';
-        try {
-          var resp = await api('/api/admin/vk/fisherman-send', {
-            method: 'POST',
-            body: {
-              vk_id: vkId, text: txt,
-              category: (lastFishermenSearch && lastFishermenSearch.category) || '',
-              tone: tone,
-            },
-          });
-          if (resp.success){
-            b.textContent = '✓ Отправлено';
-            b.style.background = 'var(--success)';
-            if (statusEl) statusEl.innerHTML =
-              '<span style="color:var(--success)">✓ Сообщение доставлено</span>';
-          } else {
-            b.disabled = false;
-            b.textContent = '📤 Отправить';
-            if (statusEl) statusEl.innerHTML =
-              '<span style="color:var(--error)">⚠ ' + esc(resp.message || 'не удалось') + ' — </span>' +
-              '<a href="' + esc(resp.vk_chat_url || ('https://vk.com/im?sel=' + vkId)) +
-              '" target="_blank" rel="noopener" style="color:var(--accent)">открой VK-чат и отправь руками ↗</a>';
-          }
-        } catch (e){
-          b.disabled = false;
-          b.textContent = '📤 Отправить';
-          if (statusEl) statusEl.innerHTML =
-            '<span style="color:var(--error)">⚠ ' + esc(e.message || 'ошибка') + '</span>';
-        }
       });
     });
   }
