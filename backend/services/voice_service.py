@@ -470,6 +470,18 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         response = await client.post(DEEPGRAM_API_URL, headers=headers, params=params, content=audio_bytes, timeout=30.0)
         if response.status_code == 200:
             data = response.json()
+            # Учёт расходов: длительность аудио из metadata.duration (секунды).
+            try:
+                import asyncio as _aio
+                from services.api_usage import log_stt_usage
+                dur = float(((data or {}).get("metadata") or {}).get("duration") or 0.0)
+                _aio.create_task(log_stt_usage(
+                    provider="deepgram", model="nova-2",
+                    seconds=dur,
+                    feature="stt.deepgram",
+                ))
+            except Exception as _e:
+                logger.warning(f"api_usage skip: {_e}")
             try:
                 transcript = data['results']['channels'][0]['alternatives'][0].get('transcript', '')
                 confidence = data['results']['channels'][0]['alternatives'][0].get('confidence', 0)
@@ -591,6 +603,16 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         if response.status_code == 200:
             audio_data = response.content
             logger.info(f"✅ Yandex TTS (Filipp): {len(audio_data)} байт, голос: {voice}")
+            try:
+                import asyncio as _aio
+                from services.api_usage import log_tts_usage
+                _aio.create_task(log_tts_usage(
+                    provider="yandex", model=voice or "default",
+                    chars=len(text or ""),
+                    feature="tts.yandex_fallback",
+                ))
+            except Exception as _e:
+                logger.warning(f"api_usage skip: {_e}")
             return audio_data
         else:
             logger.error(f"❌ Yandex TTS error {response.status_code}: {response.text[:200]}")

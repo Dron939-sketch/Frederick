@@ -277,6 +277,17 @@ async def optimize_phrases(db, category: str) -> Dict[str, Any]:
             )
         body = r.json()
         content = body["choices"][0]["message"]["content"]
+        try:
+            import asyncio as _aio
+            from services.api_usage import log_llm_usage, extract_deepseek_tokens
+            tk = extract_deepseek_tokens(body)
+            _aio.create_task(log_llm_usage(
+                provider="deepseek", model="deepseek-chat",
+                tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+                feature="phrase_optimizer.suggest",
+            ))
+        except Exception:
+            pass
         result = json.loads(content)
     except Exception as e:
         logger.warning(f"phrase optimizer DeepSeek call failed: {e}")

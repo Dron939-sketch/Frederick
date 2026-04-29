@@ -187,6 +187,17 @@ async def _call_deepseek(messages_block: str) -> Dict[str, Any]:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
         raise RuntimeError(f"DeepSeek unexpected shape: {str(body)[:300]}")
+    try:
+        import asyncio as _aio
+        from services.api_usage import log_llm_usage, extract_deepseek_tokens
+        tk = extract_deepseek_tokens(body)
+        _aio.create_task(log_llm_usage(
+            provider="deepseek", model="deepseek-chat",
+            tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+            feature="session_memory.compact",
+        ))
+    except Exception:
+        pass
     text = content.strip()
     if text.startswith("```"):
         text = text.strip("`")

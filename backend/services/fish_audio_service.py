@@ -55,6 +55,16 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist") -> bytes 
                 audio_bytes = resp.content
                 if len(audio_bytes) > 100:
                     logger.info(f"Fish Audio TTS ok: {len(audio_bytes)} bytes, mode={mode}")
+                    try:
+                        import asyncio as _aio
+                        from services.api_usage import log_tts_usage
+                        _aio.create_task(log_tts_usage(
+                            provider="fishaudio", model="default",
+                            chars=len(text or ""),
+                            feature=f"tts.{mode}",
+                        ))
+                    except Exception as _e:
+                        logger.warning(f"api_usage skip: {_e}")
                     return audio_bytes
                 else:
                     logger.warning(f"Fish Audio returned too small response: {len(audio_bytes)} bytes")
