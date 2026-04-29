@@ -71,6 +71,13 @@ PRICING: Dict[str, Dict[str, Dict[str, float]]] = {
             "per_kchar": 0.05,
         },
     },
+    "yandex": {
+        # Yandex SpeechKit TTS premium (Filipp). ~600 RUB/M chars ≈ $6.5/M.
+        # Уточнить по тарифу облака. Pay-per-use.
+        "default": {
+            "per_kchar": 0.0065,
+        },
+    },
     "deepgram": {
         # Речь→текст, цена за минуту аудио.
         "nova-2": {

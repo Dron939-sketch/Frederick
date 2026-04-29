@@ -235,6 +235,18 @@ async def draft_message(
     except (KeyError, IndexError, TypeError):
         raise RuntimeError(f"DeepSeek: unexpected response shape: {str(body)[:400]}")
 
+    try:
+        import asyncio as _aio
+        from services.api_usage import log_llm_usage, extract_deepseek_tokens
+        tk = extract_deepseek_tokens(body)
+        _aio.create_task(log_llm_usage(
+            provider="deepseek", model="deepseek-chat",
+            tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+            feature="outreach.draft",
+        ))
+    except Exception:
+        pass
+
     text = content.strip()
     if text.startswith("```"):
         text = text.strip("`")

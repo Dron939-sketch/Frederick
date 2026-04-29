@@ -365,6 +365,18 @@ async def extract_features(
     except (KeyError, IndexError, TypeError):
         raise RuntimeError(f"DeepSeek: unexpected response shape: {str(body)[:400]}")
 
+    try:
+        import asyncio as _aio
+        from services.api_usage import log_llm_usage, extract_deepseek_tokens
+        tk = extract_deepseek_tokens(body)
+        _aio.create_task(log_llm_usage(
+            provider="deepseek", model="deepseek-chat",
+            tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+            feature="feature_extractor.extract",
+        ))
+    except Exception:
+        pass
+
     # Иногда модели оборачивают JSON в markdown ```json ... ``` несмотря на
     # response_format=json_object. Защищаемся.
     text = content.strip()
