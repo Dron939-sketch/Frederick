@@ -1672,12 +1672,32 @@ async def morning_messages_scheduler():
                     if local_weekday > 4 or local_hour != 9 or local_now.minute > 5:
                         continue
 
-                    # Защита от дублей: если last_morning_sent_at уже был сегодня (по UTC) — скип
-                    last_sent = row["last_morning_sent_at"]
-                    if last_sent:
-                        last_sent_local = last_sent + timedelta(hours=int(tz_offset)) if last_sent.tzinfo is None else last_sent.astimezone(_tz.utc) + timedelta(hours=int(tz_offset))
-                        if last_sent_local.date() == local_now.date():
-                            continue
+                    # АТОМАРНЫЙ CLAIM: пытаемся «забронировать» слот через
+                    # UPDATE ... WHERE ... RETURNING. Только один воркер
+                    # из всех реплик выиграет эту операцию — остальные
+                    # получат пустой результат и скипнут юзера.
+                    # Это защита от двойной отправки при многопроцессном
+                    # развёртывании (Render --workers 2+, несколько реплик).
+                    async with db.get_connection() as claim_conn:
+                        claimed = await claim_conn.fetchval(
+                            """
+                            UPDATE fredi_users
+                            SET last_morning_sent_at = NOW()
+                            WHERE user_id = $1
+                              AND (
+                                last_morning_sent_at IS NULL
+                                OR ((last_morning_sent_at AT TIME ZONE 'UTC')
+                                    + make_interval(hours => $2))::date
+                                   < ((NOW() AT TIME ZONE 'UTC')
+                                      + make_interval(hours => $2))::date
+                              )
+                            RETURNING user_id
+                            """,
+                            user_id, int(tz_offset),
+                        )
+                    if not claimed:
+                        # Кто-то другой уже забрал слот — пропускаем.
+                        continue
 
                     # Готовим контекст
                     weather_cache = row["weather_cache"]
@@ -1745,14 +1765,12 @@ async def morning_messages_scheduler():
                     )
 
                     # Сохраняем полный текст
+                    # last_morning_sent_at уже выставлен атомарным claim'ом выше.
+                    # Здесь только сохраняем сам текст сообщения.
                     async with db.get_connection() as conn2:
                         await conn2.execute(
                             "INSERT INTO fredi_morning_messages (user_id, message_text, message_type, day_number) VALUES ($1, $2, $3, $4)",
                             user_id, message, "weekend" if day == 5 else "morning", day
-                        )
-                        await conn2.execute(
-                            "UPDATE fredi_users SET last_morning_sent_at = NOW() WHERE user_id = $1",
-                            user_id
                         )
 
                     # Маршрутизация по выбранному каналу
