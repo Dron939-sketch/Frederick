@@ -1608,16 +1608,50 @@ def register_vk_routes(app, db):
     # =========================================================
 
     def _resolve_screen(raw: str) -> str:
+        """Нормализация любых вариантов VK-ссылки/имени → screen_name или idN.
+
+        Принимает:
+          • https://vk.com/example
+          • http://vk.com/example/
+          • vk.com/example?w=wall1_2
+          • https://m.vk.com/example
+          • https://www.vk.com/example
+          • vk.ru/example
+          • https://vk.com/id123456
+          • https://vk.com/example#about
+          • https://vk.com/example/photos
+          • @example  (Telegram-style)
+          • «example», "example"  (с кавычками)
+          • просто example / id123456
+          • с пробелами и переводами строк по краям
+        """
         s = (raw or "").strip()
         if not s:
             return ""
-        s = s.split("?")[0].rstrip("/")
-        if s.startswith("https://") or s.startswith("http://"):
-            s = s.split("//", 1)[1]
-        if s.startswith("vk.com/"):
-            s = s[len("vk.com/"):]
-        if s.startswith("m.vk.com/"):
-            s = s[len("m.vk.com/"):]
+        # Кавычки/скобки.
+        s = s.strip("«»\"'() \t\n\r")
+        # Удаляем @-префикс если есть.
+        if s.startswith("@"):
+            s = s[1:]
+        # Отрезаем хеш-фрагмент и query.
+        s = s.split("#", 1)[0]
+        s = s.split("?", 1)[0]
+        # Протокол.
+        low = s.lower()
+        if low.startswith("https://"):
+            s = s[8:]
+        elif low.startswith("http://"):
+            s = s[7:]
+        # Все варианты доменов VK.
+        for prefix in ("www.vk.com/", "www.vk.ru/", "m.vk.com/", "m.vk.ru/", "vk.com/", "vk.ru/"):
+            if s.lower().startswith(prefix):
+                s = s[len(prefix):]
+                break
+        # Если остался слэш (юзер вставил vk.com/example/wall1_2),
+        # берём только первый сегмент — это сам screen_name.
+        if "/" in s:
+            s = s.split("/", 1)[0]
+        s = s.strip().rstrip("/")
         return s
 
     @app.post("/api/brand/vk-link")
