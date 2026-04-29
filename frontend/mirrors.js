@@ -900,7 +900,8 @@ async function showVkAnalyzeTab(container) {
                 </div>
 
                 <input id="vkAnalyzeInput" type="text"
-                    placeholder="vk.com/example или example"
+                    placeholder="https://vk.com/example  или  vk.com/id123  или  example"
+                    title="Принимается любой формат: с http/https, www, m.vk.com, vk.ru, с trailing-слэшами, ?w=wall, #fragment — всё нормализуется автоматически"
                     style="width:100%;background:rgba(255,255,255,0.04);
                            border:1px solid rgba(255,255,255,0.1);border-radius:12px;
                            padding:13px 16px;color:#fff;font-size:14px;
@@ -908,6 +909,9 @@ async function showVkAnalyzeTab(container) {
                            outline:none;"
                     onfocus="this.style.borderColor='rgba(167,139,250,0.4)'"
                     onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:10px;line-height:1.5">
+                    Любая форма: <code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">https://vk.com/example</code>, <code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">vk.com/id123</code> или <code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">example</code>.
+                </div>
                 <button id="vkAnalyzeBtn" onclick="runVkAnalyze()"
                     style="width:100%;background:linear-gradient(135deg,#a78bfa,#7c3aed);
                            color:#fff;border:none;border-radius:12px;padding:13px 28px;
