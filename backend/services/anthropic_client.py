@@ -39,6 +39,18 @@ async def call_anthropic(prompt: str, max_tokens: int = 150, temperature: float 
 
             if resp.status_code == 200:
                 data = resp.json()
+                # Учёт расходов (fire-and-forget).
+                try:
+                    import asyncio as _aio
+                    from services.api_usage import log_llm_usage, extract_anthropic_tokens
+                    tk = extract_anthropic_tokens(data)
+                    _aio.create_task(log_llm_usage(
+                        provider="anthropic", model=data.get("model") or ANTHROPIC_MODEL,
+                        tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+                        feature="basic_mode.chat",
+                    ))
+                except Exception as _e:
+                    logger.warning(f"api_usage skip: {_e}")
                 content = data.get("content", [])
                 if content and len(content) > 0:
                     text = content[0].get("text", "")

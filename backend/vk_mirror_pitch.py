@@ -104,6 +104,17 @@ async def _llm_tail(category_meta: Dict[str, Any], name: str) -> str:
             )
         body = r.json()
         content = body["choices"][0]["message"]["content"]
+        try:
+            import asyncio as _aio
+            from services.api_usage import log_llm_usage, extract_deepseek_tokens
+            tk = extract_deepseek_tokens(body)
+            _aio.create_task(log_llm_usage(
+                provider="deepseek", model=DEEPSEEK_MODEL,
+                tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+                feature="mirror_pitch.tail",
+            ))
+        except Exception as _e:
+            logger.warning(f"api_usage skip: {_e}")
         data = json.loads(content)
         text = (data.get("text") or "").strip()
         if not text:

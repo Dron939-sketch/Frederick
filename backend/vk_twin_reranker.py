@@ -181,6 +181,18 @@ async def rerank_candidate(
     except (KeyError, IndexError, TypeError):
         raise RuntimeError(f"DeepSeek re-rank: unexpected response: {str(body)[:300]}")
 
+    try:
+        import asyncio as _aio
+        from services.api_usage import log_llm_usage, extract_deepseek_tokens
+        tk = extract_deepseek_tokens(body)
+        _aio.create_task(log_llm_usage(
+            provider="deepseek", model="deepseek-chat",
+            tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+            feature="twin_reranker.score",
+        ))
+    except Exception as _e:
+        logger.warning(f"api_usage skip: {_e}")
+
     text = content.strip()
     if text.startswith("```"):
         text = text.strip("`")

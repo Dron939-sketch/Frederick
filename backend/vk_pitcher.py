@@ -144,6 +144,17 @@ async def generate_pitch(
             )
         body = r.json()
         content = body["choices"][0]["message"]["content"]
+        try:
+            import asyncio as _aio
+            from services.api_usage import log_llm_usage, extract_deepseek_tokens
+            tk = extract_deepseek_tokens(body)
+            _aio.create_task(log_llm_usage(
+                provider="deepseek", model=DEEPSEEK_MODEL,
+                tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+                feature="b2b_pitch.generate",
+            ))
+        except Exception as _e:
+            logger.warning(f"api_usage skip: {_e}")
         return json.loads(content)
     except Exception as e:
         logger.warning(f"vk_pitcher.generate_pitch failed: {e}")
