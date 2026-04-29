@@ -151,7 +151,11 @@ def _resolve_screen_name(url_or_name: str) -> str:
     return s
 
 
-async def _deepseek(messages: List[Dict[str, str]], temperature: float = 0.4) -> Dict[str, Any]:
+async def _deepseek(
+    messages: List[Dict[str, str]],
+    temperature: float = 0.4,
+    feature: str = "vk_b2c_analyzer",
+) -> Dict[str, Any]:
     api_key = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY missing")
@@ -172,6 +176,18 @@ async def _deepseek(messages: List[Dict[str, str]], temperature: float = 0.4) ->
         )
     body = r.json()
     content = body["choices"][0]["message"]["content"]
+    # Учёт расходов (fire-and-forget).
+    try:
+        import asyncio as _aio
+        from services.api_usage import log_llm_usage, extract_deepseek_tokens
+        tk = extract_deepseek_tokens(body)
+        _aio.create_task(log_llm_usage(
+            provider="deepseek", model=DEEPSEEK_MODEL,
+            tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
+            feature=feature,
+        ))
+    except Exception as _e:
+        logger.warning(f"api_usage log skipped: {_e}")
     return json.loads(content)
 
 
@@ -252,7 +268,7 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         profile = await _deepseek([
             {"role": "system", "content": _PROFILE_SYSTEM},
             {"role": "user", "content": summary},
-        ], temperature=0.3)
+        ], temperature=0.3, feature="b2c.profile")
     except Exception as e:
         logger.warning(f"analyze_profile: pass1 failed: {e}")
         profile = {"error": str(e)}
@@ -268,7 +284,7 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         pain = await _deepseek([
             {"role": "system", "content": _PAIN_SYSTEM},
             {"role": "user", "content": pain_input},
-        ], temperature=0.4)
+        ], temperature=0.4, feature="b2c.pain")
     except Exception as e:
         logger.warning(f"analyze_profile: pass2 failed: {e}")
         pain = {"error": str(e)}
@@ -286,7 +302,7 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         hooks = await _deepseek([
             {"role": "system", "content": _HOOK_SYSTEM},
             {"role": "user", "content": hook_input},
-        ], temperature=0.7)
+        ], temperature=0.7, feature="b2c.hooks")
     except Exception as e:
         logger.warning(f"analyze_profile: pass3 failed: {e}")
         hooks = {"error": str(e)}

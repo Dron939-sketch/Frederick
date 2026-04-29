@@ -192,6 +192,7 @@
         <button data-tab="summary" class="active">Сводка (7 дней)</button>
         <button data-tab="recent">Последние события</button>
         <button data-tab="dialogs">Диалоги</button>
+        <button data-tab="costs">💰 Расходы</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
     </div>
 
@@ -257,6 +258,26 @@
         </div>
         <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin-bottom:8px">Последние 100 вопросов</h3>
         <div id="messagesList"></div>
+    </section>
+
+    <section id="costsTab" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+            <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:0">💰 Расходы на внешние API</h3>
+            <select id="costsPeriod" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit">
+                <option value="24h">24 часа</option>
+                <option value="7d" selected>7 дней</option>
+                <option value="30d">30 дней</option>
+                <option value="all">Всё время</option>
+            </select>
+            <button id="costsRefresh" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄 Обновить</button>
+        </div>
+        <div id="costsKpi" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:18px"></div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">По провайдерам</h3>
+        <div id="costsByProvider"></div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">По функциям (top-30)</h3>
+        <div id="costsByFeature"></div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">Дневной тренд</h3>
+        <div id="costsDaily"></div>
     </section>
 
     <!-- Dialog drawer -->
@@ -333,6 +354,8 @@
         document.getElementById('recentTab').style.display = 'none';
         var dlgTab = document.getElementById('dialogsTab');
         if (dlgTab) dlgTab.style.display = 'none';
+        var costsTab = document.getElementById('costsTab');
+        if (costsTab) costsTab.style.display = 'none';
         try {
             if (currentTab === 'summary') {
                 var d = await _fetch('/api/analytics/summary');
@@ -346,6 +369,11 @@
                 var m = await _fetch('/api/analytics/messages?limit=100');
                 renderMessagesList(m);
                 if (dlgTab) dlgTab.style.display = 'block';
+            } else if (currentTab === 'costs') {
+                var period = (document.getElementById('costsPeriod') || {}).value || '7d';
+                var c = await _fetch('/api/analytics/costs?period=' + encodeURIComponent(period));
+                renderCosts(c);
+                if (costsTab) costsTab.style.display = 'block';
             }
         } catch (e) {
             _err(e.message || 'Ошибка');
@@ -377,6 +405,128 @@
         document.getElementById('heroSub').innerHTML =
             '<span class="hero-pulse' + (mood==='err'?' err':(mood==='warn'?' warn':'')) + '"></span>' +
             'Сегодня у Фреди: <b>' + dauToday + '</b> человек • <b>' + totalWeek + '</b> событий за 7 дней • среднее DAU <b>' + avgDau + '</b>';
+    }
+
+    function _fmtUsd(v){ return '$' + Number(v || 0).toFixed(4); }
+    function _fmtTokens(v){
+        v = Number(v || 0);
+        if (v >= 1_000_000) return (v/1_000_000).toFixed(2) + 'M';
+        if (v >= 1_000) return (v/1_000).toFixed(1) + 'k';
+        return String(v);
+    }
+
+    function renderCosts(d){
+        var totals = d && d.totals || {};
+        var kpi = document.getElementById('costsKpi');
+        kpi.innerHTML =
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">' +
+                '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Total USD</div>' +
+                '<div style="font-size:24px;font-weight:700;color:var(--accent)">' + _fmtUsd(totals.cost_usd) + '</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">' +
+                '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Calls</div>' +
+                '<div style="font-size:24px;font-weight:700">' + (totals.calls || 0) + '</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">' +
+                '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Tokens IN</div>' +
+                '<div style="font-size:24px;font-weight:700">' + _fmtTokens(totals.tokens_in) + '</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">' +
+                '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Tokens OUT</div>' +
+                '<div style="font-size:24px;font-weight:700">' + _fmtTokens(totals.tokens_out) + '</div>' +
+            '</div>';
+
+        var byProv = d && d.by_provider || [];
+        var bp = document.getElementById('costsByProvider');
+        if (!byProv.length){
+            bp.innerHTML = '<div style="color:var(--text-dim);padding:14px">Пока ничего не залогировано. Сделай несколько LLM-запросов и обнови.</div>';
+        } else {
+            var rows = byProv.map(function(r){
+                return '<tr>' +
+                    '<td style="padding:8px 10px;font-weight:600">' + (r.provider||'') + '</td>' +
+                    '<td style="padding:8px 10px;color:var(--text-dim)">' + (r.model||'') + '</td>' +
+                    '<td style="padding:8px 10px;text-align:right">' + r.calls + '</td>' +
+                    '<td style="padding:8px 10px;text-align:right;color:var(--text-dim)">' + _fmtTokens(r.tokens_in) + '</td>' +
+                    '<td style="padding:8px 10px;text-align:right;color:var(--text-dim)">' + _fmtTokens(r.tokens_out) + '</td>' +
+                    '<td style="padding:8px 10px;text-align:right;font-weight:700;color:var(--accent)">' + _fmtUsd(r.cost_usd) + '</td>' +
+                '</tr>';
+            }).join('');
+            bp.innerHTML =
+                '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
+                    '<thead><tr style="background:rgba(0,0,0,0.04);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim)">' +
+                        '<th style="padding:10px;text-align:left">Provider</th>' +
+                        '<th style="padding:10px;text-align:left">Model</th>' +
+                        '<th style="padding:10px;text-align:right">Calls</th>' +
+                        '<th style="padding:10px;text-align:right">Tok IN</th>' +
+                        '<th style="padding:10px;text-align:right">Tok OUT</th>' +
+                        '<th style="padding:10px;text-align:right">Cost</th>' +
+                    '</tr></thead>' +
+                    '<tbody>' + rows + '</tbody>' +
+                '</table>';
+        }
+
+        var byFeat = d && d.by_feature || [];
+        var bf = document.getElementById('costsByFeature');
+        if (!byFeat.length){
+            bf.innerHTML = '';
+        } else {
+            var frows = byFeat.map(function(r){
+                return '<tr>' +
+                    '<td style="padding:8px 10px;font-family:monospace;font-size:12px">' + (r.feature||'(none)') + '</td>' +
+                    '<td style="padding:8px 10px;color:var(--text-dim)">' + (r.provider||'') + '</td>' +
+                    '<td style="padding:8px 10px;text-align:right">' + r.calls + '</td>' +
+                    '<td style="padding:8px 10px;text-align:right;font-weight:700;color:var(--accent)">' + _fmtUsd(r.cost_usd) + '</td>' +
+                '</tr>';
+            }).join('');
+            bf.innerHTML =
+                '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
+                    '<thead><tr style="background:rgba(0,0,0,0.04);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim)">' +
+                        '<th style="padding:10px;text-align:left">Feature</th>' +
+                        '<th style="padding:10px;text-align:left">Provider</th>' +
+                        '<th style="padding:10px;text-align:right">Calls</th>' +
+                        '<th style="padding:10px;text-align:right">Cost</th>' +
+                    '</tr></thead>' +
+                    '<tbody>' + frows + '</tbody>' +
+                '</table>';
+        }
+
+        var daily = d && d.daily || [];
+        var dl = document.getElementById('costsDaily');
+        if (!daily.length){
+            dl.innerHTML = '';
+        } else {
+            // Группируем по дате.
+            var byDay = {};
+            var providers = {};
+            daily.forEach(function(r){
+                if (!byDay[r.day]) byDay[r.day] = {};
+                byDay[r.day][r.provider] = r.cost_usd;
+                providers[r.provider] = true;
+            });
+            var provList = Object.keys(providers);
+            var dayList = Object.keys(byDay).sort();
+            var headerCells = '<th style="padding:10px;text-align:left">Day</th>' +
+                provList.map(function(p){ return '<th style="padding:10px;text-align:right">' + p + '</th>'; }).join('') +
+                '<th style="padding:10px;text-align:right;font-weight:700">Total</th>';
+            var bodyRows = dayList.map(function(day){
+                var total = 0;
+                var cells = provList.map(function(p){
+                    var v = byDay[day][p] || 0;
+                    total += v;
+                    return '<td style="padding:8px 10px;text-align:right;color:var(--text-dim)">' + (v ? _fmtUsd(v) : '—') + '</td>';
+                }).join('');
+                return '<tr>' +
+                    '<td style="padding:8px 10px;font-family:monospace">' + day + '</td>' +
+                    cells +
+                    '<td style="padding:8px 10px;text-align:right;font-weight:700;color:var(--accent)">' + _fmtUsd(total) + '</td>' +
+                '</tr>';
+            }).join('');
+            dl.innerHTML =
+                '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
+                    '<thead><tr style="background:rgba(0,0,0,0.04);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim)">' + headerCells + '</tr></thead>' +
+                    '<tbody>' + bodyRows + '</tbody>' +
+                '</table>';
+        }
     }
 
     function renderSummary(d){
@@ -646,6 +796,15 @@
     });
     var refreshBtn = document.getElementById('refreshDialogs');
     if (refreshBtn) refreshBtn.addEventListener('click', function(){ if (currentTab === 'dialogs') refresh(); });
+
+    var costsRefreshBtn = document.getElementById('costsRefresh');
+    if (costsRefreshBtn) costsRefreshBtn.addEventListener('click', function(){
+        if (currentTab === 'costs') refresh();
+    });
+    var costsPeriodSel = document.getElementById('costsPeriod');
+    if (costsPeriodSel) costsPeriodSel.addEventListener('change', function(){
+        if (currentTab === 'costs') refresh();
+    });
     var jumpInput = document.getElementById('userIdJump');
     var jumpBtn = document.getElementById('userIdJumpBtn');
     function _doJump(){

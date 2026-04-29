@@ -514,6 +514,135 @@ def register_analytics_routes(app, db):
             logger.error(f"analytics messages user error: {e}")
             return {"error": "internal"}
 
+    @app.get("/api/analytics/costs")
+    async def analytics_costs(
+        period: str = "7d",
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Расходы на внешние API за период.
+
+        period: '24h' | '7d' | '30d' | 'all'
+        Возвращает: total_usd, by_provider, by_feature, daily_trend.
+        """
+        _check_admin(x_admin_token)
+        period = (period or "7d").lower()
+        if period == "24h":
+            interval = "24 hours"
+        elif period == "30d":
+            interval = "30 days"
+        elif period == "all":
+            interval = None
+        else:
+            interval = "7 days"
+
+        where_clause = f"WHERE created_at > NOW() - INTERVAL '{interval}'" if interval else ""
+
+        try:
+            async with db.get_connection() as conn:
+                # Total
+                total_usd = await conn.fetchval(
+                    f"SELECT COALESCE(SUM(cost_usd),0) FROM fredi_api_usage {where_clause}"
+                )
+                total_calls = await conn.fetchval(
+                    f"SELECT COUNT(*) FROM fredi_api_usage {where_clause}"
+                )
+                total_tokens_in = await conn.fetchval(
+                    f"SELECT COALESCE(SUM(tokens_in),0) FROM fredi_api_usage {where_clause}"
+                )
+                total_tokens_out = await conn.fetchval(
+                    f"SELECT COALESCE(SUM(tokens_out),0) FROM fredi_api_usage {where_clause}"
+                )
+
+                # By provider+model
+                by_provider_rows = await conn.fetch(
+                    f"""
+                    SELECT provider, model,
+                           COUNT(*) AS calls,
+                           COALESCE(SUM(tokens_in),0) AS tokens_in,
+                           COALESCE(SUM(tokens_out),0) AS tokens_out,
+                           COALESCE(SUM(chars),0) AS chars,
+                           COALESCE(SUM(seconds),0) AS seconds,
+                           COALESCE(SUM(cost_usd),0) AS cost_usd
+                    FROM fredi_api_usage
+                    {where_clause}
+                    GROUP BY provider, model
+                    ORDER BY cost_usd DESC
+                    """
+                )
+
+                # By feature
+                by_feature_rows = await conn.fetch(
+                    f"""
+                    SELECT COALESCE(feature, '(none)') AS feature,
+                           provider,
+                           COUNT(*) AS calls,
+                           COALESCE(SUM(cost_usd),0) AS cost_usd
+                    FROM fredi_api_usage
+                    {where_clause}
+                    GROUP BY feature, provider
+                    ORDER BY cost_usd DESC
+                    LIMIT 30
+                    """
+                )
+
+                # Daily trend
+                daily_rows = await conn.fetch(
+                    f"""
+                    SELECT DATE(created_at) AS day,
+                           provider,
+                           COUNT(*) AS calls,
+                           COALESCE(SUM(cost_usd),0) AS cost_usd
+                    FROM fredi_api_usage
+                    {where_clause}
+                    GROUP BY day, provider
+                    ORDER BY day ASC
+                    """
+                )
+
+            return {
+                "period": period,
+                "totals": {
+                    "cost_usd": float(total_usd or 0.0),
+                    "calls": int(total_calls or 0),
+                    "tokens_in": int(total_tokens_in or 0),
+                    "tokens_out": int(total_tokens_out or 0),
+                },
+                "by_provider": [
+                    {
+                        "provider": r["provider"],
+                        "model": r["model"] or "",
+                        "calls": int(r["calls"]),
+                        "tokens_in": int(r["tokens_in"] or 0),
+                        "tokens_out": int(r["tokens_out"] or 0),
+                        "chars": int(r["chars"] or 0),
+                        "seconds": float(r["seconds"] or 0),
+                        "cost_usd": float(r["cost_usd"] or 0),
+                    }
+                    for r in by_provider_rows
+                ],
+                "by_feature": [
+                    {
+                        "feature": r["feature"],
+                        "provider": r["provider"],
+                        "calls": int(r["calls"]),
+                        "cost_usd": float(r["cost_usd"] or 0),
+                    }
+                    for r in by_feature_rows
+                ],
+                "daily": [
+                    {
+                        "day": r["day"].isoformat() if r["day"] else None,
+                        "provider": r["provider"],
+                        "calls": int(r["calls"]),
+                        "cost_usd": float(r["cost_usd"] or 0),
+                    }
+                    for r in daily_rows
+                ],
+            }
+        except Exception as e:
+            logger.error(f"analytics costs error: {e}")
+            return {"error": "internal", "message": str(e)}
+
     # === VK targeting (phase 1) chain-bootstrap ===
     # Цепляем регистрацию vk_routes сюда, чтобы не править main.py из этой
     # ветки (signing-сервер харнесса временно недоступен — нет возможности

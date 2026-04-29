@@ -340,6 +340,15 @@ async def lifespan(app: FastAPI):
         app.include_router(create_auth_router(db, limiter, email_service))
         _init_analytics = register_analytics_routes(app, db)
         await _init_analytics()
+
+        # Подключаем учёт расходов на внешние API.
+        try:
+            from services.api_usage import set_db as _set_api_usage_db
+            _set_api_usage_db(db)
+            logger.info("✅ api_usage logger подключён")
+        except Exception as e:
+            logger.warning(f"api_usage init failed: {e}")
+
         logger.info("✅ Таблицы готовы (включая платежи, auth и analytics)")
 
         logger.info("📦 Запуск фоновых задач...")
@@ -1148,6 +1157,33 @@ async def init_database_tables():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_weekend_cache_expires ON fredi_weekend_ideas_cache(expires_at)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_morning_messages_user ON fredi_morning_messages(user_id, sent_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_users_last_activity ON fredi_users(last_activity DESC) WHERE is_active = TRUE")
+
+        # Лог расходов на внешние API (DeepSeek, Anthropic, Fish Audio, Deepgram).
+        # Каждая запись = один вызов с computed-USD стоимостью.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_api_usage (
+                id BIGSERIAL PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT,
+                feature TEXT,
+                tokens_in INTEGER,
+                tokens_out INTEGER,
+                chars INTEGER,
+                seconds DOUBLE PRECISION,
+                cost_usd DOUBLE PRECISION DEFAULT 0,
+                user_id BIGINT,
+                status TEXT DEFAULT 'ok',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fredi_api_usage_created "
+            "ON fredi_api_usage(created_at DESC)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fredi_api_usage_provider "
+            "ON fredi_api_usage(provider, created_at DESC)"
+        )
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_push_subscriptions (
                 id BIGSERIAL PRIMARY KEY,
