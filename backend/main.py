@@ -1160,6 +1160,17 @@ async def init_database_tables():
 
         # Лог расходов на внешние API (DeepSeek, Anthropic, Fish Audio, Deepgram).
         # Каждая запись = один вызов с computed-USD стоимостью.
+        # Защита от orphan-sequence из неудачного предыдущего деплоя:
+        # если таблицы нет, но её sequence (BIGSERIAL) висит — дропаем seq,
+        # иначе CREATE TABLE упадёт с UniqueViolationError на pg_class.
+        _api_usage_exists = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'fredi_api_usage')"
+        )
+        if not _api_usage_exists:
+            await conn.execute(
+                "DROP SEQUENCE IF EXISTS fredi_api_usage_id_seq CASCADE"
+            )
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_api_usage (
                 id BIGSERIAL PRIMARY KEY,
