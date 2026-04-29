@@ -1703,10 +1703,18 @@ function _brandRenderVkAuditCard(state){
             '<div class="brand-section-body" style="font-size:13px;line-height:1.5;margin-bottom:12px">' +
                 'Привяжи свою VK-страницу — мы покажем, насколько твой канал бьётся с архетипом и куда вести.' +
             '</div>' +
-            '<input id="vkAuditInput" type="text" placeholder="vk.com/example" ' +
+            '<input id="vkAuditInput" type="text" ' +
+                'placeholder="https://vk.com/example  или  vk.com/id123  или  example" ' +
+                'title="Принимается любой формат: с http/https, www, m.vk.com, vk.ru, ' +
+                'с trailing-слэшами, ?w=wall, #fragment — всё нормализуется автоматически" ' +
                 'style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);' +
                 'background:rgba(255,255,255,0.04);color:var(--text);font:inherit;font-size:13px;' +
                 'box-sizing:border-box;margin-bottom:8px;outline:none">' +
+            '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">' +
+                'Подойдёт любая форма: <code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">https://vk.com/example</code>, ' +
+                '<code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">vk.com/id123</code> или просто ' +
+                '<code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">example</code>.' +
+            '</div>' +
             '<button id="vkAuditLinkBtn" class="brand-footer-btn" style="width:100%;font-weight:700">' +
                 '💎 Сохранить и запустить аудит' +
             '</button>' +

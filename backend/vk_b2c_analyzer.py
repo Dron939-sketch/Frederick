@@ -137,17 +137,31 @@ _SCREEN_NAME_RE = re.compile(
 
 
 def _resolve_screen_name(url_or_name: str) -> str:
+    """Нормализация любых VK-ссылок → screen_name или idN.
+
+    Принимает: https/http/нет-протокола, vk.com / m.vk.com / www.vk.com / vk.ru,
+    с/без trailing-slash, query, hash, @-префикса, кавычек, /wall_xxx путей.
+    """
     s = (url_or_name or "").strip()
     if not s:
         return ""
-    # vk.com/id123 → id123
-    s = s.split("?")[0].rstrip("/")
-    if s.startswith("https://") or s.startswith("http://"):
-        s = s.split("//", 1)[1]
-    if s.startswith("vk.com/"):
-        s = s[len("vk.com/"):]
-    if s.startswith("m.vk.com/"):
-        s = s[len("m.vk.com/"):]
+    s = s.strip("«»\"'() \t\n\r")
+    if s.startswith("@"):
+        s = s[1:]
+    s = s.split("#", 1)[0]
+    s = s.split("?", 1)[0]
+    low = s.lower()
+    if low.startswith("https://"):
+        s = s[8:]
+    elif low.startswith("http://"):
+        s = s[7:]
+    for prefix in ("www.vk.com/", "www.vk.ru/", "m.vk.com/", "m.vk.ru/", "vk.com/", "vk.ru/"):
+        if s.lower().startswith(prefix):
+            s = s[len(prefix):]
+            break
+    if "/" in s:
+        s = s.split("/", 1)[0]
+    s = s.strip().rstrip("/")
     return s
 
 
