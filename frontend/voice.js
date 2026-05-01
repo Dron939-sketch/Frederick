@@ -888,9 +888,12 @@ class VoiceTransport {
 
         try {
             const ctrl = new AbortController();
-            const tid  = setTimeout(() => ctrl.abort(), 50000);
+            const tid  = setTimeout(() => ctrl.abort(), 90000);
 
-            const resp = await fetch(`${this.apiBaseUrl}/api/voice/process`, {
+            // Используем streaming-эндпоинт: NDJSON, юзер слышит первое
+            // предложение через ~11с вместо 14.5с (TTS per-sentence
+            // параллельно с проигрыванием).
+            const resp = await fetch(`${this.apiBaseUrl}/api/voice/process_stream`, {
                 method: 'POST', body: formData, signal: ctrl.signal
             });
             clearTimeout(tid);
@@ -900,35 +903,85 @@ class VoiceTransport {
                 throw new Error(`HTTP ${resp.status}: ${body.substring(0, 100)}`);
             }
 
-            const result = await resp.json();
+            // Парсим NDJSON-стрим: каждая строка = JSON-событие.
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let firstAudioPlayed = false;
+            let fullText = '';
+            let pendingAction = null;
+
+            // Очередь воспроизведения: ставим .play в цепочку через .then,
+            // чтобы предложения проигрывались строго последовательно
+            // (без перекрытия).
+            let playbackChain = Promise.resolve();
+
+            const enqueueAudio = (b64) => {
+                if (!b64 || !this._onPlayAudio) return;
+                const binary = atob(b64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+                playbackChain = playbackChain
+                    .then(() => this._onPlayAudio(url))
+                    .catch(err => { console.warn('play chunk failed:', err); })
+                    .finally(() => { try { URL.revokeObjectURL(url); } catch {} });
+            };
+
+            const handleEvent = (ev) => {
+                if (!ev || typeof ev !== 'object') return;
+                if (ev.type === 'transcript') {
+                    if (ev.text && this.onTranscript) this.onTranscript(ev.text);
+                } else if (ev.type === 'audio') {
+                    if (this.onThinking && !firstAudioPlayed) {
+                        // Первый аудио-чанк — гасим thinking-индикатор.
+                        this.onThinking(false);
+                        firstAudioPlayed = true;
+                    }
+                    if (ev.text) fullText += (fullText ? ' ' : '') + ev.text;
+                    enqueueAudio(ev.b64);
+                } else if (ev.type === 'done') {
+                    if (ev.full_text) fullText = ev.full_text;
+                    if (ev.action) pendingAction = ev.action;
+                } else if (ev.type === 'error') {
+                    throw new Error(ev.message || 'Server stream error');
+                }
+            };
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buffer.indexOf('\n')) >= 0) {
+                    const line = buffer.slice(0, idx).trim();
+                    buffer = buffer.slice(idx + 1);
+                    if (!line) continue;
+                    try {
+                        handleEvent(JSON.parse(line));
+                    } catch (e) {
+                        console.warn('NDJSON parse skip:', e, line.substring(0, 120));
+                    }
+                }
+            }
+            // Finalise tail.
+            if (buffer.trim()) {
+                try { handleEvent(JSON.parse(buffer.trim())); } catch {}
+            }
+
             if (this.onThinking) this.onThinking(false);
 
-            if (!result.success) throw new Error(result.error || 'Сервер вернул ошибку');
+            if (fullText && this.onAIResponse) {
+                this.onAIResponse(fullText);
+            }
 
-            if (result.recognized_text && this.onTranscript)
-                this.onTranscript(result.recognized_text);
-
-            if (result.answer && this.onAIResponse)
-                this.onAIResponse(result.answer);
-
-            // Бэкенд просит фронт открыть тест (юзер согласился на оффер
-            // BasicMode). Без этой ветки тест никогда не стартует.
-            if (result.action === 'open_test' && typeof window.startTest === 'function') {
+            if (pendingAction === 'open_test' && typeof window.startTest === 'function') {
                 try { window.startTest(); }
                 catch (e) { console.warn('startTest call failed:', e); }
             }
 
-            const audioData = result.audio_base64 || result.audio || result.tts_audio;
-            if (audioData && this._onPlayAudio) {
-                const binary = atob(audioData);
-                const bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
-                await this._onPlayAudio(url);
-                URL.revokeObjectURL(url);
-            } else if (result.audio_url && this._onPlayAudio) {
-                await this._onPlayAudio(result.audio_url);
-            }
+            // Дождёмся, пока вся очередь аудио проиграется до конца.
+            try { await playbackChain; } catch {}
 
             if (this.onStatusChange) this.onStatusChange('idle');
             return true;
