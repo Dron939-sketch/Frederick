@@ -1707,6 +1707,14 @@ def register_vk_routes(app, db):
 
         try:
             async with db.get_connection() as conn:
+                # Обеспечить существование пользователя — иначе FK на
+                # fredi_users(user_id) уронит upsert (анонимные юзеры могут
+                # ещё не иметь строки в fredi_users).
+                await conn.execute(
+                    "INSERT INTO fredi_users (user_id, created_at, updated_at) "
+                    "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
+                    uid,
+                )
                 await conn.execute(
                     """
                     INSERT INTO fredi_vk_profiles (user_id, vk_id, vk_screen_name, linked_at)
@@ -1719,7 +1727,7 @@ def register_vk_routes(app, db):
                     uid, int(vk_id), vk_screen[:128],
                 )
         except Exception as e:
-            logger.error(f"brand vk-link upsert failed: {e}")
+            logger.error(f"brand vk-link upsert failed for uid={uid}: {e}")
             raise HTTPException(status_code=500, detail={
                 "error": "db_write_failed", "message": str(e),
             })
