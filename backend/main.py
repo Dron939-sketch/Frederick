@@ -535,6 +535,49 @@ import re as _re_meter
 _PREMIUM_MODES = frozenset({"psychologist", "coach", "trainer"})
 
 
+_BASIC_PRESET_KEY = "basic_mode_preset"
+
+
+async def get_basic_mode_preset() -> str:
+    """Активный пресет промпта BasicMode из fredi_admin_settings.
+
+    Дефолт — 'current' (текущий нейтральный психолог). При любой ошибке
+    тоже возвращает 'current' — лучше работать с известным промптом, чем
+    падать.
+    """
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchval(
+                "SELECT value FROM fredi_admin_settings WHERE key = $1",
+                _BASIC_PRESET_KEY,
+            )
+        from modes.prompts.basic_presets import all_keys, PRESET_KEY_DEFAULT
+        if row and str(row).strip().lower() in all_keys():
+            return str(row).strip().lower()
+        return PRESET_KEY_DEFAULT
+    except Exception as e:
+        logger.warning(f"get_basic_mode_preset failed: {e}")
+        return "current"
+
+
+async def set_basic_mode_preset(value: str) -> str:
+    """UPSERT нового пресета. Возвращает фактически сохранённый ключ."""
+    from modes.prompts.basic_presets import all_keys, PRESET_KEY_DEFAULT
+    val = (value or "").strip().lower()
+    if val not in all_keys():
+        val = PRESET_KEY_DEFAULT
+    async with db.get_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO fredi_admin_settings (key, value, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+            """,
+            _BASIC_PRESET_KEY, val,
+        )
+    return val
+
+
 async def _enforce_premium_mode(user_id, requested_mode: str) -> str:
     """Возвращает реально применимый режим: для premium-юзеров — что попросили,
     для не-premium и premium-режима — 'basic'. 'basic' всегда проходит."""
@@ -793,6 +836,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
 
     try:
         _merge_psychologist_state(user_data, context)
+        # Активный пресет промпта BasicMode (current/jarvis/house) из админки.
+        if mode_name == "basic":
+            user_data["basic_mode_preset"] = await get_basic_mode_preset()
         mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
         logger.info(f"✅ Mode instance created: {mode_instance.__class__.__name__}")
     except Exception as e:
@@ -1231,6 +1277,18 @@ async def init_database_tables():
             "CREATE INDEX IF NOT EXISTS idx_fredi_api_usage_provider "
             "ON fredi_api_usage(provider, created_at DESC)"
         )
+
+        # Глобальные admin-настройки (key/value). Например, активный
+        # пресет промпта BasicMode (current/jarvis/house) — переключается
+        # из админки без релиза.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_admin_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_push_subscriptions (
                 id BIGSERIAL PRIMARY KEY,
@@ -2262,6 +2320,8 @@ async def chat(request: Request, data: ChatRequest):
 
         simple_context = SimpleContext(context_obj)
         _merge_psychologist_state(user_data, context_obj)
+        if mode_name == "basic":
+            user_data["basic_mode_preset"] = await get_basic_mode_preset()
         mode_instance = get_mode(mode_name, data.user_id, user_data, simple_context)
 
         reflection = None
@@ -2651,6 +2711,8 @@ async def process_voice(
 
         simple_context = SimpleContext(context_obj)
         _merge_psychologist_state(user_data, context_obj)
+        if mode_name == "basic":
+            user_data["basic_mode_preset"] = await get_basic_mode_preset()
         mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
 
         response_text = None
@@ -2856,6 +2918,8 @@ async def process_voice_stream(
 
                 simple_context = SimpleContext(context_obj)
                 _merge_psychologist_state(user_data, context_obj)
+                if mode_name == "basic":
+                    user_data["basic_mode_preset"] = await get_basic_mode_preset()
                 mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
 
                 full_text_parts = []

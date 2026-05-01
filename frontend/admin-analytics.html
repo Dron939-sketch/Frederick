@@ -193,6 +193,7 @@
         <button data-tab="recent">Последние события</button>
         <button data-tab="dialogs">Диалоги</button>
         <button data-tab="costs">💰 Расходы</button>
+        <button data-tab="control">🎛️ Пульт</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
     </div>
 
@@ -280,6 +281,17 @@
         <div id="costsDaily"></div>
     </section>
 
+    <section id="controlTab" style="display:none">
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:0 0 14px">🎛️ Пульт управления — пресет промпта BasicMode</h3>
+        <p style="font-size:12px;color:var(--text-dim);margin:0 0 18px;line-height:1.6">
+            Переключи пресет — изменение применится к следующему голосовому/чат-запросу любого юзера в базовом режиме (без релиза).
+            Все юзеры без подписки получают BasicMode, поэтому это глобальная настройка.
+        </p>
+        <div id="controlPresets" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px"></div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">Полный текст активного пресета</h3>
+        <pre id="controlActiveText" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:12px;line-height:1.55;color:var(--text);white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;max-height:480px;overflow:auto"></pre>
+    </section>
+
     <!-- Dialog drawer -->
     <div id="dialogOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)">
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
@@ -356,6 +368,8 @@
         if (dlgTab) dlgTab.style.display = 'none';
         var costsTab = document.getElementById('costsTab');
         if (costsTab) costsTab.style.display = 'none';
+        var controlTab = document.getElementById('controlTab');
+        if (controlTab) controlTab.style.display = 'none';
         try {
             if (currentTab === 'summary') {
                 var d = await _fetch('/api/analytics/summary');
@@ -374,6 +388,10 @@
                 var c = await _fetch('/api/analytics/costs?period=' + encodeURIComponent(period));
                 renderCosts(c);
                 if (costsTab) costsTab.style.display = 'block';
+            } else if (currentTab === 'control') {
+                var ctrl = await _fetch('/api/admin/basic-mode-preset');
+                renderControl(ctrl);
+                if (controlTab) controlTab.style.display = 'block';
             }
         } catch (e) {
             _err(e.message || 'Ошибка');
@@ -528,6 +546,56 @@
                 '</table>';
         }
     }
+
+    async function _setBasicPreset(value){
+        try {
+            var res = await fetch(API + '/api/admin/basic-mode-preset', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: value })
+            });
+            var data = await res.json();
+            if (data && data.success){
+                refresh();
+            } else {
+                alert('Не удалось сохранить пресет: ' + (data && data.error || 'unknown'));
+            }
+        } catch (e){ alert('Ошибка: ' + e.message); }
+    }
+
+    function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function renderControl(d){
+        var presets = (d && d.presets) || [];
+        var active = (d && d.active) || 'current';
+        var box = document.getElementById('controlPresets');
+        var html = '';
+        presets.forEach(function(p){
+            var isActive = p.key === active;
+            html +=
+                '<div style="background:' + (isActive ? 'rgba(167,139,250,0.10)' : 'var(--surface)') + ';' +
+                'border:1px solid ' + (isActive ? 'rgba(167,139,250,0.4)' : 'var(--border)') + ';' +
+                'border-radius:14px;padding:14px;display:flex;align-items:center;gap:14px;cursor:pointer;color:var(--text)" ' +
+                'onclick="window._setBasicPreset(\'' + _esc(p.key) + '\')">' +
+                '<div style="font-size:32px;flex-shrink:0">' + (p.icon || '🎭') + '</div>' +
+                '<div style="flex:1;min-width:0">' +
+                    '<div style="font-size:14px;font-weight:700;margin-bottom:4px;color:var(--text)">' +
+                        _esc(p.name) +
+                        (isActive ? ' <span style="font-size:11px;color:#a78bfa;font-weight:600">✓ активен</span>' : '') +
+                    '</div>' +
+                    '<div style="font-size:12px;color:var(--text-dim);line-height:1.55">' + _esc(p.description) + '</div>' +
+                '</div>' +
+                (isActive
+                    ? '<span style="font-size:11px;color:var(--text-dim);flex-shrink:0">текущий</span>'
+                    : '<button style="padding:6px 12px;border-radius:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;flex-shrink:0">Включить</button>'
+                ) +
+                '</div>';
+        });
+        box.innerHTML = html;
+        var pre = document.getElementById('controlActiveText');
+        if (pre) pre.textContent = (d && d.active_text) || '(нет текста)';
+    }
+    window._setBasicPreset = _setBasicPreset;
 
     function renderSummary(d){
         _updateHero(d);
