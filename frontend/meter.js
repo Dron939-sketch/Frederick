@@ -94,40 +94,35 @@
         } catch (e) {}
     }
 
+    function _formatResetCountdown(minutesUntil) {
+        if (!minutesUntil || minutesUntil <= 0) return '00:00';
+        var h = Math.floor(minutesUntil / 60);
+        var m = minutesUntil % 60;
+        return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
+
     function showFatigueModal(data) {
         _injectMeterStyles();
         var existing = document.getElementById('meterOverlay');
         if (existing) existing.remove();
 
-        var isOnCooldown = data.is_on_cooldown;
-        var remaining = data.remaining_cooldown_minutes || 0;
-        var nextLimit = data.next_session_limit_minutes;
+        var minutesUntilReset = data.minutes_until_reset || 0;
+        var limit = data.limit_minutes || 15;
 
         _track('meter_blocked_shown', {
-            is_on_cooldown: !!isOnCooldown,
-            remaining_cooldown_minutes: remaining,
-            next_session_limit_minutes: nextLimit
+            limit_minutes: limit,
+            minutes_until_reset: minutesUntilReset
         });
 
-        var emoji, title, mainText, hintText;
+        var emoji = '\u23F0';  // \u23F0
+        var title = '\u0414\u043D\u0435\u0432\u043D\u043E\u0439 \u043B\u0438\u043C\u0438\u0442 \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D';
+        var mainText =
+            '\u0422\u044B \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B \u0432\u0441\u0435 ' + limit +
+            ' \u043C\u0438\u043D\u0443\u0442 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E\u0433\u043E \u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0441 \u0424\u0440\u0435\u0434\u0438 \u0441\u0435\u0433\u043E\u0434\u043D\u044F.<br>' +
+            '\u0412\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0439\u0441\u044F \u0437\u0430\u0432\u0442\u0440\u0430 \u2014 \u0438\u043B\u0438 \u043E\u0442\u043A\u0440\u043E\u0439 \u0431\u0435\u0437\u043B\u0438\u043C\u0438\u0442 \u0441 \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u043E\u0439.';
 
-        if (isOnCooldown && remaining > 0) {
-            emoji = '\uD83D\uDE34';
-            title = '\u0424\u0440\u0435\u0434\u0438 \u043E\u0442\u0434\u044B\u0445\u0430\u0435\u0442...';
-            var nextInfo = nextLimit > 0
-                ? '\u0412\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0439\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' + remaining + ' \u043C\u0438\u043D\u0443\u0442 \u2014 \u0443 \u0442\u0435\u0431\u044F \u0431\u0443\u0434\u0435\u0442 ' + nextLimit + ' \u043C\u0438\u043D\u0443\u0442 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E\u0433\u043E \u043E\u0431\u0449\u0435\u043D\u0438\u044F.'
-                : '\u0411\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0437\u0430\u043A\u043E\u043D\u0447\u0438\u043B\u0438\u0441\u044C.';
-            mainText = '\u041C\u044B \u043E\u0431\u0449\u0430\u043B\u0438\u0441\u044C, \u0438 \u043C\u043D\u0435 \u043D\u0443\u0436\u043D\u043E \u043E\u0442\u0434\u043E\u0445\u043D\u0443\u0442\u044C.<br>' + nextInfo;
-            hintText = '\uD83D\uDC8E \u0425\u043E\u0447\u0435\u0448\u044C \u0431\u0435\u0437 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u0439? \u0417\u0430\u0439\u0434\u0438 \u0432 <span class="meter-hint-path">\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u2192 \u041F\u043E\u0434\u043F\u0438\u0441\u043A\u0430</span> \u0432 \u043B\u0435\u0432\u043E\u043C \u043C\u0435\u043D\u044E';
-        } else {
-            emoji = '\uD83D\uDC94';
-            title = '\u0411\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0437\u0430\u043A\u043E\u043D\u0447\u0438\u043B\u0438\u0441\u044C';
-            mainText = '\u0422\u044B \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B \u0432\u0441\u0435 4 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438. \u0424\u0440\u0435\u0434\u0438 \u0431\u043E\u043B\u044C\u0448\u0435 \u043D\u0435 \u043C\u043E\u0436\u0435\u0442 \u043E\u0431\u0449\u0430\u0442\u044C\u0441\u044F \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E.';
-            hintText = '\uD83D\uDC8E \u041E\u0444\u043E\u0440\u043C\u0438 Premium \u0438 \u0424\u0440\u0435\u0434\u0438 \u043D\u0438\u043A\u043E\u0433\u0434\u0430 \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u0435\u0442! \u0417\u0430\u0439\u0434\u0438 \u0432 <span class="meter-hint-path">\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u2192 \u041F\u043E\u0434\u043F\u0438\u0441\u043A\u0430</span> \u0432 \u043B\u0435\u0432\u043E\u043C \u043C\u0435\u043D\u044E';
-        }
-
-        var timerHtml = (isOnCooldown && remaining > 0)
-            ? '<div class="meter-timer" id="meterTimer">' + remaining + ' \u043C\u0438\u043D</div>'
+        var timerHtml = minutesUntilReset > 0
+            ? '<div class="meter-timer" id="meterTimer">\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' + _formatResetCountdown(minutesUntilReset) + '</div>'
             : '';
 
         var overlay = document.createElement('div');
@@ -139,45 +134,51 @@
                 '<div class="meter-title">' + title + '</div>' +
                 timerHtml +
                 '<div class="meter-text">' + mainText + '</div>' +
-                '<div class="meter-hint">' + hintText + '</div>' +
                 '<div class="meter-features-title">\u0427\u0442\u043E \u0434\u0430\u0451\u0442 \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0430:</div>' +
                 PREMIUM_FEATURES +
-                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0443 \u2014 690 \u20BD/\u043C\u0435\u0441</button>' +
-                '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u043D\u044F\u0442\u043D\u043E</button>' +
+                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u2728 \u041E\u0442\u043A\u0440\u044B\u0442\u044C Premium \u2014 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432</button>' +
+                '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u0437\u0430\u0432\u0442\u0440\u0430</button>' +
             '</div>';
         document.body.appendChild(overlay);
 
         document.getElementById('meterCloseBtn').onclick = function() {
-            _track('meter_closed', { is_on_cooldown: !!isOnCooldown });
+            _track('meter_closed', { reason: 'continue_tomorrow' });
             overlay.remove();
         };
         overlay.onclick = function(e) {
             if (e.target === overlay) {
-                _track('meter_dismissed_outside', { is_on_cooldown: !!isOnCooldown });
+                _track('meter_dismissed_outside', {});
                 overlay.remove();
             }
         };
         document.getElementById('meterSubscribeBtn').onclick = function() {
-            _track('meter_subscribe_clicked', { is_on_cooldown: !!isOnCooldown });
+            _track('meter_subscribe_clicked', {});
             overlay.remove();
             if (typeof showSettingsScreen === 'function') showSettingsScreen();
         };
 
-        if (isOnCooldown && remaining > 0) {
+        // \u0422\u0438\u043A\u0430\u044E\u0449\u0438\u0439 \u043E\u0431\u0440\u0430\u0442\u043D\u044B\u0439 \u043E\u0442\u0441\u0447\u0451\u0442 \u0434\u043E 00:00 UTC.
+        if (minutesUntilReset > 0) {
             var timerEl = document.getElementById('meterTimer');
-            var secsLeft = remaining * 60;
+            var secsLeft = minutesUntilReset * 60;
             var iv = setInterval(function() {
                 secsLeft--;
                 if (secsLeft <= 0) {
                     clearInterval(iv);
                     overlay.remove();
                     _lastCheck = null;
-                    _toast('\u0424\u0440\u0435\u0434\u0438 \u043E\u0442\u0434\u043E\u0445\u043D\u0443\u043B! \u041C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C.', 'success');
+                    _toast('\u041B\u0438\u043C\u0438\u0442 \u043E\u0431\u043D\u043E\u0432\u0438\u043B\u0441\u044F! \u041C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C.', 'success');
                     return;
                 }
-                var m = Math.floor(secsLeft / 60);
-                var sec = secsLeft % 60;
-                if (timerEl) timerEl.textContent = m + ':' + (sec < 10 ? '0' : '') + sec;
+                var h = Math.floor(secsLeft / 3600);
+                var m = Math.floor((secsLeft % 3600) / 60);
+                var s = secsLeft % 60;
+                if (timerEl) {
+                    timerEl.textContent = '\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' +
+                        (h < 10 ? '0' : '') + h + ':' +
+                        (m < 10 ? '0' : '') + m + ':' +
+                        (s < 10 ? '0' : '') + s;
+                }
             }, 1000);
         }
     }

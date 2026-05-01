@@ -1,25 +1,23 @@
 """
-subscription_meter.py - Fading Fredi logic.
-Free sessions: 25 -> 15 -> 5 -> 0 minutes.
-Cooldown: 2 hours between sessions.
-Subscription: unlimited access.
+subscription_meter.py — Free-tier meter (Anthropic-style).
+
+Простая модель: 15 минут в день суммарно. Без сессий, без cooldown'ов.
+Когда лимит исчерпан → paywall (Premium или «приходи завтра»).
+Reset в 00:00 UTC (даты считаются по UTC).
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
-SESSION_LIMITS = {
-    1: 25,
-    2: 15,
-    3: 5,
-}
-DEFAULT_LIMIT = 0
 
-COOLDOWN_HOURS = 2
-COOLDOWN_SECONDS = COOLDOWN_HOURS * 3600
+# Бесплатный дневной лимит в минутах. Reset в 00:00 UTC.
+FREE_DAILY_MINUTES = 15
+
+# Когда осталось ≤ этой границы — фронт показывает warning-toast.
+WARNING_THRESHOLD_MINUTES = 5
 
 
 class SubscriptionMeter:
@@ -31,7 +29,6 @@ class SubscriptionMeter:
             await conn.execute("""
                 UPDATE fredi_users SET
                     trial_started_at = COALESCE(trial_started_at, NOW()),
-                    free_session_count = COALESCE(free_session_count, 0),
                     daily_usage_seconds = COALESCE(daily_usage_seconds, 0),
                     last_usage_reset = COALESCE(last_usage_reset, CURRENT_DATE)
                 WHERE user_id = $1
@@ -51,40 +48,32 @@ class SubscriptionMeter:
             return {
                 "has_subscription": True,
                 "is_premium": True,
-                "is_on_cooldown": False,
                 "can_send": True,
                 "remaining_minutes": None,
+                "used_minutes_today": 0,
+                "limit_minutes": None,
+                # Backward-compat: фронт ещё может ждать эти поля.
+                "is_on_cooldown": False,
+                "remaining_cooldown_minutes": 0,
                 "free_session_count": 0,
                 "next_session_limit_minutes": None,
-                "used_minutes_today": 0,
             }
 
         async with self.db.get_connection() as conn:
             row = await conn.fetchrow("""
-                SELECT free_session_count, daily_usage_seconds, last_usage_reset,
-                       cooldown_ends_at, last_cooldown_started_at
+                SELECT daily_usage_seconds, last_usage_reset
                 FROM fredi_users WHERE user_id = $1
             """, user_id)
 
         if not row:
             await self.init_user_tracking(user_id)
-            return {
-                "has_subscription": False,
-                "is_premium": False,
-                "is_on_cooldown": False,
-                "can_send": True,
-                "remaining_minutes": 25,
-                "free_session_count": 0,
-                "next_session_limit_minutes": 25,
-                "used_minutes_today": 0,
-            }
+            return self._fresh_status(used_seconds=0)
 
-        session_count = row["free_session_count"] or 0
         daily_seconds = row["daily_usage_seconds"] or 0
         last_reset = row["last_usage_reset"]
-        cooldown_ends = row["cooldown_ends_at"]
         now = datetime.now(timezone.utc)
 
+        # Daily reset в 00:00 UTC.
         if last_reset and last_reset < now.date():
             daily_seconds = 0
             async with self.db.get_connection() as conn:
@@ -93,34 +82,24 @@ class SubscriptionMeter:
                     WHERE user_id = $1
                 """, user_id)
 
-        is_on_cooldown = False
-        remaining_cooldown_minutes = 0
-        if cooldown_ends and cooldown_ends > now:
-            is_on_cooldown = True
-            remaining_cooldown_minutes = int((cooldown_ends - now).total_seconds() / 60)
+        return self._fresh_status(used_seconds=daily_seconds)
 
-        current_session = session_count + 1
-        limit_minutes = SESSION_LIMITS.get(current_session, DEFAULT_LIMIT)
-        used_minutes = daily_seconds / 60
-        remaining_minutes = max(0, limit_minutes - used_minutes)
-
-        next_session = current_session + 1
-        next_limit = SESSION_LIMITS.get(next_session, DEFAULT_LIMIT)
-
-        can_send = not is_on_cooldown and remaining_minutes > 0
-
+    def _fresh_status(self, used_seconds: int) -> Dict[str, Any]:
+        used_minutes = used_seconds / 60.0
+        remaining_minutes = max(0.0, FREE_DAILY_MINUTES - used_minutes)
+        can_send = remaining_minutes > 0
         return {
             "has_subscription": False,
             "is_premium": False,
-            "is_on_cooldown": is_on_cooldown,
-            "remaining_cooldown_minutes": remaining_cooldown_minutes,
             "can_send": can_send,
             "remaining_minutes": round(remaining_minutes, 1),
-            "free_session_count": session_count,
-            "current_session_number": current_session,
-            "session_limit_minutes": limit_minutes,
-            "next_session_limit_minutes": next_limit,
             "used_minutes_today": round(used_minutes, 1),
+            "limit_minutes": FREE_DAILY_MINUTES,
+            # Backward-compat.
+            "is_on_cooldown": False,
+            "remaining_cooldown_minutes": 0,
+            "free_session_count": 0,
+            "next_session_limit_minutes": FREE_DAILY_MINUTES,
         }
 
     async def can_send_message(self, user_id: int) -> Tuple[bool, Dict[str, Any]]:
@@ -138,25 +117,11 @@ class SubscriptionMeter:
                 WHERE user_id = $1
             """, user_id, seconds)
 
-        status = await self.get_user_status(user_id)
-
-        if status["remaining_minutes"] <= 0 and not status["is_on_cooldown"]:
-            await self.start_cooldown(user_id)
-            status["is_on_cooldown"] = True
-            status["can_send"] = False
-
-        return status
+        return await self.get_user_status(user_id)
 
     async def start_cooldown(self, user_id: int):
-        now = datetime.now(timezone.utc)
-        cooldown_ends = now + timedelta(seconds=COOLDOWN_SECONDS)
-        async with self.db.get_connection() as conn:
-            await conn.execute("""
-                UPDATE fredi_users SET
-                    last_cooldown_started_at = $2,
-                    cooldown_ends_at = $3,
-                    free_session_count = COALESCE(free_session_count, 0) + 1,
-                    daily_usage_seconds = 0
-                WHERE user_id = $1
-            """, user_id, now, cooldown_ends)
-        logger.info(f"Cooldown started for user {user_id}, ends at {cooldown_ends}")
+        """Заглушка для backward compat — cooldown'ов больше нет.
+
+        Если что-то ещё дёргает — просто no-op.
+        """
+        return
