@@ -1707,25 +1707,42 @@ def register_vk_routes(app, db):
 
         try:
             async with db.get_connection() as conn:
-                # Обеспечить существование пользователя — иначе FK на
-                # fredi_users(user_id) уронит upsert (анонимные юзеры могут
-                # ещё не иметь строки в fredi_users).
-                await conn.execute(
-                    "INSERT INTO fredi_users (user_id, created_at, updated_at) "
-                    "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
-                    uid,
-                )
-                await conn.execute(
-                    """
-                    INSERT INTO fredi_vk_profiles (user_id, vk_id, vk_screen_name, linked_at)
-                    VALUES ($1, $2, $3, NOW())
-                    ON CONFLICT (user_id) DO UPDATE SET
-                        vk_id = EXCLUDED.vk_id,
-                        vk_screen_name = EXCLUDED.vk_screen_name,
-                        linked_at = NOW()
-                    """,
-                    uid, int(vk_id), vk_screen[:128],
-                )
+                async with conn.transaction():
+                    # Обеспечить существование пользователя — иначе FK на
+                    # fredi_users(user_id) уронит upsert (анонимные юзеры
+                    # могут ещё не иметь строки в fredi_users).
+                    await conn.execute(
+                        "INSERT INTO fredi_users (user_id, created_at, updated_at) "
+                        "VALUES ($1, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
+                        uid,
+                    )
+                    # Takeover: если этот vk_id уже привязан к ДРУГОМУ
+                    # user_id (юзер заходил с другого устройства/браузера
+                    # с новым анонимным id) — отвязываем старую запись.
+                    # Иначе уникальный индекс uq_fredi_vk_profiles_vk_id
+                    # уронит INSERT с 500-ошибкой.
+                    deleted = await conn.execute(
+                        "DELETE FROM fredi_vk_profiles "
+                        "WHERE vk_id = $1 AND user_id != $2",
+                        int(vk_id), uid,
+                    )
+                    if deleted and deleted.startswith("DELETE ") and deleted != "DELETE 0":
+                        logger.info(
+                            f"brand vk-link: takeover vk_id={vk_id} "
+                            f"from previous user (now linked to uid={uid})"
+                        )
+                    # Теперь основной UPSERT.
+                    await conn.execute(
+                        """
+                        INSERT INTO fredi_vk_profiles (user_id, vk_id, vk_screen_name, linked_at)
+                        VALUES ($1, $2, $3, NOW())
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            vk_id = EXCLUDED.vk_id,
+                            vk_screen_name = EXCLUDED.vk_screen_name,
+                            linked_at = NOW()
+                        """,
+                        uid, int(vk_id), vk_screen[:128],
+                    )
         except Exception as e:
             logger.error(f"brand vk-link upsert failed for uid={uid}: {e}")
             raise HTTPException(status_code=500, detail={
