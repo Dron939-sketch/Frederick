@@ -114,15 +114,14 @@
             minutes_until_reset: minutesUntilReset
         });
 
-        var emoji = '\u23F0';  // \u23F0
-        var title = '\u0414\u043D\u0435\u0432\u043D\u043E\u0439 \u043B\u0438\u043C\u0438\u0442 \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D';
+        var emoji = '\uD83D\uDE34';
+        var title = '\u0424\u0440\u0435\u0434\u0438 \u043E\u0442\u0434\u044B\u0445\u0430\u0435\u0442';
         var mainText =
-            '\u0422\u044B \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B \u0432\u0441\u0435 ' + limit +
-            ' \u043C\u0438\u043D\u0443\u0442 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E\u0433\u043E \u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0441 \u0424\u0440\u0435\u0434\u0438 \u0441\u0435\u0433\u043E\u0434\u043D\u044F.<br>' +
-            '\u0412\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0439\u0441\u044F \u0437\u0430\u0432\u0442\u0440\u0430 \u2014 \u0438\u043B\u0438 \u043E\u0442\u043A\u0440\u043E\u0439 \u0431\u0435\u0437\u043B\u0438\u043C\u0438\u0442 \u0441 \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u043E\u0439.';
+            '\u041C\u044B \u043E\u0431\u0449\u0430\u043B\u0438\u0441\u044C ' + limit + ' \u043C\u0438\u043D\u0443\u0442 \u2014 \u044D\u0442\u043E \u0432\u0435\u0441\u044C \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0439 \u043B\u0438\u043C\u0438\u0442 \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F.<br>' +
+            '\u0412\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0439\u0441\u044F \u0432 \u043F\u043E\u043B\u043D\u043E\u0447\u044C \u2014 \u0424\u0440\u0435\u0434\u0438 \u043E\u0442\u0434\u043E\u0445\u043D\u0451\u0442 \u0438 \u0441\u043D\u043E\u0432\u0430 \u0431\u0443\u0434\u0435\u0442 \u0440\u044F\u0434\u043E\u043C.';
 
         var timerHtml = minutesUntilReset > 0
-            ? '<div class="meter-timer" id="meterTimer">\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' + _formatResetCountdown(minutesUntilReset) + '</div>'
+            ? '<div class="meter-timer" id="meterTimer">\u0421\u0438\u043B\u044B \u0432\u0435\u0440\u043D\u0443\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' + _formatResetCountdown(minutesUntilReset) + '</div>'
             : '';
 
         var overlay = document.createElement('div');
@@ -134,10 +133,10 @@
                 '<div class="meter-title">' + title + '</div>' +
                 timerHtml +
                 '<div class="meter-text">' + mainText + '</div>' +
-                '<div class="meter-features-title">\u0427\u0442\u043E \u0434\u0430\u0451\u0442 \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0430:</div>' +
+                '<div class="meter-features-title">\u0421 Premium \u0424\u0440\u0435\u0434\u0438 \u043D\u0435 \u0443\u0441\u0442\u0430\u0451\u0442:</div>' +
                 PREMIUM_FEATURES +
-                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u2728 \u041E\u0442\u043A\u0440\u044B\u0442\u044C Premium \u2014 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432</button>' +
-                '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u0437\u0430\u0432\u0442\u0440\u0430</button>' +
+                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u2728 Premium \u2014 690 \u20BD/\u043C\u0435\u0441, \u0431\u0435\u0437 \u043F\u0435\u0440\u0435\u0440\u044B\u0432\u043E\u0432</button>' +
+                '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u043D\u044F\u0442\u043D\u043E, \u0434\u043E \u0437\u0430\u0432\u0442\u0440\u0430</button>' +
             '</div>';
         document.body.appendChild(overlay);
 
@@ -167,14 +166,14 @@
                     clearInterval(iv);
                     overlay.remove();
                     _lastCheck = null;
-                    _toast('\u041B\u0438\u043C\u0438\u0442 \u043E\u0431\u043D\u043E\u0432\u0438\u043B\u0441\u044F! \u041C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C.', 'success');
+                    _toast('\u0424\u0440\u0435\u0434\u0438 \u043E\u0442\u0434\u043E\u0445\u043D\u0443\u043B! \u041C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C.', 'success');
                     return;
                 }
                 var h = Math.floor(secsLeft / 3600);
                 var m = Math.floor((secsLeft % 3600) / 60);
                 var s = secsLeft % 60;
                 if (timerEl) {
-                    timerEl.textContent = '\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' +
+                    timerEl.textContent = '\u0421\u0438\u043B\u044B \u0432\u0435\u0440\u043D\u0443\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' +
                         (h < 10 ? '0' : '') + h + ':' +
                         (m < 10 ? '0' : '') + m + ':' +
                         (s < 10 ? '0' : '') + s;
@@ -194,7 +193,7 @@
                 if (!check.can_send) { showFatigueModal(check); throw new Error('METER_BLOCKED'); }
                 if (check.warning && !_warningShown) {
                     _warningShown = true;
-                    _toast('\u26A1 \u041E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ' + Math.round(check.remaining_minutes || 5) + ' \u043C\u0438\u043D \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E', 'info');
+                    _toast('\uD83D\uDC9B \u0424\u0440\u0435\u0434\u0438 \u0441\u043A\u043E\u0440\u043E \u0443\u0441\u0442\u0430\u043D\u0435\u0442 \u2014 \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ' + Math.round(check.remaining_minutes || 5) + ' \u043C\u0438\u043D', 'info');
                     setTimeout(function() { _warningShown = false; }, 60000);
                 }
             }
@@ -235,7 +234,7 @@
                 }
                 if (check.warning && !_warningShown) {
                     _warningShown = true;
-                    _toast('\u26A1 \u041E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ' + Math.round(check.remaining_minutes || 5) + ' \u043C\u0438\u043D \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E', 'info');
+                    _toast('\uD83D\uDC9B \u0424\u0440\u0435\u0434\u0438 \u0441\u043A\u043E\u0440\u043E \u0443\u0441\u0442\u0430\u043D\u0435\u0442 \u2014 \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ' + Math.round(check.remaining_minutes || 5) + ' \u043C\u0438\u043D', 'info');
                     setTimeout(function() { _warningShown = false; }, 60000);
                 }
             }

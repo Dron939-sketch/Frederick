@@ -625,17 +625,24 @@ async def meter_guard_middleware(request: Request, call_next):
         if can_send:
             return await call_next(request)
 
+        # Дневной reset в 00:00 UTC — считаем сколько минут осталось.
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        _now = _dt.now(_tz.utc)
+        _next_midnight = (_now + _td(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        _minutes_until_reset = int((_next_midnight - _now).total_seconds() / 60)
+
         logger.info(
             f"🚫 meter_guard: blocked {path} for user_id={user_id} "
-            f"cooldown={status.get('is_on_cooldown')} "
-            f"remaining={status.get('remaining_cooldown_minutes')}"
+            f"used={status.get('used_minutes_today')} "
+            f"limit={status.get('limit_minutes')}"
         )
         # Аналитика: server-side fire-and-forget
         try:
             await log_server_event(user_id, "meter_blocked_server", {
                 "path": path,
-                "is_on_cooldown": status.get("is_on_cooldown", False),
-                "remaining_cooldown_minutes": status.get("remaining_cooldown_minutes", 0),
+                "used_minutes": status.get("used_minutes_today", 0),
+                "limit_minutes": status.get("limit_minutes", 15),
+                "minutes_until_reset": _minutes_until_reset,
             })
         except Exception:
             pass
@@ -645,10 +652,14 @@ async def meter_guard_middleware(request: Request, call_next):
                 "success": False,
                 "error": "METER_BLOCKED",
                 "can_send": False,
-                "is_on_cooldown": status.get("is_on_cooldown", False),
-                "remaining_cooldown_minutes": status.get("remaining_cooldown_minutes", 0),
-                "next_session_limit_minutes": status.get("next_session_limit_minutes"),
-                "message": "Фреди отдыхает. Оформи подписку или подожди, пока восстановится.",
+                "limit_minutes": status.get("limit_minutes", 15),
+                "used_minutes_today": status.get("used_minutes_today", 0),
+                "minutes_until_reset": _minutes_until_reset,
+                "reset_at": _next_midnight.isoformat(),
+                # Backward-compat — старые билды могут читать.
+                "is_on_cooldown": False,
+                "remaining_cooldown_minutes": 0,
+                "message": "Фреди отдыхает — мы наговорили дневной лимит. Возвращайся в полночь или открой Premium.",
             },
         )
     except Exception as e:
