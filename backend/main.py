@@ -526,6 +526,31 @@ async def log_requests(request: Request, call_next):
 # ============================================
 import re as _re_meter
 
+# ============================================
+# PREMIUM-MODE GATING (server-side enforcement)
+# ============================================
+# Premium-роли диалога. Без активной подписки бэк принудительно
+# опускает запрошенный режим до 'basic'. Защита от обхода фронт-гейта
+# через DevTools (window.IS_PREMIUM = true).
+_PREMIUM_MODES = frozenset({"psychologist", "coach", "trainer"})
+
+
+async def _enforce_premium_mode(user_id, requested_mode: str) -> str:
+    """Возвращает реально применимый режим: для premium-юзеров — что попросили,
+    для не-premium и premium-режима — 'basic'. 'basic' всегда проходит."""
+    mode = (requested_mode or "basic").strip().lower()
+    if mode not in _PREMIUM_MODES:
+        return mode
+    try:
+        from meter_routes import subscription_meter as _m
+        if _m is None:
+            return "basic"
+        is_premium = await _m.has_active_subscription(int(user_id))
+    except Exception:
+        return "basic"
+    return mode if is_premium else "basic"
+
+
 # Точные пути и префиксы (regex), где генерируется AI-контент и идут расходы по API.
 # Добавляй сюда новые AI-эндпоинты при появлении.
 _METER_AI_REGEX = _re_meter.compile(
@@ -732,6 +757,8 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         else:
             mode_name = context.get("communication_mode", "psychologist")
             logger.info(f"🎭 Mode из context: {mode_name}")
+        # Premium-gate: без активной подписки premium-роли понижаются до basic.
+        mode_name = await _enforce_premium_mode(user_id, mode_name)
 
     # ФИХ 3: Загружаем историю для WebSocket тоже
     try:
@@ -2192,6 +2219,8 @@ async def chat(request: Request, data: ChatRequest):
             logger.info(f"🎭 User {data.user_id} has no profile → BasicMode")
         else:
             mode_name = context_obj.get("communication_mode", data.mode)
+        # Premium-gate: без активной подписки premium-роли понижаются до basic.
+        mode_name = await _enforce_premium_mode(data.user_id, mode_name)
 
         # ФИХ 3: Загружаем историю диалога из БД
         try:
@@ -2547,6 +2576,8 @@ async def process_voice(
             mode_name = "basic"
         else:
             mode_name = context_obj.get("communication_mode", mode)
+        # Premium-gate: без активной подписки premium-роли понижаются до basic.
+        mode_name = await _enforce_premium_mode(user_id_for_db, mode_name)
 
         # ФИХ 3: загружаем историю
         try:
@@ -2747,6 +2778,8 @@ async def process_voice_stream(
         profile = await user_repo.get_profile(user_id_for_db) or {}
         has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
         mode_name = "basic" if not has_profile else context_obj.get("communication_mode", mode)
+        # Premium-gate: без активной подписки premium-роли понижаются до basic.
+        mode_name = await _enforce_premium_mode(user_id_for_db, mode_name)
 
         try:
             history_rows = await message_repo.get_history(user_id_for_db, limit=10)
@@ -4362,11 +4395,17 @@ async def save_mode(request: Request):
         mode = data.get("mode")
         if not user_id or not mode:
             return {"success": False, "error": "user_id and mode required"}
+        # Premium-gate: не-premium юзер не может сохранить premium-роль.
+        effective_mode = await _enforce_premium_mode(user_id, mode)
         context = await context_repo.get(user_id) or {}
-        context["communication_mode"] = mode
+        context["communication_mode"] = effective_mode
         await context_repo.save(user_id, context)
-        await log_event(user_id, "save_mode", {"mode": mode})
-        return {"success": True}
+        await log_event(user_id, "save_mode", {
+            "mode": effective_mode,
+            "requested": mode,
+            "downgraded": effective_mode != mode,
+        })
+        return {"success": True, "mode": effective_mode, "downgraded": effective_mode != mode}
     except Exception as e:
         logger.error(f"Error in save-mode: {e}")
         return {"success": False, "error": str(e)}

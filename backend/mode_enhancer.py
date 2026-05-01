@@ -152,8 +152,19 @@ def _patch_mode(mode_cls):
                     history_parts.append(f"{role}: {m.get('content', '')[:100]}")
                 history_text = "\n".join(history_parts)
 
+            # ВАЖНО: этот mode_enhancer применяется ТОЛЬКО к Psychologist/
+            # Coach/TrainerMode — то есть к юзерам, у которых тест УЖЕ пройден.
+            # Без этого guard'а LLM иногда сам вставлял в ответ предложение
+            # «пройди тест» — это вызывало жалобы, что Фреди предлагает тест
+            # человеку с уже пройденным тестом.
+            no_test_guard = (
+                "\n\nКРИТИЧНО: тест уже пройден, у пользователя есть готовый "
+                "профиль. НИКОГДА не предлагай ему пройти тест, не упоминай "
+                "тест и его варианты.\n"
+            )
+
             anthropic_prompt = (
-                f"{system}\n{memory_addition}{emotion_addition}\n"
+                f"{system}\n{memory_addition}{emotion_addition}{no_test_guard}\n"
                 f"История:\n{history_text}\n\n"
                 f"Пользователь: {question}\n\n"
                 "Ответь коротко (2-4 фразы). Адаптируй тон под эмоцию."
