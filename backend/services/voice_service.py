@@ -60,29 +60,31 @@ VOICES = {
 # НАСТРОЙКИ СКОРОСТИ, ТОНА И ЭМОЦИЙ ДЛЯ РАЗНЫХ РЕЖИМОВ
 # ============================================
 VOICE_SETTINGS = {
+    # Скорость снижена на 10% от прежних значений — пользователи
+    # жаловались, что Фреди говорит слишком быстро.
     "psychologist": {
-        "speed": 0.95,
+        "speed": 0.85,
         "emotion": "neutral",
         "description": "Спокойный, размеренный голос психолога"
     },
     "coach": {
-        "speed": 1.0,
+        "speed": 0.90,
         "emotion": "good",
         "description": "Энергичный, мотивирующий голос коуча"
     },
     "trainer": {
-        "speed": 1.1,
+        "speed": 1.00,
         "emotion": "good",
         "description": "Быстрый, бодрый голос тренера"
     },
     "basic": {
-        "speed": 1.18,
+        "speed": 1.05,
         "emotion": "good",
         "description": "Быстрый, бодрый голос",
         "add_flavor": False
     },
     "default": {
-        "speed": 1.0,
+        "speed": 0.90,
         "emotion": "neutral",
         "description": "Стандартный голос"
     }
@@ -220,6 +222,108 @@ def normalize_numbers(text: str) -> str:
 
 
 # ============================================
+# Числа → слова (русский). Дата, температура, время, год.
+# Без этого Fish Audio / Yandex TTS читают «1961» по цифрам, а
+# «25°C» вообще пропускают — звучит как «двадцать пять» без «градусов».
+# ============================================
+try:
+    from num2words import num2words as _num2words_lib
+    _NUM2WORDS_AVAILABLE = True
+except Exception:
+    _NUM2WORDS_AVAILABLE = False
+
+
+def _num_to_words_ru(n: int, kind: str = "cardinal") -> str:
+    """Цифру → слова. kind: 'cardinal' (один, два) | 'ordinal' (первый, второй)."""
+    if not _NUM2WORDS_AVAILABLE:
+        return str(n)
+    try:
+        return _num2words_lib(int(n), lang="ru", to=kind)
+    except Exception:
+        return str(n)
+
+
+_RU_MONTHS_GEN = (
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+
+
+def _date_to_words(m: re.Match) -> str:
+    """12.04.1961 → «двенадцатого апреля тысяча девятьсот шестьдесят первого года»."""
+    try:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    except (ValueError, TypeError):
+        return m.group(0)
+    if not (1 <= day <= 31 and 1 <= month <= 12):
+        return m.group(0)
+    if year < 100:
+        year += 2000 if year < 50 else 1900  # 25→2025, 99→1999
+    parts = [
+        _num_to_words_ru(day, "ordinal"),
+        _RU_MONTHS_GEN[month - 1],
+        _num_to_words_ru(year, "ordinal") + " года",
+    ]
+    return " ".join(parts)
+
+
+def _temp_to_words(m: re.Match) -> str:
+    """+25°C / -15° / 25°C → «плюс двадцать пять градусов» / «минус пятнадцать градусов»."""
+    sign = (m.group(1) or "").strip()
+    try:
+        n = int(m.group(2))
+    except (ValueError, TypeError):
+        return m.group(0)
+    sign_word = ""
+    if sign in ("-", "−", "–"):
+        sign_word = "минус "
+    elif sign == "+":
+        sign_word = "плюс "
+    return f"{sign_word}{_num_to_words_ru(n)} градусов"
+
+
+def _time_to_words(m: re.Match) -> str:
+    """15:30 → «пятнадцать часов тридцать минут»."""
+    try:
+        h, mn = int(m.group(1)), int(m.group(2))
+    except (ValueError, TypeError):
+        return m.group(0)
+    if not (0 <= h <= 23 and 0 <= mn <= 59):
+        return m.group(0)
+    return f"{_num_to_words_ru(h)} часов {_num_to_words_ru(mn)} минут"
+
+
+def _year_to_words(m: re.Match) -> str:
+    """Изолированный 4-значный год: «в 1961 году» → «в тысяча девятьсот шестьдесят первом году»."""
+    try:
+        y = int(m.group(1))
+    except (ValueError, TypeError):
+        return m.group(0)
+    if not (1000 <= y <= 2100):
+        return m.group(0)
+    return f"{_num_to_words_ru(y, 'ordinal')} {m.group(2)}"
+
+
+_RE_DATE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b")
+_RE_TEMP = re.compile(r"([+\-−–])?\s*(\d+)\s*°\s*[CcСсFfFf]?", re.IGNORECASE)
+_RE_TIME = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+# 4-значный год перед «год/году/года/годом/годе»
+_RE_YEAR = re.compile(r"\b(\d{4})\s+(год[уаеомы]?)\b", re.IGNORECASE)
+
+
+def _normalize_dates_temps_numbers(text: str) -> str:
+    """Преобразование чисел/дат/температуры в слова перед TTS."""
+    if not text:
+        return text
+    # Порядок важен: даты раньше времени (чтобы dd.mm.yyyy не съел dd.mm как hh:mm).
+    text = _RE_DATE.sub(_date_to_words, text)
+    text = _RE_TEMP.sub(_temp_to_words, text)
+    text = _RE_TIME.sub(_time_to_words, text)
+    text = _RE_YEAR.sub(_year_to_words, text)
+    return text
+
+
+# ============================================
 # НОРМАЛИЗАЦИЯ ТЕКСТА ДЛЯ YANDEX TTS
 # ============================================
 
@@ -256,7 +360,9 @@ def normalize_tts_text(text: str) -> str:
     text = process_remakes_to_text(text)
     text = process_vocal_markers(text)
     text = re.sub(r'[#_`~<>|@$%^&+={}\\]', '', text)
-    # normalize_numbers убран — Yandex TTS читает цифры правильно
+    # Числа/даты/температура/время/годы → слова. Без этого Fish Audio
+    # читает «12.04.1961» по точкам/цифрам, «25°C» проскакивает мимо.
+    text = _normalize_dates_temps_numbers(text)
     # restore_punctuation убрана — base_mode уже нормализует пунктуацию.
     # Оставляем только добавление точки в конце если её нет
     if text and text[-1] not in '.!?':
