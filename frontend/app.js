@@ -122,13 +122,22 @@ function copyToClipboard(text) {
 // ============================================
 
 const MODES = {
+    basic: {
+        id: 'basic',
+        name: 'БАЗОВЫЙ',
+        emoji: '💬',
+        color: '#6E6E73',
+        greeting: 'Я Фреди — поговорим о том, что для вас важно.',
+        voicePrompt: 'Расскажите, что у вас на душе'
+    },
     coach: {
         id: 'coach',
         name: 'КОУЧ',
         emoji: '🔮',
         color: '#3b82ff',
         greeting: 'Я твой коуч. Давай найдём ответы внутри тебя.',
-        voicePrompt: 'Задай вопрос — я помогу найти решение'
+        voicePrompt: 'Задай вопрос — я помогу найти решение',
+        premium: true
     },
     psychologist: {
         id: 'psychologist',
@@ -136,7 +145,8 @@ const MODES = {
         emoji: '🧠',
         color: '#ff6b3b',
         greeting: 'Я здесь, чтобы помочь разобраться в глубинных паттернах.',
-        voicePrompt: 'Расскажите, что вас беспокоит'
+        voicePrompt: 'Расскажите, что вас беспокоит',
+        premium: true
     },
     trainer: {
         id: 'trainer',
@@ -144,11 +154,18 @@ const MODES = {
         emoji: '⚡',
         color: '#ff3b3b',
         greeting: 'Давай достигать целей вместе!',
-        voicePrompt: 'Сформулируй задачу — получишь чёткий план'
+        voicePrompt: 'Сформулируй задачу — получишь чёткий план',
+        premium: true
     }
 };
 
 const MODULES = {
+    basic: [
+        { id: 'emotions', name: 'Эмоции',  icon: '💭', desc: 'Дневник чувств' },
+        { id: 'goals',    name: 'Цели',    icon: '🎯', desc: 'Простой план' },
+        { id: 'habits',   name: 'Привычки', icon: '🔄', desc: 'Маленькие шаги' },
+        { id: 'analysis', name: 'Анализ',  icon: '🧠', desc: 'Что со мной?' }
+    ],
     coach: [
         { id: 'goals',      name: 'Цели',      icon: '🎯', desc: 'Постановка и достижение' },
         { id: 'habits',     name: 'Привычки',  icon: '🔄', desc: 'Формирование привычек' },
@@ -173,9 +190,48 @@ const MODULES = {
 // СОСТОЯНИЕ
 // ============================================
 
-let currentMode = 'psychologist';
+let currentMode = 'basic';
 let navigationHistory = [];
 let voiceManager = null;
+
+// ============================================
+// ПРЕМИУМ-СТАТУС (гейтинг ролей в диалоге)
+// ============================================
+
+let IS_PREMIUM = null; // null = unknown, true/false = известно
+
+async function loadPremiumStatus() {
+    const uid = CONFIG.USER_ID;
+    if (!uid) { IS_PREMIUM = false; window.IS_PREMIUM = false; return false; }
+    try {
+        const r = await fetch(`${CONFIG.API_BASE_URL}/api/meter/status/${uid}`);
+        if (!r.ok) throw new Error('meter status http ' + r.status);
+        const d = await r.json();
+        IS_PREMIUM = !!d.is_premium;
+    } catch (e) {
+        try {
+            const r2 = await fetch(`${CONFIG.API_BASE_URL}/api/subscription/status/${uid}`);
+            if (r2.ok) {
+                const d2 = await r2.json();
+                IS_PREMIUM = !!d2.has_subscription;
+            } else {
+                IS_PREMIUM = false;
+            }
+        } catch { IS_PREMIUM = false; }
+    }
+    window.IS_PREMIUM = IS_PREMIUM;
+    return IS_PREMIUM;
+}
+
+// Возвращает режим, которым реально должен идти диалог с Фреди.
+// Без премиума — всегда 'basic', независимо от выбора кнопок на дашборде.
+function getDialogMode() {
+    if (IS_PREMIUM === false) return 'basic';
+    return currentMode || 'basic';
+}
+
+window.getDialogMode = getDialogMode;
+window.loadPremiumStatus = loadPremiumStatus;
 
 // ============================================
 // API
@@ -359,7 +415,7 @@ async function getRandomQuote() {
     catch { return '«Не в силе, а в правде.» — Андрей Мейстер'; }
 }
 
-async function processHypno(text, mode = currentMode) {
+async function processHypno(text, mode = getDialogMode()) {
     try {
         return (await apiCall('/api/hypno/process', {
             method: 'POST',
@@ -789,16 +845,65 @@ function updateModeUI() {
     if (indicator) indicator.style.background = config.color;
 }
 
+function showPremiumLockPopup(modeName) {
+    // Удаляем предыдущее окно, если есть
+    document.getElementById('premiumLockPopup')?.remove();
+
+    const popup = document.createElement('div');
+    popup.id = 'premiumLockPopup';
+    popup.className = 'premium-lock-popup';
+    popup.innerHTML = `
+        <div class="plp-backdrop"></div>
+        <div class="plp-card" role="dialog" aria-modal="true" aria-labelledby="plpTitle">
+            <button class="plp-close" aria-label="Закрыть">×</button>
+            <div class="plp-emoji">💎</div>
+            <div class="plp-title" id="plpTitle">Роль «${modeName}» — с подпиской</div>
+            <div class="plp-text">Диалог сейчас идёт в базовом режиме. С подпиской Фреди начнёт говорить как психолог, коуч или тренер — на ваш выбор.</div>
+            <div class="plp-actions">
+                <button class="plp-btn plp-btn-primary" data-action="upgrade">Открыть Premium</button>
+                <button class="plp-btn plp-btn-secondary" data-action="close">Понятно</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(popup);
+
+    const close = () => popup.remove();
+    popup.querySelector('.plp-close')?.addEventListener('click', close);
+    popup.querySelector('.plp-backdrop')?.addEventListener('click', close);
+    popup.querySelector('[data-action="close"]')?.addEventListener('click', close);
+    popup.querySelector('[data-action="upgrade"]')?.addEventListener('click', () => {
+        close();
+        if (typeof showSettingsScreen === 'function') {
+            try { showSettingsScreen(); return; } catch {}
+        }
+        const s = document.createElement('script');
+        s.src = 'settings.js';
+        s.onload = () => { if (typeof showSettingsScreen === 'function') showSettingsScreen(); };
+        document.head.appendChild(s);
+    });
+}
+
 async function switchMode(mode) {
     if (mode === currentMode) return;
-    currentMode = mode;
     const config = MODES[mode];
-    showToast(`Режим "${config.name}" активирован`, 'success');
+    if (!config) return;
+
+    // Клик меняет визуальный выбор (active-кнопка, приветствие в hero) даже без подписки.
+    currentMode = mode;
     updateModeUI();
-    if (voiceManager && voiceManager.setMode) voiceManager.setMode(mode);
-    try {
-        await apiCall('/api/save-mode', { method: 'POST', body: JSON.stringify({ user_id: CONFIG.USER_ID, mode }) });
-    } catch (e) { console.warn('Failed to save mode:', e); }
+
+    if (IS_PREMIUM === true) {
+        showToast(`Режим "${config.name}" активирован`, 'success');
+        if (voiceManager && voiceManager.setMode) voiceManager.setMode(getDialogMode());
+        try {
+            await apiCall('/api/save-mode', { method: 'POST', body: JSON.stringify({ user_id: CONFIG.USER_ID, mode }) });
+        } catch (e) { console.warn('Failed to save mode:', e); }
+    } else {
+        // Без подписки: визуальное переключение есть, но диалог остаётся базовым.
+        // Показываем мягкое окно про премиум.
+        showPremiumLockPopup(config.name);
+        if (voiceManager && voiceManager.setMode) voiceManager.setMode('basic');
+    }
     renderDashboard();
 }
 
@@ -1473,9 +1578,9 @@ async function initVoice() {
         if (msg) _showThinkingBubble(msg);
     };
 
-    voiceManager.setMode(currentMode);
+    voiceManager.setMode(getDialogMode());
     window.voiceManager = voiceManager;
-    console.log('✅ VoiceManager инициализирован');
+    console.log('✅ VoiceManager инициализирован (режим диалога:', getDialogMode(), ')');
     return true;
 }
 
@@ -1526,6 +1631,11 @@ function renderDashboard() {
                 <button class="mode-btn ${currentMode === 'psychologist' ? 'active' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
                 <button class="mode-btn ${currentMode === 'trainer' ? 'active' : ''}" data-mode="trainer">⚡ ТРЕНЕР</button>
             </div>
+            ${IS_PREMIUM !== true ? `
+            <div class="mode-hint" style="text-align:center;font-size:11px;color:var(--text-secondary);margin:-6px 0 16px;line-height:1.5;opacity:0.85">
+                Сейчас работает базовый режим. Выбор роли —
+                <a href="#" id="modeUpgradeLink" style="color:#3b82ff;text-decoration:none;font-weight:600">с подпиской</a>.
+            </div>` : ''}
 
             <div class="voice-section">
                 <div class="voice-card">
@@ -1592,6 +1702,18 @@ function renderDashboard() {
 
     document.querySelectorAll('.mode-btn').forEach(btn => {
         btn.addEventListener('click', () => { if (btn.dataset.mode) switchMode(btn.dataset.mode); });
+    });
+
+    document.getElementById('modeUpgradeLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (typeof showSettingsScreen === 'function') {
+            try { showSettingsScreen(); return; } catch {}
+        }
+        const s = document.createElement('script');
+        s.src = 'settings.js';
+        s.onload = () => { if (typeof showSettingsScreen === 'function') showSettingsScreen(); };
+        s.onerror = () => { showToast('Не удалось открыть настройки', 'error'); };
+        document.head.appendChild(s);
     });
 
     document.querySelectorAll('.module-card').forEach(card => {
@@ -1974,6 +2096,12 @@ async function init() {
     initTopMenu();
     initShareBtn();
     initMessagesBadgePoller();
+
+    // Премиум-статус нужен до инициализации голосового менеджера —
+    // без подписки диалог должен сразу пойти в базовом режиме.
+    await loadPremiumStatus();
+    console.log('💳 Premium status:', IS_PREMIUM);
+
     await initVoice();
 
     // Проверяем имя пользователя
