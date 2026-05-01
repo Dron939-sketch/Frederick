@@ -643,6 +643,61 @@ def register_analytics_routes(app, db):
             logger.error(f"analytics costs error: {e}")
             return {"error": "internal", "message": str(e)}
 
+    # === Admin control panel ===
+    @app.get("/api/admin/basic-mode-preset")
+    async def get_basic_preset(
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Текущий пресет промпта BasicMode + список доступных."""
+        _check_admin(x_admin_token)
+        try:
+            from modes.prompts.basic_presets import PRESET_META, get_preset_text
+        except Exception as e:
+            return {"error": "presets_unavailable", "message": str(e)}
+        try:
+            async with db.get_connection() as conn:
+                row = await conn.fetchval(
+                    "SELECT value FROM fredi_admin_settings WHERE key = 'basic_mode_preset'"
+                )
+            active = (row or "current").strip().lower()
+        except Exception:
+            active = "current"
+        return {
+            "active": active,
+            "presets": PRESET_META,
+            "active_text": get_preset_text(active),
+        }
+
+    @app.post("/api/admin/basic-mode-preset")
+    async def set_basic_preset(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Переключить активный пресет. Body: {value: 'current'|'jarvis'|'house'}."""
+        _check_admin(x_admin_token)
+        try:
+            from modes.prompts.basic_presets import all_keys, PRESET_KEY_DEFAULT
+        except Exception as e:
+            return {"error": "presets_unavailable", "message": str(e)}
+        val = ((body or {}).get("value") or "").strip().lower()
+        if val not in all_keys():
+            val = PRESET_KEY_DEFAULT
+        try:
+            async with db.get_connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO fredi_admin_settings (key, value, updated_at)
+                    VALUES ('basic_mode_preset', $1, NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                    """,
+                    val,
+                )
+            logger.info(f"basic_mode_preset → {val}")
+            return {"success": True, "active": val}
+        except Exception as e:
+            logger.error(f"set basic_mode_preset failed: {e}")
+            return {"success": False, "error": str(e)}
+
     # === VK targeting (phase 1) chain-bootstrap ===
     # Цепляем регистрацию vk_routes сюда, чтобы не править main.py из этой
     # ветки (signing-сервер харнесса временно недоступен — нет возможности
