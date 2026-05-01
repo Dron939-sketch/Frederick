@@ -23,12 +23,23 @@ class RedisCache:
     async def connect(self, url: str = None):
         """Подключение к Redis"""
         self.url = url or os.environ.get('REDIS_URL')
-        
+
         if not self.url:
             logger.warning("⚠️ REDIS_URL not set, caching disabled")
             self._connected = False
             return
-        
+
+        # Auto-fix: если URL без схемы (host:port) — добавляем redis://.
+        # Render и некоторые CI-окружения дают только host:port в env.
+        url_clean = self.url.strip()
+        lower = url_clean.lower()
+        if not (lower.startswith("redis://")
+                or lower.startswith("rediss://")
+                or lower.startswith("unix://")):
+            url_clean = f"redis://{url_clean}"
+            logger.info(f"🔧 REDIS_URL без схемы — добавляем redis:// префикс")
+        self.url = url_clean
+
         try:
             self.redis = await redis.from_url(
                 self.url,
@@ -40,8 +51,14 @@ class RedisCache:
             )
             await self.redis.ping()
             self._connected = True
-            logger.info("✅ Redis connected")
-            
+            # Скрываем пароль из URL в логах.
+            safe_url = self.url
+            if "@" in safe_url:
+                proto, rest = safe_url.split("://", 1)
+                _, host = rest.split("@", 1)
+                safe_url = f"{proto}://***@{host}"
+            logger.info(f"✅ Redis connected ({safe_url})")
+
         except Exception as e:
             logger.warning(f"⚠️ Redis connection failed: {e}")
             self._connected = False
