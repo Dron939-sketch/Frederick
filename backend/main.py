@@ -1281,6 +1281,16 @@ async def init_database_tables():
         # Глобальные admin-настройки (key/value). Например, активный
         # пресет промпта BasicMode (current/jarvis/house) — переключается
         # из админки без релиза.
+        # Защита от orphan-type из неудачного предыдущего деплоя:
+        # если таблицы нет, но её композитный тип висит в pg_type — дропаем
+        # type, иначе CREATE TABLE упадёт с UniqueViolationError на
+        # pg_type_typname_nsp_index.
+        _admin_settings_exists = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'fredi_admin_settings')"
+        )
+        if not _admin_settings_exists:
+            await conn.execute("DROP TYPE IF EXISTS fredi_admin_settings CASCADE")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_admin_settings (
                 key TEXT PRIMARY KEY,
