@@ -84,16 +84,31 @@ def register_meter_routes(app, db, limiter):
     async def can_send_message(request: Request, user_id: int):
         try:
             can_send, status = await subscription_meter.can_send_message(user_id)
-            result = {"success": True, "can_send": can_send}
+            result = {
+                "success": True,
+                "can_send": can_send,
+                "is_premium": status.get("is_premium", False),
+                "limit_minutes": status.get("limit_minutes"),
+                "used_minutes_today": status.get("used_minutes_today"),
+                "remaining_minutes": status.get("remaining_minutes"),
+            }
             if not can_send:
-                result["is_on_cooldown"] = status.get("is_on_cooldown", False)
-                result["remaining_cooldown_minutes"] = status.get("remaining_cooldown_minutes", 0)
+                # Когда лимит исчерпан — даём фронту понять, что reset в полночь UTC.
+                from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                now = _dt.now(_tz.utc)
+                next_midnight = (now + _td(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                result["reset_at"] = next_midnight.isoformat()
+                result["minutes_until_reset"] = int((next_midnight - now).total_seconds() / 60)
+                # Backward-compat поля.
+                result["is_on_cooldown"] = False
+                result["remaining_cooldown_minutes"] = 0
             else:
                 remaining = status.get("remaining_minutes", 30)
-                if remaining is not None and remaining <= 5 and not status.get("is_premium"):
+                if (remaining is not None
+                        and remaining <= 5
+                        and not status.get("is_premium")):
                     result["warning"] = True
-                    # Analytics: засекаем момент, когда юзер в зоне warning (<5 мин
-                    # до блока) — начало воронки конверсии.
+                    # Analytics: момент когда юзер в зоне warning — старт воронки.
                     try:
                         from analytics_routes import log_server_event
                         await log_server_event(int(user_id), "meter_warning_server", {
@@ -101,7 +116,6 @@ def register_meter_routes(app, db, limiter):
                         })
                     except Exception:
                         pass
-                result["remaining_minutes"] = remaining
             return result
         except Exception as e:
             logger.error(f"can_send error: {e}")
