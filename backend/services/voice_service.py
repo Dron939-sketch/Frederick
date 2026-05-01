@@ -683,8 +683,14 @@ async def speech_to_text_streaming(
 async def text_to_speech_streaming(
     text: str,
     mode: str = "psychologist",
-    chunk_size: int = 4096
+    chunk_size: int = 32768
 ) -> AsyncGenerator[bytes, None]:
+    """Синтез речи с чанкованной передачей.
+
+    chunk_size 32КБ (вместо прежних 4КБ) — в 8 раз меньше итераций,
+    значит меньше WebSocket-overhead и sleep-ов при той же latency
+    первого байта.
+    """
     logger.info(f"🎤 Потоковый синтез речи, режим: {mode}, текст: {text[:100]}...")
     audio_bytes = await text_to_speech(text, mode)
     if audio_bytes:
@@ -693,7 +699,10 @@ async def text_to_speech_streaming(
             chunk = audio_bytes[i:i + chunk_size]
             yield chunk
             total_sent += len(chunk)
-            await asyncio.sleep(0.012)
+            # Минимальный sleep чтобы дать event-loop шанс отправить
+            # буфер до следующего chunk-а; меньше — может перегрузить
+            # WebSocket буфер на медленных соединениях.
+            await asyncio.sleep(0.003)
         logger.info(f"✅ Потоковый синтез завершен, отправлено {total_sent} байт")
     else:
         logger.error("❌ Не удалось синтезировать речь")

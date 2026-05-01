@@ -823,12 +823,11 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                     await websocket.send_json({"type": "status", "status": "speaking"})
                     try:
                         async for audio_chunk in voice_service.text_to_speech_streaming(
-                            ack, mode_name, chunk_size=4096
+                            ack, mode_name, chunk_size=32768
                         ):
                             if audio_chunk:
                                 audio_b64 = base64.b64encode(audio_chunk).decode()
                                 await websocket.send_json({"type": "audio", "data": audio_b64, "is_final": False})
-                                await asyncio.sleep(0.05)
                         await websocket.send_json({"type": "audio", "data": "", "is_final": True})
                     except Exception as _e:
                         logger.warning(f"TTS for test-accept ack failed: {_e}")
@@ -905,17 +904,16 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         await websocket.send_json({"type": "audio", "data": "", "is_final": True})
                         logger.info(f"✅ TTS complete (Freddy Jarvis)")
                     else:
-                        # Yandex TTS fallback
+                        # Streaming TTS-чанков (Fish Audio или Yandex как fallback).
                         async for audio_chunk in voice_service.text_to_speech_streaming(
-                            response_text, mode_name, chunk_size=4096
+                            response_text, mode_name, chunk_size=32768
                         ):
                             if audio_chunk:
                                 audio_base64 = base64.b64encode(audio_chunk).decode()
                                 await websocket.send_json({"type": "audio", "data": audio_base64, "is_final": False})
-                                await asyncio.sleep(0.05)
 
                         await websocket.send_json({"type": "audio", "data": "", "is_final": True})
-                        logger.info(f"✅ TTS complete (Yandex fallback)")
+                        logger.info(f"✅ TTS streaming complete")
 
                     await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": mode_name})
                     await message_repo.save(user_id_for_db, "assistant", response_text, {"voice": True, "mode": mode_name})
