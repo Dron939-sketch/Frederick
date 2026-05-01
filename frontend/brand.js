@@ -1708,12 +1708,12 @@ function _brandRenderVkAuditCard(state){
                 'title="Принимается любой формат: с http/https, www, m.vk.com, vk.ru, ' +
                 'с trailing-слэшами, ?w=wall, #fragment — всё нормализуется автоматически" ' +
                 'style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);' +
-                'background:rgba(255,255,255,0.04);color:var(--text);font:inherit;font-size:13px;' +
+                'background:rgba(127,127,127,0.10);color:var(--text);font:inherit;font-size:13px;' +
                 'box-sizing:border-box;margin-bottom:8px;outline:none">' +
             '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">' +
-                'Подойдёт любая форма: <code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">https://vk.com/example</code>, ' +
-                '<code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">vk.com/id123</code> или просто ' +
-                '<code style="background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:4px">example</code>.' +
+                'Подойдёт любая форма: <code style="background:rgba(127,127,127,0.15);padding:1px 5px;border-radius:4px;color:var(--text)">https://vk.com/example</code>, ' +
+                '<code style="background:rgba(127,127,127,0.15);padding:1px 5px;border-radius:4px;color:var(--text)">vk.com/id123</code> или просто ' +
+                '<code style="background:rgba(127,127,127,0.15);padding:1px 5px;border-radius:4px;color:var(--text)">example</code>.' +
             '</div>' +
             '<button id="vkAuditLinkBtn" class="brand-footer-btn" style="width:100%;font-weight:700">' +
                 '💎 Сохранить и запустить аудит' +
@@ -1863,12 +1863,12 @@ function _brandEnsureAuditModal(){
     ov.id = 'vkAuditOv';
     ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10000;align-items:center;justify-content:center;padding:16px';
     ov.innerHTML =
-        '<div style="background:var(--surface,#1a1a1a);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:14px;max-width:680px;width:100%;max-height:92vh;overflow:auto;padding:18px">' +
+        '<div style="background:var(--surface,#1a1a1a);color:var(--text,#fff);border:1px solid var(--border,rgba(127,127,127,0.2));border-radius:14px;max-width:680px;width:100%;max-height:92vh;overflow:auto;padding:18px">' +
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
-                '<div style="font-size:16px;font-weight:700">🔍 Аудит VK-канала</div>' +
-                '<button id="vkAuditClose" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text,#fff);cursor:pointer">✕</button>' +
+                '<div style="font-size:16px;font-weight:700;color:var(--text,#fff)">🔍 Аудит VK-канала</div>' +
+                '<button id="vkAuditClose" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border,rgba(127,127,127,0.2));background:transparent;color:var(--text,#fff);cursor:pointer">✕</button>' +
             '</div>' +
-            '<div id="vkAuditBody" style="font-size:13px"></div>' +
+            '<div id="vkAuditBody" style="font-size:13px;color:var(--text,#fff)"></div>' +
         '</div>';
     document.body.appendChild(ov);
     document.getElementById('vkAuditClose').addEventListener('click', _brandCloseAuditModal);
@@ -1900,11 +1900,11 @@ function _brandShowAuditLoader(){
     let stageIdx = 0;
 
     body.innerHTML =
-        '<div id="vkAuditLoader" style="text-align:center;padding:36px 20px">' +
+        '<div id="vkAuditLoader" style="text-align:center;padding:36px 20px;color:var(--text)">' +
             '<div style="font-size:42px;margin-bottom:12px;animation:vkAuditSpin 1.6s ease-in-out infinite">🔬</div>' +
-            '<div id="vkAuditStage" style="font-size:14px;line-height:1.6;margin-bottom:10px">' + stages[0] + '</div>' +
+            '<div id="vkAuditStage" style="font-size:14px;line-height:1.6;margin-bottom:10px;color:var(--text)">' + stages[0] + '</div>' +
             '<div id="vkAuditTimer" style="font-size:11px;color:var(--text-secondary)">Осталось ~' + ESTIMATE + ' сек</div>' +
-            '<div id="vkAuditBar" style="margin-top:14px;height:4px;width:100%;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden">' +
+            '<div id="vkAuditBar" style="margin-top:14px;height:4px;width:100%;background:rgba(127,127,127,0.18);border-radius:2px;overflow:hidden">' +
                 '<div id="vkAuditBarFill" style="height:100%;width:0%;background:linear-gradient(90deg,#a78bfa,#7c3aed);transition:width 0.4s linear"></div>' +
             '</div>' +
             '<style>@keyframes vkAuditSpin{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}</style>' +
@@ -1961,9 +1961,9 @@ function _brandRenderAuditResult(data){
     let html = '';
 
     // Шапка с архетипами и score.
-    html += '<div style="background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:14px;padding:14px;margin-bottom:14px">' +
+    html += '<div style="background:rgba(167,139,250,0.10);border:1px solid rgba(167,139,250,0.3);border-radius:14px;padding:14px;margin-bottom:14px;color:var(--text)">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px">' +
-            '<div style="font-size:13px;line-height:1.6">' +
+            '<div style="font-size:13px;line-height:1.6;color:var(--text)">' +
                 '<div>🎭 По тесту: <b>' + _brandEsc(internalRu) + '</b></div>' +
                 (targetRu && targetRu !== internalRu ? '<div>🎯 Целевой: <b>' + _brandEsc(targetRu) + '</b></div>' : '') +
                 '<div>📡 По VK: <b>' + _brandEsc(vkRu || '—') + '</b></div>' +
@@ -1979,14 +1979,14 @@ function _brandRenderAuditResult(data){
     // Что работает.
     const works = audit.what_works || [];
     if (works.length){
-        html += '<div style="background:rgba(34,197,94,0.05);border-left:3px solid #22c55e;border-radius:6px;padding:12px 14px;margin-bottom:12px">' +
+        html += '<div style="background:rgba(34,197,94,0.10);border:1px solid rgba(34,197,94,0.25);border-left:3px solid #22c55e;border-radius:6px;padding:12px 14px;margin-bottom:12px;color:var(--text)">' +
             '<div style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">💎 что работает на бренд</div>' +
             works.map(function(w){
                 const o = (typeof w === 'string') ? w : (w.observation || '');
                 const q = (typeof w === 'object' && w.quote) ? w.quote : '';
-                return '<div style="margin-bottom:8px;font-size:13px;line-height:1.55">' +
+                return '<div style="margin-bottom:8px;font-size:13px;line-height:1.55;color:var(--text)">' +
                     '• ' + _brandEsc(o) +
-                    (q ? '<div style="font-size:12px;font-style:italic;color:var(--text-secondary);margin-top:3px;padding-left:10px;border-left:2px solid rgba(34,197,94,0.3)">«' + _brandEsc(q) + '»</div>' : '') +
+                    (q ? '<div style="font-size:12px;font-style:italic;color:var(--text-secondary);margin-top:3px;padding-left:10px;border-left:2px solid rgba(34,197,94,0.4)">«' + _brandEsc(q) + '»</div>' : '') +
                 '</div>';
             }).join('') +
         '</div>';
@@ -1995,14 +1995,14 @@ function _brandRenderAuditResult(data){
     // Что разрушает.
     const hurts = audit.what_hurts || [];
     if (hurts.length){
-        html += '<div style="background:rgba(239,68,68,0.05);border-left:3px solid #ef4444;border-radius:6px;padding:12px 14px;margin-bottom:12px">' +
+        html += '<div style="background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.25);border-left:3px solid #ef4444;border-radius:6px;padding:12px 14px;margin-bottom:12px;color:var(--text)">' +
             '<div style="font-size:11px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">💔 что разрушает бренд</div>' +
             hurts.map(function(h){
                 const o = (typeof h === 'string') ? h : (h.observation || '');
                 const q = (typeof h === 'object' && h.quote) ? h.quote : '';
-                return '<div style="margin-bottom:8px;font-size:13px;line-height:1.55">' +
+                return '<div style="margin-bottom:8px;font-size:13px;line-height:1.55;color:var(--text)">' +
                     '• ' + _brandEsc(o) +
-                    (q ? '<div style="font-size:12px;font-style:italic;color:var(--text-secondary);margin-top:3px;padding-left:10px;border-left:2px solid rgba(239,68,68,0.3)">«' + _brandEsc(q) + '»</div>' : '') +
+                    (q ? '<div style="font-size:12px;font-style:italic;color:var(--text-secondary);margin-top:3px;padding-left:10px;border-left:2px solid rgba(239,68,68,0.4)">«' + _brandEsc(q) + '»</div>' : '') +
                 '</div>';
             }).join('') +
         '</div>';
@@ -2011,9 +2011,9 @@ function _brandRenderAuditResult(data){
     // Рекомендации.
     const recs = audit.recommendations || [];
     if (recs.length){
-        html += '<div style="background:rgba(167,139,250,0.05);border-left:3px solid #a78bfa;border-radius:6px;padding:12px 14px;margin-bottom:12px">' +
+        html += '<div style="background:rgba(167,139,250,0.10);border:1px solid rgba(167,139,250,0.25);border-left:3px solid #a78bfa;border-radius:6px;padding:12px 14px;margin-bottom:12px;color:var(--text)">' +
             '<div style="font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">🛠 рекомендации</div>' +
-            '<ol style="margin:0 0 0 18px;padding:0;font-size:13px;line-height:1.55">' +
+            '<ol style="margin:0 0 0 18px;padding:0;font-size:13px;line-height:1.55;color:var(--text)">' +
                 recs.map(function(r){ return '<li style="margin-bottom:6px">' + _brandEsc(r) + '</li>'; }).join('') +
             '</ol>' +
         '</div>';
@@ -2021,9 +2021,9 @@ function _brandRenderAuditResult(data){
 
     // Sample post.
     if (audit.sample_post){
-        html += '<div style="background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.15);border-radius:10px;padding:12px 14px;margin-bottom:12px">' +
+        html += '<div style="background:rgba(167,139,250,0.06);border:1px dashed rgba(167,139,250,0.35);border-radius:10px;padding:12px 14px;margin-bottom:12px;color:var(--text)">' +
             '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">✍️ пример поста под бренд</div>' +
-            '<div id="vkAuditSampleText" style="white-space:pre-wrap;font-size:13px;line-height:1.6">' + _brandEsc(audit.sample_post) + '</div>' +
+            '<div id="vkAuditSampleText" style="white-space:pre-wrap;font-size:13px;line-height:1.6;color:var(--text)">' + _brandEsc(audit.sample_post) + '</div>' +
             '<button id="vkAuditCopySample" style="margin-top:8px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer">📋 Скопировать</button>' +
         '</div>';
     }
