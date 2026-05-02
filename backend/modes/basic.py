@@ -339,7 +339,54 @@ class BasicMode(BaseMode):
         if golden and isinstance(golden, str):
             self.golden_phrases.append(golden)
 
-        if self.message_counter >= 4 and not self.test_offered:
+        # Если в памяти юзера уже есть отметка «тест пройден / не предлагать» —
+        # выставляем флаг и больше не оффер'им. Память подгружается на 1-м
+        # сообщении сессии (см. _load_memory выше).
+        if not self.test_offered and self._memory_text:
+            _mem_low = self._memory_text.lower()
+            if (
+                "test_already_passed_or_refused" in _mem_low
+                or "тест уже пройден" in _mem_low
+                or "не предлагать тест" in _mem_low
+            ):
+                self.test_offered = True
+
+        q_lower = question.lower()
+
+        # 1. Юзер явно говорит «уже прошёл тест / не нужен / не предлагай»
+        #    — выставляем флаг, запоминаем факт навсегда, не «открываем тест».
+        #    Условие: в сообщении есть слово «тест» И сигнал, что он либо
+        #    уже пройден, либо не нужен / не предлагать. Это надёжнее, чем
+        #    единый regex, и ловит «Я уже тест прошёл» без явного «не нужен».
+        _test_signal_re = (
+            r"(уже\s+прош[её]л|прош[её]л|прохо(?:дил|дила|дили|жу)|"
+            r"не\s+нужен|не\s+нужно|не\s+нужна|не\s+надо|"
+            r"не\s+предлаг|больше\s+не|не\s+спрашивай|не\s+интересн|"
+            r"отстань|хватит\s+про|больше\s+не\s+нужн)"
+        )
+        if "тест" in q_lower and re.search(_test_signal_re, q_lower):
+            self.test_offered = True
+            asyncio.create_task(self._save_fact_bg(
+                "test_already_passed_or_refused: пользователь сказал, что тест "
+                "уже пройден или просит больше его не предлагать"
+            ))
+            yield random.choice([
+                "Понял. Тест больше не предлагаю — просто поговорим.",
+                "Ок, без теста. Что у тебя сейчас?",
+                "Принял, тест отменяю. Продолжаем разговор.",
+            ])
+            return
+
+        # 2. Если это вопрос — пропускаем regex-ветки оффера/да-нет и идём
+        #    сразу в основной LLM. Иначе «Кто создал ИИ?» уходит в test-loop.
+        _question_re = (
+            r"\?|^\s*(?:кто|что|как|почему|зачем|где|когда|куда|"
+            r"сколько|какой|какая|какие|чей|ты\s+(?:знаешь|можешь|умеешь))\b"
+        )
+        is_question = bool(re.search(_question_re, question[:120], re.IGNORECASE | re.UNICODE))
+
+        # 3. Оффер на 4-м сообщении — только если не вопрос и оффера ещё не было.
+        if self.message_counter >= 4 and not self.test_offered and not is_question:
             self.test_offered = True
             # Оффер преподносим как «давай идти глубже», а не как способ
             # закрыть тему. К этому моменту юзер уже должен был получить
@@ -351,12 +398,25 @@ class BasicMode(BaseMode):
             ])
             return
 
-        q_lower = question.lower()
-        if re.search(r"(да|хочу|давай|погнали|ок|тест|попробую|можно)", q_lower) and self.test_offered:
+        # 4. Согласие — только если оффер уже был и это короткое подтверждение.
+        #    Слово «тест» из тригера убрано: «уже прошёл тест» больше не
+        #    интерпретируется как «да, открой тест».
+        _agree_re = r"(\bда\b|\bхочу\b|\bдавай\b|\bпогнали\b|\bок\b|\bпопробую\b|\bможно\b|\bсогласен\b)"
+        _decline_re = r"(\bнет\b|не\s+хочу|потом|отстань|не\s+надо|не\s+сейчас|не\s+интересно)"
+
+        if (
+            self.test_offered
+            and not is_question
+            and re.search(_agree_re, q_lower)
+            and not re.search(_decline_re, q_lower)
+        ):
             yield random.choice(["Отлично. Давай начнем.", "Хорошо. Тогда начнем.", "Первый вопрос..."])
             return
 
-        if re.search(r"(нет|не хочу|потом|отстань|не надо|не сейчас)", q_lower):
+        # 5. Отказ — снимаем оффер и не зацикливаемся.
+        if not is_question and re.search(_decline_re, q_lower):
+            if not self.test_offered:
+                self.test_offered = True
             yield random.choice([
                 "Хорошо. Просто поговорим.",
                 "Ладно. Тогда просто побудем здесь.",
