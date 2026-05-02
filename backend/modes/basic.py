@@ -26,6 +26,76 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# Tool definitions for Anthropic tool-use.
+# Подключаются к основному ответу BasicMode, чтобы Фреди мог реально
+# доставать live-данные (дата, погода, веб-поиск) вместо честного
+# «точные цифры могли поменяться». Без BRAVE_SEARCH_API_KEY web_search
+# вернёт инструкцию деградировать к критериям — это ок.
+# ============================================================
+_BASIC_TOOLS = [
+    {
+        "name": "get_current_datetime",
+        "description": (
+            "Получить текущие дату, день недели и время в часовом поясе "
+            "пользователя. Используй когда юзер спрашивает «какое сегодня "
+            "число / день недели / сколько времени», или когда ответу нужна "
+            "текущая дата для адекватности."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone (например Europe/Moscow). По умолчанию Europe/Moscow.",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_weather",
+        "description": (
+            "Получить текущую погоду по названию города. Используй если "
+            "юзер упоминает погоду, планы на улице, что надеть, или "
+            "спрашивает «холодно ли сейчас». Если город уже известен из "
+            "контекста — передай его."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {
+                    "type": "string",
+                    "description": "Название города по-русски, например «Коломна» или «Москва».",
+                }
+            },
+            "required": ["city"],
+        },
+    },
+    {
+        "name": "web_search",
+        "description": (
+            "Поиск в интернете по актуальной информации. Используй ТОЛЬКО "
+            "когда юзеру нужны свежие данные: цены, конкретные модели "
+            "товаров (смартфоны, ноутбуки, бытовая техника), новости, "
+            "события после твоего обучения, спортивные результаты, статус "
+            "компаний, расписания. НЕ используй для общих советов, "
+            "психологии, бытовых разговоров — там tool'ы не нужны."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Поисковый запрос на языке юзера. Будь конкретным: «смартфон до 25000 рублей 2026 рейтинг», а не просто «смартфон».",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+]
+
+
 class BasicMode(BaseMode):
 
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
@@ -72,6 +142,8 @@ class BasicMode(BaseMode):
         self.ai_service = AIService()
         self.user_name = getattr(context, "name", "") or ""
         self.gender = getattr(context, "gender", None) if context else None
+        # Город нужен tool'у get_weather, чтобы не переспрашивать у юзера.
+        self.user_city = getattr(context, "city", None) if context else None
         self.message_counter = user_data.get("message_count", 0)
         self.test_offered = user_data.get("test_offered", False)
         # Активный пресет промпта BasicMode (current/jarvis/house).
@@ -383,6 +455,209 @@ class BasicMode(BaseMode):
             logger.debug(f"intuition skip: {e}")
             return ""
 
+    # ----------------------------------------------------------------
+    # Tool-use path: system/user split + executor.
+    # Используется для основного ответа BasicMode. system_text — статичный,
+    # подаётся с cache_control=ephemeral (Anthropic prompt caching).
+    # ----------------------------------------------------------------
+
+    def _build_system_for_anthropic(self) -> str:
+        """Статичный системный префикс, кешируемый Anthropic'ом.
+
+        Содержит пресет (current/jarvis/house) + memory_guard + few-shot
+        примеры — всё, что не меняется от хода к ходу. Чем стабильнее
+        этот текст, тем выше cache hit rate (и ниже латентность префикса)."""
+        few_shot = (
+            "\nПРИМЕРЫ ХОРОШИХ ОТВЕТОВ (без открывашек, с называнием паттерна):\n\n"
+            "Пользователь: Я застрял. Ничего не хочу делать.\n"
+            "Фреди: Это часто не лень, а истощение — мозг защищает себя через апатию. "
+            "На сегодня дай себе один час «пусто», без планов, и заметь к вечеру: стало "
+            "легче или тяжелее. От этой точки построим дальше.\n\n"
+            "Пользователь: Не могу удержать внимание на работе. Постоянно отвлекаюсь.\n"
+            "Фреди: Дело редко в воле — чаще в среде: телефон рядом, нет паузы между "
+            "задачами. Попробуй два дня работать интервалами по 25 минут с обязательной "
+            "5-минутной паузой, а телефон на это время — в другую комнату. Через два дня "
+            "вернись с цифрами, что вышло.\n\n"
+            "Пользователь: Боюсь начальницу. С ней теряюсь и заикаюсь.\n"
+            "Фреди: Это не про неё лично — это иерархическая блокировка: голос пропадает в "
+            "момент, когда мозг считывает «выше тебя по статусу». Перед следующим разговором "
+            "запиши три ключевые мысли, которые хочешь донести — они станут якорем, когда тело "
+            "начинает плыть. Что именно она делает, что выбивает сильнее всего?\n\n"
+            "Пользователь: Всё хорошо.\n"
+            "Фреди: Тогда побудем здесь. Если есть что-то небольшое, что хочется обсудить — "
+            "расскажи, а если нет — просто присутствие тоже работа.\n"
+        )
+        return self.get_system_prompt() + "\n\n" + few_shot
+
+    def _build_user_message_for_anthropic(self, question: str) -> str:
+        """Динамический контент — память, профиль, эмоция, история, вопрос.
+
+        Меняется почти в каждом ходе, поэтому идёт в user-сообщение, а не
+        в кешируемый system."""
+        parts: List[str] = []
+        if self._cross_memory:
+            parts.append(self._cross_memory.strip())
+        profile = self._build_profile_block().strip()
+        if profile:
+            parts.append(profile)
+        intuition = (getattr(self, "_intuition_block", "") or "").strip()
+        if intuition:
+            parts.append(intuition)
+        user_block = self._build_user_block().strip()
+        if user_block:
+            parts.append(user_block)
+        if self._memory_text:
+            parts.append(self._memory_text.strip())
+        if self.rules:
+            parts.append(f"Факты: {', '.join(self.rules[-3:])}")
+        if self.golden_phrases:
+            parts.append(f"Он говорил: {self.golden_phrases[-1]}")
+        if self._current_emotion.get("instruction"):
+            parts.append(
+                f"ЭМОЦИЯ: {self._current_emotion['emotion']}. "
+                f"{self._current_emotion['instruction']}"
+            )
+
+        # Подсказка с городом — тулу get_weather не придётся переспрашивать.
+        if self.user_city:
+            parts.append(f"Город собеседника: {self.user_city}")
+
+        history_lines: List[str] = []
+        if self.history:
+            for m in self.history[-10:]:
+                role = "Пользователь" if m.get("role") == "user" else "Фреди"
+                content = (m.get("content") or "")[:200]
+                if content:
+                    history_lines.append(f"{role}: {content}")
+        if self.conversation_history:
+            history_lines.extend(self.conversation_history[-4:])
+        if history_lines:
+            parts.append("История:\n" + "\n".join(history_lines))
+
+        parts.append(f"Пользователь: {question}")
+        parts.append(
+            "Ответь без шаблонных открывашек. Объём — по теме: 2–3 предложения "
+            "на простой запрос, до 5–6 на серьёзный. Назови паттерн прямо, дай "
+            "1–2 применимых шага. Адаптируй тон под эмоцию.\n"
+            "Если для ответа нужны актуальные данные (цены, конкретные модели "
+            "товаров, текущая дата, погода, новости, события после обучения) — "
+            "СНАЧАЛА вызови соответствующий tool, потом отвечай по делу. "
+            "Без tool'а не выдумывай конкретные цифры и названия."
+        )
+        return "\n\n".join(parts)
+
+    async def _execute_tool(self, name: str, input_data: Dict[str, Any]) -> str:
+        """Диспетчер тулов — Anthropic вернёт tool_use block, мы запустим
+        реальный код и отдадим текст обратно как tool_result."""
+        if name == "get_current_datetime":
+            return self._tool_datetime(input_data)
+        if name == "get_weather":
+            return await self._tool_weather(input_data)
+        if name == "web_search":
+            return await self._tool_search(input_data)
+        return f"Unknown tool: {name}"
+
+    def _tool_datetime(self, input_data: Dict[str, Any]) -> str:
+        from datetime import datetime as _dt
+        tz_name = (input_data.get("timezone") or "Europe/Moscow").strip() or "Europe/Moscow"
+        try:
+            from zoneinfo import ZoneInfo
+            now = _dt.now(ZoneInfo(tz_name))
+        except Exception:
+            now = _dt.now()
+            tz_name = "local"
+        weekdays = [
+            "понедельник", "вторник", "среда", "четверг",
+            "пятница", "суббота", "воскресенье",
+        ]
+        months = [
+            "января", "февраля", "марта", "апреля", "мая", "июня",
+            "июля", "августа", "сентября", "октября", "ноября", "декабря",
+        ]
+        return (
+            f"{weekdays[now.weekday()]}, {now.day} {months[now.month - 1]} "
+            f"{now.year}, {now.strftime('%H:%M')} ({tz_name})"
+        )
+
+    async def _tool_weather(self, input_data: Dict[str, Any]) -> str:
+        city = (input_data.get("city") or "").strip()
+        if not city:
+            city = self.user_city or "Москва"
+        try:
+            # main.py владеет singleton'ом WeatherService; берём лениво.
+            import main as _main_mod
+            ws = getattr(_main_mod, "weather_service", None)
+            if ws is None:
+                return "Сервис погоды не инициализирован — данных нет."
+            data = await ws.get_weather(city)
+        except Exception as e:
+            logger.warning(f"weather tool error: {e}")
+            return f"Не удалось получить погоду: {e}"
+        if not data:
+            return (
+                f"Погода для «{city}» недоступна "
+                "(город не найден или ключ погоды не настроен)."
+            )
+        return (
+            f"{data.get('city', city)}: {data.get('description', '')}, "
+            f"температура {data.get('temperature', '?')}°C "
+            f"(ощущается как {data.get('feels_like', '?')}°C), "
+            f"влажность {data.get('humidity', '?')}%, "
+            f"ветер {data.get('wind_speed', '?')} м/с."
+        )
+
+    async def _tool_search(self, input_data: Dict[str, Any]) -> str:
+        query = (input_data.get("query") or "").strip()
+        if not query:
+            return "Empty query."
+        try:
+            from services.web_search import format_results_for_prompt, search
+            results = await search(query, count=5)
+            return format_results_for_prompt(results)
+        except Exception as e:
+            logger.warning(f"web_search tool error: {e}")
+            return f"Поиск недоступен: {e}"
+
+    async def _call_llm_for_response(
+        self, question: str, max_tokens: int = 400, temperature: float = 0.8
+    ) -> Optional[str]:
+        """Основной ответ BasicMode: Anthropic c tool-use + кешированным
+        системным префиксом, fallback DeepSeek (плоский промпт, без тулов)."""
+        system_text = self._build_system_for_anthropic()
+        user_text = self._build_user_message_for_anthropic(question)
+
+        try:
+            from services.anthropic_client import (
+                call_anthropic_with_tools,
+                is_available as _anthropic_available,
+            )
+            if _anthropic_available():
+                messages = [{"role": "user", "content": user_text}]
+                text = await call_anthropic_with_tools(
+                    system_text=system_text,
+                    messages=messages,
+                    tools=_BASIC_TOOLS,
+                    tool_executor=self._execute_tool,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    feature="basic_mode.chat",
+                )
+                if text:
+                    return text
+                logger.info("Anthropic returned empty / failed, falling back to DeepSeek")
+        except Exception as e:
+            logger.warning(f"Anthropic tool-use call failed: {e}")
+
+        # Fallback: DeepSeek без тулов. Склеиваем system+user в плоский промпт.
+        flat_prompt = system_text + "\n\n" + user_text
+        try:
+            return await self.ai_service._simple_call(
+                flat_prompt, max_tokens=max(max_tokens - 100, 200), temperature=temperature
+            )
+        except Exception as e:
+            logger.error(f"DeepSeek fallback failed: {e}")
+            return None
+
     def _build_prompt(self, question: str) -> str:
         history_from_db = ""
         # Расширено до 10 сообщений и до 200 символов каждое — это чище
@@ -626,10 +901,10 @@ class BasicMode(BaseMode):
             ])
             return
 
-        # Main response: Anthropic -> DeepSeek fallback
-        full_prompt = self._build_prompt(question)
+        # Main response: Anthropic with tools (datetime/weather/web_search)
+        # → DeepSeek fallback (no tools).
         try:
-            response = await self._call_llm(full_prompt, max_tokens=300, temperature=0.8)
+            response = await self._call_llm_for_response(question, max_tokens=400, temperature=0.8)
             if response and response.strip():
                 yield self._simple_clean(response)
             else:
@@ -667,8 +942,8 @@ class BasicMode(BaseMode):
         )
         text = emoji_pattern.sub("", text)
         text = re.sub(r"([.!?,;:])([^\s\d)\]}])", r"\1 \2", text)
-        text = re.sub(r"([\u2014\u2013])([^\s])", r"\1 \2", text)
-        text = re.sub(r"([a-z\u0430-\u044f\u0451])([A-Z\u0410-\u042f\u0401])", r"\1 \2", text)
+        text = re.sub(r"([—–])([^\s])", r"\1 \2", text)
+        text = re.sub(r"([a-zа-яё])([A-ZА-ЯЁ])", r"\1 \2", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
