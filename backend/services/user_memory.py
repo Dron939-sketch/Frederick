@@ -70,6 +70,57 @@ class UserMemory:
             return ""
         return "Что я помню о собеседнике: " + "; ".join(facts)
 
+    async def forget_recent(self, user_id: int, n: int = 3) -> int:
+        """Удаляет N самых свежих фактов о юзере. Используется когда
+        собеседник говорит «забудь это / это не моё / это сказала сестра» —
+        чтобы Фреди не тащил в следующие сессии услышанное от другого
+        человека или ошибочно атрибутированное."""
+        if n <= 0:
+            return 0
+        try:
+            async with self.db.get_connection() as conn:
+                rows = await conn.fetch(
+                    "SELECT id FROM fredi_user_facts "
+                    "WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+                    user_id, n,
+                )
+                if not rows:
+                    return 0
+                ids = [r["id"] for r in rows]
+                await conn.execute(
+                    "DELETE FROM fredi_user_facts WHERE id = ANY($1::bigint[])",
+                    ids,
+                )
+                return len(ids)
+        except Exception as e:
+            logger.warning(f"forget_recent error: {e}")
+            return 0
+
+    async def forget_matching(self, user_id: int, keywords: List[str]) -> int:
+        """Удаляет факты, содержащие любое из ключевых слов (case-insensitive)."""
+        if not keywords:
+            return 0
+        try:
+            kws = [k.strip().lower() for k in keywords if k and k.strip()]
+            if not kws:
+                return 0
+            async with self.db.get_connection() as conn:
+                # Собираем условие LIKE %kw% через ANY/ILIKE-цепочку.
+                conds = " OR ".join(["LOWER(fact) LIKE $%d" % (i + 2) for i in range(len(kws))])
+                params = [user_id] + [f"%{k}%" for k in kws]
+                result = await conn.execute(
+                    f"DELETE FROM fredi_user_facts WHERE user_id = $1 AND ({conds})",
+                    *params,
+                )
+                # asyncpg execute returns string like "DELETE N"
+                try:
+                    return int(result.split()[-1])
+                except Exception:
+                    return 0
+        except Exception as e:
+            logger.warning(f"forget_matching error: {e}")
+            return 0
+
 
 # Singleton
 _instance: Optional[UserMemory] = None
