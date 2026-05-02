@@ -462,9 +462,24 @@ function showToast(message, type = 'info') {
     if (closeBtn) closeBtn.onclick = () => toast.style.display = 'none';
 }
 
-function addMessage(text, sender = 'bot', audioUrl = null) {
+// Если на главном экране (renderDashboard) есть #dashChatStream — сообщения
+// идут в него (фиксированная высота со своим скроллом, не растягивает страницу).
+// Иначе fallback на старое поведение: создаём .chat-messages в screenContainer.
+function _getMessagesContainer() {
+    const stream = document.getElementById('dashChatStream');
+    if (stream) {
+        let inner = stream.querySelector('.chat-messages');
+        if (!inner) {
+            inner = document.createElement('div');
+            inner.className = 'chat-messages';
+            stream.appendChild(inner);
+        }
+        // Показать поток теперь, когда в него что-то ляжет.
+        stream.classList.add('has-messages');
+        return inner;
+    }
     const container = document.getElementById('screenContainer');
-    if (!container) return;
+    if (!container) return null;
     if (container.querySelector('.loading-screen')) container.innerHTML = '';
     let messagesContainer = container.querySelector('.chat-messages');
     if (!messagesContainer) {
@@ -472,6 +487,19 @@ function addMessage(text, sender = 'bot', audioUrl = null) {
         messagesContainer.className = 'chat-messages';
         container.appendChild(messagesContainer);
     }
+    return messagesContainer;
+}
+
+function _scrollMessagesToBottom(messagesContainer) {
+    if (!messagesContainer) return;
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    const stream = messagesContainer.closest('.dashboard-chat-stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+}
+
+function addMessage(text, sender = 'bot', audioUrl = null) {
+    const messagesContainer = _getMessagesContainer();
+    if (!messagesContainer) return;
     // Если пришёл реальный ответ — убираем «думаю» бабл.
     _hideThinkingBubble();
 
@@ -487,7 +515,7 @@ function addMessage(text, sender = 'bot', audioUrl = null) {
         messageDiv.appendChild(audio);
     }
     messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    _scrollMessagesToBottom(messagesContainer);
 }
 
 // «Фреди печатает…» индикатор, пока ждём ответ AI.
@@ -496,14 +524,8 @@ let _thinkingBubble = null;
 let _thinkingLabel = null;
 
 function _showThinkingBubble(labelText) {
-    const container = document.getElementById('screenContainer');
-    if (!container) return;
-    let messagesContainer = container.querySelector('.chat-messages');
-    if (!messagesContainer) {
-        messagesContainer = document.createElement('div');
-        messagesContainer.className = 'chat-messages';
-        container.appendChild(messagesContainer);
-    }
+    const messagesContainer = _getMessagesContainer();
+    if (!messagesContainer) return;
     if (!_thinkingBubble) {
         _thinkingBubble = document.createElement('div');
         _thinkingBubble.className = 'message bot thinking';
@@ -514,7 +536,7 @@ function _showThinkingBubble(labelText) {
             '</div>';
         _thinkingLabel = _thinkingBubble.querySelector('.thinking-label');
         messagesContainer.appendChild(_thinkingBubble);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        _scrollMessagesToBottom(messagesContainer);
     }
     if (labelText && _thinkingLabel) _thinkingLabel.textContent = labelText;
 }
@@ -1637,16 +1659,6 @@ function renderDashboard() {
                 <a href="#" id="modeUpgradeLink" style="color:#3b82ff;text-decoration:none;font-weight:600">с подпиской</a>.
             </div>` : ''}
 
-            <div class="voice-section">
-                <div class="voice-card">
-                    <button class="voice-record-btn-premium" id="mainVoiceBtn">
-                        <span class="voice-icon">🎤</span>
-                        <span class="voice-text">${modeConfig.voicePrompt}</span>
-                    </button>
-                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
-                </div>
-            </div>
-
             <div class="modules-grid">
                 ${modules.map(m => `
                     <div class="module-card" data-module="${m.id}">
@@ -1667,6 +1679,21 @@ function renderDashboard() {
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
                     <div class="quick-action" data-action="interests"><div class="action-icon">🔮</div><div class="action-name">Интересы</div></div>
                     <div class="quick-action" data-action="hormones"><div class="action-icon">🧬</div><div class="action-name">Гормоны</div></div>
+                </div>
+            </div>
+
+            <!-- Скроллящийся поток сообщений диалога — появляется снизу,
+                 над кнопкой записи, со своим скроллом, чтобы вся страница
+                 не превращалась в портянку. -->
+            <div class="dashboard-chat-stream" id="dashChatStream"></div>
+
+            <div class="voice-section voice-section--bottom">
+                <div class="voice-card">
+                    <button class="voice-record-btn-premium" id="mainVoiceBtn">
+                        <span class="voice-icon">🎤</span>
+                        <span class="voice-text">${modeConfig.voicePrompt}</span>
+                    </button>
+                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
                 </div>
             </div>
         </div>
