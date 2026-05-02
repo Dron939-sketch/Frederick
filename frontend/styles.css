@@ -732,6 +732,62 @@ body::after {
     }
 }
 
+/* Голосовая кнопка на главном экране — sticky bottom над любым контентом.
+   Сообщения диалога идут в .dashboard-chat-stream выше — со своим скроллом. */
+.voice-section--bottom {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    margin-left: -20px;
+    margin-right: -20px;
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, var(--black-obsidian, #0a0a0a) 78%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+}
+
+[data-theme="light"] .voice-section--bottom {
+    background: linear-gradient(to top, var(--bg-primary, #fff) 78%, transparent);
+}
+
+/* Поток сообщений на дашборде: фиксированная высота + свой скролл, чтобы
+   страница не превращалась в портянку при длинном диалоге. */
+.dashboard-chat-stream {
+    display: none;
+    max-height: 38vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    margin: 8px -4px 12px;
+    padding: 4px;
+    border-radius: 18px;
+    border: 1px solid rgba(224, 224, 224, 0.08);
+    background: rgba(0, 0, 0, 0.18);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(224, 224, 224, 0.25) transparent;
+}
+
+.dashboard-chat-stream.has-messages { display: block; }
+
+.dashboard-chat-stream::-webkit-scrollbar { width: 6px; }
+.dashboard-chat-stream::-webkit-scrollbar-track { background: transparent; }
+.dashboard-chat-stream::-webkit-scrollbar-thumb {
+    background: rgba(224, 224, 224, 0.22);
+    border-radius: 6px;
+}
+
+[data-theme="light"] .dashboard-chat-stream {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+    scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+[data-theme="light"] .dashboard-chat-stream::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.22);
+}
+
+/* Внутри потока убираем доп. отступы у .chat-messages — они уже в обёртке. */
+.dashboard-chat-stream .chat-messages { padding: 8px; }
+
 .voice-card {
     background: linear-gradient(135deg, rgba(10, 10, 10, 0.7), rgba(26, 26, 26, 0.6));
     -webkit-backdrop-filter: blur(20px);
@@ -2007,7 +2063,11 @@ body::after {
 
     .voice-card { margin-bottom: 6px; }
     .voice-record-btn-premium { padding: 18px 20px; font-size: 16px; }
-    .dashboard-container { padding-bottom: max(120px, calc(env(safe-area-inset-bottom, 0px) + 100px)); }
+    /* Голосовая кнопка теперь sticky внутри обычного потока (.voice-section--bottom),
+       старый «резервный» padding под фиксированную кнопку больше не нужен. */
+    .dashboard-container { padding-bottom: 12px; }
+    /* На мобиле поток сообщений чуть короче, чтобы кнопка и шапка модулей оставались видны. */
+    .dashboard-chat-stream { max-height: 32vh; }
 
     .screen-container {
         padding: 16px;
