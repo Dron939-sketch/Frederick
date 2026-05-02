@@ -74,6 +74,10 @@ class BasicMode(BaseMode):
         self.gender = getattr(context, "gender", None) if context else None
         self.message_counter = user_data.get("message_count", 0)
         self.test_offered = user_data.get("test_offered", False)
+        # Юзер уже сказал «тест не нужен / уже прошёл». Используется в
+        # main.py: если флаг True — server-side _is_test_acceptance не
+        # должен открывать тест на нейтральные «давай»/«начнём».
+        self.test_refused = user_data.get("test_refused", False)
         # Активный пресет промпта BasicMode (current/jarvis/house).
         # Прокидывается из main.py перед созданием mode_instance.
         # При отсутствии — fallback на 'current'.
@@ -495,7 +499,7 @@ class BasicMode(BaseMode):
         # Если в памяти юзера уже есть отметка «тест пройден / не предлагать» —
         # выставляем флаг и больше не оффер'им. Память подгружается на 1-м
         # сообщении сессии (см. _load_memory выше).
-        if not self.test_offered and self._memory_text:
+        if self._memory_text:
             _mem_low = self._memory_text.lower()
             if (
                 "test_already_passed_or_refused" in _mem_low
@@ -503,6 +507,7 @@ class BasicMode(BaseMode):
                 or "не предлагать тест" in _mem_low
             ):
                 self.test_offered = True
+                self.test_refused = True
 
         q_lower = question.lower()
 
@@ -552,6 +557,7 @@ class BasicMode(BaseMode):
         )
         if "тест" in q_lower and re.search(_test_signal_re, q_lower):
             self.test_offered = True
+            self.test_refused = True
             asyncio.create_task(self._save_fact_bg(
                 "test_already_passed_or_refused: пользователь сказал, что тест "
                 "уже пройден или просит больше его не предлагать"
@@ -588,7 +594,13 @@ class BasicMode(BaseMode):
         #    Слово «тест» из тригера убрано: «уже прошёл тест» больше не
         #    интерпретируется как «да, открой тест».
         _agree_re = r"(\bда\b|\bхочу\b|\bдавай\b|\bпогнали\b|\bок\b|\bпопробую\b|\bможно\b|\bсогласен\b)"
-        _decline_re = r"(\bнет\b|не\s+хочу|потом|отстань|не\s+надо|не\s+сейчас|не\s+интересно)"
+        # ВАЖНО: каждый паттерн обрамлён \b, иначе «мне интересно» матчит
+        # «не\s+интересно» (последние две буквы «мне» + пробел + «интересно»),
+        # и нейтральная фраза трактуется как отказ от теста.
+        _decline_re = (
+            r"(\bнет\b|\bне\s+хочу\b|\bпотом\b|\bотстань\b|"
+            r"\bне\s+надо\b|\bне\s+сейчас\b|\bне\s+интересно\b)"
+        )
 
         if (
             self.test_offered
@@ -599,10 +611,10 @@ class BasicMode(BaseMode):
             yield random.choice(["Отлично. Давай начнем.", "Хорошо. Тогда начнем.", "Первый вопрос..."])
             return
 
-        # 5. Отказ — снимаем оффер и не зацикливаемся.
-        if not is_question and re.search(_decline_re, q_lower):
-            if not self.test_offered:
-                self.test_offered = True
+        # 5. Отказ — реагируем только если оффер реально был. Раньше здесь
+        #    выставляли test_offered=True даже без оффера, и server-side
+        #    _is_test_acceptance потом ловил любое «давай» как согласие.
+        if self.test_offered and not is_question and re.search(_decline_re, q_lower):
             yield random.choice([
                 "Хорошо. Просто поговорим.",
                 "Ладно. Тогда просто побудем здесь.",
@@ -651,8 +663,8 @@ class BasicMode(BaseMode):
         )
         text = emoji_pattern.sub("", text)
         text = re.sub(r"([.!?,;:])([^\s\d)\]}])", r"\1 \2", text)
-        text = re.sub(r"([\u2014\u2013])([^\s])", r"\1 \2", text)
-        text = re.sub(r"([a-z\u0430-\u044f\u0451])([A-Z\u0410-\u042f\u0401])", r"\1 \2", text)
+        text = re.sub(r"([—–])([^\s])", r"\1 \2", text)
+        text = re.sub(r"([a-zа-яё])([A-ZА-ЯЁ])", r"\1 \2", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
