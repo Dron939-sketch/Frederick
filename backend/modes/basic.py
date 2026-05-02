@@ -630,8 +630,13 @@ class BasicMode(BaseMode):
             from services.anthropic_client import (
                 call_anthropic_with_tools,
                 is_available as _anthropic_available,
+                pick_model,
             )
             if _anthropic_available():
+                # Hero-режим: для первых N ходов сессии можно подсунуть Opus
+                # (см. ANTHROPIC_HERO_MODEL/_TURNS env). По умолчанию всегда
+                # Sonnet. Передаём 1-based turn index = message_counter.
+                model = pick_model(self.message_counter)
                 messages = [{"role": "user", "content": user_text}]
                 text = await call_anthropic_with_tools(
                     system_text=system_text,
@@ -641,6 +646,7 @@ class BasicMode(BaseMode):
                     max_tokens=max_tokens,
                     temperature=temperature,
                     feature="basic_mode.chat",
+                    model=model,
                 )
                 if text:
                     return text
