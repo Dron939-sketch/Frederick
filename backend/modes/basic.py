@@ -221,6 +221,19 @@ class BasicMode(BaseMode):
             "ответь тепло: упомяни имя и 1–2 детали из истории ниже, покажи, что помнишь его."
         )
 
+    async def _build_intuition_block(self, question: str) -> str:
+        """Подмешивает в системный промпт топ-2-3 паттерна из накопленного
+        «жизненного опыта» Фреди (services.life_experience). Чисто
+        keyword-матч по in-memory кэшу — без дополнительных LLM-вызовов
+        и без сетевых походов кроме первой загрузки кэша."""
+        try:
+            from services.life_experience import find_relevant_patterns, format_for_prompt
+            patterns = await find_relevant_patterns(question, top_n=3)
+            return format_for_prompt(patterns)
+        except Exception as e:
+            logger.debug(f"intuition skip: {e}")
+            return ""
+
     def _build_prompt(self, question: str) -> str:
         history_from_db = ""
         # Расширено до 10 сообщений и до 200 символов каждое — это чище
@@ -277,11 +290,14 @@ class BasicMode(BaseMode):
         )
 
         user_block = self._build_user_block()
+        # Блок «интуиции» по похожим разговорам — заполняется заранее в
+        # process_question_streaming, тут просто читаем поле.
+        intuition_block = getattr(self, "_intuition_block", "") or ""
         # Cross-session memory клеим в самое начало — так же, как в
         # psychologist/coach/trainer (см. _prepend_memory). Если блока нет,
         # _cross_memory == "" и ничего не меняется.
         return (
-            f"{self._cross_memory}{self.get_system_prompt()}\n\n{user_block}\n{few_shot}\n"
+            f"{self._cross_memory}{self.get_system_prompt()}\n\n{intuition_block}{user_block}\n{few_shot}\n"
             f"{memory_text}{rules_text}{golden_text}{emotion_instr}\n"
             f"История:\n{combined}\n\n"
             f"Пользователь: {question}\n\n"
@@ -300,14 +316,21 @@ class BasicMode(BaseMode):
             # в фоне суммаризуем закрытую сессию (если такая есть).
             await self._load_cross_session_memory()
 
-        # PARALLEL: emotion + rule + golden (saves 2-4 sec)
+        # PARALLEL: emotion + rule + golden + intuition (saves 2-4 sec).
+        # intuition — keyword-матч поверх кэша life_experience, сетевой поход
+        # только при первой загрузке кэша за час. Дополнительных LLM-вызовов
+        # не делает — экономия по проекту.
         emotion_task = asyncio.create_task(self._detect_emotion(question))
         rule_task = asyncio.create_task(self._extract_rule(question))
         golden_task = asyncio.create_task(self._extract_golden_phrase(question))
-        await asyncio.gather(emotion_task, rule_task, golden_task, return_exceptions=True)
+        intuition_task = asyncio.create_task(self._build_intuition_block(question))
+        await asyncio.gather(emotion_task, rule_task, golden_task, intuition_task, return_exceptions=True)
 
         rule = rule_task.result() if not rule_task.cancelled() else None
         golden = golden_task.result() if not golden_task.cancelled() else None
+        self._intuition_block = (
+            intuition_task.result() if not intuition_task.cancelled() else ""
+        ) or ""
 
         if rule and isinstance(rule, str):
             self.rules.append(rule)

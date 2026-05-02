@@ -349,6 +349,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"api_usage init failed: {e}")
 
+        # «Жизненный опыт» Фреди для BasicMode.
+        try:
+            from services import life_experience as _life_exp
+            _life_exp.set_db(db)
+            logger.info("✅ life_experience подключён")
+        except Exception as e:
+            logger.warning(f"life_experience init failed: {e}")
+
         logger.info("✅ Таблицы готовы (включая платежи, auth и analytics)")
 
         logger.info("📦 Запуск фоновых задач...")
@@ -359,6 +367,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(morning_messages_scheduler()),
             asyncio.create_task(_pay_scheduler()),
             asyncio.create_task(cycle_reminders_scheduler()),
+            asyncio.create_task(life_experience_scheduler()),
         ]
         logger.info("✅ Фоновые задачи запущены")
 
@@ -1299,6 +1308,14 @@ async def init_database_tables():
             )
         """)
 
+        # «Жизненный опыт» Фреди для BasicMode (паттерны диалогов).
+        try:
+            from services import life_experience as _life_exp
+            await conn.execute(_life_exp.CREATE_TABLE_SQL)
+            await conn.execute(_life_exp.CREATE_INDEX_SQL)
+        except Exception as _e:
+            logger.warning(f"life_experience table init failed: {_e}")
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_push_subscriptions (
                 id BIGSERIAL PRIMARY KEY,
@@ -1750,6 +1767,33 @@ async def _deliver_morning_message(user_id: int, channel: str, title: str, body_
         return await _send_via_max(chat_id, full_text)
 
     return False
+
+
+async def life_experience_scheduler():
+    """
+    Раз в минуту проверяет UTC-время. В 03:00 UTC (когда нагрузка минимальна)
+    запускает один LLM-проход по BasicMode-диалогам за прошедшие 24 часа.
+    Двойной запуск в одни сутки исключён через last_run_date.
+    """
+    from datetime import timezone as _tz
+    from services import life_experience as _life_exp
+
+    last_run_date = None
+    logger.info("🧠 Life experience scheduler запущен (03:00 UTC daily)")
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+            now = datetime.now(_tz.utc)
+            if now.hour == 3 and last_run_date != now.date():
+                last_run_date = now.date()
+                count = await _life_exp.run_daily_aggregation()
+                logger.info(f"🧠 life_experience daily run: {count} patterns")
+        except asyncio.CancelledError:
+            logger.info("🛑 Life experience scheduler остановлен")
+            break
+        except Exception as e:
+            logger.error(f"life_experience_scheduler error: {e}")
 
 
 async def morning_messages_scheduler():
