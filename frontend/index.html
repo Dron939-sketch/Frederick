@@ -64,7 +64,6 @@
             <div class="chats-footer">
                 <div class="nav-divider"></div>
                 <div class="chat-item" data-chat="settings" id="settingsBtn"><span class="nav-icon">⚙️</span><span class="nav-name">Настройки</span></div>
-                <div class="chat-item" id="secretRoomBtn" style="opacity:0.3"><span class="nav-icon">🔐</span><span class="nav-name" style="font-size:11px;color:var(--text-secondary)">Секретная комната</span></div>
             </div>
         </div>
         <div class="chat-panel" id="chatPanel">
@@ -95,7 +94,7 @@
             _setCookie('fredi_uid', u);
             window.USER_ID = u;
         })();
-        window.addEventListener('load',function(){if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.init(window.USER_ID);var _p=false;document.getElementById('chatsList')?.addEventListener('click',function(){if(_p)return;_p=true;if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.request(window.USER_ID);},{once:true});var btn=document.getElementById('secretRoomBtn');if(btn)btn.addEventListener('click',function(){if(typeof openSecretRoom==='function')openSecretRoom();document.getElementById('chatsPanel')?.classList.remove('open');});});
+        window.addEventListener('load',function(){if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.init(window.USER_ID);var _p=false;document.getElementById('chatsList')?.addEventListener('click',function(){if(_p)return;_p=true;if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.request(window.USER_ID);},{once:true});});
     </script>
     <script src="tracker.js"></script>
     <script src="test.js"></script><script src="voice.js"></script><script src="analysis.js"></script><script src="doubles.js"></script><script src="habits.js"></script><script src="motivation.js"></script><script src="strategy.js"></script><script src="skill_diagnosis.js"></script><script src="skill_choice.js"></script><script src="daily_training.js"></script><script src="progress_tracker.js"></script><script src="freshthought.js"></script><script src="weekend.js"></script><script src="goals.js"></script><script src="interests.js"></script><script src="brand.js"></script><script src="messages.js"></script><script src="hormones.js"></script><script src="diary.js"></script><script src="berne.js"></script><script src="tales.js"></script><script src="hypnosis.js"></script><script src="chat.js"></script><script src="tools.js"></script><script src="emotions.js"></script><script src="healing.js"></script><script src="relationships.js"></script><script src="morning.js"></script><script src="practices.js"></script><script src="mirrors.js"></script><script src="admin.js"></script><script src="push.js"></script><script src="meter.js"></script><script src="subscription.js?v=2"></script><script src="settings.js"></script>
