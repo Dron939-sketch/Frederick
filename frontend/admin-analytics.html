@@ -193,6 +193,7 @@
         <button data-tab="recent">Последние события</button>
         <button data-tab="dialogs">Диалоги</button>
         <button data-tab="costs">💰 Расходы</button>
+        <button data-tab="mirrors">🪞 Зеркала</button>
         <button data-tab="control">🎛️ Пульт</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
     </div>
@@ -279,6 +280,17 @@
         <div id="costsByFeature"></div>
         <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">Дневной тренд</h3>
         <div id="costsDaily"></div>
+    </section>
+
+    <section id="mirrorsTab" style="display:none">
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:0 0 14px">🪞 Зеркала + операционные метрики</h3>
+        <div id="mirrorsKpi" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:18px"></div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">Воронка зеркал</h3>
+        <div id="mirrorsFunnel"></div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">Распределение режимов общения</h3>
+        <div id="mirrorsModes"></div>
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:18px 0 8px">Последние юзеры</h3>
+        <div id="mirrorsUsers"></div>
     </section>
 
     <section id="controlTab" style="display:none">
@@ -368,6 +380,8 @@
         if (dlgTab) dlgTab.style.display = 'none';
         var costsTab = document.getElementById('costsTab');
         if (costsTab) costsTab.style.display = 'none';
+        var mirrorsTab = document.getElementById('mirrorsTab');
+        if (mirrorsTab) mirrorsTab.style.display = 'none';
         var controlTab = document.getElementById('controlTab');
         if (controlTab) controlTab.style.display = 'none';
         try {
@@ -388,6 +402,15 @@
                 var c = await _fetch('/api/analytics/costs?period=' + encodeURIComponent(period));
                 renderCosts(c);
                 if (costsTab) costsTab.style.display = 'block';
+            } else if (currentTab === 'mirrors') {
+                // Три open-эндпоинта — не требуют admin-токена.
+                var [stats, ms, ru] = await Promise.all([
+                    fetch(API + '/admin/stats').then(r => r.json()).catch(() => ({})),
+                    fetch(API + '/api/admin/mirrors-stats').then(r => r.json()).catch(() => ({})),
+                    fetch(API + '/api/admin/recent-users').then(r => r.json()).catch(() => ({})),
+                ]);
+                renderMirrorsTab({ stats: stats, mirrors: ms, users: ru });
+                if (mirrorsTab) mirrorsTab.style.display = 'block';
             } else if (currentTab === 'control') {
                 var ctrl = await _fetch('/api/admin/basic-mode-preset');
                 renderControl(ctrl);
@@ -596,6 +619,100 @@
         if (pre) pre.textContent = (d && d.active_text) || '(нет текста)';
     }
     window._setBasicPreset = _setBasicPreset;
+
+    function renderMirrorsTab(d){
+        var s = (d && d.stats) || {};
+        var m = (d && d.mirrors) || {};
+        var u = (d && d.users) || {};
+        var totalCreated = m.totalCreated || m.total_created || 0;
+        var totalCompleted = m.totalCompleted || m.total_completed || 0;
+        var conv = totalCreated > 0 ? Math.round(totalCompleted / totalCreated * 100) : 0;
+
+        // KPI cards
+        var kpi = [
+            ['👥', s.total_users || 0,            'Всего юзеров',     'var(--text)'],
+            ['🟢', s.active_today || 0,           'Активны сегодня',  '#22c55e'],
+            ['📊', s.total_tests || 0,            'Тестов пройдено',  '#3b82f6'],
+            ['💬', s.total_messages || 0,         'Сообщений всего',  '#f59e0b'],
+            ['🪞', totalCreated,                  'Зеркал создано',   '#a78bfa'],
+            ['✅', totalCompleted,                'Зеркал завершено', '#10b981'],
+            ['📈', conv + '%',                    'Конверсия зеркал', conv >= 50 ? '#22c55e' : conv >= 25 ? '#f59e0b' : '#ef4444'],
+            ['🌅', s.total_morning_messages || 0, 'Утренних писем',   '#fbbf24'],
+        ];
+        document.getElementById('mirrorsKpi').innerHTML =
+            kpi.map(function(row){
+                return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center">' +
+                    '<div style="font-size:18px;margin-bottom:4px">' + row[0] + '</div>' +
+                    '<div style="font-size:22px;font-weight:700;color:' + row[3] + '">' + row[1] + '</div>' +
+                    '<div style="font-size:10px;color:var(--text-dim);margin-top:4px;text-transform:uppercase;letter-spacing:0.3px">' + row[2] + '</div>' +
+                '</div>';
+            }).join('');
+
+        // Mirrors funnel (created → completed → conversion)
+        var funnel = document.getElementById('mirrorsFunnel');
+        if (totalCreated > 0) {
+            funnel.innerHTML =
+                '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
+                    '<tbody>' +
+                        '<tr><td style="padding:10px 14px;font-size:13px">🪞 Создано</td>' +
+                        '<td style="padding:10px 14px;text-align:right;font-weight:700">' + totalCreated + '</td></tr>' +
+                        '<tr><td style="padding:10px 14px;font-size:13px;border-top:1px solid var(--border)">✅ Завершено</td>' +
+                        '<td style="padding:10px 14px;text-align:right;font-weight:700;color:#10b981;border-top:1px solid var(--border)">' + totalCompleted + '</td></tr>' +
+                        '<tr><td style="padding:10px 14px;font-size:13px;border-top:1px solid var(--border)">📈 Конверсия</td>' +
+                        '<td style="padding:10px 14px;text-align:right;font-weight:700;color:' + (conv >= 50 ? '#22c55e' : conv >= 25 ? '#f59e0b' : '#ef4444') + ';border-top:1px solid var(--border)">' + conv + '%</td></tr>' +
+                    '</tbody>' +
+                '</table>';
+        } else {
+            funnel.innerHTML = '<div style="color:var(--text-dim);padding:14px">Зеркал ещё не создавали.</div>';
+        }
+
+        // Modes distribution
+        var modes = s.modes_distribution || [];
+        var mb = document.getElementById('mirrorsModes');
+        if (modes.length){
+            mb.innerHTML =
+                '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
+                    '<tbody>' +
+                        modes.map(function(mr){
+                            return '<tr style="border-top:1px solid var(--border)">' +
+                                '<td style="padding:8px 12px;font-size:13px">' + (mr.mode || '—') + '</td>' +
+                                '<td style="padding:8px 12px;text-align:right;font-weight:700">' + (mr.count || 0) + '</td>' +
+                            '</tr>';
+                        }).join('') +
+                    '</tbody>' +
+                '</table>';
+        } else {
+            mb.innerHTML = '<div style="color:var(--text-dim);padding:14px;font-size:12px">Нет данных по режимам.</div>';
+        }
+
+        // Recent users
+        var users = (u && u.users) || [];
+        var ub = document.getElementById('mirrorsUsers');
+        if (users.length){
+            ub.innerHTML =
+                '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
+                    '<thead><tr style="background:rgba(127,127,127,0.06);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim)">' +
+                        '<th style="padding:10px 12px;text-align:left">Юзер</th>' +
+                        '<th style="padding:10px 12px;text-align:left">User ID</th>' +
+                        '<th style="padding:10px 12px;text-align:left">Profile</th>' +
+                        '<th style="padding:10px 12px;text-align:right">Last activity</th>' +
+                    '</tr></thead>' +
+                    '<tbody>' +
+                        users.map(function(usr){
+                            var name = usr.username ? '@' + usr.username : (usr.first_name || 'Юзер');
+                            return '<tr style="border-top:1px solid var(--border)">' +
+                                '<td style="padding:8px 12px;font-size:13px">' + _esc(name) + '</td>' +
+                                '<td style="padding:8px 12px;font-size:12px;font-family:ui-monospace,monospace;color:var(--text-dim)">' + _esc(String(usr.user_id || '')) + '</td>' +
+                                '<td style="padding:8px 12px;font-size:12px;font-family:ui-monospace,monospace;color:' + (usr.profile_code ? 'var(--accent)' : 'var(--text-dim)') + '">' + _esc(usr.profile_code || '—') + '</td>' +
+                                '<td style="padding:8px 12px;font-size:11px;text-align:right;color:var(--text-dim)">' + _esc((usr.last_activity || '').substring(0, 16)) + '</td>' +
+                            '</tr>';
+                        }).join('') +
+                    '</tbody>' +
+                '</table>';
+        } else {
+            ub.innerHTML = '<div style="color:var(--text-dim);padding:14px;font-size:12px">Нет данных. Эндпоинт /api/admin/recent-users пуст или недоступен.</div>';
+        }
+    }
 
     function renderSummary(d){
         _updateHero(d);
