@@ -200,22 +200,48 @@ def restore_punctuation(text: str) -> str:
 # ============================================
 
 def normalize_numbers(text: str) -> str:
+    """Финальный fallback для оставшихся в тексте цифр.
+
+    Запускается ПОСЛЕ _normalize_dates_temps_numbers — даты, температура,
+    время и года уже превращены в слова. Здесь обрабатываем «свободные»
+    числа: "5 минут", "1500 рублей", "200 раз", "1.5 часа", "10%".
+
+    Зачем: TTS-движки (Fish Audio, Yandex) читают «5 минут» либо как
+    «пять минут», либо коверкают окончания. Прописное число гарантирует
+    правильное произношение, плюс TTS говорит «пять минут» естественнее
+    чем «5 минут».
+    """
     if not text:
         return text
     original = text
-    number_words = {
-        '0': 'ноль', '1': 'один', '2': 'два', '3': 'три', '4': 'четыре',
-        '5': 'пять', '6': 'шесть', '7': 'семь', '8': 'восемь', '9': 'девять',
-        '10': 'десять', '11': 'одиннадцать', '12': 'двенадцать', '13': 'тринадцать',
-        '14': 'четырнадцать', '15': 'пятнадцать', '16': 'шестнадцать',
-        '17': 'семнадцать', '18': 'восемнадцать', '19': 'девятнадцать', '20': 'двадцать'
-    }
-    for num, word in number_words.items():
-        text = re.sub(rf'\b{num}\b', word, text)
-    text = re.sub(r'(\d+)%', r'\1 процентов', text)
-    text = re.sub(r'\b(20)(\d{2})\b', r'двадцать \2', text)
-    text = re.sub(r'\b(19)(\d{2})\b', r'девятнадцать \2', text)
-    text = re.sub(r'\b(\d{1,2}):(\d{2})\b', lambda m: f"{int(m.group(1))} {int(m.group(2))} минут", text)
+
+    # 1. Проценты: «5%» → «5 процентов» (потом цифра тоже превратится в слова)
+    text = re.sub(r'(\d+)\s*%', r'\1 процентов', text)
+
+    # 2. Десятичные дроби: «1.5» / «1,5» → «одна целая пять».
+    # Сначала, чтобы целые/десятые не разделились на отдельные числа.
+    def _decimal_to_words(m):
+        try:
+            whole = int(m.group(1))
+            frac = m.group(2)
+            return f"{_num_to_words_ru(whole)} целых {_num_to_words_ru(int(frac))}"
+        except (ValueError, TypeError):
+            return m.group(0)
+    text = re.sub(r'\b(\d+)[.,](\d{1,3})\b', _decimal_to_words, text)
+
+    # 3. Все оставшиеся целые числа.
+    def _int_to_words(m):
+        try:
+            n = int(m.group(0))
+            # Оставляем огромные числа как есть, иначе num2words на больших
+            # числах генерит километры слов.
+            if abs(n) > 10**9:
+                return m.group(0)
+            return _num_to_words_ru(n)
+        except (ValueError, OverflowError):
+            return m.group(0)
+    text = re.sub(r'\b\d+\b', _int_to_words, text)
+
     if text != original:
         logger.debug(f"🔢 Нормализованы числа: '{original[:100]}' → '{text[:100]}'")
     return text
@@ -363,6 +389,10 @@ def normalize_tts_text(text: str) -> str:
     # Числа/даты/температура/время/годы → слова. Без этого Fish Audio
     # читает «12.04.1961» по точкам/цифрам, «25°C» проскакивает мимо.
     text = _normalize_dates_temps_numbers(text)
+    # Финальный fallback: оставшиеся «свободные» цифры — в слова.
+    # «5 минут» → «пять минут», «1500 рублей» → «тысяча пятьсот рублей».
+    # TTS не может произнести «5» с правильным склонением — слова надёжнее.
+    text = normalize_numbers(text)
     # restore_punctuation убрана — base_mode уже нормализует пунктуацию.
     # Оставляем только добавление точки в конце если её нет
     if text and text[-1] not in '.!?':
