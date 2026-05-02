@@ -23,12 +23,40 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 # Default to Sonnet 4.6 — better at the pattern-naming / inferential moves
 # the basic-mode preset asks for. Override with ANTHROPIC_MODEL env var.
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip()
+# Hero-mode: для первых N ходов сессии можно подсовывать более сильную
+# модель (Opus 4.7), чтобы первое впечатление было максимально острым,
+# а потом честно дропаем на Sonnet для экономии. Off by default — задаётся
+# через ANTHROPIC_HERO_MODEL + ANTHROPIC_HERO_TURNS.
+ANTHROPIC_HERO_MODEL = os.environ.get("ANTHROPIC_HERO_MODEL", "").strip()
+try:
+    ANTHROPIC_HERO_TURNS = int(os.environ.get("ANTHROPIC_HERO_TURNS", "0") or "0")
+except ValueError:
+    ANTHROPIC_HERO_TURNS = 0
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 
 
 def is_available() -> bool:
     return bool(ANTHROPIC_API_KEY)
+
+
+def pick_model(turn_index: Optional[int] = None) -> str:
+    """Выбор модели для конкретного хода сессии.
+
+    Если включён hero-режим (ANTHROPIC_HERO_MODEL + ANTHROPIC_HERO_TURNS>=1)
+    и текущий ход <= ANTHROPIC_HERO_TURNS, возвращаем hero-модель. Иначе —
+    обычную ANTHROPIC_MODEL. По умолчанию hero отключён → всегда Sonnet 4.6.
+
+    turn_index: 1-based номер сообщения юзера в сессии (BasicMode.message_counter).
+    """
+    if (
+        ANTHROPIC_HERO_MODEL
+        and ANTHROPIC_HERO_TURNS > 0
+        and turn_index is not None
+        and 1 <= turn_index <= ANTHROPIC_HERO_TURNS
+    ):
+        return ANTHROPIC_HERO_MODEL
+    return ANTHROPIC_MODEL
 
 
 def _headers() -> Dict[str, str]:
@@ -105,6 +133,7 @@ async def call_anthropic_with_tools(
     max_tool_iterations: int = 4,
     cache_system: bool = True,
     feature: str = "basic_mode.chat",
+    model: Optional[str] = None,
 ) -> Optional[str]:
     """Tool-use loop. `messages` is mutated in place with assistant turns
     and tool_result turns so the conversation stays consistent across iterations.
@@ -128,11 +157,13 @@ async def call_anthropic_with_tools(
 
     last_text: Optional[str] = None
 
+    chosen_model = (model or ANTHROPIC_MODEL).strip() or ANTHROPIC_MODEL
+
     try:
         async with httpx.AsyncClient(timeout=45) as client:
             for _ in range(max_tool_iterations + 1):
                 payload: Dict = {
-                    "model": ANTHROPIC_MODEL,
+                    "model": chosen_model,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                     "system": system_param,
