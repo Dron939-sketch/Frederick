@@ -744,28 +744,24 @@ class BasicMode(BaseMode):
             # в фоне суммаризуем закрытую сессию (если такая есть).
             await self._load_cross_session_memory()
 
-        # PARALLEL: emotion + rule + golden + intuition (saves 2-4 sec).
-        # intuition — keyword-матч поверх кэша life_experience, сетевой поход
-        # только при первой загрузке кэша за час. Дополнительных LLM-вызовов
-        # не делает — экономия по проекту.
-        emotion_task = asyncio.create_task(self._detect_emotion(question))
-        rule_task = asyncio.create_task(self._extract_rule(question))
-        golden_task = asyncio.create_task(self._extract_golden_phrase(question))
-        intuition_task = asyncio.create_task(self._build_intuition_block(question))
-        await asyncio.gather(emotion_task, rule_task, golden_task, intuition_task, return_exceptions=True)
+        # === LATENCY: pre-LLM работа разделена на блокирующую и фоновую. ===
+        # Раньше тут блокирующе ждали 4 параллельных задачи (emotion+rule+
+        # golden+intuition). Из них rule и golden — DeepSeek-вызовы по 1-3
+        # сек каждый, и они нужны только для записи в память / следующего
+        # хода, а не для текущего ответа. Поэтому их теперь fire-and-forget.
+        # На блокирующем пути остаётся только то, что инстант:
+        #  • keyword-only emotion detect (без сети);
+        #  • intuition — keyword-match поверх in-memory кэша life_experience.
+        # TTFT падает с ~2-4 сек до ~0.05-0.5 сек.
+        asyncio.create_task(self._extract_and_save_rule_bg(question))
+        asyncio.create_task(self._extract_and_save_golden_bg(question))
 
-        rule = rule_task.result() if not rule_task.cancelled() else None
-        golden = golden_task.result() if not golden_task.cancelled() else None
-        self._intuition_block = (
-            intuition_task.result() if not intuition_task.cancelled() else ""
-        ) or ""
-
-        if rule and isinstance(rule, str):
-            self.rules.append(rule)
-            asyncio.create_task(self._save_fact_bg(rule))
-
-        if golden and isinstance(golden, str):
-            self.golden_phrases.append(golden)
+        self._detect_emotion_fast(question)
+        try:
+            self._intuition_block = await self._build_intuition_block(question)
+        except Exception as _e:
+            logger.debug(f"intuition skip: {_e}")
+            self._intuition_block = ""
 
         # Если в памяти юзера уже есть отметка «тест пройден / не предлагать» —
         # выставляем флаг и больше не оффер'им. Память подгружается на 1-м
@@ -926,6 +922,60 @@ class BasicMode(BaseMode):
             await self._save_fact(fact)
         except Exception:
             pass
+
+    def _detect_emotion_fast(self, text: str) -> None:
+        """Sync keyword-only emotion detect — без сетевых вызовов.
+
+        Раньше блокирующая ветка `_detect_emotion` через
+        `EmotionDetector.detect()` падала в DeepSeek, когда keyword-словарь
+        не матчил. Это давало 0.5-1.5 сек латентности на каждом сообщении.
+        Теперь на горячем пути обновляем self._current_emotion только если
+        попался keyword; иначе остаётся neutral/friendly. LLM-классификация
+        эмоций — отдельный потенциальный PR (для повышения точности при
+        неоднозначных репликах)."""
+        try:
+            from services.emotion_detector import (
+                EMOTION_TONES,
+                TONE_INSTRUCTIONS,
+                EmotionDetector,
+            )
+            if self._emotion is None:
+                self._emotion = EmotionDetector()
+            emotion = self._emotion._keyword_detect(text)
+            if emotion:
+                tone = EMOTION_TONES.get(emotion, "friendly")
+                self._current_emotion = {
+                    "emotion": emotion,
+                    "tone": tone,
+                    "instruction": TONE_INSTRUCTIONS.get(tone, ""),
+                }
+        except Exception as _e:
+            logger.debug(f"emotion keyword skip: {_e}")
+
+    async def _extract_and_save_rule_bg(self, message: str) -> None:
+        """Фоновое извлечение факта о юзере + запись в долгосрочную память.
+
+        Не блокирует TTFT. Если задача завершится до LLM-вызова, факт
+        окажется в self.rules и попадёт в текущий промпт. Если позже —
+        учтётся в следующем ходе. Любая ошибка — глушим, чтобы фоновая
+        задача не падала с unhandled exception в event loop."""
+        try:
+            rule = await self._extract_rule(message)
+            if rule and isinstance(rule, str):
+                self.rules.append(rule)
+                await self._save_fact(rule)
+        except Exception as e:
+            logger.debug(f"bg rule extract failed: {e}")
+
+    async def _extract_and_save_golden_bg(self, message: str) -> None:
+        """Фоновое извлечение «золотой фразы» — самой важной мысли юзера.
+        Не блокирует TTFT. Та же логика записи, что у rule_bg."""
+        try:
+            golden = await self._extract_golden_phrase(message)
+            if golden and isinstance(golden, str):
+                self.golden_phrases.append(golden)
+        except Exception as e:
+            logger.debug(f"bg golden extract failed: {e}")
 
     def _simple_clean(self, text: str) -> str:
         if not text:
