@@ -29,16 +29,45 @@ logger = logging.getLogger(__name__)
 class BasicMode(BaseMode):
 
     def __init__(self, user_id: int, user_data: Dict[str, Any], context: Any = None):
-        minimal_data = {
-            "profile_data": {},
-            "perception_type": user_data.get("perception_type", "not defined"),
-            "thinking_level": user_data.get("thinking_level", 5),
-            "behavioral_levels": user_data.get("behavioral_levels", {}),
-            "deep_patterns": {},
-            "confinement_model": None,
-            "history": user_data.get("history", [])[-15:]
-        }
-        super().__init__(user_id, minimal_data, context)
+        # Если тест пройден — даже в BasicMode используем ПОЛНЫЙ психопрофиль
+        # (perception_type, thinking_level, behavioral_levels, deep_patterns,
+        # confinement_model). Это персонализированный базовый режим: тон
+        # остаётся «лицо продукта» / JARVIS-style, но фрейминг учитывает
+        # слабый вектор и тип восприятия.
+        has_profile = bool(
+            user_data.get("profile_data")
+            or user_data.get("ai_generated_profile")
+            or (
+                user_data.get("perception_type")
+                and user_data.get("behavioral_levels")
+            )
+        )
+        if has_profile:
+            prepared = {
+                "profile_data": (
+                    user_data.get("profile_data")
+                    or user_data.get("ai_generated_profile")
+                    or {}
+                ),
+                "perception_type": user_data.get("perception_type") or "не определён",
+                "thinking_level": user_data.get("thinking_level", 5),
+                "behavioral_levels": user_data.get("behavioral_levels", {}),
+                "deep_patterns": user_data.get("deep_patterns", {}),
+                "confinement_model": user_data.get("confinement_model"),
+                "history": user_data.get("history", [])[-15:],
+            }
+        else:
+            prepared = {
+                "profile_data": {},
+                "perception_type": user_data.get("perception_type", "не определён"),
+                "thinking_level": user_data.get("thinking_level", 5),
+                "behavioral_levels": user_data.get("behavioral_levels", {}),
+                "deep_patterns": {},
+                "confinement_model": None,
+                "history": user_data.get("history", [])[-15:],
+            }
+        super().__init__(user_id, prepared, context)
+        self._has_profile = has_profile
 
         self.ai_service = AIService()
         self.user_name = getattr(context, "name", "") or ""
@@ -241,6 +270,83 @@ class BasicMode(BaseMode):
         ]
         return random.choice(greetings)
 
+    def _build_profile_block(self) -> str:
+        """Психологический профиль для BasicMode — подмешивается в промпт
+        ТОЛЬКО если тест пройден. BasicMode остаётся «лицом продукта»:
+        короткий тон, JARVIS-стиль, никаких терапевтических лекций. Профиль
+        нужен чтобы фрейминг (формулировки, акцент, выбор шага) попадал в
+        тип восприятия и слабый вектор юзера."""
+        if not getattr(self, "_has_profile", False):
+            return ""
+
+        parts = ["ПРОФИЛЬ СОБЕСЕДНИКА (учти, но не цитируй вслух):"]
+
+        # 1. Код профиля / display_name.
+        prof = getattr(self, "profile", {}) or {}
+        display = (
+            prof.get("display_name")
+            or prof.get("profile_code")
+            or prof.get("code")
+            or ""
+        )
+        if display:
+            parts.append(f"- Код профиля: {display}")
+
+        # 2. Тип восприятия.
+        if getattr(self, "perception_type", None) and self.perception_type != "не определён":
+            parts.append(f"- Тип восприятия: {self.perception_type}")
+
+        # 3. Уровень мышления + интерпретация.
+        try:
+            tl = int(self.thinking_level)
+        except Exception:
+            tl = 5
+        depth = "конкретное" if tl <= 3 else ("системное" if tl <= 6 else "глубокое")
+        parts.append(f"- Уровень мышления: {tl}/10 ({depth})")
+
+        # 4. Слабый вектор + ключевая характеристика.
+        wv = getattr(self, "weakest_vector", None)
+        wl = getattr(self, "weakest_level", None)
+        wp = getattr(self, "weakest_profile", {}) or {}
+        if wv:
+            quote = (wp.get("quote") or "").strip()[:140]
+            line = f"- Слабый вектор: {wv} (уровень {wl})"
+            if quote:
+                line += f" — {quote}"
+            parts.append(line)
+
+        # 5. Ключевое ограничение из confinement_model.
+        try:
+            kc = self._get_key_confinement_info()
+            if kc and kc.get("description"):
+                parts.append(f"- Ключевое ограничение: {kc['description'][:140]}")
+        except Exception:
+            pass
+
+        # 6. Адаптация — короткая инструкция для LLM.
+        adapt_lines = ["КАК АДАПТИРОВАТЬ:"]
+        if depth == "конкретное":
+            adapt_lines.append("- говори простыми конкретными шагами, без абстракций")
+        elif depth == "глубокое":
+            adapt_lines.append("- допускай гипотезы, метафоры, многослойные формулировки")
+        else:
+            adapt_lines.append("- держи баланс: одна точная гипотеза + один конкретный шаг")
+        vector_hint = {
+            "СБ": "слабый СБ — мягко, без давления, безопасность важнее скорости",
+            "ТФ": "слабый ТФ — практичность и видимая польза, никакой философии",
+            "УБ": "слабый УБ — точные слова, объясняй причинно-следственно",
+            "ЧВ": "слабый ЧВ — фокус на отношения и эмоции, не на сухую логику",
+        }.get(wv or "")
+        if vector_hint:
+            adapt_lines.append(f"- {vector_hint}")
+        adapt_lines.append(
+            "- стиль остаётся базовым (короткие реплики, JARVIS-тон). Профиль "
+            "влияет на ФРЕЙМИНГ, а не на длину ответа."
+        )
+        parts.append("\n".join(adapt_lines))
+
+        return "\n".join(parts) + "\n\n"
+
     def _build_user_block(self) -> str:
         """О СОБЕСЕДНИКЕ — чтобы AI знал имя, пол, возраст и мог
         естественно обращаться и отвечать на «что ты обо мне знаешь?»."""
@@ -336,11 +442,15 @@ class BasicMode(BaseMode):
         # Блок «интуиции» по похожим разговорам — заполняется заранее в
         # process_question_streaming, тут просто читаем поле.
         intuition_block = getattr(self, "_intuition_block", "") or ""
+        # Психологический профиль (если тест пройден) — даёт фрейминг под
+        # тип восприятия и слабый вектор; стиль остаётся базовым.
+        profile_block = self._build_profile_block()
         # Cross-session memory клеим в самое начало — так же, как в
         # psychologist/coach/trainer (см. _prepend_memory). Если блока нет,
         # _cross_memory == "" и ничего не меняется.
         return (
-            f"{self._cross_memory}{self.get_system_prompt()}\n\n{intuition_block}{user_block}\n{few_shot}\n"
+            f"{self._cross_memory}{self.get_system_prompt()}\n\n"
+            f"{profile_block}{intuition_block}{user_block}\n{few_shot}\n"
             f"{memory_text}{rules_text}{golden_text}{emotion_instr}\n"
             f"История:\n{combined}\n\n"
             f"Пользователь: {question}\n\n"
