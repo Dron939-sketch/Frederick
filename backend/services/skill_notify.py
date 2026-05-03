@@ -176,37 +176,99 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
     return {"success": False, "error": f"unknown channel: {channel}"}
 
 
-def build_day_message(skill_name: str, day: int, exercise: dict) -> str:
-    """Утреннее сообщение — задание дня (самодостаточное)."""
+# ============================================================
+# ИМЯ + ПРИВЕТСТВИЕ ПО ВРЕМЕНИ СУТОК
+# ============================================================
+async def _get_user_name(db, user_id: int) -> str:
+    """Имя из fredi_users.name (профиль). Пусто если нет."""
+    try:
+        row = await db.fetchrow(
+            "SELECT name FROM fredi_users WHERE user_id = $1", user_id
+        )
+        if row and row["name"]:
+            n = str(row["name"]).strip()
+            if n and n.lower() not in ("друг", "подруга"):
+                return n
+    except Exception:
+        pass
+    return ""
+
+
+def _greeting(hour: int, name: str = "") -> str:
+    """Приветствие по локальному часу. С эмодзи и именем (если есть)."""
+    if 5 <= hour < 12:
+        base = "🌅 Доброе утро"
+    elif 12 <= hour < 18:
+        base = "🌤 Добрый день"
+    elif 18 <= hour < 23:
+        base = "🌙 Добрый вечер"
+    else:
+        base = "🌃 Доброй ночи"
+    return f"{base}, {name}!" if name else f"{base}!"
+
+
+def _user_now(plan_row) -> datetime:
+    tz_str = plan_row["tz"] if "tz" in plan_row.keys() else "UTC"
+    return datetime.now(timezone.utc).astimezone(_user_tz(tz_str))
+
+
+# ============================================================
+# ШАБЛОНЫ СООБЩЕНИЙ
+# ============================================================
+def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
+    """Утреннее сообщение — задание дня."""
     task = exercise.get("task", "")
     dur = exercise.get("dur", "")
     inst = exercise.get("inst", "")
-    return (
-        f"🎯 *День {day} из 21 — {skill_name}*\n\n"
-        f"*{task}* (⏱ {dur})\n\n"
-        f"{inst}\n\n"
-        f"💡 Сделал — открой Фреди и нажми ✅, чтобы отметить."
-    )
+    why = exercise.get("why", "")
+
+    parts = [
+        _greeting(hour, name),
+        "",
+        f"━━━ *ДЕНЬ {day} · 21* ━━━",
+        skill_name,
+        "",
+        f"📌 *{task}* · ⏱ {dur}",
+        "",
+        inst,
+    ]
+    if why:
+        parts += [
+            "",
+            "💭 *Зачем это*",
+            why,
+        ]
+    parts += [
+        "",
+        "—",
+        "✅ Сделал? Открой Фреди и отметь",
+    ]
+    return "\n".join(parts)
 
 
-def build_check_message(skill_name: str, day: int, exercise: dict) -> str:
-    """Дневной чек-ин — поддержка в середине дня (только active mode)."""
+def build_check_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
+    """Дневной чек-ин (active mode) — короткое подбадривание."""
     task = exercise.get("task", "")
-    return (
-        f"🌤 *Как идёт?* — день {day} из 21 ({skill_name})\n\n"
-        f"Получилось начать «{task}»?\n"
-        f"Если ещё нет — короткое окно сейчас: 5 минут хватит, "
-        f"чтобы сделать первый шаг."
-    )
+    parts = [
+        _greeting(hour, name),
+        "",
+        f"Получилось начать «{task}»? Это день {day} из 21.",
+        "",
+        "Если ещё нет — 5 минут хватит, чтобы сделать первый шаг.",
+    ]
+    return "\n".join(parts)
 
 
-def build_evening_message(skill_name: str, day: int) -> str:
-    """Вечерняя рефлексия (только active mode)."""
-    return (
-        f"🌙 *Вечерняя рефлексия* — день {day} из 21 ({skill_name})\n\n"
-        f"Что получилось сегодня по навыку? Что было неудобно?\n"
-        f"Запишите 1–2 предложения в дневник Фреди — это закрепляет результат."
-    )
+def build_evening_message(skill_name: str, day: int, name: str, hour: int) -> str:
+    """Вечерняя рефлексия (active mode)."""
+    parts = [
+        _greeting(hour, name),
+        "",
+        f"Что получилось сегодня по навыку «{skill_name}»? Что было неудобно?",
+        "",
+        "Можешь записать 1–2 предложения в дневник Фреди — это закрепляет результат. Или просто подумать.",
+    ]
+    return "\n".join(parts)
 
 
 def _user_tz(tz_str: Optional[str]):
@@ -249,7 +311,8 @@ async def send_day_message(db, user_id: int) -> dict:
     if not plan["started_at"]:
         return {"success": False, "error": "no start date"}
 
-    tz = _user_tz(plan.get("tz") if hasattr(plan, "get") else None)
+    tz_str = plan["tz"] if "tz" in plan.keys() else "UTC"
+    tz = _user_tz(tz_str)
     day = _current_day(plan["started_at"], tz)
 
     plan_data = plan["plan"]
@@ -259,13 +322,18 @@ async def send_day_message(db, user_id: int) -> dict:
     if not exercise:
         return {"success": False, "error": f"day {day} not found in plan"}
 
-    text = build_day_message(plan["skill_name"], day, exercise)
+    name = await _get_user_name(db, user_id)
+    user_now = datetime.now(timezone.utc).astimezone(tz)
+
+    text = build_day_message(plan["skill_name"], day, exercise, name, user_now.hour)
     return await send_to_channel(db, user_id, plan["channel"], text)
 
 
 async def send_welcome_message(db, user_id: int) -> dict:
     """Шлёт поздравление со стартом + полное задание дня 1.
     Вызывается из фронта после нажатия «Поехали!».
+    Это единственное место, где упоминается «завтра пришлю» — в ежедневных
+    сообщениях этого уже нет (шум).
     """
     plan = await db.fetchrow(
         "SELECT * FROM fredi_skill_plans WHERE user_id = $1", user_id
@@ -286,17 +354,33 @@ async def send_welcome_message(db, user_id: int) -> dict:
     day1_task = day1.get("task", "первое задание")
     day1_dur = day1.get("dur", "5 мин")
     day1_inst = day1.get("inst", "")
+    day1_why = day1.get("why", "")
 
-    # Самодостаточное приветствие: можно сделать прямо в мессенджере,
-    # не открывая Фреди.
-    text = (
-        f"🚀 *Поехали!* 21 день навыка «{skill_name}»\n\n"
-        f"━━━ *ДЕНЬ 1 · {day1_dur}* ━━━\n"
-        f"*{day1_task}*\n\n"
-        f"{day1_inst}\n\n"
-        f"⏰ Завтра в *{notify_time} ({tz_str})* пришлю день 2 сюда.\n"
-        f"💡 Сделал — открой Фреди и нажми ✅ (это закрепит прогресс)."
-    )
+    name = await _get_user_name(db, user_id)
+    name_part = f", {name}" if name else ""
+
+    parts = [
+        f"🚀 *Поехали{name_part}!*",
+        "",
+        f"21 день навыка «{skill_name}»",
+        "",
+        "━━━ *ДЕНЬ 1 · 21* ━━━",
+        f"📌 *{day1_task}* · ⏱ {day1_dur}",
+        "",
+        day1_inst,
+    ]
+    if day1_why:
+        parts += [
+            "",
+            "💭 *Зачем это*",
+            day1_why,
+        ]
+    parts += [
+        "",
+        f"⏰ Завтра в *{notify_time} ({tz_str})* пришлю день 2 сюда.",
+        "✅ Сделал? Открой Фреди и отметь.",
+    ]
+    text = "\n".join(parts)
     return await send_to_channel(db, user_id, plan["channel"], text)
 
 
@@ -310,11 +394,14 @@ async def send_test_message(db, user_id: int) -> dict:
     if not plan["channel"] or plan["channel"] == "none":
         return {"success": False, "error": "no channel selected"}
 
-    name = plan["skill_name"] or "ваш навык"
+    skill = plan["skill_name"] or "ваш навык"
+    user_name = await _get_user_name(db, user_id)
+    name_part = f", {user_name}" if user_name else ""
+
     text = (
-        f"✅ *Тестовое сообщение*\n\n"
-        f"Канал работает. Сюда будут приходить ежедневные задания "
-        f"по навыку «{name}» — каждое утро в выбранное вами время."
+        f"✅ *Канал работает{name_part}!*\n\n"
+        f"Это тестовое сообщение. Сюда будут приходить ежедневные задания "
+        f"по навыку «{skill}» — короткие, на 5–15 минут."
     )
     return await send_to_channel(db, user_id, plan["channel"], text)
 
@@ -342,7 +429,8 @@ async def _send_touchpoint(db, plan_row, kind: str) -> dict:
     """kind: 'morning' | 'check' | 'eve'."""
     user_id = plan_row["user_id"]
     skill_name = plan_row["skill_name"] or "навык"
-    tz = _user_tz(plan_row.get("tz") if hasattr(plan_row, "get") else plan_row["tz"])
+    tz_str = plan_row["tz"] if "tz" in plan_row.keys() else "UTC"
+    tz = _user_tz(tz_str)
     day = _current_day(plan_row["started_at"], tz)
 
     plan_data = plan_row["plan"]
@@ -350,12 +438,15 @@ async def _send_touchpoint(db, plan_row, kind: str) -> dict:
         plan_data = json.loads(plan_data)
     exercise = _find_exercise(plan_data, day) or {}
 
+    name = await _get_user_name(db, user_id)
+    user_hour = datetime.now(timezone.utc).astimezone(tz).hour
+
     if kind == "morning":
-        text = build_day_message(skill_name, day, exercise)
+        text = build_day_message(skill_name, day, exercise, name, user_hour)
     elif kind == "check":
-        text = build_check_message(skill_name, day, exercise)
+        text = build_check_message(skill_name, day, exercise, name, user_hour)
     elif kind == "eve":
-        text = build_evening_message(skill_name, day)
+        text = build_evening_message(skill_name, day, name, user_hour)
     else:
         return {"success": False, "error": f"unknown kind: {kind}"}
 
