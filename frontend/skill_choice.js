@@ -1,6 +1,6 @@
 // ============================================
-// skill_choice.js — Выбор навыка + AI-план
-// Версия 2.0 — AI генерирует 21-дневный план
+// skill_choice.js — Выбор навыка + план
+// Версия 2.1 — захардкоренный 21-дневный план (без AI)
 // ============================================
 
 function _scInjectStyles() {
@@ -148,15 +148,6 @@ function _scInjectStyles() {
         .sc-today-dur  { font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; }
         .sc-today-inst { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px; }
 
-        .sc-generating {
-            text-align: center;
-            padding: 40px 20px;
-        }
-        .sc-generating-icon { font-size: 48px; display: block; margin-bottom: 14px; animation: sc-pulse 1.5s ease-in-out infinite; }
-        @keyframes sc-pulse { 0%,100%{opacity:0.6;transform:scale(1)} 50%{opacity:1;transform:scale(1.05)} }
-        .sc-generating-text { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
-        .sc-generating-sub  { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
-
         .sc-tip {
             background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.08);
             border-radius: 14px; padding: 12px 14px; font-size: 12px;
@@ -199,10 +190,58 @@ const SC_SKILLS = {
 };
 
 // ============================================
+// ХАРДКОДНЫЙ ШАБЛОН 21-ДНЕВНОГО ПЛАНА
+// ============================================
+const DEFAULT_TEMPLATE_PLAN = {
+    weeks: [
+        {
+            theme: 'Знакомство и калибровка',
+            exercises: [
+                { day:1, task:'Зачем вам этот навык',     dur:'5 мин',  inst:'Запишите 3 конкретные ситуации, где этот навык изменил бы исход.' },
+                { day:2, task:'Замечание',                 dur:'10 мин', inst:'В течение дня замечайте моменты, где навык бы понадобился. Записывайте 1–3 ситуации без оценки.' },
+                { day:3, task:'Триггеры',                  dur:'7 мин',  inst:'Какие 3 ситуации запускают вашу старую реакцию? Конкретно: место, человек, время, ваша мысль.' },
+                { day:4, task:'Микро-эксперимент',         dur:'15 мин', inst:'В одной безопасной ситуации попробуйте действовать по-новому. Зафиксируйте, что произошло.' },
+                { day:5, task:'Рефлексия',                 dur:'5 мин',  inst:'Что было неудобно вчера? Назовите чувство одним словом — это точка роста.' },
+                { day:6, task:'Повтор с поправкой',        dur:'15 мин', inst:'Похожая ситуация, что и в день 4 — но с поправкой на вчерашнюю рефлексию.' },
+                { day:7, task:'Итог недели',               dur:'10 мин', inst:'Один главный инсайт за неделю. На сколько процентов продвинулись?' }
+            ]
+        },
+        {
+            theme: 'Активная тренировка',
+            exercises: [
+                { day:8,  task:'Усложнение',           dur:'15 мин', inst:'Та же техника, но в более сложной ситуации. Где раньше избегали.' },
+                { day:9,  task:'Постановка якоря',     dur:'7 мин',  inst:'Когда сегодня получится — запомните телесное состояние и сожмите большой и указательный пальцы на 5 секунд.' },
+                { day:10, task:'Препятствие',          dur:'10 мин', inst:'Что в окружении мешает практике? Один конкретный фактор и один шаг по его устранению.' },
+                { day:11, task:'Поддержка',            dur:'5 мин',  inst:'Расскажите близкому, что проходите 21 день навыка. Попросите не оценивать прогресс.' },
+                { day:12, task:'Худший момент',        dur:'10 мин', inst:'Что было самым трудным? Опишите 3 предложениями. Что бы посоветовали другу?' },
+                { day:13, task:'Маленькая победа',     dur:'15 мин', inst:'Найдите ситуацию, где точно получится. Зафиксируйте успех — текстом, голосом, в дневнике.' },
+                { day:14, task:'Полу-итог',            dur:'10 мин', inst:'На сколько процентов продвинулись? Что главное изменилось? Что осталось на третью неделю?' }
+            ]
+        },
+        {
+            theme: 'Закрепление и интеграция',
+            exercises: [
+                { day:15, task:'Естественная среда',  dur:'12 мин', inst:'Применяйте навык без специальных условий — в обычном дне.' },
+                { day:16, task:'Без напоминаний',     dur:'10 мин', inst:'Сделайте без подсказки. К вечеру отметьте, удалось ли.' },
+                { day:17, task:'Перенос',             dur:'15 мин', inst:'Новая ситуация, где раньше не пробовали. Что переносится, что нет?' },
+                { day:18, task:'Глубже',              dur:'15 мин', inst:'Усложните: больше людей, выше ставки, дольше время.' },
+                { day:19, task:'Помощь другому',      dur:'10 мин', inst:'Объясните принцип кому-то ещё в 2–3 предложениях. Это закрепляет понимание.' },
+                { day:20, task:'Письмо себе',         dur:'15 мин', inst:'Напишите себе через год — что хотите помнить из этого 21 дня.' },
+                { day:21, task:'Итог цикла',          dur:'15 мин', inst:'Сравните: где были в день 1 и где сегодня. Что точно изменилось? Что дальше?' }
+            ]
+        }
+    ]
+};
+
+function _scLocalPlan() {
+    return JSON.parse(JSON.stringify(DEFAULT_TEMPLATE_PLAN));
+}
+
+// ============================================
 // СОСТОЯНИЕ
 // ============================================
 if (!window._scState) window._scState = {
-    view:      'select',  // 'select' | 'generating' | 'plan'
+    view:      'select',  // 'select' | 'plan'
     skillId:   null,
     skillName: null,
     skillDesc: null,
@@ -250,85 +289,6 @@ function _scCurrentDay() {
 }
 
 // ============================================
-// ЗАГРУЗКА ПРОФИЛЯ
-// ============================================
-async function _scGetProfile() {
-    try {
-        const r = await fetch(`${_scApi()}/api/get-profile/${_scUid()}`);
-        const d = await r.json();
-        const bl = d.profile?.behavioral_levels || {};
-        const avg = x => Array.isArray(x) ? x[x.length-1] : (x||4);
-        return {
-            vectors: { СБ:avg(bl.СБ), ТФ:avg(bl.ТФ), УБ:avg(bl.УБ), ЧВ:avg(bl.ЧВ) },
-            type:    d.profile?.perception_type || '',
-            level:   d.profile?.thinking_level  || 5
-        };
-    } catch { return { vectors:{СБ:4,ТФ:4,УБ:4,ЧВ:4}, type:'', level:5 }; }
-}
-
-// ============================================
-// AI ГЕНЕРАЦИЯ 21-ДНЕВНОГО ПЛАНА
-// ============================================
-async function _scGeneratePlan(skillName, skillDesc, profile) {
-    const v = profile.vectors;
-    const prompt = `Ты — Фреди, психолог-тренер. Создай персональный 21-дневный план развития навыка.
-
-Пользователь: ${_scName()}
-Навык: "${skillName}" — ${skillDesc}
-Психологический профиль: СБ-${v.СБ} ТФ-${v.ТФ} УБ-${v.УБ} ЧВ-${v.ЧВ}
-Уровень мышления: ${profile.level}/9
-
-Требования:
-— 21 упражнение (по одному на день), разбить на 3 недели
-— Каждая неделя — своя тема (нарастающая сложность)
-— Упражнения конкретные: что делать, как долго, как именно
-— Учитывай профиль: для СБ — больше безопасности и опоры, для ТФ — результаты и цифры, для УБ — смыслы и системность, для ЧВ — отношения и эмоции
-— Каждое упражнение: 1-15 минут, выполнимо в обычный день
-
-Верни только JSON:
-{
-  "weeks": [
-    {
-      "theme": "название темы недели",
-      "exercises": [
-        { "day": 1, "task": "короткое название задания", "dur": "время", "inst": "подробная инструкция как выполнять" },
-        ...7 упражнений...
-      ]
-    },
-    { вторая неделя },
-    { третья неделя }
-  ]
-}`;
-
-    try {
-        const r = await fetch(`${_scApi()}/api/ai/generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: _scUid(),
-                prompt,
-                max_tokens: 2000
-            })
-        });
-        const d = await r.json();
-        if (d.success && d.content) {
-            const clean = d.content.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-            const parsed = JSON.parse(clean);
-            // Нумерация дней
-            let dayNum = 0;
-            parsed.weeks.forEach(week => {
-                week.exercises.forEach(ex => {
-                    dayNum++;
-                    ex.day = dayNum;
-                });
-            });
-            return parsed;
-        }
-    } catch(e) { console.error('Plan generation error:', e); }
-    return null;
-}
-
-// ============================================
 // РЕНДЕР
 // ============================================
 function _scRender() {
@@ -337,9 +297,8 @@ function _scRender() {
     if (!c) return;
 
     let body = '';
-    if (_sc.view === 'select')     body = _scRenderSelect();
-    if (_sc.view === 'generating') body = _scRenderGenerating();
-    if (_sc.view === 'plan')       body = _scRenderPlan();
+    if (_sc.view === 'select') body = _scRenderSelect();
+    if (_sc.view === 'plan')   body = _scRenderPlan();
 
     c.innerHTML = `
         <div class="full-content-page">
@@ -347,14 +306,13 @@ function _scRender() {
             <div class="content-header">
                 <div class="content-emoji">🎯</div>
                 <h1 class="content-title">Выбор навыка</h1>
-                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">AI строит план под ваш профиль</p>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">21-дневный план развития</p>
             </div>
             <div id="scBody">${body}</div>
         </div>`;
 
     document.getElementById('scBack').onclick = () => {
-        if (_sc.view === 'plan')       { _sc.view = 'select'; _scRender(); return; }
-        if (_sc.view === 'generating') return; // нельзя прервать
+        if (_sc.view === 'plan') { _sc.view = 'select'; _scRender(); return; }
         _scHome();
     };
 
@@ -441,23 +399,10 @@ function _scRenderSelect() {
         </div>
 
         <button class="sc-btn sc-btn-primary" id="scStartBtn" style="margin-top:14px">
-            🤖 Создать AI-план на 21 день
+            📋 Показать план на 21 день
         </button>
         <div class="sc-tip">
-            💡 AI учтёт ваш психологический профиль и построит план с нарастающей сложностью. Займёт 15–30 секунд.
-        </div>`;
-}
-
-// ===== ЭКРАН ГЕНЕРАЦИИ =====
-function _scRenderGenerating() {
-    return `
-        <div class="sc-generating">
-            <span class="sc-generating-icon">🤖</span>
-            <div class="sc-generating-text">Фреди строит план</div>
-            <div class="sc-generating-sub">
-                Анализирую профиль и подбираю упражнения под вас...<br>
-                <strong>${_sc.skillName}</strong>
-            </div>
+            💡 План открывается мгновенно: 3 недели с нарастающей сложностью, по одному упражнению в день.
         </div>`;
 }
 
@@ -548,8 +493,8 @@ function _scBindHandlers() {
         _sc.view = 'plan'; _scRender();
     });
 
-    // Старт
-    document.getElementById('scStartBtn')?.addEventListener('click', async () => {
+    // Старт — показать захардкоренный план мгновенно
+    document.getElementById('scStartBtn')?.addEventListener('click', () => {
         const custom = (document.getElementById('scCustomInput')?.value || '').trim();
         if (custom) {
             _sc.skillId   = 'custom';
@@ -560,23 +505,11 @@ function _scBindHandlers() {
             _scToast('Выберите навык или введите свой', 'error'); return;
         }
 
-        _sc.view = 'generating';
-        _scRender();
-
-        const profile = await _scGetProfile();
-        const plan    = await _scGeneratePlan(_sc.skillName, _sc.skillDesc || '', profile);
-
-        if (plan) {
-            _sc.plan      = plan;
-            _sc.daysDone  = [];
-            _sc.startDate = new Date().toISOString();
-            _scSave();
-            _sc.view = 'plan';
-            _scToast('✅ План готов!', 'success');
-        } else {
-            _scToast('Не удалось создать план. Попробуйте позже.', 'error');
-            _sc.view = 'select';
-        }
+        _sc.plan      = _scLocalPlan();
+        _sc.daysDone  = [];
+        _sc.startDate = new Date().toISOString();
+        _scSave();
+        _sc.view = 'plan';
         _scRender();
     });
 
@@ -650,4 +583,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v2.0 загружен');
+console.log('✅ skill_choice.js v2.1 загружен (захардкоренный план)');
