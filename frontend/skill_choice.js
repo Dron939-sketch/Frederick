@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 5.0 — иконки навыков + степ-индикатор + чёткий момент «беру»
+// Версия 5.1 — возвращены 4 навыка категории «Влияние и коммуникация»
 // ============================================
 
 function _scInjectStyles() {
@@ -13,7 +13,8 @@ function _scInjectStyles() {
         .sc-skill-card:active { transform: scale(0.98); }
         .sc-skill-icon { font-size: 24px; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: rgba(224,224,224,0.06); flex-shrink: 0; }
         .sc-skill-body  { flex: 1; min-width: 0; }
-        .sc-skill-name  { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; }
+        .sc-skill-name  { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .sc-skill-new   { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; background: rgba(255,107,53,0.15); color: #FF8B5C; padding: 2px 6px; border-radius: 6px; text-transform: uppercase; }
         .sc-skill-sub   { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
         .sc-skill-hint  { font-size: 10px; color: var(--chrome); margin-top: 4px; opacity: 0; transition: opacity 0.2s; }
         .sc-skill-card:hover .sc-skill-hint { opacity: 1; }
@@ -255,6 +256,24 @@ const SC_SKILLS = {
         { id:'creativity', icon:'✨', name:'Креативность', desc:'Находить нестандартные решения',
           longDesc:'Находить нестандартные решения через комбинаторику и латеральное мышление. Тренируется как мышца — не про «вдохновение», а про устойчивые техники.',
           promise:'Через 21 день вы будете находить решения там, где другие видят тупик — за счёт устойчивых техник, а не вдохновения.' }
+    ],
+    influence: [
+        { id:'speech_influence', icon:'🎙️', name:'Речевое воздействие', isNew:true,
+          desc:'Гипнотические языковые паттерны, метафоры, риторические структуры',
+          longDesc:'Арсенал из эриксоновского гипноза, НЛП и риторики: метафоры, языковые паттерны, структура убеждения. Тот же навык, что у лучших спикеров и переговорщиков.',
+          promise:'Через 21 день ваша речь будет удерживать внимание и встраивать смыслы — без давления, без «продаж».' },
+        { id:'emotion_partner', icon:'🪞', name:'Управление эмоциями собеседника', isNew:true,
+          desc:'Возвращать собеседника из реактивного состояния в ресурсное',
+          longDesc:'Не манипуляция — навык конструктивного диалога: возвращать собеседника из реактивного состояния в ресурсное, не подменяя его выбор. Нужен врачу, переговорщику, родителю, руководителю.',
+          promise:'Через 21 день вы будете гасить острые конфликты в первые 30 секунд и возвращать партнёра к диалогу.' },
+        { id:'emotion_group', icon:'👥', name:'Управление эмоциями группы', isNew:true,
+          desc:'Эмоциональное заражение, работа с настроением команды или зала',
+          longDesc:'Эмоциональное заражение в коллективах — мощный механизм. Можно использовать для создания продуктивной атмосферы или для понимания, как массовое настроение формируется.',
+          promise:'Через 21 день вы будете считывать динамику группы и направлять её — на работе, на встрече, в зале.' },
+        { id:'media_influence', icon:'📺', name:'Информационное воздействие через СМИ', isNew:true,
+          desc:'Как новости формируют гормональный фон больших групп — для PR, маркетинга и критического мышления',
+          longDesc:'Как новостные циклы формируют гормональный фон у больших групп. Понимать механизм — для критического мышления; применять этично — для PR, маркетинга, политической коммуникации.',
+          promise:'Через 21 день вы будете читать новостную повестку на трёх уровнях смысла — и сознательно строить свой инфопоток.' }
     ]
 };
 
@@ -379,9 +398,11 @@ function _scCurrentDay() {
 
 function _scFindSkill(id) {
     if (!id) return null;
-    return SC_SKILLS.personal.find(s => s.id === id)
-        || SC_SKILLS.professional.find(s => s.id === id)
-        || null;
+    for (const cat of Object.values(SC_SKILLS)) {
+        const sk = cat.find(s => s.id === id);
+        if (sk) return sk;
+    }
+    return null;
 }
 
 function _scAllExercises() { return (_sc.plan?.weeks || []).flatMap(w => w.exercises); }
@@ -392,6 +413,7 @@ function _scModeMeta(id)    { return SC_MODES.find(m => m.id === id); }
 function _scCategoryLabel(id) {
     if (SC_SKILLS.personal.some(s => s.id === id))     return '🧠 Личностный навык';
     if (SC_SKILLS.professional.some(s => s.id === id)) return '💼 Профессиональный навык';
+    if (SC_SKILLS.influence.some(s => s.id === id))    return '🎙️ Влияние и коммуникация';
     return '✏️ Свой навык';
 }
 
@@ -503,7 +525,7 @@ function _scRenderSelect() {
         <div class="sc-skill-card" data-id="${sk.id}">
             <div class="sc-skill-icon">${sk.icon||'🎯'}</div>
             <div class="sc-skill-body">
-                <div class="sc-skill-name">${sk.name}</div>
+                <div class="sc-skill-name">${sk.name}${sk.isNew?'<span class="sc-skill-new">NEW</span>':''}</div>
                 <div class="sc-skill-sub">${sk.desc}</div>
                 <div class="sc-skill-hint">Узнать подробнее →</div>
             </div>
@@ -517,6 +539,8 @@ function _scRenderSelect() {
         ${renderList(SC_SKILLS.personal)}
         <div class="sc-section-label">💼 Профессиональные навыки</div>
         ${renderList(SC_SKILLS.professional)}
+        <div class="sc-section-label">🎙️ Влияние и коммуникация</div>
+        ${renderList(SC_SKILLS.influence)}
 
         <div class="sc-custom-block">
             <div class="sc-custom-label">✏️ Или введите свой навык:</div>
@@ -970,4 +994,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.0 загружен (иконки + степ-индикатор + чёткий момент «беру»)');
+console.log('✅ skill_choice.js v5.1 загружен (+ 4 навыка категории «Влияние и коммуникация»)');
