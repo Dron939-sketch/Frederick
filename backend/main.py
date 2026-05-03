@@ -64,6 +64,7 @@ from bot_routes import register_bot_routes
 from auth_routes import create_auth_router
 from email_service import EmailService
 from analytics_routes import register_analytics_routes, log_server_event
+from skill_plan_routes import register_skill_plan_routes
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -340,6 +341,8 @@ async def lifespan(app: FastAPI):
         app.include_router(create_auth_router(db, limiter, email_service))
         _init_analytics = register_analytics_routes(app, db)
         await _init_analytics()
+        _init_skill_plan = register_skill_plan_routes(app, db, limiter)
+        await _init_skill_plan()
 
         # Подключаем учёт расходов на внешние API.
         try:
