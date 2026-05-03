@@ -83,23 +83,36 @@ async def send_telegram(chat_id: str, text: str) -> bool:
 async def send_max(chat_id: str, text: str) -> bool:
     """Шлёт через Max Platform API.
 
-    ВАЖНО: эта реализация повторяет рабочую `_send_via_max` из main.py.
-    MAX API требует поля `attachments` (хотя бы пустого) и поддерживает
-    `format: 'markdown'` — поэтому не убираем разметку.
+    Пробует chat_id, при 404 dialog.not.found — fallback на user_id
+    (в БД иногда лежит user_id вместо chat_id из-за фоллбэка в bot_service).
     """
     if not MAX_TOKEN:
         logger.warning("MAX_TOKEN not set")
         return False
+    body = {"text": text, "attachments": [], "format": "markdown", "notify": True}
+    headers = {"Authorization": MAX_TOKEN, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            # 1) Сначала пробуем chat_id (нормальный путь).
             resp = await client.post(
                 "https://platform-api.max.ru/messages",
                 params={"chat_id": chat_id},
-                json={"text": text, "attachments": [], "format": "markdown", "notify": True},
-                headers={"Authorization": MAX_TOKEN, "Content-Type": "application/json"}
+                json=body, headers=headers
             )
             if resp.status_code in (200, 201):
                 return True
+            # 2) Fallback на user_id — на случай, если в БД user_id (баг bot_service).
+            if resp.status_code == 404 and "dialog.not.found" in resp.text:
+                logger.warning(
+                    f"MAX chat_id={chat_id} not found, retrying with user_id"
+                )
+                resp = await client.post(
+                    "https://platform-api.max.ru/messages",
+                    params={"user_id": chat_id},
+                    json=body, headers=headers
+                )
+                if resp.status_code in (200, 201):
+                    return True
             logger.error(f"MAX send failed: {resp.status_code} {resp.text[:200]}")
             return False
     except Exception as e:
