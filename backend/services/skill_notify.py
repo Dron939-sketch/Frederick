@@ -13,10 +13,22 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
+
+
+def _strip_markdown(text: str) -> str:
+    """Убирает *bold* и _italic_ для каналов без поддержки разметки (MAX, email)."""
+    if not text:
+        return text
+    # *жирный* → жирный
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    # _курсив_ → курсив (внутри слова не трогаем)
+    text = re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'\1', text)
+    return text
 
 try:
     from zoneinfo import ZoneInfo
@@ -73,10 +85,12 @@ async def send_max(chat_id: str, text: str) -> bool:
         logger.warning("MAX_TOKEN not set")
         return False
     try:
+        # MAX не парсит markdown — убираем * и _, чтобы не показывать звёздочки
+        clean = _strip_markdown(text)
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"https://platform-api.max.ru/messages?chat_id={chat_id}",
-                json={"text": text},
+                json={"text": clean},
                 headers={"Authorization": MAX_TOKEN, "Content-Type": "application/json"}
             )
             return resp.status_code in (200, 201)
@@ -119,7 +133,7 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
             ok = await es.send(
                 to=email,
                 subject="Задание дня — Фреди",
-                body=text
+                body=_strip_markdown(text)
             )
             return {"success": ok, "sent_via": "email"} if ok else {"success": False, "error": "smtp failed"}
         except Exception as e:
