@@ -381,7 +381,13 @@ async def send_welcome_message(db, user_id: int) -> dict:
         "✅ Сделал? Открой Фреди и отметь.",
     ]
     text = "\n".join(parts)
-    return await send_to_channel(db, user_id, plan["channel"], text)
+    result = await send_to_channel(db, user_id, plan["channel"], text)
+
+    # Дублируем день 1 в уведомления — чтобы у юзера сразу была кнопка «✅ Выполнил».
+    if result.get("success"):
+        await _push_skill_notification(db, user_id, skill_name, 1, day1)
+
+    return result
 
 
 async def send_test_message(db, user_id: int) -> dict:
@@ -425,6 +431,43 @@ def _add_hours(notify_time: str, hours: int) -> str:
     return f"{h:02d}:{m:02d}"
 
 
+async def _push_skill_notification(db, user_id: int, skill_name: str, day: int, exercise: dict):
+    """Дублирует утреннее задание в fredi_notifications (вкладка «Сообщения → Уведомления»).
+
+    Это даёт юзеру второе место где видно задачу + кнопку «✅ Выполнил» прямо там.
+    Никогда не бросает — если упадёт, основная отправка не страдает.
+    """
+    try:
+        task = exercise.get("task", "")
+        dur = exercise.get("dur", "")
+        title = f"📌 День {day} · {task}"
+        body_parts = []
+        if dur:
+            body_parts.append(f"⏱ {dur}")
+        if exercise.get("inst"):
+            body_parts.append(exercise["inst"])
+        body = "\n".join(body_parts)[:500]
+
+        data = {
+            "skill_name": skill_name,
+            "day": day,
+            "task": task,
+            "dur": dur,
+            "why": exercise.get("why", "")
+        }
+        payload = json.dumps(data, ensure_ascii=False, default=str)
+
+        await db.execute(
+            """
+            INSERT INTO fredi_notifications (user_id, type, title, body, data, is_read, created_at)
+            VALUES ($1, 'skill_day_task', $2, $3, $4::jsonb, FALSE, NOW())
+            """,
+            int(user_id), title[:200], body, payload
+        )
+    except Exception as e:
+        logger.warning(f"skill notification push failed: {e}")
+
+
 async def _send_touchpoint(db, plan_row, kind: str) -> dict:
     """kind: 'morning' | 'check' | 'eve'."""
     user_id = plan_row["user_id"]
@@ -450,7 +493,13 @@ async def _send_touchpoint(db, plan_row, kind: str) -> dict:
     else:
         return {"success": False, "error": f"unknown kind: {kind}"}
 
-    return await send_to_channel(db, user_id, plan_row["channel"], text)
+    result = await send_to_channel(db, user_id, plan_row["channel"], text)
+
+    # Утреннее сообщение дублируем в in-app уведомления — там есть кнопка «✅ Выполнил».
+    if kind == "morning" and result.get("success"):
+        await _push_skill_notification(db, user_id, skill_name, day, exercise)
+
+    return result
 
 
 async def skill_plan_scheduler(db):

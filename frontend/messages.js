@@ -849,6 +849,41 @@ function _renderNotifTab() {
         });
     });
 
+    // Кнопка «✅ Выполнил» для задания дня (skill_day_task).
+    c.querySelectorAll('[data-skill-day-done]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const day = parseInt(btn.dataset.skillDayDone, 10);
+            const notifId = btn.dataset.notifId;
+            if (!day) return;
+            const row = btn.closest('.ms-notif-actions');
+            if (row) row.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);padding:6px">⏳ Отмечаю…</div>';
+            try {
+                await _msFetch(`/api/skill-plan/${_msUserId()}/day-done`, {
+                    method: 'POST', body: JSON.stringify({ day })
+                });
+                if (notifId) {
+                    try { await _msFetch(`/api/notifications/${notifId}`, { method: 'DELETE' }); } catch {}
+                    _msState.notifications = _msState.notifications.filter(x => String(x.id) !== String(notifId));
+                }
+                _updateBadge();
+                _renderNotifTab();
+                _msToast(`✅ День ${day} отмечен!`, 'success');
+            } catch (e) {
+                _msToast('Не удалось отметить', 'error');
+                _renderNotifTab();
+            }
+        });
+    });
+
+    // Кнопка «📋 К плану» — открыть экран навыка.
+    c.querySelectorAll('[data-skill-open-plan]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (typeof showSkillChoiceScreen === 'function') showSkillChoiceScreen();
+            else if (window.showSkillChoiceScreen) window.showSkillChoiceScreen();
+            else _msToast('Откройте Меню → Выбор навыка', 'info');
+        });
+    });
+
     // Inline Разрешить/Отклонить прямо из Уведомлений (для profile_access_incoming).
     c.querySelectorAll('[data-respond-notif]').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -923,6 +958,20 @@ function _notifItemHtml(n, unread) {
             <button class="ms-notif-btn ms-notif-btn-decline"
                 data-respond-notif="denied" data-requester="${n.data.requester_id}"
                 data-notif-id="${n.id}">❌ Отклонить</button>
+        </div>`;
+    } else if (n.type === 'skill_day_task' && n.data) {
+        // Задание дня из 21-дневной программы. Кнопка «Выполнил» вызывает
+        // skill-plan/day-done и удаляет уведомление.
+        const day = n.data.day || 0;
+        const why = n.data.why || '';
+        const whyBlock = why ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(58,134,255,0.06);border-left:2px solid rgba(58,134,255,0.4);border-radius:6px;font-size:11px;line-height:1.5">
+            <strong style="color:var(--chrome)">💭 Зачем это</strong><br>${_msEsc(why)}
+        </div>` : '';
+        actions = `${whyBlock}<div class="ms-notif-actions">
+            <button class="ms-notif-btn ms-notif-btn-accept"
+                data-skill-day-done="${day}" data-notif-id="${n.id}">✅ Выполнил</button>
+            <button class="ms-notif-btn ms-notif-btn-decline"
+                data-skill-open-plan="1" data-notif-id="${n.id}">📋 К плану</button>
         </div>`;
     }
 
