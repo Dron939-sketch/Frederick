@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 5.4 — таймзона юзера + активный режим (3 точки касания)
+// Версия 5.5 — модалка «Поехали!» + авто-приветствие в канал + баннер дня 1
 // ============================================
 
 function _scInjectStyles() {
@@ -487,6 +487,15 @@ async function _scApiTestSend() {
     }
 }
 
+async function _scApiWelcomeSend() {
+    const uid = _scUid();
+    if (!uid) return { success: false };
+    try {
+        const r = await fetch(`${_scApi()}/api/skill-plan/${uid}/welcome-send`, { method: 'POST' });
+        return await r.json();
+    } catch { return { success: false }; }
+}
+
 function _scSave() {
     try {
         const data = {
@@ -502,8 +511,8 @@ function _scSave() {
             channel: _sc.channel, notifyTime: _sc.notifyTime, mode: _sc.mode
         }));
     } catch {}
-    // Fire-and-forget: в бэк уйдёт после localStorage, не блокируя UI.
-    _scApiPush();
+    // Возвращаем промис, чтобы вызыватели могли await при необходимости.
+    return _scApiPush();
 }
 
 async function _scLoad() {
@@ -565,6 +574,37 @@ function _scCategoryLabel(id) {
     if (SC_SKILLS.professional.some(s => s.id === id)) return '💼 Профессиональный навык';
     if (SC_SKILLS.influence.some(s => s.id === id))    return '🎙️ Влияние и коммуникация';
     return '✏️ Свой навык';
+}
+
+function _scShowWelcomeModal(opts) {
+    const { skillName, channel, notifyTime, tz } = opts || {};
+    const chMeta = _scChannelMeta(channel) || {};
+    const channelName = chMeta.name || channel;
+    const isReal = channel && channel !== 'none';
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);z-index:9001;display:flex;align-items:center;justify-content:center;padding:20px;animation:scFade .3s ease';
+
+    const noChan = `<div style="background:rgba(224,224,224,0.05);border:1px solid rgba(224,224,224,0.12);border-radius:12px;padding:12px 14px;margin-bottom:18px;font-size:12px;color:var(--text-secondary);line-height:1.5">
+        🔕 Без напоминаний — заходите сами каждый день и отмечайте выполнение.
+    </div>`;
+    const realChan = `<div style="background:rgba(58,134,255,0.10);border:1px solid rgba(58,134,255,0.30);border-radius:12px;padding:12px 14px;margin-bottom:18px;font-size:12px;color:var(--text-primary);line-height:1.55">
+        📨 Завтра в <strong>${notifyTime} (${tz||'UTC'})</strong> пришлю задание дня 2 в <strong>${channelName}</strong>.
+    </div>`;
+
+    overlay.innerHTML = `<div style="background:var(--carbon-fiber,#1a1a1a);border:1px solid rgba(94,224,168,0.35);border-radius:22px;padding:24px;max-width:360px;width:100%;box-shadow:0 8px 40px rgba(94,224,168,0.15)">
+        <div style="font-size:42px;text-align:center;margin-bottom:12px;line-height:1">🎉</div>
+        <div style="font-size:20px;font-weight:700;text-align:center;color:var(--text-primary);margin-bottom:6px">Поехали!</div>
+        <div style="font-size:13px;color:var(--text-secondary);text-align:center;margin-bottom:20px">${skillName} — 21 день</div>
+        <div style="background:rgba(94,224,168,0.12);border:1px solid rgba(94,224,168,0.35);border-radius:12px;padding:12px 14px;margin-bottom:10px;font-size:12px;color:var(--text-primary);line-height:1.55">
+            ✅ <strong>Первое задание</strong> уже на экране — можно сделать прямо сейчас, 5 минут.
+        </div>
+        ${isReal ? realChan : noChan}
+        <button id="scWelcomeOk" style="width:100%;padding:13px;border-radius:30px;background:linear-gradient(135deg,rgba(224,224,224,0.2),rgba(192,192,192,0.1));border:1px solid rgba(224,224,224,0.3);color:var(--text-primary);font-weight:600;font-family:inherit;cursor:pointer;font-size:14px">Открыть план →</button>
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#scWelcomeOk').onclick = () => overlay.remove();
+    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) overlay.remove(); });
 }
 
 function _scStepsHtml(active) {
@@ -848,7 +888,7 @@ function _scRenderSetup() {
         ${modesHtml}
 
         <button class="sc-btn sc-btn-primary" id="scStartBtn" style="margin-top:18px"${canStart?'':' disabled'}>
-            🚀 Начать 21 день
+            🚀 Поехали!
         </button>
         <button class="sc-btn sc-btn-ghost" id="scBackToDetail" style="width:100%;margin-top:10px">
             ← Назад к описанию
@@ -877,8 +917,14 @@ function _scRenderPlan() {
 
     const curEx = all.find(e => e.day === day);
     const isDoneToday = done.includes(day);
+    const isFreshStart = day === 1 && done.length === 0;
+    const freshBanner = isFreshStart ? `
+        <div style="background:linear-gradient(135deg,rgba(94,224,168,0.10),rgba(94,224,168,0.02));border:1px solid rgba(94,224,168,0.30);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text-primary);line-height:1.5">
+            ✨ <strong>Первый день — самое начало!</strong> Прочти задание ниже и сделай за 5 минут.
+        </div>` : '';
     const todayHtml = curEx ? `
         <div class="sc-section-label">⚡ Сегодня</div>
+        ${freshBanner}
         <div class="sc-today-card">
             <div class="sc-today-header">
                 <div class="sc-today-num">${day}</div>
@@ -1113,9 +1159,26 @@ function _scBindHandlers() {
         _sc.startDate   = new Date().toISOString();
         _sc.openWeeks   = null;
         _sc.expandedDay = null;
-        _scSave();
+
+        // 1) Сохраняем — localStorage сразу + бэк (промис).
+        const savePromise = _scSave();
+
+        // 2) Сразу переходим на план — UI мгновенный.
         _sc.view = 'plan';
         _scRender();
+
+        // 3) Показываем поздравительную модалку.
+        _scShowWelcomeModal({
+            skillName:  _sc.skillName,
+            channel:    _sc.channel,
+            notifyTime: _sc.notifyTime,
+            tz:         _scTz()
+        });
+
+        // 4) После того как бэк сохранил — шлём приветствие в канал.
+        if (_sc.channel && _sc.channel !== 'none') {
+            savePromise.then(() => _scApiWelcomeSend()).catch(() => {});
+        }
     });
 
     // === PLAN ===
@@ -1216,4 +1279,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.4 загружен (таймзона + активный режим: 3 точки касания)');
+console.log('✅ skill_choice.js v5.5 загружен (модалка «Поехали!» + авто-приветствие + баннер дня 1)');

@@ -263,6 +263,39 @@ async def send_day_message(db, user_id: int) -> dict:
     return await send_to_channel(db, user_id, plan["channel"], text)
 
 
+async def send_welcome_message(db, user_id: int) -> dict:
+    """Шлёт поздравление со стартом 21-дневной программы.
+    Вызывается из фронта после нажатия «Поехали!».
+    """
+    plan = await db.fetchrow(
+        "SELECT * FROM fredi_skill_plans WHERE user_id = $1", user_id
+    )
+    if not plan:
+        return {"success": False, "error": "plan not found"}
+    if not plan["channel"] or plan["channel"] == "none":
+        return {"success": False, "error": "no channel"}
+
+    skill_name = plan["skill_name"] or "ваш навык"
+    notify_time = plan["notify_time"] or "09:00"
+    tz_str = plan["tz"] if "tz" in plan.keys() else "UTC"
+
+    # Достаём задание дня 1 чтобы упомянуть в приветствии
+    plan_data = plan["plan"]
+    if isinstance(plan_data, str):
+        plan_data = json.loads(plan_data)
+    day1 = _find_exercise(plan_data, 1) or {}
+    day1_task = day1.get("task", "первое задание")
+    day1_dur = day1.get("dur", "5 мин")
+
+    text = (
+        f"🎉 *Поехали!* — 21 день навыка «{skill_name}»\n\n"
+        f"Сегодня — день 1: *{day1_task}* (⏱ {day1_dur}).\n"
+        f"Уже на экране Фреди — открой и сделай.\n\n"
+        f"📨 Завтра в *{notify_time} ({tz_str})* пришлю задание дня 2 сюда."
+    )
+    return await send_to_channel(db, user_id, plan["channel"], text)
+
+
 async def send_test_message(db, user_id: int) -> dict:
     """Шлёт тестовое сообщение в выбранный канал — для проверки привязки."""
     plan = await db.fetchrow(

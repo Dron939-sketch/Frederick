@@ -314,4 +314,15 @@ def register_skill_plan_routes(app, db, limiter):
             logger.error(f"test_send error: {e}")
             return {"success": False, "error": str(e)}
 
+    @app.post("/api/skill-plan/{user_id}/welcome-send")
+    @limiter.limit("6/minute")
+    async def welcome_send(request: Request, user_id: int):
+        """Отправляет приветствие при старте 21-дневной программы."""
+        try:
+            from services.skill_notify import send_welcome_message
+            return await send_welcome_message(db, user_id)
+        except Exception as e:
+            logger.error(f"welcome_send error: {e}")
+            return {"success": False, "error": str(e)}
+
     return init_skill_plan_tables
