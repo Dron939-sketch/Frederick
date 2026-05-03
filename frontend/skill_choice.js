@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 5.3 — статус привязки канала + кнопка тестового сообщения
+// Версия 5.4 — таймзона юзера + активный режим (3 точки касания)
 // ============================================
 
 function _scInjectStyles() {
@@ -375,6 +375,10 @@ function _scToast(msg, t) { if (window.showToast) window.showToast(msg, t||'info
 function _scHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
 function _scUid()   { return window.CONFIG?.USER_ID; }
 function _scApi()   { return window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _scTz()    {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+    catch { return 'UTC'; }
+}
 
 // ============================================
 // СИНХРОНИЗАЦИЯ С БЭКЕНДОМ
@@ -399,7 +403,8 @@ async function _scApiPush() {
                 started_at:      _sc.startDate,
                 channel:         _sc.channel,
                 notify_time:     _sc.notifyTime,
-                mode:             _sc.mode
+                mode:             _sc.mode,
+                tz:              _scTz()
             })
         });
     } catch (e) { /* offline — ok, есть localStorage */ }
@@ -835,7 +840,7 @@ function _scRenderSetup() {
 
         ${showTime ? `
         <div class="sc-time-block">
-            <div class="sc-time-label">⏰ Время утреннего сообщения</div>
+            <div class="sc-time-label">⏰ Время утреннего сообщения <span style="font-weight:400;color:var(--text-secondary)">(${_scTz()})</span></div>
             <div class="sc-time-grid">${timeButtonsHtml}</div>
         </div>` : ''}
 
@@ -1086,7 +1091,7 @@ function _scBindHandlers() {
             _sc.notifyTime = btn.dataset.time;
             document.querySelectorAll('.sc-time-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            if (_sc.plan) { _scSave(); _scApiSettings({ notify_time: _sc.notifyTime }); }
+            if (_sc.plan) { _scSave(); _scApiSettings({ notify_time: _sc.notifyTime, tz: _scTz() }); }
         });
     });
     document.querySelectorAll('.sc-mode-card').forEach(card => {
@@ -1211,4 +1216,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.3 загружен (статус привязки канала + тестовое сообщение)');
+console.log('✅ skill_choice.js v5.4 загружен (таймзона + активный режим: 3 точки касания)');

@@ -13,10 +13,15 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None  # Python < 3.9 — fallback на UTC
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +100,6 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
         return {"success": ok, "sent_via": channel} if ok else {"success": False, "error": f"{channel} send failed"}
 
     if channel == "email":
-        # Используем существующий EmailService, если он есть.
         try:
             from email_service import EmailService
             row = await db.fetchrow(
@@ -103,7 +107,6 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
             )
             email = row["email"] if row else None
             if not email:
-                # Fallback на email из fredi_users, если есть.
                 row = await db.fetchrow(
                     "SELECT email FROM fredi_users WHERE user_id = $1", user_id
                 )
@@ -111,8 +114,14 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
             if not email:
                 return {"success": False, "error": "email not set"}
             es = EmailService()
-            await es.send(to=email, subject="Задание дня — Фреди", body=text)
-            return {"success": True, "sent_via": "email"}
+            if not es.enabled:
+                return {"success": False, "error": "email service disabled (no SMTP env)"}
+            ok = await es.send(
+                to=email,
+                subject="Задание дня — Фреди",
+                body=text
+            )
+            return {"success": ok, "sent_via": "email"} if ok else {"success": False, "error": "smtp failed"}
         except Exception as e:
             logger.error(f"Email send error: {e}")
             return {"success": False, "error": str(e)}
@@ -132,7 +141,7 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
 
 
 def build_day_message(skill_name: str, day: int, exercise: dict) -> str:
-    """Собирает текст сообщения для дня тренировки."""
+    """Утреннее сообщение — задание дня."""
     task = exercise.get("task", "")
     dur = exercise.get("dur", "")
     inst = exercise.get("inst", "")
@@ -144,8 +153,56 @@ def build_day_message(skill_name: str, day: int, exercise: dict) -> str:
     )
 
 
+def build_check_message(skill_name: str, day: int, exercise: dict) -> str:
+    """Дневной чек-ин — поддержка в середине дня (только active mode)."""
+    task = exercise.get("task", "")
+    return (
+        f"🌤 *Как идёт?* — день {day} из 21 ({skill_name})\n\n"
+        f"Получилось начать «{task}»?\n"
+        f"Если ещё нет — короткое окно сейчас: 5 минут хватит, "
+        f"чтобы сделать первый шаг."
+    )
+
+
+def build_evening_message(skill_name: str, day: int) -> str:
+    """Вечерняя рефлексия (только active mode)."""
+    return (
+        f"🌙 *Вечерняя рефлексия* — день {day} из 21 ({skill_name})\n\n"
+        f"Что получилось сегодня по навыку? Что было неудобно?\n"
+        f"Запишите 1–2 предложения в дневник Фреди — это закрепляет результат."
+    )
+
+
+def _user_tz(tz_str: Optional[str]):
+    """Возвращает tz-объект по IANA-имени или UTC при ошибке."""
+    if not tz_str or tz_str == "UTC" or ZoneInfo is None:
+        return timezone.utc
+    try:
+        return ZoneInfo(tz_str)
+    except Exception:
+        return timezone.utc
+
+
+def _current_day(started_at, tz) -> int:
+    """Сколько дней прошло от старта в локальной зоне юзера. 1..21."""
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+    started_local = started_at.astimezone(tz) if started_at else now_local
+    days = (now_local.date() - started_local.date()).days + 1
+    return max(1, min(21, days))
+
+
+def _find_exercise(plan_data, day: int):
+    if not plan_data or not plan_data.get("weeks"):
+        return None
+    for week in plan_data["weeks"]:
+        for ex in week.get("exercises", []):
+            if ex.get("day") == day:
+                return ex
+    return None
+
+
 async def send_day_message(db, user_id: int) -> dict:
-    """Шлёт сегодняшнее задание пользователю в выбранный канал."""
+    """Шлёт утреннее задание дня (используется test-send и планировщиком)."""
     plan = await db.fetchrow(
         "SELECT * FROM fredi_skill_plans WHERE user_id = $1", user_id
     )
@@ -153,30 +210,16 @@ async def send_day_message(db, user_id: int) -> dict:
         return {"success": False, "error": "plan not found"}
     if not plan["channel"] or plan["channel"] == "none":
         return {"success": False, "error": "no channel"}
-
-    # Текущий день
-    started = plan["started_at"]
-    if not started:
+    if not plan["started_at"]:
         return {"success": False, "error": "no start date"}
-    days_since = (datetime.now(timezone.utc) - started).days + 1
-    day = max(1, min(21, days_since))
+
+    tz = _user_tz(plan.get("tz") if hasattr(plan, "get") else None)
+    day = _current_day(plan["started_at"], tz)
 
     plan_data = plan["plan"]
     if isinstance(plan_data, str):
         plan_data = json.loads(plan_data)
-    if not plan_data or not plan_data.get("weeks"):
-        return {"success": False, "error": "plan invalid"}
-
-    # Ищем упражнение для текущего дня
-    exercise = None
-    for week in plan_data["weeks"]:
-        for ex in week.get("exercises", []):
-            if ex.get("day") == day:
-                exercise = ex
-                break
-        if exercise:
-            break
-
+    exercise = _find_exercise(plan_data, day)
     if not exercise:
         return {"success": False, "error": f"day {day} not found in plan"}
 
@@ -204,55 +247,117 @@ async def send_test_message(db, user_id: int) -> dict:
 
 
 # ============================================================
-# ПЛАНИРОВЩИК (Этап C)
-# Каждую минуту проверяет, у кого notify_time совпало с UTC HH:MM,
-# и шлёт задание дня. Дедуп через колонку last_sent_at.
+# ПЛАНИРОВЩИК (Этап C/D)
+# Каждую минуту:
+#   - проходит активные планы
+#   - для каждого считает локальное время юзера по его tz
+#   - для mode='calm': шлёт утро в notify_time
+#   - для mode='active': утро + чек-ин в +5h + рефлексия в +12h
+#   - дедуп через 3 timestamp-колонки
 # ============================================================
+def _add_hours(notify_time: str, hours: int) -> str:
+    """'09:00' + 5 → '14:00'. Wrap при 24+."""
+    try:
+        h, m = map(int, notify_time.split(":"))
+    except Exception:
+        h, m = 9, 0
+    h = (h + hours) % 24
+    return f"{h:02d}:{m:02d}"
+
+
+async def _send_touchpoint(db, plan_row, kind: str) -> dict:
+    """kind: 'morning' | 'check' | 'eve'."""
+    user_id = plan_row["user_id"]
+    skill_name = plan_row["skill_name"] or "навык"
+    tz = _user_tz(plan_row.get("tz") if hasattr(plan_row, "get") else plan_row["tz"])
+    day = _current_day(plan_row["started_at"], tz)
+
+    plan_data = plan_row["plan"]
+    if isinstance(plan_data, str):
+        plan_data = json.loads(plan_data)
+    exercise = _find_exercise(plan_data, day) or {}
+
+    if kind == "morning":
+        text = build_day_message(skill_name, day, exercise)
+    elif kind == "check":
+        text = build_check_message(skill_name, day, exercise)
+    elif kind == "eve":
+        text = build_evening_message(skill_name, day)
+    else:
+        return {"success": False, "error": f"unknown kind: {kind}"}
+
+    return await send_to_channel(db, user_id, plan_row["channel"], text)
+
+
 async def skill_plan_scheduler(db):
     """Фоновая корутина — запускается из main.py через asyncio.create_task."""
-    logger.info("📅 skill_plan_scheduler started (UTC, 1-minute tick)")
-    await asyncio.sleep(60)  # warm up — даём приложению запуститься
+    logger.info("📅 skill_plan_scheduler started (tz-aware, 3 touchpoints, 1-minute tick)")
+    await asyncio.sleep(60)
     while True:
         try:
-            now = datetime.now(timezone.utc)
-            hhmm = now.strftime("%H:%M")
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
+            # Берём ВСЕ активные планы (фильтр: канал есть, план в окне 21 дня).
+            # Фильтрацию по времени делаем в Python — нужны разные tz.
             rows = await db.fetch(
                 """
-                SELECT user_id, skill_name FROM fredi_skill_plans
+                SELECT user_id, skill_name, channel, mode, notify_time, tz,
+                       plan, started_at,
+                       last_sent_at, last_check_sent_at, last_eve_sent_at
+                FROM fredi_skill_plans
                 WHERE channel IS NOT NULL
                   AND channel <> 'none'
-                  AND notify_time = $1
                   AND started_at IS NOT NULL
-                  AND (last_sent_at IS NULL OR last_sent_at < $2)
                   AND (NOW() - started_at) < INTERVAL '21 days'
-                """,
-                hhmm, today_start
+                """
             )
 
-            if rows:
-                logger.info(f"📨 skill scheduler: {len(rows)} users due at {hhmm} UTC")
+            if not rows:
+                await asyncio.sleep(60)
+                continue
+
+            now_utc = datetime.now(timezone.utc)
 
             for row in rows:
                 uid = row["user_id"]
-                try:
-                    res = await send_day_message(db, uid)
-                    if res.get("success"):
-                        await db.execute(
-                            "UPDATE fredi_skill_plans SET last_sent_at = NOW() "
-                            "WHERE user_id = $1", uid
-                        )
-                        logger.info(
-                            f"📨 day message sent to {uid} "
-                            f"({row['skill_name']}) via {res.get('sent_via')}"
-                        )
-                    else:
-                        logger.warning(
-                            f"skill scheduler: send to {uid} failed: {res.get('error')}"
-                        )
-                except Exception as e:
-                    logger.error(f"skill scheduler send to {uid} error: {e}")
+                tz = _user_tz(row["tz"])
+                user_now = now_utc.astimezone(tz)
+                cur_hhmm = user_now.strftime("%H:%M")
+
+                # Начало текущих суток в локальной зоне → в UTC (для дедупа).
+                today_start_local = user_now.replace(hour=0, minute=0, second=0, microsecond=0)
+                today_start_utc = today_start_local.astimezone(timezone.utc)
+
+                notify_time = row["notify_time"] or "09:00"
+                mode = row["mode"] or "calm"
+
+                # Расписание точек касания
+                schedule = [("morning", notify_time, "last_sent_at")]
+                if mode == "active":
+                    schedule.append(("check", _add_hours(notify_time, 5),  "last_check_sent_at"))
+                    schedule.append(("eve",   _add_hours(notify_time, 12), "last_eve_sent_at"))
+
+                for kind, target_hhmm, last_col in schedule:
+                    if cur_hhmm != target_hhmm:
+                        continue
+                    last_sent = row[last_col]
+                    if last_sent is not None and last_sent >= today_start_utc:
+                        continue  # уже отправлено сегодня
+                    try:
+                        res = await _send_touchpoint(db, row, kind)
+                        if res.get("success"):
+                            await db.execute(
+                                f"UPDATE fredi_skill_plans SET {last_col} = NOW() "
+                                f"WHERE user_id = $1", uid
+                            )
+                            logger.info(
+                                f"📨 [{kind}] sent to {uid} ({row['skill_name']}) "
+                                f"via {res.get('sent_via')} at {cur_hhmm} {row['tz'] or 'UTC'}"
+                            )
+                        else:
+                            logger.warning(
+                                f"skill scheduler: [{kind}] to {uid} failed: {res.get('error')}"
+                            )
+                    except Exception as e:
+                        logger.error(f"skill scheduler [{kind}] to {uid} error: {e}")
 
         except asyncio.CancelledError:
             logger.info("skill_plan_scheduler cancelled")

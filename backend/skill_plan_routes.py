@@ -46,14 +46,17 @@ def register_skill_plan_routes(app, db, limiter):
                     updated_at         TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
             """)
-            # Миграция: колонка last_sent_at для дедупликации в планировщике (Этап C)
-            try:
-                await conn.execute(
-                    "ALTER TABLE fredi_skill_plans "
-                    "ADD COLUMN IF NOT EXISTS last_sent_at TIMESTAMP WITH TIME ZONE"
-                )
-            except Exception:
-                pass
+            # Миграции: дедуп-колонки + таймзона юзера (Этап C/D)
+            for col_def in (
+                "ADD COLUMN IF NOT EXISTS last_sent_at         TIMESTAMP WITH TIME ZONE",
+                "ADD COLUMN IF NOT EXISTS last_check_sent_at   TIMESTAMP WITH TIME ZONE",
+                "ADD COLUMN IF NOT EXISTS last_eve_sent_at     TIMESTAMP WITH TIME ZONE",
+                "ADD COLUMN IF NOT EXISTS tz                   TEXT DEFAULT 'UTC'",
+            ):
+                try:
+                    await conn.execute(f"ALTER TABLE fredi_skill_plans {col_def}")
+                except Exception:
+                    pass
             try:
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_skill_plans_notify "
@@ -98,9 +101,9 @@ def register_skill_plan_routes(app, db, limiter):
                     INSERT INTO fredi_skill_plans (
                         user_id, skill_id, skill_name, skill_desc, skill_long_desc,
                         skill_promise, plan, days_done, started_at, channel, notify_time,
-                        mode, email, created_at, updated_at
+                        mode, email, tz, created_at, updated_at
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, '[]'::jsonb,
-                              $8, $9, $10, $11, $12, NOW(), NOW())
+                              $8, $9, $10, $11, $12, $13, NOW(), NOW())
                     ON CONFLICT (user_id) DO UPDATE SET
                         skill_id        = EXCLUDED.skill_id,
                         skill_name      = EXCLUDED.skill_name,
@@ -114,6 +117,7 @@ def register_skill_plan_routes(app, db, limiter):
                         notify_time     = EXCLUDED.notify_time,
                         mode            = EXCLUDED.mode,
                         email           = COALESCE(EXCLUDED.email, fredi_skill_plans.email),
+                        tz              = COALESCE(EXCLUDED.tz, fredi_skill_plans.tz),
                         updated_at      = NOW()
                 """,
                     int(user_id),
@@ -128,6 +132,7 @@ def register_skill_plan_routes(app, db, limiter):
                     data.get("notify_time") or "09:00",
                     data.get("mode") or "calm",
                     data.get("email"),
+                    data.get("tz") or "UTC",
                 )
 
             return {"success": True}
@@ -175,6 +180,7 @@ def register_skill_plan_routes(app, db, limiter):
                     "channel":          row["channel"],
                     "notify_time":      row["notify_time"],
                     "mode":             row["mode"],
+                    "tz":               row["tz"] if "tz" in row.keys() else "UTC",
                     "telegram_chat_id": row["telegram_chat_id"],
                     "email":            row["email"],
                 }
@@ -253,7 +259,7 @@ def register_skill_plan_routes(app, db, limiter):
                 fields = []
                 values = []
                 idx = 1
-                for key in ("channel", "notify_time", "mode", "email"):
+                for key in ("channel", "notify_time", "mode", "email", "tz"):
                     if key in data:
                         fields.append(f"{key} = ${idx}")
                         values.append(data[key])
