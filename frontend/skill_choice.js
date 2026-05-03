@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 4.0 — поток: карточка → описание → настройка → план
+// Версия 5.0 — иконки навыков + степ-индикатор + чёткий момент «беру»
 // ============================================
 
 function _scInjectStyles() {
@@ -11,11 +11,33 @@ function _scInjectStyles() {
         .sc-skill-card { background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1); border-radius: 16px; padding: 14px; margin-bottom: 8px; cursor: pointer; transition: background 0.18s, border-color 0.18s, transform 0.12s; display: flex; align-items: center; gap: 12px; touch-action: manipulation; }
         .sc-skill-card:hover  { background: rgba(224,224,224,0.09); border-color: rgba(224,224,224,0.22); }
         .sc-skill-card:active { transform: scale(0.98); }
+        .sc-skill-icon { font-size: 24px; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: rgba(224,224,224,0.06); flex-shrink: 0; }
         .sc-skill-body  { flex: 1; min-width: 0; }
         .sc-skill-name  { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; }
         .sc-skill-sub   { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+        .sc-skill-hint  { font-size: 10px; color: var(--chrome); margin-top: 4px; opacity: 0; transition: opacity 0.2s; }
+        .sc-skill-card:hover .sc-skill-hint { opacity: 1; }
         .sc-skill-arrow { font-size: 16px; color: var(--text-secondary); flex-shrink: 0; opacity: 0.5; }
         .sc-skill-card:hover .sc-skill-arrow { opacity: 1; color: var(--chrome); }
+
+        /* === СТЕП-ИНДИКАТОР === */
+        .sc-steps { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; padding: 10px 12px; background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.1); border-radius: 12px; }
+        .sc-step { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+        .sc-step-num { width: 20px; height: 20px; border-radius: 50%; background: rgba(224,224,224,0.1); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+        .sc-step.done  .sc-step-num { background: rgba(94,224,168,0.2); color: #5EE0A8; }
+        .sc-step.current .sc-step-num { background: var(--chrome); color: #000; }
+        .sc-step.current { color: var(--text-primary); font-weight: 600; }
+        .sc-step-arrow { color: var(--text-secondary); opacity: 0.4; font-size: 10px; }
+        @media (max-width: 480px) {
+            .sc-step-text { display: none; }
+            .sc-step.current .sc-step-text { display: inline; }
+        }
+
+        /* === ПЛАШКА «ВЫБРАНО» === */
+        .sc-chosen { background: linear-gradient(135deg, rgba(94,224,168,0.12), rgba(94,224,168,0.02)); border: 1px solid rgba(94,224,168,0.35); border-radius: 16px; padding: 14px 16px; margin-bottom: 16px; }
+        .sc-chosen-mark { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #5EE0A8; margin-bottom: 4px; }
+        .sc-chosen-name { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+        .sc-chosen-text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
         .sc-skill-score { font-size: 11px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; background: rgba(224,224,224,0.08); border: 1px solid rgba(224,224,224,0.14); border-radius: 20px; padding: 3px 9px; }
         .sc-skill-bar-wrap { height: 3px; background: rgba(224,224,224,0.1); border-radius: 2px; margin-top: 6px; overflow: hidden; }
         .sc-skill-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--silver-brushed), var(--chrome)); }
@@ -183,54 +205,54 @@ function _scInjectStyles() {
 // ============================================
 const SC_SKILLS = {
     personal: [
-        { id:'confidence', name:'Уверенность в себе', desc:'Действовать без одобрения извне, верить в свои силы',
+        { id:'confidence', icon:'💪', name:'Уверенность в себе', desc:'Действовать без одобрения извне, верить в свои силы',
           longDesc:'Уверенность — это не отсутствие сомнений, а способность действовать вопреки им. Тренируем доверие собственным решениям и опыту, даже когда вокруг неопределённость или давление.',
           promise:'Через 21 день вы будете действовать в важных ситуациях, не дожидаясь одобрения и не оглядываясь на оценку.' },
-        { id:'discipline', name:'Дисциплина', desc:'Выполнять намеченное независимо от настроения',
+        { id:'discipline', icon:'🎯', name:'Дисциплина', desc:'Выполнять намеченное независимо от настроения',
           longDesc:'Дисциплина — это не сила воли, а система: правильные триггеры, ритуалы и среда, в которых нужное действие становится естественным. Учимся делать решённое, не торгуясь с собой.',
           promise:'Через 21 день вы будете делать намеченное даже когда не хочется — без внутреннего торга и «соберусь завтра».' },
-        { id:'boundaries', name:'Личные границы', desc:'Говорить «нет» без чувства вины',
+        { id:'boundaries', icon:'🛡', name:'Личные границы', desc:'Говорить «нет» без чувства вины',
           longDesc:'Личные границы — умение ясно обозначать, что для вас приемлемо, а что нет. Без агрессии и без вины. Граница — это не стена, а ориентир для других.',
           promise:'Через 21 день вы будете отказывать спокойно и без оправданий — и при этом сохранять отношения.' },
-        { id:'emotions', name:'Эмоциональный интеллект', desc:'Распознавать и управлять своими эмоциями',
+        { id:'emotions', icon:'🎭', name:'Эмоциональный интеллект', desc:'Распознавать и управлять своими эмоциями',
           longDesc:'Навык распознавать свои эмоции в момент возникновения и направлять их, а не реагировать автоматически. Базовый уровень саморегуляции.',
           promise:'Через 21 день вы будете замечать эмоцию до того, как она возьмёт верх, и выбирать реакцию, а не «прорываться».' },
-        { id:'communication', name:'Коммуникация', desc:'Ясно и честно выражать мысли и чувства',
+        { id:'communication', icon:'💬', name:'Коммуникация', desc:'Ясно и честно выражать мысли и чувства',
           longDesc:'Доносить мысли так, чтобы вас поняли, и слышать так, чтобы собеседник почувствовал себя услышанным. База любых отношений — личных и рабочих.',
           promise:'Через 21 день вы будете говорить о важном напрямую — без намёков, обиняков и страха быть неправильно понятым.' },
-        { id:'resilience', name:'Стрессоустойчивость', desc:'Восстанавливаться после трудностей',
+        { id:'resilience', icon:'🧗', name:'Стрессоустойчивость', desc:'Восстанавливаться после трудностей',
           longDesc:'Не отсутствие реакции на стресс, а скорость возвращения в баланс. Расширяем «окно толерантности», в котором вы остаётесь функциональны.',
           promise:'Через 21 день вы будете быстрее возвращаться в строй после ударов и не залипать в плохом настроении на дни.' },
-        { id:'focus', name:'Фокус и концентрация', desc:'Удерживать внимание на важном',
+        { id:'focus', icon:'🔍', name:'Фокус и концентрация', desc:'Удерживать внимание на важном',
           longDesc:'Удерживать внимание на одной задаче 25–90 минут без отвлечений. Базовый ресурс продуктивности и качественного мышления.',
           promise:'Через 21 день вы будете удерживать внимание на главном по 60–90 минут без скатывания в соцсети и переключения.' },
-        { id:'growth', name:'Установка на рост', desc:'Воспринимать трудности как возможности',
+        { id:'growth', icon:'🌱', name:'Установка на рост', desc:'Воспринимать трудности как возможности',
           longDesc:'Восприятие способностей как развиваемых, а не врождённых. Ошибка → информация, а не приговор. Подход Кэрол Двек, переведённый в ежедневные действия.',
           promise:'Через 21 день вы будете воспринимать неудачи как данные, а не как приговор себе — и быстрее идти дальше.' }
     ],
     professional: [
-        { id:'planning', name:'Планирование', desc:'Ставить цели и разбивать на конкретные шаги',
+        { id:'planning', icon:'📋', name:'Планирование', desc:'Ставить цели и разбивать на конкретные шаги',
           longDesc:'Перевод больших целей в конкретные физические действия. Без этого «хочу» остаётся «хочу». Метод следующего действия + декомпозиция.',
           promise:'Через 21 день вы будете превращать любую большую цель в конкретный недельный план и идти по нему.' },
-        { id:'decision', name:'Принятие решений', desc:'Действовать при неполной информации',
+        { id:'decision', icon:'⚡', name:'Принятие решений', desc:'Действовать при неполной информации',
           longDesc:'Действовать при неполной информации, не парализуясь поиском «идеального варианта». Различать важные и неважные решения и не тратить силы поровну.',
           promise:'Через 21 день вы будете решать быстро даже без полной картины — и переставать зависать в раздумьях.' },
-        { id:'delegation', name:'Делегирование', desc:'Передавать задачи и доверять другим',
+        { id:'delegation', icon:'🤝', name:'Делегирование', desc:'Передавать задачи и доверять другим',
           longDesc:'Передача задачи целиком и доверие результату. Не «приказ-исполнение», а партнёрство с правильной обратной связью. Освобождаете время на стратегию.',
           promise:'Через 21 день вы будете отпускать задачи команде без чувства «лучше сам» — и освобождать время на главное.' },
-        { id:'leadership', name:'Лидерство', desc:'Вести за собой и вдохновлять людей',
+        { id:'leadership', icon:'🚩', name:'Лидерство', desc:'Вести за собой и вдохновлять людей',
           longDesc:'Не должность и не харизма — система поведения, которой можно научиться. Ясность смысла и внутренняя опора — то, за чем идут люди.',
           promise:'Через 21 день вы будете говорить так, что за вами хочется идти — и направлять других без давления.' },
-        { id:'timemanage', name:'Управление временем', desc:'Расставлять приоритеты и не прокрастинировать',
+        { id:'timemanage', icon:'⏰', name:'Управление временем', desc:'Расставлять приоритеты и не прокрастинировать',
           longDesc:'Не «успеть всё», а «успеть важное». Принцип Парето + защита фокусного времени. Меньше прокрастинации без насилия над собой.',
           promise:'Через 21 день вы будете успевать важное за день — без переработок и чувства «снова ничего не сделал».' },
-        { id:'feedback', name:'Обратная связь', desc:'Давать и принимать критику конструктивно',
+        { id:'feedback', icon:'🔁', name:'Обратная связь', desc:'Давать и принимать критику конструктивно',
           longDesc:'Давать и принимать критику так, чтобы она вела к росту, а не к обиде. Сильно недооценённый навык, определяющий качество работы в команде.',
           promise:'Через 21 день вы будете говорить и слышать критику без напряжения — и превращать её в реальные изменения.' },
-        { id:'networking', name:'Нетворкинг', desc:'Строить и поддерживать профессиональные связи',
+        { id:'networking', icon:'🌐', name:'Нетворкинг', desc:'Строить и поддерживать профессиональные связи',
           longDesc:'Строить и поддерживать профессиональные связи без манипуляций и социальной фальши. Принцип «дай раньше, чем попросишь».',
           promise:'Через 21 день вы будете заводить полезные контакты без неловкости и поддерживать связи без выгорания.' },
-        { id:'creativity', name:'Креативность', desc:'Находить нестандартные решения',
+        { id:'creativity', icon:'✨', name:'Креативность', desc:'Находить нестандартные решения',
           longDesc:'Находить нестандартные решения через комбинаторику и латеральное мышление. Тренируется как мышца — не про «вдохновение», а про устойчивые техники.',
           promise:'Через 21 день вы будете находить решения там, где другие видят тупик — за счёт устойчивых техник, а не вдохновения.' }
     ]
@@ -373,6 +395,24 @@ function _scCategoryLabel(id) {
     return '✏️ Свой навык';
 }
 
+function _scStepsHtml(active) {
+    const steps = [
+        { id:'select', label:'Выбор'    },
+        { id:'detail', label:'Знакомство' },
+        { id:'setup',  label:'Настройка' },
+        { id:'plan',   label:'Тренировка'  }
+    ];
+    const order = steps.findIndex(s => s.id === active);
+    return `<div class="sc-steps">${steps.map((s, i) => {
+        const cls = i < order ? 'done' : (i === order ? 'current' : '');
+        const arrow = i < steps.length-1 ? '<span class="sc-step-arrow">▸</span>' : '';
+        return `<div class="sc-step ${cls}">
+            <div class="sc-step-num">${i+1}</div>
+            <span class="sc-step-text">${s.label}</span>
+        </div>${arrow}`;
+    }).join('')}</div>`;
+}
+
 // ============================================
 // РЕНДЕР
 // ============================================
@@ -387,9 +427,10 @@ function _scRender() {
     if (_sc.view === 'setup')  body = _scRenderSetup();
     if (_sc.view === 'plan')   body = _scRenderPlan();
 
-    const subtitle = _sc.view === 'setup' ? 'Настройка тренировки'
-                   : _sc.view === 'detail' ? 'О навыке'
-                   : '21-дневный план развития';
+    const subtitle = _sc.view === 'setup' ? 'Беру навык — настройка'
+                   : _sc.view === 'detail' ? 'Знакомство с навыком'
+                   : _sc.view === 'plan'   ? 'Активная тренировка'
+                   : 'Что развиваем за 21 день';
 
     c.innerHTML = `
         <div class="full-content-page">
@@ -442,10 +483,12 @@ function _scRenderSelect() {
                     if (!skill) return '';
                     const pct = Math.round(score/4*100);
                     return `<div class="sc-skill-card" data-id="${skill.id}">
+                        <div class="sc-skill-icon">${skill.icon||'🎯'}</div>
                         <div class="sc-skill-body">
                             <div class="sc-skill-name">${skill.name}</div>
                             <div class="sc-skill-sub">${skill.desc}</div>
                             <div class="sc-skill-bar-wrap"><div class="sc-skill-bar-fill" style="width:${pct}%"></div></div>
+                            <div class="sc-skill-hint">Узнать подробнее →</div>
                         </div>
                         <div class="sc-skill-score">${score}/4</div>
                         <div class="sc-skill-arrow">›</div>
@@ -458,9 +501,11 @@ function _scRenderSelect() {
 
     const renderList = (arr) => arr.map(sk => `
         <div class="sc-skill-card" data-id="${sk.id}">
+            <div class="sc-skill-icon">${sk.icon||'🎯'}</div>
             <div class="sc-skill-body">
                 <div class="sc-skill-name">${sk.name}</div>
                 <div class="sc-skill-sub">${sk.desc}</div>
+                <div class="sc-skill-hint">Узнать подробнее →</div>
             </div>
             <div class="sc-skill-arrow">›</div>
         </div>`).join('');
@@ -520,9 +565,10 @@ function _scRenderDetail() {
     }).join('');
 
     return `
+        ${_scStepsHtml('detail')}
         <div class="sc-detail-hero">
             <div class="sc-detail-cat">${cat}</div>
-            <div class="sc-detail-title">${name}</div>
+            <div class="sc-detail-title">${(sk?.icon||'🎯')} ${name}</div>
             <div class="sc-detail-promise-label">Что вы получите за 21 день</div>
             <div class="sc-detail-promise">${promise}</div>
         </div>
@@ -552,10 +598,10 @@ function _scRenderDetail() {
         </div>
 
         <button class="sc-btn sc-btn-primary" id="scChooseBtn" style="margin-top:14px">
-            ✅ Выбрать этот навык
+            🤝 Беру этот навык →
         </button>
         <button class="sc-btn sc-btn-ghost" id="scBackToList" style="width:100%;margin-top:10px">
-            ← К списку навыков
+            ← Посмотреть другие
         </button>`;
 }
 
@@ -587,12 +633,15 @@ function _scRenderSetup() {
 
     const canStart = !!_sc.channel;
 
+    const sk = _scFindSkill(_sc.skillId);
+    const skIcon = sk?.icon || '🎯';
+
     return `
-        <div class="sc-setup-intro">
-            <div class="sc-setup-title">Как тренироваться?</div>
-            <div class="sc-setup-text">
-                Навык: <strong style="color:var(--text-primary)">${_sc.skillName}</strong>. Настройте, как Фреди будет вести вас по 21 дню.
-            </div>
+        ${_scStepsHtml('setup')}
+        <div class="sc-chosen">
+            <div class="sc-chosen-mark">✓ Навык выбран</div>
+            <div class="sc-chosen-name">${skIcon} ${_sc.skillName}</div>
+            <div class="sc-chosen-text">Осталось настроить, как тренироваться — и можно начинать.</div>
         </div>
 
         <div class="sc-section-label">📲 Куда присылать задания</div>
@@ -721,9 +770,11 @@ function _scRenderPlan() {
             <a id="scChangeSetup">подключить</a>
         </div>`;
 
+    const skIcon = _scFindSkill(_sc.skillId)?.icon || '🎯';
     return `
+        ${_scStepsHtml('plan')}
         <div class="sc-plan-header">
-            <div class="sc-plan-skill">🎯 ${_sc.skillName}</div>
+            <div class="sc-plan-skill">${skIcon} ${_sc.skillName}</div>
             <div class="sc-plan-promise">${promise}</div>
             <div class="sc-plan-meta">
                 День ${day} из 21 · выполнено ${done.length} упражнений · прогресс ${pct}%
@@ -789,6 +840,7 @@ function _scBindHandlers() {
         if (!_sc.channel) _sc.channel = 'telegram';
         _sc.view = 'setup';
         _scRender();
+        _scToast(`✓ Беру навык «${_sc.skillName}». Настроим тренировку.`, 'success');
     });
     document.getElementById('scBackToList')?.addEventListener('click', () => {
         _sc.view = 'select'; _scRender();
@@ -918,4 +970,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v4.0 загружен (карточка → описание → настройка → план)');
+console.log('✅ skill_choice.js v5.0 загружен (иконки + степ-индикатор + чёткий момент «беру»)');
