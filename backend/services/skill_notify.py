@@ -81,19 +81,27 @@ async def send_telegram(chat_id: str, text: str) -> bool:
 
 
 async def send_max(chat_id: str, text: str) -> bool:
+    """Шлёт через Max Platform API.
+
+    ВАЖНО: эта реализация повторяет рабочую `_send_via_max` из main.py.
+    MAX API требует поля `attachments` (хотя бы пустого) и поддерживает
+    `format: 'markdown'` — поэтому не убираем разметку.
+    """
     if not MAX_TOKEN:
         logger.warning("MAX_TOKEN not set")
         return False
     try:
-        # MAX не парсит markdown — убираем * и _, чтобы не показывать звёздочки
-        clean = _strip_markdown(text)
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             resp = await client.post(
-                f"https://platform-api.max.ru/messages?chat_id={chat_id}",
-                json={"text": clean},
+                "https://platform-api.max.ru/messages",
+                params={"chat_id": chat_id},
+                json={"text": text, "attachments": [], "format": "markdown", "notify": True},
                 headers={"Authorization": MAX_TOKEN, "Content-Type": "application/json"}
             )
-            return resp.status_code in (200, 201)
+            if resp.status_code in (200, 201):
+                return True
+            logger.error(f"MAX send failed: {resp.status_code} {resp.text[:200]}")
+            return False
     except Exception as e:
         logger.error(f"MAX send error: {e}")
         return False
@@ -141,12 +149,13 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
             return {"success": False, "error": str(e)}
 
     if channel == "web":
-        # Web push — через PushService (services/push_service.py).
+        # Web push — через PushService. В проде используется send_to_user(uid, title, body, url).
         try:
             from services.push_service import PushService
             ps = PushService(db)
-            ok = await ps.send_to_user(user_id, title="Фреди", body=text)
-            return {"success": bool(ok), "sent_via": "web"}
+            short = _strip_markdown(text)[:120]  # для push — только короткий заголовок
+            ok = await ps.send_to_user(user_id, "Фреди — задание дня", short, "/")
+            return {"success": bool(ok), "sent_via": "web"} if ok else {"success": False, "error": "push not delivered"}
         except Exception as e:
             logger.error(f"Web push error: {e}")
             return {"success": False, "error": str(e)}
