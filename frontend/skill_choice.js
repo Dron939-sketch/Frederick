@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 5.1 — возвращены 4 навыка категории «Влияние и коммуникация»
+// Версия 5.2 — синхронизация с бэкендом /api/skill-plan/*
 // ============================================
 
 function _scInjectStyles() {
@@ -365,6 +365,92 @@ const _sc = window._scState;
 function _scToast(msg, t) { if (window.showToast) window.showToast(msg, t||'info'); }
 function _scHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
 function _scUid()   { return window.CONFIG?.USER_ID; }
+function _scApi()   { return window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+
+// ============================================
+// СИНХРОНИЗАЦИЯ С БЭКЕНДОМ
+// localStorage — первичный источник (мгновенный UI), бэкенд — для cross-device.
+// Все вызовы fire-and-forget — если бэк недоступен, фронт продолжает работать.
+// ============================================
+async function _scApiPush() {
+    const uid = _scUid();
+    if (!uid || !_sc.skillId || !_sc.plan) return;
+    try {
+        await fetch(`${_scApi()}/api/skill-plan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id:         uid,
+                skill_id:        _sc.skillId,
+                skill_name:      _sc.skillName,
+                skill_desc:      _sc.skillDesc,
+                skill_long_desc: _sc.skillLongDesc,
+                skill_promise:   _sc.skillPromise,
+                plan:            _sc.plan,
+                started_at:      _sc.startDate,
+                channel:         _sc.channel,
+                notify_time:     _sc.notifyTime,
+                mode:             _sc.mode
+            })
+        });
+    } catch (e) { /* offline — ok, есть localStorage */ }
+}
+
+async function _scApiPull() {
+    const uid = _scUid();
+    if (!uid) return null;
+    try {
+        const r = await fetch(`${_scApi()}/api/skill-plan/${uid}`);
+        if (!r.ok) return null;
+        const d = await r.json();
+        if (!d.success || !d.plan) return null;
+        return d.plan;
+    } catch { return null; }
+}
+
+async function _scApiDayDone(day) {
+    const uid = _scUid();
+    if (!uid) return;
+    try {
+        await fetch(`${_scApi()}/api/skill-plan/${uid}/day-done`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ day })
+        });
+    } catch {}
+}
+
+async function _scApiDayUndone(day) {
+    const uid = _scUid();
+    if (!uid) return;
+    try {
+        await fetch(`${_scApi()}/api/skill-plan/${uid}/day-undone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ day })
+        });
+    } catch {}
+}
+
+async function _scApiSettings(payload) {
+    const uid = _scUid();
+    if (!uid) return;
+    try {
+        await fetch(`${_scApi()}/api/skill-plan/${uid}/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+    } catch {}
+}
+
+async function _scApiDelete() {
+    const uid = _scUid();
+    if (!uid) return;
+    try {
+        await fetch(`${_scApi()}/api/skill-plan/${uid}`, { method: 'DELETE' });
+    } catch {}
+}
 
 function _scSave() {
     try {
@@ -381,9 +467,38 @@ function _scSave() {
             channel: _sc.channel, notifyTime: _sc.notifyTime, mode: _sc.mode
         }));
     } catch {}
+    // Fire-and-forget: в бэк уйдёт после localStorage, не блокируя UI.
+    _scApiPush();
 }
 
-function _scLoad() {
+async function _scLoad() {
+    // Сначала пробуем бэк (cross-device), затем localStorage как fallback.
+    const remote = await _scApiPull();
+    if (remote) {
+        _sc.skillId       = remote.skill_id;
+        _sc.skillName     = remote.skill_name;
+        _sc.skillDesc     = remote.skill_desc;
+        _sc.skillLongDesc = remote.skill_long_desc;
+        _sc.skillPromise  = remote.skill_promise;
+        _sc.plan          = remote.plan;
+        _sc.daysDone      = remote.days_done || [];
+        _sc.startDate     = remote.started_at;
+        _sc.channel       = remote.channel;
+        _sc.notifyTime    = remote.notify_time || '09:00';
+        _sc.mode          = remote.mode || 'calm';
+        // Подстрахуемся: записываем в localStorage, чтобы при следующей загрузке
+        // без сети тоже было что показать.
+        try {
+            localStorage.setItem('sc_plan_'+_scUid(), JSON.stringify({
+                skillId: _sc.skillId, skillName: _sc.skillName, skillDesc: _sc.skillDesc,
+                skillLongDesc: _sc.skillLongDesc, skillPromise: _sc.skillPromise,
+                plan: _sc.plan, daysDone: _sc.daysDone, startDate: _sc.startDate,
+                channel: _sc.channel, notifyTime: _sc.notifyTime, mode: _sc.mode
+            }));
+        } catch {}
+        return;
+    }
+    // Fallback: localStorage.
     try {
         const d = localStorage.getItem('sc_plan_'+_scUid());
         if (d) Object.assign(_sc, JSON.parse(d));
@@ -874,6 +989,8 @@ function _scBindHandlers() {
     document.querySelectorAll('.sc-channel-card').forEach(card => {
         card.addEventListener('click', () => {
             _sc.channel = card.dataset.channel;
+            // Если план уже создан — синкаем настройки сразу.
+            if (_sc.plan) { _scSave(); _scApiSettings({ channel: _sc.channel }); }
             _scRender();
         });
     });
@@ -882,6 +999,7 @@ function _scBindHandlers() {
             _sc.notifyTime = btn.dataset.time;
             document.querySelectorAll('.sc-time-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
+            if (_sc.plan) { _scSave(); _scApiSettings({ notify_time: _sc.notifyTime }); }
         });
     });
     document.querySelectorAll('.sc-mode-card').forEach(card => {
@@ -889,6 +1007,7 @@ function _scBindHandlers() {
             _sc.mode = card.dataset.mode;
             document.querySelectorAll('.sc-mode-card').forEach(c => c.classList.remove('active'));
             card.classList.add('active');
+            if (_sc.plan) { _scSave(); _scApiSettings({ mode: _sc.mode }); }
         });
     });
     document.getElementById('scBackToDetail')?.addEventListener('click', () => {
@@ -916,6 +1035,7 @@ function _scBindHandlers() {
         if (!_sc.daysDone.includes(day)) {
             _sc.daysDone.push(day);
             _scSave();
+            _scApiDayDone(day);
             if (day >= 21) _scToast('🏆 Навык сформирован! 21 день пройден.', 'success');
             else _scToast(`✅ День ${day} выполнен!`, 'success');
             _scRender();
@@ -941,9 +1061,11 @@ function _scBindHandlers() {
         btn.addEventListener('click', (ev) => {
             ev.stopPropagation();
             const d = parseInt(btn.dataset.day);
-            if (_sc.daysDone.includes(d)) _sc.daysDone = _sc.daysDone.filter(x => x !== d);
-            else _sc.daysDone.push(d);
+            const wasDone = _sc.daysDone.includes(d);
+            if (wasDone) _sc.daysDone = _sc.daysDone.filter(x => x !== d);
+            else         _sc.daysDone.push(d);
             _scSave();
+            if (wasDone) _scApiDayUndone(d); else _scApiDayDone(d);
             _scRender();
         });
     });
@@ -962,12 +1084,14 @@ function _scBindHandlers() {
         overlay.querySelector('#cfNo').onclick  = () => overlay.remove();
         overlay.querySelector('#cfYes').onclick = () => {
             overlay.remove();
+            _scApiDelete();
             _sc.skillId = _sc.skillName = _sc.skillDesc = _sc.skillLongDesc = _sc.skillPromise = _sc.plan = _sc.startDate = null;
             _sc.daysDone = [];
             _sc.openWeeks = null;
             _sc.expandedDay = null;
             _sc.view = 'select';
-            _scSave(); _scRender();
+            try { localStorage.removeItem('sc_plan_'+_scUid()); } catch {}
+            _scRender();
         };
     });
     document.getElementById('scGoTraining')?.addEventListener('click', () => {
@@ -986,12 +1110,15 @@ function _scBindHandlers() {
 // ТОЧКА ВХОДА
 // ============================================
 async function showSkillChoiceScreen() {
-    _scLoad();
+    // Сначала рендерим экран выбора (мгновенно), параллельно подтягиваем план
+    // с бэка/localStorage. Если план есть — UI обновится автоматически.
     _sc.view = 'select';
     _sc.openWeeks = null;
     _sc.expandedDay = null;
     _scRender();
+    await _scLoad();
+    _scRender();
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.1 загружен (+ 4 навыка категории «Влияние и коммуникация»)');
+console.log('✅ skill_choice.js v5.2 загружен (синхронизация с бэкендом /api/skill-plan/*)');
