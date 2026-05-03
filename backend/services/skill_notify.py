@@ -6,9 +6,10 @@ skill_notify.py — Доставка сообщений 21-дневного пл
 - fredi_messenger_links — куда (chat_id) слать (заполняется через Настройки)
 - bot_service._tg_send / _max_send — фактическая отправка
 
-Импортируется планировщиком (Этап C) и эндпоинтом test-send.
+Содержит планировщик (Этап C), который запускается из main.py фоновой задачей.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -200,3 +201,63 @@ async def send_test_message(db, user_id: int) -> dict:
         f"по навыку «{name}» — каждое утро в выбранное вами время."
     )
     return await send_to_channel(db, user_id, plan["channel"], text)
+
+
+# ============================================================
+# ПЛАНИРОВЩИК (Этап C)
+# Каждую минуту проверяет, у кого notify_time совпало с UTC HH:MM,
+# и шлёт задание дня. Дедуп через колонку last_sent_at.
+# ============================================================
+async def skill_plan_scheduler(db):
+    """Фоновая корутина — запускается из main.py через asyncio.create_task."""
+    logger.info("📅 skill_plan_scheduler started (UTC, 1-minute tick)")
+    await asyncio.sleep(60)  # warm up — даём приложению запуститься
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            hhmm = now.strftime("%H:%M")
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+            rows = await db.fetch(
+                """
+                SELECT user_id, skill_name FROM fredi_skill_plans
+                WHERE channel IS NOT NULL
+                  AND channel <> 'none'
+                  AND notify_time = $1
+                  AND started_at IS NOT NULL
+                  AND (last_sent_at IS NULL OR last_sent_at < $2)
+                  AND (NOW() - started_at) < INTERVAL '21 days'
+                """,
+                hhmm, today_start
+            )
+
+            if rows:
+                logger.info(f"📨 skill scheduler: {len(rows)} users due at {hhmm} UTC")
+
+            for row in rows:
+                uid = row["user_id"]
+                try:
+                    res = await send_day_message(db, uid)
+                    if res.get("success"):
+                        await db.execute(
+                            "UPDATE fredi_skill_plans SET last_sent_at = NOW() "
+                            "WHERE user_id = $1", uid
+                        )
+                        logger.info(
+                            f"📨 day message sent to {uid} "
+                            f"({row['skill_name']}) via {res.get('sent_via')}"
+                        )
+                    else:
+                        logger.warning(
+                            f"skill scheduler: send to {uid} failed: {res.get('error')}"
+                        )
+                except Exception as e:
+                    logger.error(f"skill scheduler send to {uid} error: {e}")
+
+        except asyncio.CancelledError:
+            logger.info("skill_plan_scheduler cancelled")
+            break
+        except Exception as e:
+            logger.error(f"skill scheduler loop error: {e}")
+
+        await asyncio.sleep(60)

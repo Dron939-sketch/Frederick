@@ -24,7 +24,7 @@ def register_skill_plan_routes(app, db, limiter):
     """Регистрирует роуты модуля skill_plan и возвращает init-функцию для миграции."""
 
     async def init_skill_plan_tables():
-        """Создаёт таблицу fredi_skill_plans, если её нет."""
+        """Создаёт таблицу fredi_skill_plans + миграции."""
         async with db.get_connection() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS fredi_skill_plans (
@@ -46,6 +46,14 @@ def register_skill_plan_routes(app, db, limiter):
                     updated_at         TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
             """)
+            # Миграция: колонка last_sent_at для дедупликации в планировщике (Этап C)
+            try:
+                await conn.execute(
+                    "ALTER TABLE fredi_skill_plans "
+                    "ADD COLUMN IF NOT EXISTS last_sent_at TIMESTAMP WITH TIME ZONE"
+                )
+            except Exception:
+                pass
             try:
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_skill_plans_notify "

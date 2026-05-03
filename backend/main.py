@@ -65,6 +65,7 @@ from auth_routes import create_auth_router
 from email_service import EmailService
 from analytics_routes import register_analytics_routes, log_server_event
 from skill_plan_routes import register_skill_plan_routes
+from services.skill_notify import skill_plan_scheduler
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -371,6 +372,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(_pay_scheduler()),
             asyncio.create_task(cycle_reminders_scheduler()),
             asyncio.create_task(life_experience_scheduler()),
+            asyncio.create_task(skill_plan_scheduler(db)),
         ]
         logger.info("✅ Фоновые задачи запущены")
 
