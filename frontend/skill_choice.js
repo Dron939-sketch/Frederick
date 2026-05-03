@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 5.2 — синхронизация с бэкендом /api/skill-plan/*
+// Версия 5.3 — статус привязки канала + кнопка тестового сообщения
 // ============================================
 
 function _scInjectStyles() {
@@ -105,6 +105,14 @@ function _scInjectStyles() {
         .sc-channel-body { flex: 1; min-width: 0; }
         .sc-channel-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
         .sc-channel-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; background: rgba(224,224,224,0.18); color: var(--chrome); padding: 2px 7px; border-radius: 8px; text-transform: uppercase; }
+        .sc-link-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
+        .sc-link-badge.linked   { background: rgba(94,224,168,0.18); color: #5EE0A8; }
+        .sc-link-badge.unlinked { background: rgba(255,107,53,0.15); color: #FF8B5C; }
+        .sc-link-hint { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+        .sc-link-hint a { color: var(--chrome); cursor: pointer; }
+        .sc-test-btn { background: rgba(94,224,168,0.10); border: 1px solid rgba(94,224,168,0.35); color: #5EE0A8; padding: 8px 14px; border-radius: 24px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; margin-top: 10px; }
+        .sc-test-btn:hover { background: rgba(94,224,168,0.16); }
+        .sc-test-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .sc-channel-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.45; }
         .sc-channel-radio { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(224,224,224,0.3); flex-shrink: 0; position: relative; transition: border-color 0.18s; }
         .sc-channel-card.active .sc-channel-radio { border-color: var(--chrome); }
@@ -355,7 +363,8 @@ if (!window._scState) window._scState = {
     skillId: null, skillName: null, skillDesc: null, skillLongDesc: null, skillPromise: null,
     plan: null, daysDone: [], startDate: null,
     channel: null, notifyTime: '09:00', mode: 'calm',
-    expandedDay: null, openWeeks: null
+    expandedDay: null, openWeeks: null,
+    linkStatus: null  // {telegram: bool, max: bool} — обновляется на setup-экране
 };
 const _sc = window._scState;
 
@@ -450,6 +459,27 @@ async function _scApiDelete() {
     try {
         await fetch(`${_scApi()}/api/skill-plan/${uid}`, { method: 'DELETE' });
     } catch {}
+}
+
+async function _scApiLinkStatus() {
+    const uid = _scUid();
+    if (!uid) return null;
+    try {
+        const r = await fetch(`${_scApi()}/api/skill-plan/${uid}/link-status`);
+        if (!r.ok) return null;
+        return await r.json();
+    } catch { return null; }
+}
+
+async function _scApiTestSend() {
+    const uid = _scUid();
+    if (!uid) return { success: false, error: 'no user' };
+    try {
+        const r = await fetch(`${_scApi()}/api/skill-plan/${uid}/test-send`, { method: 'POST' });
+        return await r.json();
+    } catch (e) {
+        return { success: false, error: 'network' };
+    }
 }
 
 function _scSave() {
@@ -746,15 +776,32 @@ function _scRenderDetail() {
 
 // ===== ЭКРАН НАСТРОЙКИ =====
 function _scRenderSetup() {
-    const channelsHtml = SC_CHANNELS.map(ch => `
+    const linkable = (id) => id === 'telegram' || id === 'max';
+    const linkStatus = _sc.linkStatus || {};
+    const channelsHtml = SC_CHANNELS.map(ch => {
+        let badge = '';
+        if (_sc.channel === ch.id && linkable(ch.id)) {
+            const linked = !!linkStatus[ch.id];
+            badge = linked
+                ? '<span class="sc-link-badge linked">✓ привязано</span>'
+                : '<span class="sc-link-badge unlinked">⚠ не привязано</span>';
+        }
+        return `
         <div class="sc-channel-card${_sc.channel===ch.id?' active':''}" data-channel="${ch.id}">
             <div class="sc-channel-icon">${ch.icon}</div>
             <div class="sc-channel-body">
-                <div class="sc-channel-name">${ch.name}${ch.tag?`<span class="sc-channel-tag">${ch.tag}</span>`:''}</div>
+                <div class="sc-channel-name">${ch.name}${ch.tag?`<span class="sc-channel-tag">${ch.tag}</span>`:''}${badge}</div>
                 <div class="sc-channel-desc">${ch.desc}</div>
+                ${(_sc.channel === ch.id && linkable(ch.id) && !linkStatus[ch.id])
+                    ? `<div class="sc-link-hint">Не привязано — открой <a id="scLinkOpenSettings_${ch.id}">Меню → Настройки</a> и привяжи аккаунт.</div>`
+                    : ''}
+                ${(_sc.channel === ch.id && linkable(ch.id) && linkStatus[ch.id])
+                    ? `<button class="sc-test-btn" id="scTestSend_${ch.id}">📨 Отправить тестовое сообщение</button>`
+                    : ''}
             </div>
             <div class="sc-channel-radio"></div>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 
     const showTime = _sc.channel && _sc.channel !== 'none';
     const timeButtonsHtml = SC_TIMES.map(t =>
@@ -975,11 +1022,17 @@ function _scBindHandlers() {
     });
 
     // === DETAIL ===
-    document.getElementById('scChooseBtn')?.addEventListener('click', () => {
+    document.getElementById('scChooseBtn')?.addEventListener('click', async () => {
         if (!_sc.channel) _sc.channel = 'telegram';
         _sc.view = 'setup';
         _scRender();
         _scToast(`✓ Беру навык «${_sc.skillName}». Настроим тренировку.`, 'success');
+        // Подтягиваем статус привязки фоном — после ответа перерендерим
+        const status = await _scApiLinkStatus();
+        if (status) {
+            _sc.linkStatus = status;
+            if (_sc.view === 'setup') _scRender();
+        }
     });
     document.getElementById('scBackToList')?.addEventListener('click', () => {
         _sc.view = 'select'; _scRender();
@@ -992,6 +1045,40 @@ function _scBindHandlers() {
             // Если план уже создан — синкаем настройки сразу.
             if (_sc.plan) { _scSave(); _scApiSettings({ channel: _sc.channel }); }
             _scRender();
+        });
+    });
+
+    // Кнопка «Отправить тестовое сообщение» в активном канале
+    ['telegram','max'].forEach(ch => {
+        const btn = document.getElementById('scTestSend_'+ch);
+        if (!btn) return;
+        btn.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            btn.disabled = true;
+            btn.textContent = '⏳ Отправляю...';
+            const res = await _scApiTestSend();
+            if (res.success) {
+                btn.textContent = '✓ Отправлено — проверь канал';
+                _scToast('✓ Тестовое сообщение отправлено', 'success');
+            } else {
+                btn.disabled = false;
+                btn.textContent = '📨 Отправить тестовое сообщение';
+                _scToast(res.error === 'plan not found'
+                    ? 'Сначала создайте план — нажмите «Начать 21 день»'
+                    : `Не удалось отправить: ${res.error||'ошибка'}`, 'error');
+            }
+        });
+    });
+
+    // Хинт «открой настройки» — кликабельная ссылка
+    ['telegram','max'].forEach(ch => {
+        const a = document.getElementById('scLinkOpenSettings_'+ch);
+        if (!a) return;
+        a.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            if (typeof showSettingsScreen === 'function') showSettingsScreen();
+            else if (window.showSettingsScreen) window.showSettingsScreen();
+            else _scToast('Откройте меню → Настройки', 'info');
         });
     });
     document.querySelectorAll('.sc-time-btn').forEach(btn => {
@@ -1027,8 +1114,11 @@ function _scBindHandlers() {
     });
 
     // === PLAN ===
-    document.getElementById('scChangeSetup')?.addEventListener('click', () => {
-        _sc.view = 'setup'; _scRender();
+    document.getElementById('scChangeSetup')?.addEventListener('click', async () => {
+        _sc.view = 'setup';
+        _scRender();
+        const status = await _scApiLinkStatus();
+        if (status) { _sc.linkStatus = status; if (_sc.view === 'setup') _scRender(); }
     });
     document.getElementById('scMarkDone')?.addEventListener('click', () => {
         const day = _scCurrentDay();
@@ -1121,4 +1211,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.2 загружен (синхронизация с бэкендом /api/skill-plan/*)');
+console.log('✅ skill_choice.js v5.3 загружен (статус привязки канала + тестовое сообщение)');

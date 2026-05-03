@@ -276,4 +276,28 @@ def register_skill_plan_routes(app, db, limiter):
             logger.error(f"delete_skill_plan error: {e}")
             return {"success": False, "error": str(e)}
 
+    @app.get("/api/skill-plan/{user_id}/link-status")
+    @limiter.limit("60/minute")
+    async def get_link_status(request: Request, user_id: int):
+        """Возвращает {telegram: bool, max: bool} — какие мессенджеры привязаны."""
+        try:
+            from services.skill_notify import get_link_status as _gls
+            status = await _gls(db, user_id)
+            return {"success": True, **status}
+        except Exception as e:
+            logger.error(f"link-status error: {e}")
+            return {"success": False, "telegram": False, "max": False}
+
+    @app.post("/api/skill-plan/{user_id}/test-send")
+    @limiter.limit("6/minute")
+    async def test_send(request: Request, user_id: int):
+        """Отправляет тестовое сообщение в выбранный канал."""
+        try:
+            from services.skill_notify import send_test_message
+            result = await send_test_message(db, user_id)
+            return result
+        except Exception as e:
+            logger.error(f"test_send error: {e}")
+            return {"success": False, "error": str(e)}
+
     return init_skill_plan_tables
