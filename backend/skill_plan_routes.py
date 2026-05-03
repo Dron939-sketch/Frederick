@@ -325,4 +325,30 @@ def register_skill_plan_routes(app, db, limiter):
             logger.error(f"welcome_send error: {e}")
             return {"success": False, "error": str(e)}
 
+    @app.get("/api/auth/messenger-token")
+    @limiter.limit("60/minute")
+    async def verify_messenger_auth(request: Request):
+        """Проверяет HMAC-подписанные параметры fid+t из URL.
+
+        Используется фронтом на загрузке страницы для автологина из
+        мессенджер-кнопки (юзер открывает Фреди по ссылке из TG/MAX —
+        мы доверяем ему этот user_id, не предлагаем регистрацию).
+
+        Query params: fid (int), t (str).
+        """
+        try:
+            from services.skill_notify import verify_messenger_token
+            params = request.query_params
+            try:
+                fid = int(params.get("fid", "0"))
+            except ValueError:
+                fid = 0
+            t = params.get("t", "")
+            if verify_messenger_token(fid, t):
+                return {"success": True, "user_id": fid}
+            return {"success": False, "error": "invalid token"}
+        except Exception as e:
+            logger.error(f"verify_messenger_auth: {e}")
+            return {"success": False, "error": str(e)}
+
     return init_skill_plan_tables

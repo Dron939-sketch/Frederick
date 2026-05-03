@@ -83,8 +83,37 @@
             function _setCookie(n,v){document.cookie=n+'='+encodeURIComponent(v)+';path=/;max-age=315360000;SameSite=Lax';}
 
             var u = null;
+
+            // 0. Авто-логин из мессенджера по подписанному URL.
+            // Бот шлёт inline-кнопку с ?fid=<uid>&t=<hmac>. Это позволяет
+            // юзеру открывать сайт из встроенного браузера TG/MAX и не
+            // регистрироваться заново — мы доверяем подписанному ID.
+            try {
+                var params = new URLSearchParams(window.location.search);
+                var fid = parseInt(params.get('fid')||'');
+                var t = params.get('t');
+                if (fid && t && !isNaN(fid)) {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', window.API_BASE_URL + '/api/auth/messenger-token?fid=' + fid + '&t=' + encodeURIComponent(t), false);
+                    try {
+                        xhr.send();
+                        if (xhr.status === 200) {
+                            var resp = JSON.parse(xhr.responseText || '{}');
+                            if (resp.success && resp.user_id) {
+                                u = parseInt(resp.user_id);
+                                console.log('[Fredi] Авто-логин из мессенджера: user_id=' + u);
+                                // Чистим URL чтобы токен не висел в адресе.
+                                try { window.history.replaceState({}, '', window.location.pathname); } catch(e){}
+                            }
+                        }
+                    } catch(e){ console.warn('[Fredi] messenger-token verify failed:', e); }
+                }
+            } catch(e){}
+
             // 1. localStorage
-            try { var s = localStorage.getItem('fredi_user_id'); if(s && !isNaN(parseInt(s))) u = parseInt(s); } catch(e){}
+            if (!u) {
+                try { var s = localStorage.getItem('fredi_user_id'); if(s && !isNaN(parseInt(s))) u = parseInt(s); } catch(e){}
+            }
             // 2. cookie fallback
             if(!u){ var c = _getCookie('fredi_uid'); if(c && !isNaN(parseInt(c))) u = parseInt(c); }
             // 3. generate new

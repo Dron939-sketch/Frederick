@@ -10,6 +10,8 @@ skill_notify.py — Доставка сообщений 21-дневного пл
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -33,7 +35,47 @@ def _strip_markdown(text: str) -> str:
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
-    ZoneInfo = None  # Python < 3.9 — fallback на UTC
+    ZoneInfo = None
+
+
+# ============================================================
+# АВТО-ЛОГИН ИЗ МЕССЕНДЖЕРА (HMAC-подписанный URL)
+# Бот шлёт inline-кнопку «Открыть Фреди» с URL ?fid=<uid>&t=<hmac>.
+# Юзер тыкает → фронт верифицирует через /api/auth/messenger-token
+# → ставит USER_ID = fid → не просит регистрироваться повторно.
+# ============================================================
+def _auth_secret() -> str:
+    """Секрет для HMAC. MESSENGER_AUTH_SECRET → fallback TELEGRAM_TOKEN."""
+    s = os.environ.get("MESSENGER_AUTH_SECRET", "").strip()
+    if s:
+        return s
+    return TELEGRAM_TOKEN or "fredi-default-secret-change-me"
+
+
+def make_messenger_token(user_id: int) -> str:
+    """16-символьный HMAC от user_id."""
+    msg = str(int(user_id)).encode()
+    key = _auth_secret().encode()
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()[:16]
+
+
+def verify_messenger_token(user_id: int, token: str) -> bool:
+    """Проверка с защитой от timing-атак."""
+    if not token or not user_id:
+        return False
+    try:
+        expected = make_messenger_token(int(user_id))
+        return hmac.compare_digest(expected, str(token))
+    except Exception:
+        return False
+
+
+def _build_app_url(user_id: int) -> str:
+    """URL приложения с подписанными fid+t. Тык → автологин."""
+    base = (os.environ.get("WEB_URL") or "https://fredi-frontend.onrender.com").rstrip("/")
+    token = make_messenger_token(user_id)
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}fid={user_id}&t={token}"
 
 logger = logging.getLogger(__name__)
 
@@ -64,15 +106,20 @@ async def get_chat_id(db, user_id: int, platform: str) -> Optional[str]:
     return row["chat_id"] if row else None
 
 
-async def send_telegram(chat_id: str, text: str) -> bool:
+async def send_telegram(chat_id: str, text: str, app_url: Optional[str] = None) -> bool:
     if not TELEGRAM_TOKEN:
         logger.warning("TELEGRAM_TOKEN not set")
         return False
     try:
+        body = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        if app_url:
+            body["reply_markup"] = {
+                "inline_keyboard": [[{"text": "🚀 Открыть Фреди", "url": app_url}]]
+            }
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+                json=body
             )
             return resp.status_code == 200
     except Exception as e:
@@ -80,7 +127,7 @@ async def send_telegram(chat_id: str, text: str) -> bool:
         return False
 
 
-async def send_max(chat_id: str, text: str) -> bool:
+async def send_max(chat_id: str, text: str, app_url: Optional[str] = None) -> bool:
     """Шлёт через Max Platform API.
 
     Пробует chat_id, при 404 dialog.not.found — fallback на user_id
@@ -89,7 +136,16 @@ async def send_max(chat_id: str, text: str) -> bool:
     if not MAX_TOKEN:
         logger.warning("MAX_TOKEN not set")
         return False
-    body = {"text": text, "attachments": [], "format": "markdown", "notify": True}
+    attachments = []
+    if app_url:
+        # MAX inline_keyboard поддерживает type=link (TamTam-style API).
+        attachments.append({
+            "type": "inline_keyboard",
+            "payload": {
+                "buttons": [[{"type": "link", "text": "🚀 Открыть Фреди", "url": app_url}]]
+            }
+        })
+    body = {"text": text, "attachments": attachments, "format": "markdown", "notify": True}
     headers = {"Authorization": MAX_TOKEN, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
@@ -131,7 +187,12 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
         chat_id = await get_chat_id(db, user_id, channel)
         if not chat_id:
             return {"success": False, "error": f"{channel} not linked"}
-        ok = (await send_telegram(chat_id, text)) if channel == "telegram" else (await send_max(chat_id, text))
+        # Inline-кнопка «Открыть Фреди» с подписанным URL — авто-логин на сайте.
+        app_url = _build_app_url(user_id)
+        if channel == "telegram":
+            ok = await send_telegram(chat_id, text, app_url)
+        else:
+            ok = await send_max(chat_id, text, app_url)
         return {"success": ok, "sent_via": channel} if ok else {"success": False, "error": f"{channel} send failed"}
 
     if channel == "email":
