@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 5.5 — модалка «Поехали!» + авто-приветствие в канал + баннер дня 1
+// Версия 5.6 — прямая кнопка «Связать TG/MAX» прямо в setup, без перехода в Настройки
 // ============================================
 
 function _scInjectStyles() {
@@ -378,6 +378,14 @@ function _scApi()   { return window.CONFIG?.API_BASE_URL || window.API_BASE_URL 
 function _scTz()    {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
     catch { return 'UTC'; }
+}
+function _scTgBot()    { return window.CONFIG?.TG_BOT_USERNAME || 'Frederick777bot'; }
+function _scMaxLink()  { return window.CONFIG?.MAX_BOT_LINK || 'https://max.ru/id502238728185_1_bot'; }
+function _scLinkUrl(channel) {
+    const uid = _scUid() || 0;
+    if (channel === 'telegram') return `https://t.me/${_scTgBot()}?start=web_${uid}`;
+    if (channel === 'max')      return `${_scMaxLink()}?start=web_${uid}`;
+    return null;
 }
 
 // ============================================
@@ -831,18 +839,23 @@ function _scRenderSetup() {
                 ? '<span class="sc-link-badge linked">✓ привязано</span>'
                 : '<span class="sc-link-badge unlinked">⚠ не привязано</span>';
         }
+        const isActive = _sc.channel === ch.id;
+        const showLinkBtn  = isActive && linkable(ch.id) && !linkStatus[ch.id];
+        const showTestBtn  = isActive && linkable(ch.id) &&  linkStatus[ch.id];
+        const linkUrl = showLinkBtn ? _scLinkUrl(ch.id) : null;
         return `
-        <div class="sc-channel-card${_sc.channel===ch.id?' active':''}" data-channel="${ch.id}">
+        <div class="sc-channel-card${isActive?' active':''}" data-channel="${ch.id}">
             <div class="sc-channel-icon">${ch.icon}</div>
             <div class="sc-channel-body">
                 <div class="sc-channel-name">${ch.name}${ch.tag?`<span class="sc-channel-tag">${ch.tag}</span>`:''}${badge}</div>
                 <div class="sc-channel-desc">${ch.desc}</div>
-                ${(_sc.channel === ch.id && linkable(ch.id) && !linkStatus[ch.id])
-                    ? `<div class="sc-link-hint">Не привязано — открой <a id="scLinkOpenSettings_${ch.id}">Меню → Настройки</a> и привяжи аккаунт.</div>`
-                    : ''}
-                ${(_sc.channel === ch.id && linkable(ch.id) && linkStatus[ch.id])
-                    ? `<button class="sc-test-btn" id="scTestSend_${ch.id}">📨 Отправить тестовое сообщение</button>`
-                    : ''}
+                ${showLinkBtn ? `
+                    <a class="sc-test-btn" id="scLink_${ch.id}" href="${linkUrl}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">
+                        🔗 Связать ${ch.name}
+                    </a>
+                    <div class="sc-link-hint">После клика откроется ${ch.name}-бот, нажми Start. Затем вернись сюда и нажми «Проверить» <a id="scLinkRecheck_${ch.id}">↻</a></div>
+                ` : ''}
+                ${showTestBtn ? `<button class="sc-test-btn" id="scTestSend_${ch.id}">📨 Отправить тестовое сообщение</button>` : ''}
             </div>
             <div class="sc-channel-radio"></div>
         </div>`;
@@ -1121,15 +1134,22 @@ function _scBindHandlers() {
         });
     });
 
-    // Хинт «открой настройки» — кликабельная ссылка
+    // Кнопка «↻ Проверить» — повторно дёргаем link-status после привязки в боте
     ['telegram','max'].forEach(ch => {
-        const a = document.getElementById('scLinkOpenSettings_'+ch);
+        const a = document.getElementById('scLinkRecheck_'+ch);
         if (!a) return;
-        a.addEventListener('click', (ev) => {
+        a.style.cursor = 'pointer';
+        a.addEventListener('click', async (ev) => {
             ev.stopPropagation();
-            if (typeof showSettingsScreen === 'function') showSettingsScreen();
-            else if (window.showSettingsScreen) window.showSettingsScreen();
-            else _scToast('Откройте меню → Настройки', 'info');
+            ev.preventDefault();
+            _scToast('Проверяю...', 'info');
+            const status = await _scApiLinkStatus();
+            if (status) {
+                _sc.linkStatus = status;
+                _scRender();
+                if (status[ch]) _scToast(`✓ ${ch} привязан`, 'success');
+                else _scToast('Пока не вижу привязки — нажми Start в боте', 'info');
+            }
         });
     });
     document.querySelectorAll('.sc-time-btn').forEach(btn => {
@@ -1279,4 +1299,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.5 загружен (модалка «Поехали!» + авто-приветствие + баннер дня 1)');
+console.log('✅ skill_choice.js v5.6 загружен (прямая кнопка «Связать TG/MAX» в setup)');
