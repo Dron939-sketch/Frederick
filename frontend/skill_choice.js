@@ -1,6 +1,6 @@
 // ============================================
 // skill_choice.js — Выбор навыка + план
-// Версия 5.6 — прямая кнопка «Связать TG/MAX» прямо в setup, без перехода в Настройки
+// Версия 5.7 — экран «Программа запущена» после старта + самодостаточное welcome
 // ============================================
 
 function _scInjectStyles() {
@@ -642,14 +642,16 @@ function _scRender() {
     if (!c) return;
 
     let body = '';
-    if (_sc.view === 'select') body = _scRenderSelect();
-    if (_sc.view === 'detail') body = _scRenderDetail();
-    if (_sc.view === 'setup')  body = _scRenderSetup();
-    if (_sc.view === 'plan')   body = _scRenderPlan();
+    if (_sc.view === 'select')   body = _scRenderSelect();
+    if (_sc.view === 'detail')   body = _scRenderDetail();
+    if (_sc.view === 'setup')    body = _scRenderSetup();
+    if (_sc.view === 'launched') body = _scRenderLaunched();
+    if (_sc.view === 'plan')     body = _scRenderPlan();
 
-    const subtitle = _sc.view === 'setup' ? 'Беру навык — настройка'
-                   : _sc.view === 'detail' ? 'Знакомство с навыком'
-                   : _sc.view === 'plan'   ? 'Активная тренировка'
+    const subtitle = _sc.view === 'setup'    ? 'Беру навык — настройка'
+                   : _sc.view === 'detail'   ? 'Знакомство с навыком'
+                   : _sc.view === 'launched' ? 'Программа запущена'
+                   : _sc.view === 'plan'     ? 'Активная тренировка'
                    : 'Что развиваем за 21 день';
 
     c.innerHTML = `
@@ -664,9 +666,10 @@ function _scRender() {
         </div>`;
 
     document.getElementById('scBack').onclick = () => {
-        if (_sc.view === 'plan')   { _sc.view = 'select'; _scRender(); return; }
-        if (_sc.view === 'setup')  { _sc.view = 'detail'; _scRender(); return; }
-        if (_sc.view === 'detail') { _sc.view = 'select'; _scRender(); return; }
+        if (_sc.view === 'plan')     { _sc.view = 'select'; _scRender(); return; }
+        if (_sc.view === 'launched') { _sc.view = 'select'; _scRender(); return; }
+        if (_sc.view === 'setup')    { _sc.view = 'detail'; _scRender(); return; }
+        if (_sc.view === 'detail')   { _sc.view = 'select'; _scRender(); return; }
         _scHome();
     };
 
@@ -908,6 +911,69 @@ function _scRenderSetup() {
         </button>
         <div class="sc-tip">
             💡 Настройки можно изменить позже на экране плана.
+        </div>`;
+}
+
+// ===== ЭКРАН «ПРОГРАММА ЗАПУЩЕНА» =====
+// Показывается сразу после нажатия «🚀 Поехали!». Главная задача —
+// сообщить юзеру: «всё, можно идти в мессенджер, программа сама поведёт».
+function _scRenderLaunched() {
+    const sk = _scFindSkill(_sc.skillId);
+    const skIcon = sk?.icon || '🎯';
+    const chMeta = _scChannelMeta(_sc.channel) || {};
+    const channelName = chMeta.name || _sc.channel || '';
+    const isMessenger = _sc.channel === 'telegram' || _sc.channel === 'max';
+    const linkUrl = isMessenger ? _scLinkUrl(_sc.channel) : null;
+    const tz = _scTz();
+
+    return `
+        ${_scStepsHtml('plan')}
+
+        <div style="text-align:center;padding:24px 12px 18px">
+            <div style="font-size:64px;margin-bottom:14px;line-height:1">🚀</div>
+            <div style="font-size:24px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Поехали!</div>
+            <div style="font-size:13px;color:var(--text-secondary)">21 день · ${skIcon} ${_sc.skillName}</div>
+        </div>
+
+        <div class="sc-detail-section">
+            ${isMessenger ? `
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;color:var(--text-primary);line-height:1.55;margin-bottom:14px">
+                <span style="color:#5EE0A8;font-size:18px;line-height:1.3;flex-shrink:0">✅</span>
+                <span><strong>День 1 уже в ${channelName}</strong> — открой и сделай прямо там, всё что нужно прислал.</span>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;color:var(--text-primary);line-height:1.55;margin-bottom:14px">
+                <span style="color:var(--chrome);font-size:16px;line-height:1.3;flex-shrink:0">⏰</span>
+                <span><strong>Завтра в ${_sc.notifyTime} (${tz})</strong> — пришлю день 2 туда же.</span>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;color:var(--text-primary);line-height:1.55">
+                <span style="font-size:16px;line-height:1.3;flex-shrink:0">📅</span>
+                <span><strong>21 день подряд</strong> — короткое задание каждое утро.</span>
+            </div>
+            ` : `
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;color:var(--text-primary);line-height:1.55;margin-bottom:14px">
+                <span style="color:#5EE0A8;font-size:18px;line-height:1.3;flex-shrink:0">✅</span>
+                <span><strong>День 1</strong> доступен в плане — переходи и делай.</span>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;color:var(--text-primary);line-height:1.55">
+                <span style="font-size:16px;line-height:1.3;flex-shrink:0">📅</span>
+                <span><strong>Без напоминаний</strong> — заходи сам каждый день и отмечай выполнение.</span>
+            </div>
+            `}
+        </div>
+
+        ${linkUrl ? `
+        <a href="${linkUrl}" target="_blank" rel="noopener" class="sc-btn sc-btn-primary" style="margin-top:14px;text-decoration:none;display:flex;align-items:center;justify-content:center">
+            Открыть ${channelName} →
+        </a>` : ''}
+
+        <button class="sc-btn sc-btn-ghost" id="scGoToPlan" style="width:100%;margin-top:10px">
+            ${linkUrl ? 'Посмотреть план на 21 день' : '📋 К плану'}
+        </button>
+
+        <div class="sc-tip" style="margin-top:14px">
+            💡 ${isMessenger
+                ? `Можно закрыть страницу — задания будут приходить в ${channelName} каждый день автоматически.`
+                : `Заходи сюда каждый день — отмечай выполнение и смотри прогресс.`}
         </div>`;
 }
 
@@ -1183,22 +1249,22 @@ function _scBindHandlers() {
         // 1) Сохраняем — localStorage сразу + бэк (промис).
         const savePromise = _scSave();
 
-        // 2) Сразу переходим на план — UI мгновенный.
-        _sc.view = 'plan';
+        // 2) Переход на «Программа запущена» (не на план!).
+        _sc.view = 'launched';
         _scRender();
 
-        // 3) Показываем поздравительную модалку.
-        _scShowWelcomeModal({
-            skillName:  _sc.skillName,
-            channel:    _sc.channel,
-            notifyTime: _sc.notifyTime,
-            tz:         _scTz()
-        });
-
-        // 4) После того как бэк сохранил — шлём приветствие в канал.
+        // 3) После того как бэк сохранил — шлём приветствие+задание дня 1 в канал.
         if (_sc.channel && _sc.channel !== 'none') {
             savePromise.then(() => _scApiWelcomeSend()).catch(() => {});
         }
+    });
+
+    // === LAUNCHED ===
+    document.getElementById('scGoToPlan')?.addEventListener('click', () => {
+        _sc.view = 'plan';
+        _sc.openWeeks = null;
+        _sc.expandedDay = null;
+        _scRender();
     });
 
     // === PLAN ===
@@ -1299,4 +1365,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.6 загружен (прямая кнопка «Связать TG/MAX» в setup)');
+console.log('✅ skill_choice.js v5.7 загружен (экран «Программа запущена» + самодостаточное welcome)');

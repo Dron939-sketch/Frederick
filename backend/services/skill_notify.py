@@ -177,7 +177,7 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
 
 
 def build_day_message(skill_name: str, day: int, exercise: dict) -> str:
-    """Утреннее сообщение — задание дня."""
+    """Утреннее сообщение — задание дня (самодостаточное)."""
     task = exercise.get("task", "")
     dur = exercise.get("dur", "")
     inst = exercise.get("inst", "")
@@ -185,7 +185,7 @@ def build_day_message(skill_name: str, day: int, exercise: dict) -> str:
         f"🎯 *День {day} из 21 — {skill_name}*\n\n"
         f"*{task}* (⏱ {dur})\n\n"
         f"{inst}\n\n"
-        f"Откройте Фреди и отметьте выполнение, когда сделаете."
+        f"💡 Сделал — открой Фреди и нажми ✅, чтобы отметить."
     )
 
 
@@ -264,7 +264,7 @@ async def send_day_message(db, user_id: int) -> dict:
 
 
 async def send_welcome_message(db, user_id: int) -> dict:
-    """Шлёт поздравление со стартом 21-дневной программы.
+    """Шлёт поздравление со стартом + полное задание дня 1.
     Вызывается из фронта после нажатия «Поехали!».
     """
     plan = await db.fetchrow(
@@ -279,19 +279,23 @@ async def send_welcome_message(db, user_id: int) -> dict:
     notify_time = plan["notify_time"] or "09:00"
     tz_str = plan["tz"] if "tz" in plan.keys() else "UTC"
 
-    # Достаём задание дня 1 чтобы упомянуть в приветствии
     plan_data = plan["plan"]
     if isinstance(plan_data, str):
         plan_data = json.loads(plan_data)
     day1 = _find_exercise(plan_data, 1) or {}
     day1_task = day1.get("task", "первое задание")
     day1_dur = day1.get("dur", "5 мин")
+    day1_inst = day1.get("inst", "")
 
+    # Самодостаточное приветствие: можно сделать прямо в мессенджере,
+    # не открывая Фреди.
     text = (
-        f"🎉 *Поехали!* — 21 день навыка «{skill_name}»\n\n"
-        f"Сегодня — день 1: *{day1_task}* (⏱ {day1_dur}).\n"
-        f"Уже на экране Фреди — открой и сделай.\n\n"
-        f"📨 Завтра в *{notify_time} ({tz_str})* пришлю задание дня 2 сюда."
+        f"🚀 *Поехали!* 21 день навыка «{skill_name}»\n\n"
+        f"━━━ *ДЕНЬ 1 · {day1_dur}* ━━━\n"
+        f"*{day1_task}*\n\n"
+        f"{day1_inst}\n\n"
+        f"⏰ Завтра в *{notify_time} ({tz_str})* пришлю день 2 сюда.\n"
+        f"💡 Сделал — открой Фреди и нажми ✅ (это закрепит прогресс)."
     )
     return await send_to_channel(db, user_id, plan["channel"], text)
 
