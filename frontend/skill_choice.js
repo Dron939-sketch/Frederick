@@ -235,6 +235,20 @@ function _scInjectStyles() {
         [data-theme="light"] .sc-mdl-trans { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
         [data-theme="light"] .sc-mdl-trans-num { background: rgba(255,140,0,0.15); color: rgba(180,90,0,0.95); }
         [data-theme="light"] .sc-mdl-daychip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.10); }
+
+        /* === ЭКРАН ГЕНЕРАЦИИ КАСТОМНОГО НАВЫКА === */
+        .sc-gen-loader { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 8px; }
+        .sc-gen-spinner { width: 48px; height: 48px; border-radius: 50%; border: 3px solid rgba(224,224,224,0.12); border-top-color: rgba(255,200,80,0.8); animation: sc-spin 1.0s linear infinite; }
+        @keyframes sc-spin { to { transform: rotate(360deg); } }
+        .sc-gen-stages { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+        .sc-gen-stage { font-size: 13px; color: var(--text-primary); opacity: 0.5; transition: opacity 0.4s; animation: sc-stage-pulse 4.5s ease-in-out infinite; }
+        .sc-gen-stage:nth-child(1) { animation-delay: 0s; }
+        .sc-gen-stage:nth-child(2) { animation-delay: 1.5s; }
+        .sc-gen-stage:nth-child(3) { animation-delay: 3.0s; }
+        @keyframes sc-stage-pulse { 0%, 100% { opacity: 0.35; } 30%, 60% { opacity: 1.0; } }
+        .sc-gen-note { font-size: 11.5px; color: var(--text-secondary); text-align: center; line-height: 1.5; max-width: 400px; margin-top: 8px; opacity: 0.85; }
+
+        [data-theme="light"] .sc-gen-spinner { border-color: rgba(0,0,0,0.08); border-top-color: rgba(255,140,0,0.8); }
     `;
     document.head.appendChild(s);
 }
@@ -427,11 +441,38 @@ const DEFAULT_TEMPLATE_PLAN = {
 
 function _scLocalPlan() { return JSON.parse(JSON.stringify(DEFAULT_TEMPLATE_PLAN)); }
 
-// Тянем подробную карточку «модель навыка» (НЛП-моделирование по
-// Гагину/Бородиной — 9 элементов + точки перехода). Если для навыка
-// модель ещё не написана — возвращаем null, фронт показывает заглушку.
+// Запрос на генерацию конфайн-модели + 21-дневного плана для кастомного
+// навыка. Тяжёлая операция (~10–30 сек на бэке через Anthropic), результат
+// глобально кэшируется на сервере по нормализованному ключу. Тут мы тоже
+// кэшируем в _sc.customGenerated на текущую сессию, чтобы не дёргать
+// эндпоинт повторно при переходах detail → model → setup.
+async function _scApiGenerate(skillName) {
+    if (!skillName || !skillName.trim()) return null;
+    try {
+        const r = await fetch(`${_scApi()}/api/skill-plan/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_name: skillName.trim() }),
+        });
+        if (!r.ok) return null;
+        const j = await r.json();
+        if (j && j.success && j.model && j.plan) {
+            return { model: j.model, transitions: j.transitions || [], plan: j.plan };
+        }
+    } catch (e) {
+        console.warn('[Fredi] custom skill generation failed:', e);
+    }
+    return null;
+}
+
+// Тянем подробную карточку «модель навыка». Для кастомного навыка —
+// из локального кэша после _scApiGenerate. Для известного — с бэка.
 async function _scFetchModel(skillId) {
-    if (!skillId || skillId === 'custom') return null;
+    if (!skillId) return null;
+    if (skillId === 'custom') {
+        const g = _sc.customGenerated;
+        return g && g.model ? { model: g.model, transitions: g.transitions || [] } : null;
+    }
     try {
         const r = await fetch(`${_scApi()}/api/skill-plan/details/${encodeURIComponent(skillId)}`,
                               { cache: 'no-store' });
@@ -452,7 +493,15 @@ async function _scFetchModel(skillId) {
 // работает даже когда контентная база ещё не докатана.
 async function _scFetchPlan(skillId) {
     const fallback = _scLocalPlan();
-    if (!skillId || skillId === 'custom') return fallback;
+    if (!skillId) return fallback;
+    // Кастомный навык — план уже сгенерирован на бэке, лежит в _sc.customGenerated.
+    if (skillId === 'custom') {
+        const g = _sc.customGenerated;
+        if (g && g.plan && Array.isArray(g.plan.weeks) && g.plan.weeks.length === 3) {
+            return g.plan;
+        }
+        return fallback;
+    }
     try {
         const r = await fetch(`${_scApi()}/api/skill-plan/template/${encodeURIComponent(skillId)}`,
                               { cache: 'no-store' });
@@ -754,12 +803,13 @@ function _scRender() {
     if (!c) return;
 
     let body = '';
-    if (_sc.view === 'select')   body = _scRenderSelect();
-    if (_sc.view === 'detail')   body = _scRenderDetail();
-    if (_sc.view === 'model')    body = _scRenderModel();
-    if (_sc.view === 'setup')    body = _scRenderSetup();
-    if (_sc.view === 'launched') body = _scRenderLaunched();
-    if (_sc.view === 'plan')     body = _scRenderPlan();
+    if (_sc.view === 'select')     body = _scRenderSelect();
+    if (_sc.view === 'generating') body = _scRenderGenerating();
+    if (_sc.view === 'detail')     body = _scRenderDetail();
+    if (_sc.view === 'model')      body = _scRenderModel();
+    if (_sc.view === 'setup')      body = _scRenderSetup();
+    if (_sc.view === 'launched')   body = _scRenderLaunched();
+    if (_sc.view === 'plan')       body = _scRenderPlan();
 
     const subtitle = _sc.view === 'setup'    ? 'Беру навык — настройка'
                    : _sc.view === 'detail'   ? 'Знакомство с навыком'
@@ -1063,6 +1113,34 @@ function _scRenderModel() {
 
         <button class="sc-btn sc-btn-primary" id="scChooseFromModel" style="margin-top:14px">🤝 Беру этот навык →</button>
         <button class="sc-btn sc-btn-ghost" id="scBackFromModel" style="width:100%;margin-top:10px">← Назад к описанию</button>
+    `;
+}
+
+// ============================================
+// ЭКРАН «ГЕНЕРАЦИЯ» — для кастомного навыка пока бэк прогоняет его
+// через Anthropic. Один Anthropic-вызов занимает 10–30 секунд, поэтому
+// нужна осмысленная заглушка, а не пустой экран.
+// ============================================
+function _scRenderGenerating() {
+    const name = _sc.skillName || 'ваш навык';
+    return `
+        <div class="sc-detail-hero">
+            <div class="sc-detail-cat">✏️ Свой навык</div>
+            <div class="sc-detail-title">⏳ ${name}</div>
+            <div class="sc-mdl-hero-sub">Фреди разбирает этот навык на 9 элементов: что в нём «результат», какие триггеры, какая последовательность действий, какие ценности и идентичность стоят за ним. Параллельно собирает 21-дневный план тренировки.</div>
+        </div>
+
+        <div class="sc-detail-section">
+            <div class="sc-gen-loader">
+                <div class="sc-gen-spinner"></div>
+                <div class="sc-gen-stages">
+                    <div class="sc-gen-stage">📐 разбираю модель навыка…</div>
+                    <div class="sc-gen-stage">🔓 ищу узлы перехода…</div>
+                    <div class="sc-gen-stage">🗓 собираю 21-дневный план…</div>
+                </div>
+                <div class="sc-gen-note">Обычно ~15–30 секунд. Если упадёт — продолжим по универсальному шаблону, ничего не сломается.</div>
+            </div>
+        </div>
     `;
 }
 
@@ -1483,7 +1561,7 @@ function _scBindHandlers() {
         });
     });
 
-    document.getElementById('scCustomBtn')?.addEventListener('click', () => {
+    document.getElementById('scCustomBtn')?.addEventListener('click', async () => {
         const v = (document.getElementById('scCustomInput')?.value || '').trim();
         if (!v) { _scToast('Введите свой навык', 'error'); return; }
         _sc.skillId       = 'custom';
@@ -1491,8 +1569,47 @@ function _scBindHandlers() {
         _sc.skillDesc     = 'персональный навык';
         _sc.skillLongDesc = _SC_CUSTOM_LONGDESC;
         _sc.skillPromise  = _SC_CUSTOM_PROMISE;
-        _sc.view = 'detail';
+        // Сбрасываем кэш предыдущего custom (если юзер вводит другой навык).
+        if (_sc.customGeneratedFor !== v) {
+            _sc.customGenerated = null;
+            _sc.customGeneratedFor = v;
+            _sc.detailPlan = null;
+            _sc.detailPlanFor = null;
+            _sc.modelData = null;
+            _sc.modelDataFor = null;
+        }
+        // Сразу показываем экран «генерация» (плейсхолдер 'generating'),
+        // потом фоном тянем результат и переключаем на detail.
+        _sc.view = 'generating';
         _scRender();
+        try {
+            const result = await _scApiGenerate(v);
+            // Юзер мог уйти на другой экран / поменять навык за это время.
+            if (_sc.view !== 'generating' || _sc.skillName !== v) return;
+            if (result) {
+                _sc.customGenerated = result;
+                _sc.customGeneratedFor = v;
+                // Подменяем longDesc и promise на сгенерированные —
+                // detail-view покажет специфичное описание навыка.
+                if (result.model && result.model.result && result.model.result.text) {
+                    _sc.skillLongDesc = result.model.result.text;
+                }
+                _sc.detailPlan = result.plan;
+                _sc.detailPlanFor = 'custom';
+                _sc.modelData = { model: result.model, transitions: result.transitions };
+                _sc.modelDataFor = 'custom';
+            } else {
+                _scToast('Не удалось составить модель — продолжаем по универсальному шаблону', 'info');
+            }
+        } catch (e) {
+            console.warn('[Fredi] custom generation error:', e);
+        }
+        // В любом случае переходим на detail — даже без сгенерированного
+        // контента пользователь увидит универсальный план.
+        if (_sc.view === 'generating') {
+            _sc.view = 'detail';
+            _scRender();
+        }
     });
 
     document.getElementById('scOpenPlan')?.addEventListener('click', () => {
@@ -1763,4 +1880,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v6.21 загружен (UX модели: кнопка в "что это", per-skill примеры)');
+console.log('✅ skill_choice.js v6.22 загружен (генерация модели + плана для кастомного навыка через Anthropic)');
