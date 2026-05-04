@@ -131,7 +131,14 @@ async def run_daily_aggregation(max_dialogs: int = 30, max_msgs_per_dialog: int 
 
 
 async def _fetch_yesterday_dialogs(max_dialogs: int, max_msgs: int) -> List[Dict]:
-    """Берёт юзеров с >=4 сообщениями BasicMode за 24ч; собирает их в массивы."""
+    """Берёт юзеров с >=4 сообщениями BasicMode за 24ч; собирает их в массивы.
+
+    ВАЖНО: фильтр включает И mode='basic' (BasicMode fallback), И mode='freddy'
+    (FreddyService SDK — основной путь Basic-режима). Ранее фильтровалось
+    только по 'basic', и т.к. большинство ответов идёт через FreddyService,
+    выборка была почти пустой → агрегация работала вхолостую → опыт не
+    накапливался → блок «ИНТУИЦИЯ» в промпте всегда был пустой.
+    """
     async with _db_module.get_connection() as conn:
         rows = await conn.fetch(
             """
@@ -141,7 +148,7 @@ async def _fetch_yesterday_dialogs(max_dialogs: int, max_msgs: int) -> List[Dict
                    ) ORDER BY created_at) AS msgs
             FROM fredi_messages
             WHERE created_at >= NOW() - INTERVAL '24 hours'
-              AND COALESCE(metadata->>'mode', '') = 'basic'
+              AND COALESCE(metadata->>'mode', '') IN ('basic', 'freddy')
             GROUP BY user_id
             HAVING COUNT(*) >= 4
             ORDER BY MAX(created_at) DESC
@@ -295,12 +302,15 @@ async def _ensure_cache() -> None:
         return
     try:
         async with _db_module.get_connection() as conn:
+            # Порог >= 2 чтобы одноразовый шум не попадал в интуицию.
+            # Паттерн должен повториться хотя бы дважды — только тогда
+            # это действительно «опыт», а не разовое наблюдение.
             rows = await conn.fetch(
                 """
                 SELECT theme, trigger_keywords, observation,
                        successful_move, fail_move, sample_count
                 FROM fredi_life_experience
-                WHERE sample_count >= 1
+                WHERE sample_count >= 2
                 ORDER BY sample_count DESC, last_seen_at DESC
                 LIMIT 100
                 """
@@ -323,8 +333,48 @@ async def _ensure_cache() -> None:
         _CACHE_LOADED_AT = now  # не дёргаем БД на каждом сообщении
 
 
+# Кэш скомпилированных regex'ов под каждое keyword — чтобы на каждом
+# сообщении не пересобирать паттерны для всех 100 кэшированных правил.
+_KEYWORD_RE_CACHE: Dict[str, "re.Pattern"] = {}
+
+def _keyword_re(k: str):
+    """Регэксп «начало слова + корень».
+
+    LLM при агрегации возвращает КОРНИ слов («стресс», «тревож», «выгор»).
+    Юзер пишет с любыми окончаниями («стрессе», «тревожусь», «выгораю»).
+    Поэтому матчим начало слова через \\b, но конец оставляем открытым —
+    после корня может быть любое окончание.
+
+    Что отсеивается: 'ум' больше не ловит 'думаю/шум/разум' (старый
+    подстрочный матч), но всё ещё ловит 'умный/умен/уметь' — что ОК,
+    т.к. это семантически связано с корнем «ум».
+    """
+    pat = _KEYWORD_RE_CACHE.get(k)
+    if pat is None:
+        # \b в Python re Unicode-aware — корректно работает на кириллице.
+        # Конец слова намеренно НЕ закрываем — допускаем русские окончания.
+        pat = re.compile(r"\b" + re.escape(k), re.UNICODE)
+        _KEYWORD_RE_CACHE[k] = pat
+    return pat
+
+
 def _score(message_lower: str, keywords: List[str]) -> int:
-    return sum(1 for k in keywords if k and k in message_lower)
+    """Сколько ключей сматчилось с границами слов.
+
+    Раньше использовали подстрочный `k in message_lower` — ключ «ум»
+    ловил «думаю», «шум», «разум»; «страх» ловил «страховка». Это
+    давало ложные паттерны в блоке «ИНТУИЦИЯ» и шумило промпт.
+    Word-boundary на Unicode чистит этот класс ошибок.
+    """
+    if not message_lower or not keywords:
+        return 0
+    score = 0
+    for k in keywords:
+        if not k:
+            continue
+        if _keyword_re(k).search(message_lower):
+            score += 1
+    return score
 
 
 async def find_relevant_patterns(user_message: str, top_n: int = 3) -> List[Dict]:
