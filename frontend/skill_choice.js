@@ -877,7 +877,15 @@ function _scRenderDetail() {
     const promise  = sk?.promise  || _sc.skillPromise || _SC_CUSTOM_PROMISE;
     const cat      = isCustom ? '✏️ Свой навык' : _scCategoryLabel(_sc.skillId);
 
-    const phasesHtml = DEFAULT_TEMPLATE_PLAN.weeks.map((w, i) => `
+    // Примеры и фазы — из РЕАЛЬНОГО плана навыка, если он уже подгружен
+    // (см. _scPrefetchPlanForDetail в click-handler карточки). Иначе fallback
+    // на универсальный DEFAULT_TEMPLATE_PLAN — это мгновенный рендер при
+    // первом клике, потом мы перерендерим из специализированного плана.
+    const previewPlan = (_sc.detailPlan && _sc.detailPlanFor === _sc.skillId)
+        ? _sc.detailPlan
+        : DEFAULT_TEMPLATE_PLAN;
+
+    const phasesHtml = previewPlan.weeks.map((w, i) => `
         <div class="sc-phase">
             <div class="sc-phase-num">${i+1}</div>
             <div class="sc-phase-body">
@@ -887,7 +895,7 @@ function _scRenderDetail() {
         </div>`).join('');
 
     const sampleDays = [1, 9, 17];
-    const allEx = DEFAULT_TEMPLATE_PLAN.weeks.flatMap(w => w.exercises);
+    const allEx = previewPlan.weeks.flatMap(w => w.exercises);
     const examplesHtml = sampleDays.map(d => {
         const ex = allEx.find(e => e.day === d);
         if (!ex) return '';
@@ -914,6 +922,9 @@ function _scRenderDetail() {
         <div class="sc-detail-section">
             <div class="sc-detail-h">📖 Что это за навык</div>
             <p class="sc-detail-p">${longDesc}</p>
+            <button class="sc-btn sc-btn-ghost" id="scOpenModelBtn" style="width:100%;margin-top:12px;border-color:rgba(224,224,224,0.25)">
+                📐 Подробнее: как устроен этот навык изнутри
+            </button>
         </div>
 
         <div class="sc-detail-section">
@@ -935,11 +946,7 @@ function _scRenderDetail() {
             </div>
         </div>
 
-        <button class="sc-btn sc-btn-ghost" id="scOpenModelBtn" style="width:100%;margin-top:14px;border-color:rgba(224,224,224,0.25)">
-            📖 Подробнее: как устроен этот навык изнутри
-        </button>
-
-        <button class="sc-btn sc-btn-primary" id="scChooseBtn" style="margin-top:10px">
+        <button class="sc-btn sc-btn-primary" id="scChooseBtn" style="margin-top:14px">
             🤝 Беру этот навык →
         </button>
         <button class="sc-btn sc-btn-ghost" id="scBackToList" style="width:100%;margin-top:10px">
@@ -1028,13 +1035,13 @@ function _scRenderModel() {
         <div class="sc-detail-hero">
             <div class="sc-detail-cat">${cat}</div>
             <div class="sc-detail-title">${icon} ${name} — модель навыка</div>
-            <div class="sc-mdl-hero-sub">9-элементная конфайн-модель по НЛП-моделированию (Гагин, Бородина). Описывает мастерство как систему: что мастер видит / делает / во что верит / за кого себя считает, чтобы получать этот результат.</div>
+            <div class="sc-mdl-hero-sub">Карта навыка изнутри: что мастер-модель видит и слышит, как действует пошагово, во что верит, за кого себя считает — чтобы получать этот результат снова и снова. И ключевые узлы, через которые мы пройдём за 21 день.</div>
         </div>
 
         ${cell('result', { center: true })}
 
         <div class="sc-detail-section" style="margin-top:18px">
-            <div class="sc-detail-h">🧩 Как мастер этого добивается</div>
+            <div class="sc-detail-h">🧩 Как мастер-модель этого добивается</div>
             <div class="sc-mdl-grid">
                 ${cell('trigger')}
                 ${cell('tote')}
@@ -1457,8 +1464,22 @@ function _scBindHandlers() {
             _sc.skillDesc     = sk.desc;
             _sc.skillLongDesc = sk.longDesc;
             _sc.skillPromise  = sk.promise;
+            // Сбрасываем кэш предыдущего навыка, иначе примеры могут
+            // отрендериться из чужого плана.
+            if (_sc.detailPlanFor !== sk.id) _sc.detailPlan = null;
             _sc.view = 'detail';
             _scRender();
+            // Подгружаем специализированный план фоном — для блоков
+            // «Как пойдём» и «Примеры заданий», чтобы они были под навык,
+            // а не из универсального fallback-шаблона.
+            (async () => {
+                const p = await _scFetchPlan(sk.id);
+                if (!p || !p.weeks) return;
+                if (_sc.view !== 'detail' || _sc.skillId !== sk.id) return;
+                _sc.detailPlan = p;
+                _sc.detailPlanFor = sk.id;
+                _scRender();
+            })();
         });
     });
 
@@ -1742,4 +1763,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v6.20 загружен (модель навыка: НЛП-моделирование, 9 элементов + точки перехода)');
+console.log('✅ skill_choice.js v6.21 загружен (UX модели: кнопка в "что это", per-skill примеры)');
