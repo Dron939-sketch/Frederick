@@ -202,9 +202,37 @@ function _scInjectStyles() {
             .sc-today-task { font-size: 13px; }
             .sc-day-task { font-size: 12px; }
             .sc-week-theme { font-size: 12px; }
-            .sc-detail-title { font-size: 19px; }
+            .sc-detail-title { font-size: 19px; line-height: 1.25; word-wrap: break-word; }
             .sc-time-grid { grid-template-columns: repeat(3, 1fr); }
-            .sc-mdl-grid { grid-template-columns: 1fr; }
+            /* === МОДЕЛЬ НАВЫКА на узких экранах === */
+            .sc-mdl-grid    { grid-template-columns: 1fr; gap: 8px; }
+            .sc-mdl-cell    { padding: 12px; }
+            .sc-mdl-center  { padding: 14px; }
+            .sc-mdl-icon    { font-size: 20px; margin-bottom: 4px; }
+            .sc-mdl-title   { font-size: 14px; }
+            .sc-mdl-sub     { font-size: 11.5px; line-height: 1.45; }
+            .sc-mdl-text    { font-size: 13px; line-height: 1.55; }
+            .sc-mdl-center .sc-mdl-title { font-size: 15px; }
+            .sc-mdl-center .sc-mdl-text  { font-size: 13.5px; }
+            .sc-mdl-hero-sub { font-size: 12px; line-height: 1.55; }
+            .sc-mdl-trans   { padding: 10px 12px; gap: 10px; }
+            .sc-mdl-trans-key { font-size: 13px; line-height: 1.45; }
+            .sc-mdl-trans-explain { font-size: 12px; line-height: 1.5; }
+            .sc-detail-hero { padding: 16px; }
+        }
+        /* === iPhone SE / mini (≤380px) — ещё компактнее === */
+        @media (max-width: 380px) {
+            .sc-detail-title { font-size: 18px; }
+            .sc-mdl-cell    { padding: 11px; }
+            .sc-mdl-center  { padding: 13px; }
+            .sc-mdl-text    { font-size: 12.5px; }
+            .sc-mdl-trans   { padding: 9px 11px; }
+            .sc-mdl-trans-num { width: 24px; height: 24px; }
+            .sc-detail-hero { padding: 14px; }
+        }
+        /* === iOS Safari защита от автозума при тапе по input === */
+        @supports (-webkit-touch-callout: none) {
+            .sc-input { font-size: 16px !important; }
         }
 
         /* === ЭКРАН «МОДЕЛЬ НАВЫКА» === */
@@ -1880,4 +1908,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v6.22 загружен (генерация модели + плана для кастомного навыка через Anthropic)');
+console.log('✅ skill_choice.js v6.23 загружен (mobile/iOS polish для модели и генерации)');
