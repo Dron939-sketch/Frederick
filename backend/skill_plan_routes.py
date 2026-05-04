@@ -84,6 +84,14 @@ def register_skill_plan_routes(app, db, limiter):
                 )
             except Exception:
                 pass
+            # Кэш генерируемых конфайн-моделей для кастомных навыков.
+            # Ключ — нормализованное название (skill_key), один и тот же
+            # текст от разных юзеров вернёт один и тот же сгенерированный план.
+            try:
+                from services.skill_generator import CREATE_TABLE_SQL as _CUSTOM_DDL
+                await conn.execute(_CUSTOM_DDL)
+            except Exception as _e:
+                logger.warning(f"custom skill plan table init failed: {_e}")
         logger.info("Skill plan tables ready")
 
     @app.post("/api/skill-plan")
@@ -401,6 +409,49 @@ def register_skill_plan_routes(app, db, limiter):
             "success": True,
             "model": model,
             "transitions": transitions or [],
+        }
+
+    @app.post("/api/skill-plan/generate")
+    @limiter.limit("8/hour")
+    async def generate_custom_skill_plan(request: Request):
+        """Генерирует конфайн-модель + 21-дневный план для кастомного навыка.
+
+        Тяжёлая операция (один Anthropic-вызов, ~10–30 сек), поэтому
+        rate-limit жёсткий: 8 запросов в час с одного IP. Результат
+        кэшируется глобально по нормализованному ключу — повторный запрос
+        с тем же названием берёт из кэша мгновенно.
+
+        Body: {skill_name: str}
+        Response (success):
+          {success: true, model: {...}, transitions: [...], plan: {weeks: [...]}}
+        Response (fail):
+          {success: false, error: "..."}
+        Фронт при success=false уходит на универсальный DEFAULT_TEMPLATE_PLAN.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return {"success": False, "error": "invalid json"}
+
+        skill_name = (body.get("skill_name") or "").strip()
+        if not skill_name or len(skill_name) > 200:
+            return {"success": False, "error": "skill_name required (1–200 chars)"}
+
+        try:
+            from services.skill_generator import generate_custom_plan
+            data = await generate_custom_plan(db, skill_name)
+        except Exception as e:
+            logger.error(f"generate_custom_skill_plan error: {e}")
+            return {"success": False, "error": "generation failed"}
+
+        if not data:
+            return {"success": False, "error": "generation failed or invalid format"}
+
+        return {
+            "success": True,
+            "model": data.get("model", {}),
+            "transitions": data.get("transitions", []),
+            "plan": data.get("plan", {}),
         }
 
     return init_skill_plan_tables
