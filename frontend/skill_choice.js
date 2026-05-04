@@ -397,6 +397,27 @@ const DEFAULT_TEMPLATE_PLAN = {
 
 function _scLocalPlan() { return JSON.parse(JSON.stringify(DEFAULT_TEMPLATE_PLAN)); }
 
+// Тянем специализированный 21-дневный план под конкретный навык с бэка.
+// Если на бэке шаблона ещё нет (404 / no specialized template) — отдаём
+// универсальный DEFAULT_TEMPLATE_PLAN. Это гарантирует, что «Поехали!»
+// работает даже когда контентная база ещё не докатана.
+async function _scFetchPlan(skillId) {
+    const fallback = _scLocalPlan();
+    if (!skillId || skillId === 'custom') return fallback;
+    try {
+        const r = await fetch(`${_scApi()}/api/skill-plan/template/${encodeURIComponent(skillId)}`,
+                              { cache: 'no-store' });
+        if (!r.ok) return fallback;
+        const j = await r.json();
+        if (j && j.success && j.plan && Array.isArray(j.plan.weeks) && j.plan.weeks.length === 3) {
+            return j.plan;
+        }
+    } catch (e) {
+        console.warn('[Fredi] template fetch failed, using default:', e);
+    }
+    return fallback;
+}
+
 // ============================================
 // СОСТОЯНИЕ
 // ============================================
@@ -1164,9 +1185,10 @@ function _scRenderPlan() {
 // ============================================
 // ЗАЩИТА ОТ ПОВТОРНОГО ЗАПУСКА
 // ============================================
-function _scStartProgram() {
-    // Реальный запуск: создаёт план, переходит на launched, шлёт welcome.
-    _sc.plan        = _scLocalPlan();
+async function _scStartProgram() {
+    // Реальный запуск: создаёт план (специализированный под навык, если есть
+    // на бэке, иначе универсальный), переходит на launched, шлёт welcome.
+    _sc.plan        = await _scFetchPlan(_sc.skillId);
     _sc.daysDone    = [];
     _sc.startDate   = new Date().toISOString();
     _sc.openWeeks   = null;
@@ -1520,4 +1542,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.11 загружен (защита от повторного запуска навыка)');
+console.log('✅ skill_choice.js v6.0 загружен (специализированные планы по навыкам с бэка)');

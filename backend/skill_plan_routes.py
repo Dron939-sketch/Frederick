@@ -14,10 +14,29 @@ Endpoints:
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from fastapi import Request
 
 logger = logging.getLogger(__name__)
+
+# Кэш шаблонов 21-дневных планов по навыкам.
+# Файл backend/data/skill_plans.json — источник правды (версия в git).
+# Загружаем один раз при первом обращении, в памяти держим до рестарта.
+_SKILL_PLANS_CACHE = None
+
+def _load_skill_plans():
+    global _SKILL_PLANS_CACHE
+    if _SKILL_PLANS_CACHE is not None:
+        return _SKILL_PLANS_CACHE
+    path = os.path.join(os.path.dirname(__file__), "data", "skill_plans.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            _SKILL_PLANS_CACHE = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load skill_plans.json: {e}")
+        _SKILL_PLANS_CACHE = {}
+    return _SKILL_PLANS_CACHE
 
 
 def register_skill_plan_routes(app, db, limiter):
@@ -350,5 +369,17 @@ def register_skill_plan_routes(app, db, limiter):
         except Exception as e:
             logger.error(f"verify_messenger_auth: {e}")
             return {"success": False, "error": str(e)}
+
+    @app.get("/api/skill-plan/template/{skill_id}")
+    @limiter.limit("60/minute")
+    async def get_skill_plan_template(request: Request, skill_id: str):
+        """Возвращает шаблон 21-дневного плана для конкретного навыка.
+        Если для навыка нет специализированного плана — отвечаем 404,
+        фронт сам подставит универсальный fallback (DEFAULT_TEMPLATE_PLAN)."""
+        plans = _load_skill_plans()
+        plan = plans.get(skill_id)
+        if not plan or not isinstance(plan, dict) or "weeks" not in plan:
+            return {"success": False, "error": "no specialized template"}
+        return {"success": True, "plan": {"weeks": plan["weeks"]}}
 
     return init_skill_plan_tables
