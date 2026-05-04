@@ -204,7 +204,37 @@ function _scInjectStyles() {
             .sc-week-theme { font-size: 12px; }
             .sc-detail-title { font-size: 19px; }
             .sc-time-grid { grid-template-columns: repeat(3, 1fr); }
+            .sc-mdl-grid { grid-template-columns: 1fr; }
         }
+
+        /* === ЭКРАН «МОДЕЛЬ НАВЫКА» === */
+        .sc-mdl-hero-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 8px; opacity: 0.9; }
+        .sc-mdl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+        .sc-mdl-cell { background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.10); border-radius: 14px; padding: 14px; transition: border-color 0.18s, background 0.18s; }
+        .sc-mdl-cell:hover { border-color: rgba(224,224,224,0.22); background: rgba(224,224,224,0.06); }
+        .sc-mdl-center { background: linear-gradient(135deg, rgba(255,200,80,0.10), rgba(255,160,40,0.04)); border: 1.5px solid rgba(255,200,80,0.35); border-radius: 18px; padding: 18px; margin-bottom: 4px; }
+        .sc-mdl-icon { font-size: 22px; margin-bottom: 6px; }
+        .sc-mdl-title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; letter-spacing: 0.2px; }
+        .sc-mdl-sub { font-size: 11px; color: var(--text-secondary); font-style: italic; margin-bottom: 8px; line-height: 1.5; opacity: 0.85; }
+        .sc-mdl-text { font-size: 13px; color: var(--text-primary); line-height: 1.6; }
+        .sc-mdl-center .sc-mdl-title { font-size: 16px; }
+        .sc-mdl-center .sc-mdl-text { font-size: 14px; }
+
+        .sc-mdl-trans-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+        .sc-mdl-trans { display: flex; gap: 12px; padding: 12px 14px; background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.10); border-radius: 14px; }
+        .sc-mdl-trans-num { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,200,80,0.18); color: rgba(255,200,80,0.95); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+        .sc-mdl-trans-body { min-width: 0; flex: 1; }
+        .sc-mdl-trans-key { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; line-height: 1.5; }
+        .sc-mdl-trans-explain { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 6px; }
+        .sc-mdl-trans-days { display: flex; flex-wrap: wrap; gap: 5px; }
+        .sc-mdl-daychip { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(224,224,224,0.08); color: var(--text-secondary); border: 1px solid rgba(224,224,224,0.12); }
+
+        [data-theme="light"] .sc-mdl-cell { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .sc-mdl-cell:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.18); }
+        [data-theme="light"] .sc-mdl-center { background: linear-gradient(135deg, rgba(255,140,0,0.08), rgba(255,100,0,0.02)); border-color: rgba(255,140,0,0.4); }
+        [data-theme="light"] .sc-mdl-trans { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .sc-mdl-trans-num { background: rgba(255,140,0,0.15); color: rgba(180,90,0,0.95); }
+        [data-theme="light"] .sc-mdl-daychip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.10); }
     `;
     document.head.appendChild(s);
 }
@@ -396,6 +426,25 @@ const DEFAULT_TEMPLATE_PLAN = {
 };
 
 function _scLocalPlan() { return JSON.parse(JSON.stringify(DEFAULT_TEMPLATE_PLAN)); }
+
+// Тянем подробную карточку «модель навыка» (НЛП-моделирование по
+// Гагину/Бородиной — 9 элементов + точки перехода). Если для навыка
+// модель ещё не написана — возвращаем null, фронт показывает заглушку.
+async function _scFetchModel(skillId) {
+    if (!skillId || skillId === 'custom') return null;
+    try {
+        const r = await fetch(`${_scApi()}/api/skill-plan/details/${encodeURIComponent(skillId)}`,
+                              { cache: 'no-store' });
+        if (!r.ok) return null;
+        const j = await r.json();
+        if (j && j.success && j.model) {
+            return { model: j.model, transitions: j.transitions || [] };
+        }
+    } catch (e) {
+        console.warn('[Fredi] model fetch failed:', e);
+    }
+    return null;
+}
 
 // Тянем специализированный 21-дневный план под конкретный навык с бэка.
 // Если на бэке шаблона ещё нет (404 / no specialized template) — отдаём
@@ -707,6 +756,7 @@ function _scRender() {
     let body = '';
     if (_sc.view === 'select')   body = _scRenderSelect();
     if (_sc.view === 'detail')   body = _scRenderDetail();
+    if (_sc.view === 'model')    body = _scRenderModel();
     if (_sc.view === 'setup')    body = _scRenderSetup();
     if (_sc.view === 'launched') body = _scRenderLaunched();
     if (_sc.view === 'plan')     body = _scRenderPlan();
@@ -885,12 +935,128 @@ function _scRenderDetail() {
             </div>
         </div>
 
-        <button class="sc-btn sc-btn-primary" id="scChooseBtn" style="margin-top:14px">
+        <button class="sc-btn sc-btn-ghost" id="scOpenModelBtn" style="width:100%;margin-top:14px;border-color:rgba(224,224,224,0.25)">
+            📖 Подробнее: как устроен этот навык изнутри
+        </button>
+
+        <button class="sc-btn sc-btn-primary" id="scChooseBtn" style="margin-top:10px">
             🤝 Беру этот навык →
         </button>
         <button class="sc-btn sc-btn-ghost" id="scBackToList" style="width:100%;margin-top:10px">
             ← Посмотреть другие
         </button>`;
+}
+
+// ============================================
+// ЭКРАН «МОДЕЛЬ НАВЫКА» (НЛП-моделирование, 9 элементов + точки перехода)
+// ============================================
+//
+// Загружается асинхронно из /api/skill-plan/details/{skill_id}. Пока fetch
+// идёт — показываем placeholder. Если для навыка модель ещё не написана
+// (success=false) — показываем сообщение «карточка в работе».
+//
+// Структура:
+//   1. Hero с центральным РЕЗУЛЬТАТОМ
+//   2. Сетка из 8 карточек (триггер, TOTE, чекпоинты, фишки,
+//      ценности, фильтры, выгоды, идентичность)
+//   3. Точки перехода — список с привязкой к дням 21-дневного плана
+//   4. CTA «Сформировать этот навык» + «Назад»
+function _scRenderModel() {
+    const sk = _scFindSkill(_sc.skillId);
+    const name = sk?.name || _sc.skillName || 'Свой навык';
+    const icon = sk?.icon || '🎯';
+    const cat  = _scCategoryLabel(_sc.skillId);
+    const mdl  = _sc.modelData;
+
+    if (!mdl) {
+        return `
+            <div class="sc-detail-hero">
+                <div class="sc-detail-cat">${cat}</div>
+                <div class="sc-detail-title">${icon} ${name}</div>
+            </div>
+            <div class="sc-detail-section">
+                <div class="sc-detail-h">📖 Загружаем модель навыка…</div>
+                <p class="sc-detail-p" style="opacity:0.7">Если карточка не появится — для этого навыка модель пока не написана. Скоро будет.</p>
+            </div>
+            <button class="sc-btn sc-btn-ghost" id="scBackFromModel" style="width:100%;margin-top:14px">
+                ← Назад к описанию
+            </button>`;
+    }
+
+    if (mdl.empty) {
+        return `
+            <div class="sc-detail-hero">
+                <div class="sc-detail-cat">${cat}</div>
+                <div class="sc-detail-title">${icon} ${name}</div>
+            </div>
+            <div class="sc-detail-section">
+                <div class="sc-detail-h">📖 Карточка в работе</div>
+                <p class="sc-detail-p">Подробная модель этого навыка ещё пишется. Базовый 21-дневный план уже работает — можно начать тренировку.</p>
+            </div>
+            <button class="sc-btn sc-btn-primary" id="scChooseFromModel" style="margin-top:14px">🤝 Беру этот навык →</button>
+            <button class="sc-btn sc-btn-ghost" id="scBackFromModel" style="width:100%;margin-top:10px">← Назад к описанию</button>`;
+    }
+
+    const m = mdl.model || {};
+    const trans = mdl.transitions || [];
+
+    const cell = (key, opts) => {
+        const it = m[key];
+        if (!it) return '';
+        const cls = (opts && opts.center) ? 'sc-mdl-cell sc-mdl-center' : 'sc-mdl-cell';
+        return `<div class="${cls}">
+            <div class="sc-mdl-icon">${it.icon || ''}</div>
+            <div class="sc-mdl-title">${it.title || ''}</div>
+            ${it.subtitle ? `<div class="sc-mdl-sub">${it.subtitle}</div>` : ''}
+            <div class="sc-mdl-text">${it.text || ''}</div>
+        </div>`;
+    };
+
+    const transitionsHtml = trans.map((t, i) => {
+        const days = (t.days || []).map(d => `<span class="sc-mdl-daychip">день ${d}</span>`).join('');
+        return `<div class="sc-mdl-trans">
+            <div class="sc-mdl-trans-num">${i + 1}</div>
+            <div class="sc-mdl-trans-body">
+                <div class="sc-mdl-trans-key">${t.key || ''}</div>
+                ${t.explain ? `<div class="sc-mdl-trans-explain">${t.explain}</div>` : ''}
+                ${days ? `<div class="sc-mdl-trans-days">${days}</div>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="sc-detail-hero">
+            <div class="sc-detail-cat">${cat}</div>
+            <div class="sc-detail-title">${icon} ${name} — модель навыка</div>
+            <div class="sc-mdl-hero-sub">9-элементная конфайн-модель по НЛП-моделированию (Гагин, Бородина). Описывает мастерство как систему: что мастер видит / делает / во что верит / за кого себя считает, чтобы получать этот результат.</div>
+        </div>
+
+        ${cell('result', { center: true })}
+
+        <div class="sc-detail-section" style="margin-top:18px">
+            <div class="sc-detail-h">🧩 Как мастер этого добивается</div>
+            <div class="sc-mdl-grid">
+                ${cell('trigger')}
+                ${cell('tote')}
+                ${cell('checkpoints')}
+                ${cell('features')}
+                ${cell('values')}
+                ${cell('filters')}
+                ${cell('benefits')}
+                ${cell('identity')}
+            </div>
+        </div>
+
+        ${trans.length ? `
+        <div class="sc-detail-section">
+            <div class="sc-detail-h">🔓 Точки перехода: «без навыка» → «с навыком»</div>
+            <p class="sc-detail-p" style="opacity:0.85">Узлы, разрыв которых превращает невозможное в возможное. К каждому привязаны дни 21-дневного плана — программа собрана так, чтобы по ним и пройти.</p>
+            <div class="sc-mdl-trans-list">${transitionsHtml}</div>
+        </div>` : ''}
+
+        <button class="sc-btn sc-btn-primary" id="scChooseFromModel" style="margin-top:14px">🤝 Беру этот навык →</button>
+        <button class="sc-btn sc-btn-ghost" id="scBackFromModel" style="width:100%;margin-top:10px">← Назад к описанию</button>
+    `;
 }
 
 // ===== ЭКРАН НАСТРОЙКИ =====
@@ -1332,6 +1498,40 @@ function _scBindHandlers() {
         _sc.view = 'select'; _scRender();
     });
 
+    // Открыть «Подробнее: модель навыка». Если модель уже была загружена для
+    // этого же skillId — рендерим из кэша, иначе фетчим. Пока fetch идёт —
+    // показываем placeholder (renderModel умеет).
+    document.getElementById('scOpenModelBtn')?.addEventListener('click', async () => {
+        if (_sc.modelData && _sc.modelDataFor === _sc.skillId) {
+            _sc.view = 'model'; _scRender(); return;
+        }
+        _sc.modelData = null;
+        _sc.modelDataFor = _sc.skillId;
+        _sc.view = 'model';
+        _scRender();
+        const data = await _scFetchModel(_sc.skillId);
+        // Юзер мог уйти на другой экран пока fetch шёл — не перезаписываем.
+        if (_sc.view !== 'model' || _sc.modelDataFor !== _sc.skillId) return;
+        _sc.modelData = data || { empty: true };
+        _scRender();
+    });
+
+    // === MODEL VIEW ===
+    document.getElementById('scBackFromModel')?.addEventListener('click', () => {
+        _sc.view = 'detail'; _scRender();
+    });
+    document.getElementById('scChooseFromModel')?.addEventListener('click', async () => {
+        if (!_sc.channel) _sc.channel = 'telegram';
+        _sc.view = 'setup';
+        _scRender();
+        _scToast(`✓ Беру навык «${_sc.skillName}». Настроим тренировку.`, 'success');
+        const status = await _scApiLinkStatus();
+        if (status) {
+            _sc.linkStatus = status;
+            if (_sc.view === 'setup') _scRender();
+        }
+    });
+
     // === SETUP ===
     document.querySelectorAll('.sc-channel-card').forEach(card => {
         card.addEventListener('click', () => {
@@ -1542,4 +1742,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v6.0 загружен (специализированные планы по навыкам с бэка)');
+console.log('✅ skill_choice.js v6.20 загружен (модель навыка: НЛП-моделирование, 9 элементов + точки перехода)');

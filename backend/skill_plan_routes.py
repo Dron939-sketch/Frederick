@@ -382,4 +382,25 @@ def register_skill_plan_routes(app, db, limiter):
             return {"success": False, "error": "no specialized template"}
         return {"success": True, "plan": {"weeks": plan["weeks"]}}
 
+    @app.get("/api/skill-plan/details/{skill_id}")
+    @limiter.limit("60/minute")
+    async def get_skill_plan_details(request: Request, skill_id: str):
+        """Возвращает «Подробнее»-карточку навыка: 9-элементную конфайнмент-
+        модель + точки перехода (узлы, разрыв которых превращает «без навыка»
+        в «с навыком», с привязкой к дням 21-дневного плана).
+
+        Если для навыка модель ещё не написана — отдаём {success: false},
+        фронт показывает заглушку «карточка ещё в работе»."""
+        plans = _load_skill_plans()
+        entry = plans.get(skill_id) or {}
+        model = entry.get("model")
+        transitions = entry.get("transitions")
+        if not model or not isinstance(model, dict):
+            return {"success": False, "error": "no model"}
+        return {
+            "success": True,
+            "model": model,
+            "transitions": transitions or [],
+        }
+
     return init_skill_plan_tables
