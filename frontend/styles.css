@@ -2072,6 +2072,13 @@ body::after {
     .screen-container {
         padding: 16px;
         padding-bottom: max(40px, calc(env(safe-area-inset-bottom, 0px) + 32px));
+        overflow-x: hidden;
+    }
+    /* Защита от любого выхлопа за пределы вьюпорта на мобиле */
+    .app, .chat-panel { overflow-x: hidden; }
+    /* Galaxy Fold (folded) — урезаем padding контейнера ещё сильнее */
+    @media (max-width: 320px) {
+        .screen-container { padding: 12px; }
     }
 
     .swipe-indicator {
