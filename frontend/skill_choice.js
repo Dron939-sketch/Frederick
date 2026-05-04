@@ -1162,6 +1162,100 @@ function _scRenderPlan() {
 }
 
 // ============================================
+// ЗАЩИТА ОТ ПОВТОРНОГО ЗАПУСКА
+// ============================================
+function _scStartProgram() {
+    // Реальный запуск: создаёт план, переходит на launched, шлёт welcome.
+    _sc.plan        = _scLocalPlan();
+    _sc.daysDone    = [];
+    _sc.startDate   = new Date().toISOString();
+    _sc.openWeeks   = null;
+    _sc.expandedDay = null;
+
+    // Обновляем снимок — теперь активен этот навык.
+    _sc.activePlanSkillId    = _sc.skillId;
+    _sc.activePlanSkillName  = _sc.skillName;
+    _sc.activePlanStartDate  = _sc.startDate;
+    _sc.activePlanDaysDone   = 0;
+
+    const savePromise = _scSave();
+    _sc.view = 'launched';
+    _scRender();
+    if (_sc.channel && _sc.channel !== 'none') {
+        savePromise.then(() => _scApiWelcomeSend()).catch(() => {});
+    }
+}
+
+function _scModal(html, wireUp) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px';
+    overlay.innerHTML = `<div style="background:var(--carbon-fiber,#1a1a1a);border:1px solid rgba(224,224,224,0.2);border-radius:22px;padding:24px;max-width:340px;width:100%">${html}</div>`;
+    document.body.appendChild(overlay);
+    wireUp(overlay, () => overlay.remove());
+}
+
+function _scShowAlreadyRunningModal() {
+    const name = _sc.activePlanSkillName || _sc.skillName || 'навык';
+    const done = _sc.activePlanDaysDone || 0;
+    _scModal(`
+        <div style="font-size:32px;text-align:center;margin-bottom:8px">✓</div>
+        <div style="font-size:15px;color:var(--text-primary);margin-bottom:6px;font-weight:600;text-align:center">Этот навык уже формируется</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:18px;text-align:center;line-height:1.5">
+            «${name}» — прогресс ${done}/21 дней.<br>
+            Запускать заново не нужно: задания приходят в выбранный канал.
+        </div>
+        <div style="display:flex;gap:10px">
+            <button id="arClose" style="flex:1;padding:11px;border-radius:30px;background:rgba(224,224,224,0.07);border:1px solid rgba(224,224,224,0.15);color:var(--text-secondary);font-family:inherit;cursor:pointer">Закрыть</button>
+            <button id="arPlan"  style="flex:1;padding:11px;border-radius:30px;background:rgba(224,224,224,0.18);border:1px solid rgba(224,224,224,0.3);color:var(--text-primary);font-family:inherit;font-weight:600;cursor:pointer">Открыть план</button>
+        </div>
+    `, (overlay, close) => {
+        overlay.querySelector('#arClose').onclick = close;
+        overlay.querySelector('#arPlan').onclick  = () => { close(); _sc.view = 'plan'; _scRender(); };
+    });
+}
+
+function _scShowReplaceActiveModal(onReplace) {
+    const name = _sc.activePlanSkillName || 'другой навык';
+    const done = _sc.activePlanDaysDone || 0;
+    _scModal(`
+        <div style="font-size:15px;color:var(--text-primary);margin-bottom:6px;font-weight:600">Сейчас формируется другой навык</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:18px;line-height:1.5">
+            «${name}» — прогресс ${done}/21 дней.<br>
+            Если начнём «${_sc.skillName}», текущий прогресс будет сброшен.
+        </div>
+        <div style="display:flex;gap:10px;flex-direction:column">
+            <button id="rpReplace" style="padding:12px;border-radius:30px;background:rgba(224,224,224,0.18);border:1px solid rgba(224,224,224,0.3);color:var(--text-primary);font-family:inherit;font-weight:600;cursor:pointer">Сбросить и начать новый</button>
+            <button id="rpKeep"    style="padding:12px;border-radius:30px;background:rgba(224,224,224,0.07);border:1px solid rgba(224,224,224,0.15);color:var(--text-secondary);font-family:inherit;cursor:pointer">Открыть текущий</button>
+            <button id="rpCancel"  style="padding:9px;border-radius:30px;background:transparent;border:none;color:var(--text-secondary);font-family:inherit;font-size:12px;cursor:pointer">Отмена</button>
+        </div>
+    `, (overlay, close) => {
+        overlay.querySelector('#rpReplace').onclick = () => {
+            close();
+            // Сбрасываем активный план на бэке/локально, затем запускаем новый.
+            try { _scApiDelete(); } catch {}
+            try { localStorage.removeItem('sc_plan_'+_scUid()); } catch {}
+            // Имя/описание нового навыка уже в _sc.skillId/skillName — пришли из карточки.
+            _sc.daysDone = [];
+            _sc.plan = null;
+            _sc.startDate = null;
+            onReplace();
+        };
+        overlay.querySelector('#rpKeep').onclick = () => {
+            close();
+            // Возвращаем _sc к активному навыку и открываем план.
+            const sk = _scFindSkill(_sc.activePlanSkillId);
+            if (sk) {
+                _sc.skillId = sk.id; _sc.skillName = sk.name;
+                _sc.skillDesc = sk.desc; _sc.skillLongDesc = sk.longDesc; _sc.skillPromise = sk.promise;
+            }
+            _sc.view = 'plan';
+            _scRender();
+        };
+        overlay.querySelector('#rpCancel').onclick = close;
+    });
+}
+
+// ============================================
 // ОБРАБОТЧИКИ
 // ============================================
 function _scBindHandlers() {
@@ -1288,23 +1382,21 @@ function _scBindHandlers() {
     document.getElementById('scStartBtn')?.addEventListener('click', () => {
         if (!_sc.channel) { _scToast('Выберите канал', 'error'); return; }
         if (!_sc.skillId || !_sc.skillName) { _scToast('Выберите навык', 'error'); return; }
-        _sc.plan        = _scLocalPlan();
-        _sc.daysDone    = [];
-        _sc.startDate   = new Date().toISOString();
-        _sc.openWeeks   = null;
-        _sc.expandedDay = null;
 
-        // 1) Сохраняем — localStorage сразу + бэк (промис).
-        const savePromise = _scSave();
-
-        // 2) Переход на «Программа запущена» (не на план!).
-        _sc.view = 'launched';
-        _scRender();
-
-        // 3) После того как бэк сохранил — шлём приветствие+задание дня 1 в канал.
-        if (_sc.channel && _sc.channel !== 'none') {
-            savePromise.then(() => _scApiWelcomeSend()).catch(() => {});
+        // Защита от повторного запуска:
+        // - тот же навык уже идёт → показываем "уже формируется", не перезапускаем;
+        // - другой навык активен → спрашиваем разрешение заменить (текущий прогресс
+        //   будет сброшен).
+        const activeId = _sc.activePlanSkillId;
+        if (activeId) {
+            if (activeId === _sc.skillId) {
+                _scShowAlreadyRunningModal();
+                return;
+            }
+            _scShowReplaceActiveModal(() => _scStartProgram());
+            return;
         }
+        _scStartProgram();
     });
 
     // === LAUNCHED ===
@@ -1407,10 +1499,25 @@ async function showSkillChoiceScreen() {
     _sc.view = 'select';
     _sc.openWeeks = null;
     _sc.expandedDay = null;
+    _sc.activePlanSkillId = null;
+    _sc.activePlanSkillName = null;
+    _sc.activePlanStartDate = null;
+    _sc.activePlanDaysDone = 0;
     _scRender();
     await _scLoad();
+    // Снимок активного плана: используется в scStartBtn, чтобы не дать
+    // запустить тот же навык повторно или молча перезаписать другой активный.
+    if (_sc.plan && _sc.skillId && _sc.startDate) {
+        const ageMs = Date.now() - new Date(_sc.startDate).getTime();
+        if (ageMs < 21 * 86400000) {
+            _sc.activePlanSkillId    = _sc.skillId;
+            _sc.activePlanSkillName  = _sc.skillName;
+            _sc.activePlanStartDate  = _sc.startDate;
+            _sc.activePlanDaysDone   = (_sc.daysDone || []).length;
+        }
+    }
     _scRender();
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v5.8 загружен (поле "why" в каждом задании + день 1 мягче)');
+console.log('✅ skill_choice.js v5.11 загружен (защита от повторного запуска навыка)');
