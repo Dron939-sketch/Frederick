@@ -65,7 +65,6 @@ from auth_routes import create_auth_router
 from email_service import EmailService
 from analytics_routes import register_analytics_routes, log_server_event
 from skill_plan_routes import register_skill_plan_routes
-from services.skill_notify import skill_plan_scheduler
 from modes.base_mode import BaseMode
 from modes.coach import CoachMode
 from modes.psychologist import PsychologistMode
@@ -372,7 +371,6 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(_pay_scheduler()),
             asyncio.create_task(cycle_reminders_scheduler()),
             asyncio.create_task(life_experience_scheduler()),
-            asyncio.create_task(skill_plan_scheduler(db)),
         ]
         logger.info("✅ Фоновые задачи запущены")
 
@@ -1825,6 +1823,9 @@ async def morning_messages_scheduler():
                 # Все юзеры с пройденным тестом и каналом доставки ≠ 'none',
                 # у которых либо есть push-подписка, либо привязан мессенджер.
                 # Окончательный фильтр по локальному времени — ниже.
+                # Юзеров с активным 21-дневным планом исключаем — пока он
+                # формирует навык, ежедневная тренировка важнее общего утреннего
+                # сообщения, и два пуша в одно окно — это шум.
                 rows = await conn.fetch("""
                     SELECT u.user_id,
                            u.profile,
@@ -1838,6 +1839,14 @@ async def morning_messages_scheduler():
                     LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
                     WHERE u.is_active = TRUE
                       AND COALESCE(u.notification_channel, 'push') <> 'none'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM fredi_skill_plans sp
+                          WHERE sp.user_id = u.user_id
+                            AND sp.channel IS NOT NULL
+                            AND sp.channel <> 'none'
+                            AND sp.started_at IS NOT NULL
+                            AND (NOW() - sp.started_at) < INTERVAL '21 days'
+                      )
                       AND (
                           EXISTS (
                               SELECT 1 FROM fredi_push_subscriptions ps
