@@ -229,7 +229,9 @@ def normalize_numbers(text: str) -> str:
             return m.group(0)
     text = re.sub(r'\b(\d+)[.,](\d{1,3})\b', _decimal_to_words, text)
 
-    # 3. Все оставшиеся целые числа.
+    # 3. Все оставшиеся целые числа. Без word-boundary — чтобы поймать
+    #    цифры, прилипшие к буквам типа «5G», «iPhone14», «PS5».
+    #    Раньше \b\d+\b их пропускал и TTS произносил по цифрам.
     def _int_to_words(m):
         try:
             n = int(m.group(0))
@@ -240,7 +242,7 @@ def normalize_numbers(text: str) -> str:
             return _num_to_words_ru(n)
         except (ValueError, OverflowError):
             return m.group(0)
-    text = re.sub(r'\b\d+\b', _int_to_words, text)
+    text = re.sub(r'\d+', _int_to_words, text)
 
     if text != original:
         logger.debug(f"🔢 Нормализованы числа: '{original[:100]}' → '{text[:100]}'")
@@ -331,18 +333,120 @@ def _year_to_words(m: re.Match) -> str:
 
 
 _RE_DATE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b")
+# Даты через слэш / дефис: 12/04/2024, 12-04-2024, 12/04/24
+_RE_DATE_SLASH = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b")
+# Дата без года: «15 марта», «15-го марта», «15 февраля» — день должен
+# быть порядковым в родительном падеже («пятнадцатого»).
+_RE_DATE_DAY_MONTH = re.compile(
+    r"\b(\d{1,2})(?:-го|-ого|-ое|-е)?\s+("
+    r"январ[яе]|феврал[яе]|март[ае]|апрел[яе]|ма[яе]|июн[яе]|июл[яе]|"
+    r"август[ае]|сентябр[яе]|октябр[яе]|ноябр[яе]|декабр[яе])\b",
+    re.IGNORECASE,
+)
 _RE_TEMP = re.compile(r"([+\-−–])?\s*(\d+)\s*°\s*[CcСсFfFf]?", re.IGNORECASE)
 _RE_TIME = re.compile(r"\b(\d{1,2}):(\d{2})\b")
 # 4-значный год перед «год/году/года/годом/годе»
 _RE_YEAR = re.compile(r"\b(\d{4})\s+(год[уаеомы]?)\b", re.IGNORECASE)
+# Денежные суммы. Символы валют + сокращения. Сами цифры заменим
+# на _num_to_words_ru, валюту — на полное русское слово.
+# ВАЖНО: длинные альтернативы (рублей, доллар) ставим ПЕРЕД короткими
+# (руб, р.) — иначе `р\.?` сматчит просто «р» из «руб», и хвост «уб»
+# останется в выводе как мусор.
+_RE_MONEY = re.compile(
+    r"(?:(\$|₽|€|£|¥)\s*(\d+)|"           # $100, ₽1500
+    r"(\d+)\s*(\$|₽|€|£|¥)|"                # 100$, 1500₽
+    r"(\d+)\s*(рублей|рубля|рубль|руб\.?|р\.?|"  # длинные → короткие
+    r"долларов|доллара|доллар|долл\.?|"
+    r"евро|фунтов|фунта|фунт|иены|иена|иен)\b)",
+    re.IGNORECASE,
+)
+
+
+def _date_slash_to_words(m: re.Match) -> str:
+    """12/04/2024 / 12-04-24 → словами через тот же _date_to_words."""
+    return _date_to_words(m)
+
+
+def _date_day_month_to_words(m: re.Match) -> str:
+    """«15 марта» → «пятнадцатого марта». Месяц приводим к род. падежу."""
+    try:
+        day = int(m.group(1))
+    except (ValueError, TypeError):
+        return m.group(0)
+    if not (1 <= day <= 31):
+        return m.group(0)
+    month_word = m.group(2).lower()
+    # Сводим к роду «месяц + а/я» → правильный род. падеж из _RU_MONTHS_GEN.
+    month_idx_map = {
+        "январь": 0, "января": 0, "январе": 0,
+        "февраль": 1, "февраля": 1, "феврале": 1,
+        "март": 2, "марта": 2, "марте": 2,
+        "апрель": 3, "апреля": 3, "апреле": 3,
+        "май": 4, "мая": 4, "мае": 4,
+        "июнь": 5, "июня": 5, "июне": 5,
+        "июль": 6, "июля": 6, "июле": 6,
+        "август": 7, "августа": 7, "августе": 7,
+        "сентябрь": 8, "сентября": 8, "сентябре": 8,
+        "октябрь": 9, "октября": 9, "октябре": 9,
+        "ноябрь": 10, "ноября": 10, "ноябре": 10,
+        "декабрь": 11, "декабря": 11, "декабре": 11,
+    }
+    idx = month_idx_map.get(month_word)
+    if idx is None:
+        return m.group(0)
+    return f"{_num_to_words_ru(day, 'ordinal')} {_RU_MONTHS_GEN[idx]}"
+
+
+_CURRENCY_WORDS = {
+    "$": "долларов", "долл": "долларов", "доллар": "долларов",
+    "доллара": "долларов", "долларов": "долларов",
+    "₽": "рублей", "р": "рублей", "руб": "рублей", "рубль": "рублей",
+    "рубля": "рублей", "рублей": "рублей",
+    "€": "евро", "евро": "евро",
+    "£": "фунтов", "фунт": "фунтов", "фунта": "фунтов", "фунтов": "фунтов",
+    "¥": "иен", "иен": "иен", "иены": "иен", "иена": "иен",
+}
+
+
+def _money_to_words(m: re.Match) -> str:
+    """$100 / 100₽ / 1500 руб. → «сто долларов» / «тысяча пятьсот рублей»."""
+    sym_pre, num_pre = m.group(1), m.group(2)
+    num_post1, sym_post1 = m.group(3), m.group(4)
+    num_post2, word_post = m.group(5), m.group(6)
+    try:
+        if num_pre and sym_pre:
+            n, key = int(num_pre), sym_pre
+        elif num_post1 and sym_post1:
+            n, key = int(num_post1), sym_post1
+        elif num_post2 and word_post:
+            n, key = int(num_post2), word_post.rstrip(".").lower()
+        else:
+            return m.group(0)
+    except (ValueError, TypeError):
+        return m.group(0)
+    word = _CURRENCY_WORDS.get(key, _CURRENCY_WORDS.get(key.lower(), ""))
+    if not word:
+        return m.group(0)
+    return f"{_num_to_words_ru(n)} {word}"
 
 
 def _normalize_dates_temps_numbers(text: str) -> str:
-    """Преобразование чисел/дат/температуры в слова перед TTS."""
+    """Преобразование чисел/дат/температуры/денег в слова перед TTS.
+
+    Порядок важен:
+    - даты с точками (dd.mm.yyyy) РАНЬШЕ времени (hh:mm), иначе
+      «12.04» в «12.04.1961» съест регэксп времени;
+    - даты со слэшем/дефисом — после точечных, чтобы не путаться;
+    - дата без года («15 марта») — после полных дат, иначе зацепит «15»
+      из «15.03.2024»;
+    - деньги — раньше catch-all чисел, чтобы валюта присоединилась.
+    """
     if not text:
         return text
-    # Порядок важен: даты раньше времени (чтобы dd.mm.yyyy не съел dd.mm как hh:mm).
     text = _RE_DATE.sub(_date_to_words, text)
+    text = _RE_DATE_SLASH.sub(_date_slash_to_words, text)
+    text = _RE_DATE_DAY_MONTH.sub(_date_day_month_to_words, text)
+    text = _RE_MONEY.sub(_money_to_words, text)
     text = _RE_TEMP.sub(_temp_to_words, text)
     text = _RE_TIME.sub(_time_to_words, text)
     text = _RE_YEAR.sub(_year_to_words, text)
