@@ -92,6 +92,17 @@ def register_skill_plan_routes(app, db, limiter):
                 await conn.execute(_CUSTOM_DDL)
             except Exception as _e:
                 logger.warning(f"custom skill plan table init failed: {_e}")
+            # IANA-таймзона юзера (Europe/Moscow, Asia/Yekaterinburg, ...).
+            # Шлётся фронтом один раз через POST /api/user/tz при первой
+            # загрузке. Используется и в skill-plan-планировщике, и в
+            # basic-chat-промпте для корректной даты/времени у юзера —
+            # серверный UTC на Render иначе даёт «сегодня 3 мая» на 2 мая.
+            try:
+                await conn.execute(
+                    "ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS user_tz TEXT"
+                )
+            except Exception as _e:
+                logger.warning(f"user_tz column init failed: {_e}")
         logger.info("Skill plan tables ready")
 
     @app.post("/api/skill-plan")
@@ -453,5 +464,66 @@ def register_skill_plan_routes(app, db, limiter):
             "transitions": data.get("transitions", []),
             "plan": data.get("plan", {}),
         }
+
+    @app.post("/api/user/tz")
+    @limiter.limit("30/minute")
+    async def save_user_tz(request: Request):
+        """Сохраняет IANA-таймзону юзера в fredi_users.user_tz.
+
+        Фронт шлёт один раз при загрузке (Intl.DateTimeFormat).
+        Используется и шедулером 21-дневного плана, и basic-chat-промптом —
+        чтобы дата/время в общении совпадали с локальной зоной юзера, а не
+        с серверным UTC на Render.
+
+        Body: {user_id: int, tz: str (IANA)}
+        Если tz не валиден или ZoneInfo его не понимает — игнорируем.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return {"success": False, "error": "invalid json"}
+
+        try:
+            uid = int(body.get("user_id") or 0)
+        except Exception:
+            uid = 0
+        tz = (body.get("tz") or "").strip()
+
+        if not uid or not tz or len(tz) > 60 or "/" not in tz:
+            # Минимальная валидация: tz должен быть IANA-форматом «Region/City».
+            return {"success": False, "error": "user_id and IANA tz required"}
+
+        # Проверка через ZoneInfo — если не парсится, не сохраняем.
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(tz)
+        except Exception:
+            return {"success": False, "error": f"unknown timezone: {tz}"}
+
+        try:
+            await db.execute(
+                """
+                INSERT INTO fredi_users (user_id, user_tz, is_active)
+                VALUES ($1, $2, TRUE)
+                ON CONFLICT (user_id) DO UPDATE
+                SET user_tz = EXCLUDED.user_tz,
+                    updated_at = NOW()
+                """,
+                uid, tz,
+            )
+        except Exception as e:
+            # Если строка fredi_users не была создана через этот путь
+            # (упрощённый INSERT может не пройти из-за NOT NULL колонок),
+            # пробуем чистый UPDATE.
+            try:
+                await db.execute(
+                    "UPDATE fredi_users SET user_tz = $1, updated_at = NOW() WHERE user_id = $2",
+                    tz, uid,
+                )
+            except Exception as e2:
+                logger.warning(f"save_user_tz failed for {uid}: {e} / {e2}")
+                return {"success": False, "error": "db error"}
+
+        return {"success": True}
 
     return init_skill_plan_tables

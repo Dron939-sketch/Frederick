@@ -210,6 +210,29 @@ class BasicMode(BaseMode):
             except Exception:
                 self._memory_text = ""
 
+    async def _load_user_tz_from_db(self):
+        """Lazy-load IANA-таймзоны юзера из fredi_users.user_tz.
+
+        Фронт шлёт её один раз при первой загрузке через POST /api/user/tz.
+        Если в БД есть значение — оно перекрывает дефолт «Europe/Moscow»,
+        который ставится в __init__. Используется для дат в промпте.
+        Безопасно: если запись пустая или БД недоступна — оставляем дефолт.
+        """
+        if getattr(self, '_user_tz_loaded', False):
+            return
+        self._user_tz_loaded = True
+        try:
+            mem = await self._get_memory()
+            if mem and hasattr(mem, 'db') and mem.db:
+                async with mem.db.get_connection() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT user_tz FROM fredi_users WHERE user_id = $1", self.user_id
+                    )
+                if row and row['user_tz']:
+                    self.user_tz = row['user_tz']
+        except Exception as e:
+            logger.debug(f"user_tz load skip: {e}")
+
     async def _load_cross_session_memory(self) -> None:
         """Кросс-сессионная память: подгружаем сводки прошлых закрытых сессий
         и в фоне суммаризуем сессию, которая только что закрылась.
@@ -796,6 +819,11 @@ class BasicMode(BaseMode):
 
         if self.message_counter == 1:
             await self._load_memory()
+            # Подтягиваем IANA-таймзону юзера из fredi_users.user_tz —
+            # фронт шлёт её при первой загрузке через POST /api/user/tz.
+            # Это перекрывает дефолт «Europe/Moscow» в __init__ для тех,
+            # кто не из MSK. Влияет на дату в user_message и greeting.
+            await self._load_user_tz_from_db()
             # Кросс-сессионная память: подмешиваем сводки прошлых сессий и
             # в фоне суммаризуем закрытую сессию (если такая есть).
             await self._load_cross_session_memory()

@@ -122,6 +122,29 @@
             try { localStorage.setItem('fredi_user_id', u); } catch(e){}
             _setCookie('fredi_uid', u);
             window.USER_ID = u;
+
+            // Шлём IANA-таймзону юзера один раз — fire-and-forget.
+            // Бэк сохранит в fredi_users.user_tz; используется и
+            // skill-plan-планировщиком, и basic-chat-промптом, чтобы дата
+            // в общении совпадала с локальной у юзера, а не с UTC на Render.
+            // Повторно не шлём — флаг в localStorage с привязкой к tz, чтобы
+            // если юзер физически уехал в другой часовой пояс, мы пересняли.
+            try {
+                var _detectedTz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').trim();
+                var _sentTz = null;
+                try { _sentTz = localStorage.getItem('fredi_tz_sent'); } catch(e){}
+                if (_detectedTz && _detectedTz.indexOf('/') > 0 && _sentTz !== _detectedTz) {
+                    var _xhr = new XMLHttpRequest();
+                    _xhr.open('POST', window.API_BASE_URL + '/api/user/tz', true);
+                    _xhr.setRequestHeader('Content-Type', 'application/json');
+                    _xhr.onload = function(){
+                        if (_xhr.status === 200) {
+                            try { localStorage.setItem('fredi_tz_sent', _detectedTz); } catch(e){}
+                        }
+                    };
+                    _xhr.send(JSON.stringify({ user_id: u, tz: _detectedTz }));
+                }
+            } catch(e){ /* tz detect недоступен в старых браузерах — ок */ }
         })();
         window.addEventListener('load',function(){if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.init(window.USER_ID);var _p=false;document.getElementById('chatsList')?.addEventListener('click',function(){if(_p)return;_p=true;if(window.PushManager_Fredi&&window.USER_ID)window.PushManager_Fredi.request(window.USER_ID);},{once:true});});
     </script>
