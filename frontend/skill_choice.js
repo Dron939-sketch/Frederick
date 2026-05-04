@@ -202,7 +202,7 @@ function _scInjectStyles() {
             .sc-today-task { font-size: 13px; }
             .sc-day-task { font-size: 12px; }
             .sc-week-theme { font-size: 12px; }
-            .sc-detail-title { font-size: 19px; line-height: 1.25; word-wrap: break-word; }
+            .sc-detail-title { font-size: 19px; line-height: 1.25; word-wrap: break-word; overflow-wrap: anywhere; }
             .sc-time-grid { grid-template-columns: repeat(3, 1fr); }
             /* === МОДЕЛЬ НАВЫКА на узких экранах === */
             .sc-mdl-grid    { grid-template-columns: 1fr; gap: 8px; }
@@ -219,8 +219,14 @@ function _scInjectStyles() {
             .sc-mdl-trans-key { font-size: 13px; line-height: 1.45; }
             .sc-mdl-trans-explain { font-size: 12px; line-height: 1.5; }
             .sc-detail-hero { padding: 16px; }
+            /* «Формат» — 3 колонки превращаются в горизонтальные строки на узких */
+            .sc-format-grid { grid-template-columns: 1fr; gap: 6px; }
+            .sc-format-item { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; }
+            .sc-format-icon { font-size: 18px; margin-bottom: 0; flex-shrink: 0; }
+            .sc-format-text { font-size: 12px; }
+            .sc-format-text strong { display: inline; font-size: 13px; margin-right: 6px; }
         }
-        /* === iPhone SE / mini (≤380px) — ещё компактнее === */
+        /* === iPhone SE / Samsung Galaxy S8/S9 (≤380px) — компактнее === */
         @media (max-width: 380px) {
             .sc-detail-title { font-size: 18px; }
             .sc-mdl-cell    { padding: 11px; }
@@ -229,11 +235,42 @@ function _scInjectStyles() {
             .sc-mdl-trans   { padding: 9px 11px; }
             .sc-mdl-trans-num { width: 24px; height: 24px; }
             .sc-detail-hero { padding: 14px; }
+            .sc-time-btn    { padding: 8px 4px; font-size: 11.5px; }
+            .sc-channel-card { padding: 10px 12px; }
         }
-        /* === iOS Safari защита от автозума при тапе по input === */
+        /* === Galaxy Fold (folded), малые ретро-устройства (≤320px) === */
+        @media (max-width: 320px) {
+            .sc-detail-title { font-size: 17px; }
+            .sc-detail-hero { padding: 12px; }
+            .sc-mdl-cell    { padding: 10px; }
+            .sc-mdl-center  { padding: 11px; }
+            .sc-mdl-text    { font-size: 12px; }
+            .sc-mdl-trans   { padding: 8px 10px; gap: 8px; }
+            .sc-mdl-trans-num { width: 22px; height: 22px; font-size: 11px; }
+            .sc-time-grid { grid-template-columns: repeat(2, 1fr); }
+            .sc-time-btn { font-size: 11px; }
+        }
+        /* iOS Safari защита от автозума при тапе по input */
         @supports (-webkit-touch-callout: none) {
             .sc-input { font-size: 16px !important; }
         }
+        /* === Универсальная защита от горизонтального overflow === */
+        /* Длинные русские слова («самоидентификация», «стрессоустойчивость»)
+           не должны вылазить за карточку, если перенос не сработал по пробелу. */
+        .sc-mdl-text, .sc-mdl-trans-key, .sc-mdl-trans-explain,
+        .sc-mdl-hero-sub, .sc-detail-p, .sc-detail-promise,
+        .sc-skill-sub, .sc-skill-name, .sc-chosen-name, .sc-chosen-text,
+        .sc-channel-name, .sc-channel-desc, .sc-mode-name, .sc-mode-desc,
+        .sc-example-task, .sc-example-inst, .sc-format-text,
+        .sc-day-task, .sc-week-theme, .sc-phase-theme, .sc-phase-mean,
+        .sc-detail-title {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+        /* min-width:0 на flex-children, чтобы их содержимое не растягивало контейнер */
+        .sc-skill-body, .sc-channel-body, .sc-mode-body,
+        .sc-mdl-trans-body, .sc-week-info, .sc-day-info,
+        .sc-phase-body { min-width: 0; }
 
         /* === ЭКРАН «МОДЕЛЬ НАВЫКА» === */
         .sc-mdl-hero-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 8px; opacity: 0.9; }
@@ -1908,4 +1945,4 @@ async function showSkillChoiceScreen() {
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
-console.log('✅ skill_choice.js v6.23 загружен (mobile/iOS polish для модели и генерации)');
+console.log('✅ skill_choice.js v6.24 загружен (Samsung/Fold width fixes: overflow-wrap + 320px breakpoint + format 1col)');
