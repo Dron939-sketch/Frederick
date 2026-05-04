@@ -197,6 +197,63 @@ function _scInjectStyles() {
         .sc-tip { background: rgba(224,224,224,0.03); border: 1px solid rgba(224,224,224,0.08); border-radius: 14px; padding: 12px 14px; font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: 14px; }
         .sc-tip strong { color: var(--chrome); }
 
+        /* iOS Safari защита от автозума при тапе по input */
+        @supports (-webkit-touch-callout: none) {
+            .sc-input { font-size: 16px !important; }
+        }
+        /* === Универсальная защита от горизонтального overflow === */
+        /* Длинные русские слова («самоидентификация», «стрессоустойчивость»)
+           не должны вылазить за карточку, если перенос не сработал по пробелу. */
+        .sc-mdl-text, .sc-mdl-trans-key, .sc-mdl-trans-explain,
+        .sc-mdl-hero-sub, .sc-detail-p, .sc-detail-promise,
+        .sc-skill-sub, .sc-skill-name, .sc-chosen-name, .sc-chosen-text,
+        .sc-channel-name, .sc-channel-desc, .sc-mode-name, .sc-mode-desc,
+        .sc-example-task, .sc-example-inst, .sc-format-text,
+        .sc-day-task, .sc-week-theme, .sc-phase-theme, .sc-phase-mean,
+        .sc-detail-title {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+        /* min-width:0 на flex-children, чтобы их содержимое не растягивало контейнер */
+        .sc-skill-body, .sc-channel-body, .sc-mode-body,
+        .sc-mdl-trans-body, .sc-week-info, .sc-day-info,
+        .sc-phase-body { min-width: 0; }
+
+        /* === ЭКРАН «МОДЕЛЬ НАВЫКА» === */
+        .sc-mdl-hero-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 8px; opacity: 0.9; }
+        .sc-mdl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+        .sc-mdl-cell { background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.10); border-radius: 14px; padding: 14px; transition: border-color 0.18s, background 0.18s; }
+        .sc-mdl-cell:hover { border-color: rgba(224,224,224,0.22); background: rgba(224,224,224,0.06); }
+        .sc-mdl-center { background: linear-gradient(135deg, rgba(255,200,80,0.10), rgba(255,160,40,0.04)); border: 1.5px solid rgba(255,200,80,0.35); border-radius: 18px; padding: 18px; margin-bottom: 4px; }
+        .sc-mdl-icon { font-size: 22px; margin-bottom: 6px; }
+        .sc-mdl-title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; letter-spacing: 0.2px; }
+        .sc-mdl-sub { font-size: 11px; color: var(--text-secondary); font-style: italic; margin-bottom: 8px; line-height: 1.5; opacity: 0.85; }
+        .sc-mdl-text { font-size: 13px; color: var(--text-primary); line-height: 1.6; }
+        .sc-mdl-center .sc-mdl-title { font-size: 16px; }
+        .sc-mdl-center .sc-mdl-text { font-size: 14px; }
+
+        .sc-mdl-trans-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+        .sc-mdl-trans { display: flex; gap: 12px; padding: 12px 14px; background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.10); border-radius: 14px; }
+        .sc-mdl-trans-num { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,200,80,0.18); color: rgba(255,200,80,0.95); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+        .sc-mdl-trans-body { min-width: 0; flex: 1; }
+        .sc-mdl-trans-key { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; line-height: 1.5; }
+        .sc-mdl-trans-explain { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 6px; }
+        .sc-mdl-trans-days { display: flex; flex-wrap: wrap; gap: 5px; }
+        .sc-mdl-daychip { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(224,224,224,0.08); color: var(--text-secondary); border: 1px solid rgba(224,224,224,0.12); }
+
+        [data-theme="light"] .sc-mdl-cell { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .sc-mdl-cell:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.18); }
+        [data-theme="light"] .sc-mdl-center { background: linear-gradient(135deg, rgba(255,140,0,0.08), rgba(255,100,0,0.02)); border-color: rgba(255,140,0,0.4); }
+        [data-theme="light"] .sc-mdl-trans { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .sc-mdl-trans-num { background: rgba(255,140,0,0.15); color: rgba(180,90,0,0.95); }
+        [data-theme="light"] .sc-mdl-daychip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.10); }
+
+        /* ============================================
+           Mobile-overrides — ВАЖНО: media-queries должны идти ПОСЛЕ всех
+           базовых правил .sc-mdl-* и .sc-format-*. Иначе при равной
+           специфичности базовое правило (объявленное позже) перекроет
+           мобильный fallback и сетка останется 1fr 1fr на узких экранах.
+           ============================================ */
         @media (max-width: 480px) {
             .sc-skill-name { font-size: 13px; }
             .sc-today-task { font-size: 13px; }
@@ -250,56 +307,6 @@ function _scInjectStyles() {
             .sc-time-grid { grid-template-columns: repeat(2, 1fr); }
             .sc-time-btn { font-size: 11px; }
         }
-        /* iOS Safari защита от автозума при тапе по input */
-        @supports (-webkit-touch-callout: none) {
-            .sc-input { font-size: 16px !important; }
-        }
-        /* === Универсальная защита от горизонтального overflow === */
-        /* Длинные русские слова («самоидентификация», «стрессоустойчивость»)
-           не должны вылазить за карточку, если перенос не сработал по пробелу. */
-        .sc-mdl-text, .sc-mdl-trans-key, .sc-mdl-trans-explain,
-        .sc-mdl-hero-sub, .sc-detail-p, .sc-detail-promise,
-        .sc-skill-sub, .sc-skill-name, .sc-chosen-name, .sc-chosen-text,
-        .sc-channel-name, .sc-channel-desc, .sc-mode-name, .sc-mode-desc,
-        .sc-example-task, .sc-example-inst, .sc-format-text,
-        .sc-day-task, .sc-week-theme, .sc-phase-theme, .sc-phase-mean,
-        .sc-detail-title {
-            overflow-wrap: anywhere;
-            word-break: break-word;
-        }
-        /* min-width:0 на flex-children, чтобы их содержимое не растягивало контейнер */
-        .sc-skill-body, .sc-channel-body, .sc-mode-body,
-        .sc-mdl-trans-body, .sc-week-info, .sc-day-info,
-        .sc-phase-body { min-width: 0; }
-
-        /* === ЭКРАН «МОДЕЛЬ НАВЫКА» === */
-        .sc-mdl-hero-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 8px; opacity: 0.9; }
-        .sc-mdl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
-        .sc-mdl-cell { background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.10); border-radius: 14px; padding: 14px; transition: border-color 0.18s, background 0.18s; }
-        .sc-mdl-cell:hover { border-color: rgba(224,224,224,0.22); background: rgba(224,224,224,0.06); }
-        .sc-mdl-center { background: linear-gradient(135deg, rgba(255,200,80,0.10), rgba(255,160,40,0.04)); border: 1.5px solid rgba(255,200,80,0.35); border-radius: 18px; padding: 18px; margin-bottom: 4px; }
-        .sc-mdl-icon { font-size: 22px; margin-bottom: 6px; }
-        .sc-mdl-title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; letter-spacing: 0.2px; }
-        .sc-mdl-sub { font-size: 11px; color: var(--text-secondary); font-style: italic; margin-bottom: 8px; line-height: 1.5; opacity: 0.85; }
-        .sc-mdl-text { font-size: 13px; color: var(--text-primary); line-height: 1.6; }
-        .sc-mdl-center .sc-mdl-title { font-size: 16px; }
-        .sc-mdl-center .sc-mdl-text { font-size: 14px; }
-
-        .sc-mdl-trans-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
-        .sc-mdl-trans { display: flex; gap: 12px; padding: 12px 14px; background: rgba(224,224,224,0.04); border: 1px solid rgba(224,224,224,0.10); border-radius: 14px; }
-        .sc-mdl-trans-num { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,200,80,0.18); color: rgba(255,200,80,0.95); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
-        .sc-mdl-trans-body { min-width: 0; flex: 1; }
-        .sc-mdl-trans-key { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; line-height: 1.5; }
-        .sc-mdl-trans-explain { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 6px; }
-        .sc-mdl-trans-days { display: flex; flex-wrap: wrap; gap: 5px; }
-        .sc-mdl-daychip { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(224,224,224,0.08); color: var(--text-secondary); border: 1px solid rgba(224,224,224,0.12); }
-
-        [data-theme="light"] .sc-mdl-cell { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
-        [data-theme="light"] .sc-mdl-cell:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.18); }
-        [data-theme="light"] .sc-mdl-center { background: linear-gradient(135deg, rgba(255,140,0,0.08), rgba(255,100,0,0.02)); border-color: rgba(255,140,0,0.4); }
-        [data-theme="light"] .sc-mdl-trans { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
-        [data-theme="light"] .sc-mdl-trans-num { background: rgba(255,140,0,0.15); color: rgba(180,90,0,0.95); }
-        [data-theme="light"] .sc-mdl-daychip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.10); }
 
         /* === ЭКРАН ГЕНЕРАЦИИ КАСТОМНОГО НАВЫКА === */
         .sc-gen-loader { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 8px; }
