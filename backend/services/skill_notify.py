@@ -302,7 +302,9 @@ def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour
     parts += [
         "",
         "—",
-        "✅ Сделал? Открой Фреди и отметь",
+        "✅ *Как отметить выполнение*",
+        "Открой Фреди → раздел *💬 Сообщения* → нажми кнопку *«✅ Выполнил»* "
+        "под этим заданием.",
     ]
     return "\n".join(parts)
 
@@ -439,14 +441,26 @@ async def send_welcome_message(db, user_id: int) -> dict:
     parts += [
         "",
         f"⏰ Завтра в *{notify_time} ({tz_str})* пришлю день 2 сюда.",
-        "✅ Сделал? Открой Фреди и отметь.",
+        "",
+        "✅ *Как отметить выполнение*",
+        "Открой Фреди → раздел *💬 Сообщения* → нажми *«✅ Выполнил»* "
+        "под этим заданием.",
     ]
     text = "\n".join(parts)
     result = await send_to_channel(db, user_id, plan["channel"], text)
 
     # Дублируем день 1 в уведомления — чтобы у юзера сразу была кнопка «✅ Выполнил».
+    # И ставим last_sent_at = NOW(), чтобы планировщик сегодня не отправил день 1 ещё раз
+    # (если время старта совпало с notify_time).
     if result.get("success"):
         await _push_skill_notification(db, user_id, skill_name, 1, day1)
+        try:
+            await db.execute(
+                "UPDATE fredi_skill_plans SET last_sent_at = NOW() WHERE user_id = $1",
+                int(user_id)
+            )
+        except Exception as e:
+            logger.warning(f"welcome: failed to stamp last_sent_at for {user_id}: {e}")
 
     return result
 
@@ -610,7 +624,13 @@ async def skill_plan_scheduler(db):
                     schedule.append(("eve",   _add_hours(notify_time, 12), "last_eve_sent_at"))
 
                 for kind, target_hhmm, last_col in schedule:
-                    if cur_hhmm != target_hhmm:
+                    # Раньше была строгая проверка cur_hhmm == target_hhmm —
+                    # если тик планировщика дрейфует (Render cold-start, GC,
+                    # любая задержка >60с), мы промахивались мимо минуты и
+                    # юзер не получал сообщение в этот день вовсе.
+                    # Теперь триггерим, как только текущее локальное время
+                    # >= целевого, и страхуемся дедупом по last_sent.
+                    if cur_hhmm < target_hhmm:
                         continue
                     last_sent = row[last_col]
                     if last_sent is not None and last_sent >= today_start_utc:
