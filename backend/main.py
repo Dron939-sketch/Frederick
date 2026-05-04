@@ -911,41 +911,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
             if recognized_text and len(recognized_text.strip()) > 0:
                 await websocket.send_json({"type": "text", "data": f"🎤 Вы: {recognized_text}"})
 
-                # Юзер согласился на оффер теста → подтверждаем голосом и
-                # сигналим фронту type=action/action=open_test, чтобы тест
-                # реально открылся вместо очередного ответа от Freddy.
-                if (mode_name == "basic"
-                        and context.get("basic_test_offered", False)
-                        and _is_test_acceptance(recognized_text)):
-                    ack = random.choice([
-                        "Отлично. Открываю тест.",
-                        "Хорошо. Запускаю.",
-                        "Поехали. Открываю тест.",
-                    ])
-                    context["basic_test_offered"] = False
-                    try:
-                        await context_repo.save(user_id_for_db, context)
-                    except Exception as _e:
-                        logger.warning(f"context save (test-accept) failed: {_e}")
-                    await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {ack}"})
-                    await websocket.send_json({"type": "status", "status": "speaking"})
-                    try:
-                        async for audio_chunk in voice_service.text_to_speech_streaming(
-                            ack, mode_name, chunk_size=32768
-                        ):
-                            if audio_chunk:
-                                audio_b64 = base64.b64encode(audio_chunk).decode()
-                                await websocket.send_json({"type": "audio", "data": audio_b64, "is_final": False})
-                        await websocket.send_json({"type": "audio", "data": "", "is_final": True})
-                    except Exception as _e:
-                        logger.warning(f"TTS for test-accept ack failed: {_e}")
-                    await websocket.send_json({"type": "action", "action": "open_test"})
-                    await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": "basic"})
-                    await message_repo.save(user_id_for_db, "assistant", ack, {"voice": True, "mode": "basic"})
-                    await websocket.send_json({"type": "status", "status": "idle"})
-                    audio_buffer = bytearray()
-                    chunk_count = 0
-                    return
+                # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убран авто-accept оффера теста
+                # из голосового режима. Тест запускается явным действием
+                # юзера через UI. См. /api/chat (там же удалена эта логика).
 
                 # --- Freddy SDK для голосового режима (basic) ---
                 response_text = ""
@@ -2419,54 +2387,12 @@ async def chat(request: Request, data: ChatRequest):
 
         # --- Freddy SDK: для пользователей без теста ---
         if not has_profile:
-            test_offered = context_obj.get("basic_test_offered", False)
-
-            # Юзер согласился на оффер теста → говорим фронту открыть тест.
-            # Без этого блока «да» уходит в FreddyService и тест никогда не
-            # стартует, хотя пользователь дал согласие.
-            if test_offered and _is_test_acceptance(data.message):
-                ack = random.choice([
-                    "Отлично. Открываю тест.",
-                    "Хорошо. Запускаю.",
-                    "Поехали. Открываю тест.",
-                ])
-                # Сбрасываем флаг: если юзер по какой-то причине вернётся
-                # без профиля, оффер сработает снова на 4-м сообщении.
-                context_obj["basic_test_offered"] = False
-                await context_repo.save(data.user_id, context_obj)
-                await message_repo.save(data.user_id, "user", data.message, {"mode": "basic"})
-                await message_repo.save(data.user_id, "assistant", ack, {"mode": "basic"})
-                await log_event(data.user_id, "chat", {
-                    "mode": "basic", "message_length": len(data.message),
-                    "tools_used": ["test_accept"], "has_profile": False
-                })
-                return {
-                    "success": True, "response": ack,
-                    "mode_used": "basic", "reflection": None,
-                    "action": "open_test",
-                }
-
-            # Предложение теста после 4 сообщений (сохраняем логику BasicMode)
-            if msg_count >= 4 and not test_offered:
-                test_offered = True
-                context_obj["basic_test_offered"] = True
-                await context_repo.save(data.user_id, context_obj)
-                test_response = random.choice([
-                    "Чтобы пойти глубже, есть короткий тест на 10 минут. После него я смогу подбирать слова и подход именно под тебя. Сделаем?",
-                    "Есть тест на 10 минут — он покажет тип восприятия и слабые места. С ним наш разговор станет точнее. Готов попробовать?",
-                    "Предлагаю сделать тест — минут десять. Это даст мне твой профиль, и дальше я буду работать с тобой не вслепую. Согласен?",
-                ])
-                await message_repo.save(data.user_id, "user", data.message, {"mode": "test"})
-                await message_repo.save(data.user_id, "assistant", test_response, {"mode": "test"})
-                await log_event(data.user_id, "chat", {
-                    "mode": "basic", "message_length": len(data.message),
-                    "tools_used": ["test_offer"], "has_profile": False
-                })
-                return {
-                    "success": True, "response": test_response,
-                    "mode_used": "basic", "reflection": None
-                }
-
+            # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убран авто-оффер теста после 4-го
+            # сообщения и его accept/decline-обработчики. Они слишком часто
+            # ломали разговор: «да» в любой длинной фразе открывало тест,
+            # «забудь смартфон» залипало в шаблонных «понял, стираю».
+            # Теперь тест запускается ТОЛЬКО явным действием юзера через UI
+            # (кнопка «📊 Психологический тест» в левом меню).
             # Пробуем FreddyService, fallback на BasicMode
             freddy_reply = None
             try:
@@ -2734,38 +2660,8 @@ async def process_voice(
         else:
             msg_count = 0
 
-        # Юзер согласился на оффер теста → подтверждаем голосом и сигналим
-        # фронту action=open_test. Выходим до AI-вызова, иначе FreddyService
-        # сгенерит отвлекающий ответ и тест не откроется.
-        if (not has_profile
-                and context_obj.get("basic_test_offered", False)
-                and _is_test_acceptance(recognized_text)):
-            ack = random.choice([
-                "Отлично. Открываю тест.",
-                "Хорошо. Запускаю.",
-                "Поехали. Открываю тест.",
-            ])
-            context_obj["basic_test_offered"] = False
-            await context_repo.save(user_id_for_db, context_obj)
-            try:
-                ack_audio = await voice_service.text_to_speech(ack, "basic")
-            except Exception as _tts_err:
-                logger.warning(f"TTS for test-accept ack failed: {_tts_err}")
-                ack_audio = None
-            await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": "basic"})
-            await message_repo.save(user_id_for_db, "assistant", ack, {"voice": True, "mode": "basic"})
-            await log_event(user_id_for_db, "voice", {
-                "text_length": len(recognized_text), "mode": "basic",
-                "tools_used": ["test_accept"], "has_profile": False,
-            })
-            return {
-                "success": True,
-                "recognized_text": recognized_text,
-                "answer": ack,
-                "audio_base64": ack_audio,
-                "audio_mime": "audio/mpeg",
-                "action": "open_test",
-            }
+        # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убран авто-accept оффера теста.
+        # Тест запускается явным действием юзера через UI.
 
         user_data = {
             "profile_data": profile.get("profile_data", {}),
@@ -2936,44 +2832,15 @@ async def process_voice_stream(
         else:
             msg_count = 0
 
-        # Test-acceptance edge case (single-shot, не стрим).
-        test_accept_mode = (
-            not has_profile
-            and context_obj.get("basic_test_offered", False)
-            and _is_test_acceptance(recognized_text)
-        )
+        # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убран авто-accept оффера теста
+        # из stream-голосового режима. Тест — только через UI.
 
         async def event_stream():
             # 1. Transcript
             yield json.dumps({"type": "transcript", "text": recognized_text}, ensure_ascii=False) + "\n"
 
             try:
-                # 2a. Test-acceptance branch — единое audio + done с action.
-                if test_accept_mode:
-                    ack = random.choice([
-                        "Отлично. Открываю тест.",
-                        "Хорошо. Запускаю.",
-                        "Поехали. Открываю тест.",
-                    ])
-                    context_obj["basic_test_offered"] = False
-                    await context_repo.save(user_id_for_db, context_obj)
-                    try:
-                        ack_audio = await voice_service.text_to_speech(ack, "basic")
-                    except Exception as _e:
-                        logger.warning(f"TTS test-accept failed: {_e}")
-                        ack_audio = None
-                    if ack_audio:
-                        yield json.dumps({"type": "audio", "b64": ack_audio, "text": ack}, ensure_ascii=False) + "\n"
-                    await message_repo.save(user_id_for_db, "user", recognized_text, {"voice": True, "mode": "basic"})
-                    await message_repo.save(user_id_for_db, "assistant", ack, {"voice": True, "mode": "basic"})
-                    await log_event(user_id_for_db, "voice", {
-                        "text_length": len(recognized_text), "mode": "basic",
-                        "tools_used": ["test_accept"], "has_profile": False,
-                    })
-                    yield json.dumps({"type": "done", "full_text": ack, "action": "open_test"}, ensure_ascii=False) + "\n"
-                    return
-
-                # 2b. Обычный режим: stream sentences → TTS per-sentence.
+                # Обычный режим: stream sentences → TTS per-sentence.
                 user_data = {
                     "profile_data": profile.get("profile_data", {}),
                     "perception_type": profile.get("perception_type", "не определен"),

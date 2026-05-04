@@ -144,6 +144,13 @@ class BasicMode(BaseMode):
         self.gender = getattr(context, "gender", None) if context else None
         # Город нужен tool'у get_weather, чтобы не переспрашивать у юзера.
         self.user_city = getattr(context, "city", None) if context else None
+        # Таймзона юзера (IANA). Используется в _user_tz()/_current_date_line(),
+        # чтобы дата в промпте была локальной, а не серверным UTC на Render.
+        self.user_tz = (
+            getattr(context, "timezone", None)
+            or user_data.get("timezone")
+            or "Europe/Moscow"
+        )
         self.message_counter = user_data.get("message_count", 0)
         self.test_offered = user_data.get("test_offered", False)
         # Активный пресет промпта BasicMode (current/jarvis/house).
@@ -239,8 +246,23 @@ class BasicMode(BaseMode):
         # Дай-ка / Мне кажется» запрещены BEHAVIORAL_GUARD).
         return random.choice(["хорошо", "ясно", "понимаю", "ладно", "ок"])
 
+    def _user_tz(self):
+        """Таймзона юзера (IANA). Если не задана — Europe/Moscow.
+
+        Используется и для приветствия по времени суток, и для системной
+        даты в user_message — чтобы Фреди не путался («сегодня 3 мая» vs
+        реальное «2 мая» у юзера) из-за серверного UTC на Render.
+        """
+        try:
+            from zoneinfo import ZoneInfo
+            tz_name = (getattr(self, "user_tz", None) or "Europe/Moscow")
+            return ZoneInfo(tz_name)
+        except Exception:
+            return None
+
     def _get_time_greeting(self) -> str:
-        hour = datetime.now().hour
+        tz = self._user_tz()
+        hour = datetime.now(tz).hour if tz else datetime.now().hour
         if 5 <= hour < 12:
             return "Доброе утро"
         elif 12 <= hour < 17:
@@ -249,6 +271,28 @@ class BasicMode(BaseMode):
             return "Добрый вечер"
         else:
             return "Доброй ночи"
+
+    def _current_date_line(self) -> str:
+        """Строка «Сейчас: понедельник, 4 мая 2026, 14:30 (Europe/Moscow)».
+
+        Включается в user_message, чтобы LLM не галлюцинировал дату.
+        """
+        from datetime import datetime as _dt
+        tz = self._user_tz()
+        now = _dt.now(tz) if tz else _dt.now()
+        weekdays = [
+            "понедельник", "вторник", "среда", "четверг",
+            "пятница", "суббота", "воскресенье",
+        ]
+        months = [
+            "января", "февраля", "марта", "апреля", "мая", "июня",
+            "июля", "августа", "сентября", "октября", "ноября", "декабря",
+        ]
+        tz_label = (getattr(self, "user_tz", None) or "Europe/Moscow") if tz else "local"
+        return (
+            f"Сейчас: {weekdays[now.weekday()]}, {now.day} {months[now.month - 1]} "
+            f"{now.year}, {now.strftime('%H:%M')} ({tz_label})"
+        )
 
     async def _extract_rule(self, message: str) -> Optional[str]:
         # Анти-ложь: если в сообщении упоминается, что это слова/действия
@@ -495,6 +539,12 @@ class BasicMode(BaseMode):
         Меняется почти в каждом ходе, поэтому идёт в user-сообщение, а не
         в кешируемый system."""
         parts: List[str] = []
+        # Дата/время первой строкой — иначе LLM галлюцинирует «сегодня 3 мая»,
+        # хотя у юзера 2 мая. Берём из таймзоны юзера, не из серверного UTC.
+        try:
+            parts.append(self._current_date_line())
+        except Exception as _e:
+            logger.debug(f"current_date_line skip: {_e}")
         if self._cross_memory:
             parts.append(self._cross_memory.strip())
         profile = self._build_profile_block().strip()
@@ -769,153 +819,16 @@ class BasicMode(BaseMode):
             logger.debug(f"intuition skip: {_e}")
             self._intuition_block = ""
 
-        # Если в памяти юзера уже есть отметка «тест пройден / не предлагать» —
-        # выставляем флаг и больше не оффер'им. Память подгружается на 1-м
-        # сообщении сессии (см. _load_memory выше).
-        if not self.test_offered and self._memory_text:
-            _mem_low = self._memory_text.lower()
-            if (
-                "test_already_passed_or_refused" in _mem_low
-                or "тест уже пройден" in _mem_low
-                or "не предлагать тест" in _mem_low
-            ):
-                self.test_offered = True
+        # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убрали ВСЕ regex-ветки на «забудь»,
+        # «тест уже прошёл», оффер теста на 4-м сообщении, согласие/отказ.
+        # Опыт показал, что эти регэкспы ловят ложные срабатывания на любых
+        # употреблениях слов как фигур речи (юзер говорит «забудь» в смысле
+        # «забей на смартфон» — Фреди залипает в шаблонные «понял, стираю»;
+        # юзер пишет «Да, у тебя время бежит» — Фреди открывает тест).
+        # Теперь эти кейсы обрабатывает LLM через обычный промпт. Тест
+        # запускается явным действием юзера через UI, а не реплику в чате.
 
-        q_lower = question.lower()
-
-        # 0. Команды «забудь / не моё / это сказала [роль]» — стираем
-        #    последние факты из памяти, чтобы Фреди не приписывал
-        #    собеседнику услышанное от другого человека или из прошлого
-        #    разговора, который к нему не относится.
-        #
-        #    ВАЖНО: ветка «[роль] говорил/сказал» проверяет роль КАК
-        #    ПОДЛЕЖАЩЕЕ — то есть ДО глагола. Раньше regex ловил «роль ПОСЛЕ
-        #    глагола», и любая фраза вроде «Глеб сказал: Папа, давай…» (где
-        #    «Папа» — вокатив сына к отцу) ошибочно засчитывалась как
-        #    «забудь» и Фреди залипал в шаблонных «понял, стираю».
-        #    См. https://github.com/Dron939-sketch/Frederick — баг-репорт от 04.05.2026.
-        _forget_re = (
-            r"(\bзабудь\b|сотри\s+(?:это|память|инфо)|\bстирай\b|"
-            r"это\s+не\s+(?:моё|мое|я|про\s+меня)|"
-            r"ко\s+мне\s+(?:это\s+)?не\s+относится|"
-            # «[роль] сказал[а]» — роль как подлежащее ПЕРЕД глаголом
-            r"(?:^|\s)(?:сестр|брат|мам|пап|жен|муж|сын|доч|друг|"
-            r"подруг|коллег|сосед|бабуш|дедуш|т[её]т|дяд|реб[её]н)\S{0,8}\s+"
-            r"(?:\S+\s+){0,2}(?:говорил[аи]?|сказал[аи]?|сказан[оа]?)|"
-            # «это сказал[а] [роль]» — нужен явный «это» перед глаголом,
-            # иначе ловится вокатив («Глеб сказал: пап, давай»).
-            r"\bэто\s+(?:говорил[аи]?|сказал[аи]?|сказан[оа]?)\s+"
-            r"(?:\S+\s+){0,2}"
-            r"(?:сестр|брат|мам|пап|жен|муж|сын|доч|друг|подруг|"
-            r"коллег|сосед|бабуш|дедуш|т[её]т|дяд|реб[её]н|не\s+я))"
-        )
-        if re.search(_forget_re, q_lower):
-            try:
-                mem = await self._get_memory()
-                if mem and hasattr(mem, "forget_recent"):
-                    deleted = await mem.forget_recent(self.user_id, n=5)
-                    logger.info(f"BasicMode forget: deleted {deleted} facts for user {self.user_id}")
-                # Сбрасываем in-memory правила/golden, чтобы они не подмешались.
-                self.rules = []
-                self.golden_phrases = []
-                self._memory_text = ""
-            except Exception as _e:
-                logger.warning(f"forget_recent failed: {_e}")
-            yield random.choice([
-                "Понял, стираю. К этому больше не возвращаюсь.",
-                "Хорошо, забыл. Спасибо за поправку.",
-                "Принял — это к тебе не относится. Дальше с чистого листа.",
-            ])
-            return
-
-        # 1. Юзер явно говорит «уже прошёл тест / не нужен / не предлагай»
-        #    — выставляем флаг, запоминаем факт навсегда, не «открываем тест».
-        #    Условие: в сообщении есть слово «тест» И сигнал, что он либо
-        #    уже пройден, либо не нужен / не предлагать. Это надёжнее, чем
-        #    единый regex, и ловит «Я уже тест прошёл» без явного «не нужен».
-        _test_signal_re = (
-            r"(уже\s+прош[её]л|прош[её]л|прохо(?:дил|дила|дили|жу)|"
-            r"не\s+нужен|не\s+нужно|не\s+нужна|не\s+надо|"
-            r"не\s+предлаг|больше\s+не|не\s+спрашивай|не\s+интересн|"
-            r"отстань|хватит\s+про|больше\s+не\s+нужн)"
-        )
-        if "тест" in q_lower and re.search(_test_signal_re, q_lower):
-            self.test_offered = True
-            asyncio.create_task(self._save_fact_bg(
-                "test_already_passed_or_refused: пользователь сказал, что тест "
-                "уже пройден или просит больше его не предлагать"
-            ))
-            yield random.choice([
-                "Понял. Тест больше не предлагаю — просто поговорим.",
-                "Ок, без теста. Что у тебя сейчас?",
-                "Принял, тест отменяю. Продолжаем разговор.",
-            ])
-            return
-
-        # 2. Если это вопрос — пропускаем regex-ветки оффера/да-нет и идём
-        #    сразу в основной LLM. Иначе «Кто создал ИИ?» уходит в test-loop.
-        _question_re = (
-            r"\?|^\s*(?:кто|что|как|почему|зачем|где|когда|куда|"
-            r"сколько|какой|какая|какие|чей|ты\s+(?:знаешь|можешь|умеешь))\b"
-        )
-        is_question = bool(re.search(_question_re, question[:120], re.IGNORECASE | re.UNICODE))
-
-        # 3. Оффер на 4-м сообщении — только если не вопрос и оффера ещё не было.
-        if self.message_counter >= 4 and not self.test_offered and not is_question:
-            self.test_offered = True
-            # Оффер преподносим как «давай идти глубже», а не как способ
-            # закрыть тему. К этому моменту юзер уже должен был получить
-            # содержательный разбор — это требование промпта.
-            yield random.choice([
-                "Чтобы пойти глубже, есть короткий тест на 10 минут. После него я смогу подбирать слова и подход именно под тебя. Сделаем?",
-                "Есть тест на 10 минут — он покажет тип восприятия и слабые места. С ним наш разговор станет точнее. Готов попробовать?",
-                "Предлагаю сделать тест — минут десять. Это даст мне твой профиль, и дальше я буду работать с тобой не вслепую. Согласен?",
-            ])
-            return
-
-        # 4. Согласие — только если оффер уже был и это КОРОТКАЯ
-        #    подтверждающая реплика, в которой ПЕРВОЕ слово — согласие.
-        #    Длинные сообщения вроде «давай повторю свой вопрос про смартфон»
-        #    или «ок, я говорил, что хочу X» НЕ интерпретируем как согласие
-        #    на тест — иначе юзер не может задать обычный вопрос с «давай».
-        _agree_words = {
-            "да", "ага", "угу", "хочу", "давай", "давайте", "погнали",
-            "ок", "окей", "окэй", "попробую", "попробуем", "можно",
-            "согласен", "согласна", "конечно", "поехали", "начнём", "начнем",
-        }
-        _decline_re = r"(\bнет\b|не\s+хочу|отстань|не\s+надо|не\s+сейчас|не\s+интересно)"
-        _short_reply = len(question.strip()) <= 25
-        _first_word = re.sub(r"[^\wа-яёА-ЯЁ]+", " ", q_lower).strip().split(" ")[:1]
-        _starts_with_agree = bool(_first_word) and _first_word[0] in _agree_words
-
-        if (
-            self.test_offered
-            and not is_question
-            and _short_reply
-            and _starts_with_agree
-            and not re.search(_decline_re, q_lower)
-        ):
-            yield random.choice(["Отлично. Давай начнем.", "Хорошо. Тогда начнем.", "Первый вопрос..."])
-            return
-
-        # 5. Отказ — снимаем оффер и не зацикливаемся. Тоже только на
-        #    короткой реплике, чтобы «не сейчас, я просил X» не уходило в
-        #    «Ладно, побудем здесь».
-        if (
-            not is_question
-            and _short_reply
-            and re.search(_decline_re, q_lower)
-        ):
-            if not self.test_offered:
-                self.test_offered = True
-            yield random.choice([
-                "Хорошо. Просто поговорим.",
-                "Ладно. Тогда просто побудем здесь.",
-                "Нормально. Давай просто поговорим."
-            ])
-            return
-
-        # Main response: Anthropic with tools (datetime/weather/web_search)
+        # Главный путь: Anthropic с тулами (datetime/weather/web_search)
         # → DeepSeek fallback (no tools).
         try:
             response = await self._call_llm_for_response(question, max_tokens=400, temperature=0.8)
