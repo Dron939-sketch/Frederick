@@ -71,8 +71,12 @@ def verify_messenger_token(user_id: int, token: str) -> bool:
 
 
 def _build_app_url(user_id: int) -> str:
-    """URL приложения с подписанными fid+t. Тык → автологин."""
-    base = (os.environ.get("WEB_URL") or "https://fredi-frontend.onrender.com").rstrip("/")
+    """URL приложения с подписанными fid+t. Тык → автологин.
+
+    По умолчанию ведём на премиум-домен meysternlp.ru/fredi/. Override-нуть
+    можно через env WEB_URL — например, для staging-окружений.
+    """
+    base = (os.environ.get("WEB_URL") or "https://meysternlp.ru/fredi/").rstrip("/")
     token = make_messenger_token(user_id)
     sep = "&" if "?" in base else "?"
     return f"{base}{sep}fid={user_id}&t={token}"
@@ -256,16 +260,19 @@ async def _get_user_name(db, user_id: int) -> str:
 
 
 def _greeting(hour: int, name: str = "") -> str:
-    """Приветствие по локальному часу. С эмодзи и именем (если есть)."""
+    """Приветствие по локальному часу. Премиум-стиль: без эмодзи, с точкой,
+    имя в начале (если есть) — как у личного ассистента, не как у бота."""
     if 5 <= hour < 12:
-        base = "🌅 Доброе утро"
+        base = "доброе утро"
     elif 12 <= hour < 18:
-        base = "🌤 Добрый день"
+        base = "добрый день"
     elif 18 <= hour < 23:
-        base = "🌙 Добрый вечер"
+        base = "добрый вечер"
     else:
-        base = "🌃 Доброй ночи"
-    return f"{base}, {name}!" if name else f"{base}!"
+        base = "доброй ночи"
+    if name:
+        return f"{name}, {base}."
+    return f"{base.capitalize()}."
 
 
 def _user_now(plan_row) -> datetime:
@@ -277,59 +284,61 @@ def _user_now(plan_row) -> datetime:
 # ШАБЛОНЫ СООБЩЕНИЙ
 # ============================================================
 def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
-    """Утреннее сообщение — задание дня."""
+    """Утреннее сообщение — задание дня. Премиум-минимализм: без громоздких
+    разделителей, без отдельного блока «как отметить» (кнопка под сообщением
+    делает это сама), без подзаголовка «Зачем это» — связка идёт через тире."""
     task = exercise.get("task", "")
     dur = exercise.get("dur", "")
     inst = exercise.get("inst", "")
     why = exercise.get("why", "")
 
     parts = [
-        _greeting(hour, name),
+        f"{_greeting(hour, name)}",
         "",
-        f"━━━ *ДЕНЬ {day} · 21* ━━━",
-        skill_name,
+        f"День {day} из 21 · {skill_name}",
         "",
-        f"📌 *{task}* · ⏱ {dur}",
+        f"📌 *{task}*  ·  {dur}",
         "",
         inst,
     ]
     if why:
         parts += [
             "",
-            "💭 *Зачем это*",
-            why,
+            f"Зачем — {why}",
         ]
     parts += [
         "",
-        "—",
-        "✅ *Как отметить выполнение*",
-        "Открой Фреди → раздел *💬 Сообщения* → нажми кнопку *«✅ Выполнил»* "
-        "под этим заданием.",
+        "— Фреди",
     ]
     return "\n".join(parts)
 
 
 def build_check_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
-    """Дневной чек-ин (active mode) — короткое подбадривание."""
+    """Дневной чек-ин (active mode) — короткое подбадривание в том же стиле,
+    что и утреннее сообщение."""
     task = exercise.get("task", "")
     parts = [
         _greeting(hour, name),
         "",
-        f"Получилось начать «{task}»? Это день {day} из 21.",
+        f"Получилось начать «{task}»? День {day} из 21.",
         "",
-        "Если ещё нет — 5 минут хватит, чтобы сделать первый шаг.",
+        "Если ещё нет — пяти минут хватит, чтобы сделать первый шаг.",
+        "",
+        "— Фреди",
     ]
     return "\n".join(parts)
 
 
 def build_evening_message(skill_name: str, day: int, name: str, hour: int) -> str:
-    """Вечерняя рефлексия (active mode)."""
+    """Вечерняя рефлексия (active mode). Тот же премиум-стиль."""
     parts = [
         _greeting(hour, name),
         "",
-        f"Что получилось сегодня по навыку «{skill_name}»? Что было неудобно?",
+        f"Что сегодня получилось по навыку «{skill_name}»? Что было неудобно?",
         "",
-        "Можешь записать 1–2 предложения в дневник Фреди — это закрепляет результат. Или просто подумать.",
+        "Запишите одну-две фразы в дневник Фреди — это закрепляет результат. Можно просто подумать.",
+        "",
+        "— Фреди",
     ]
     return "\n".join(parts)
 
@@ -423,28 +432,26 @@ async def send_welcome_message(db, user_id: int) -> dict:
     name_part = f", {name}" if name else ""
 
     parts = [
-        f"🚀 *Поехали{name_part}!*",
+        f"Поехали{name_part}.",
         "",
-        f"21 день навыка «{skill_name}»",
+        f"21 день навыка «{skill_name}». Каждый день одно короткое задание.",
         "",
-        "━━━ *ДЕНЬ 1 · 21* ━━━",
-        f"📌 *{day1_task}* · ⏱ {day1_dur}",
+        "День 1 из 21",
+        "",
+        f"📌 *{day1_task}*  ·  {day1_dur}",
         "",
         day1_inst,
     ]
     if day1_why:
         parts += [
             "",
-            "💭 *Зачем это*",
-            day1_why,
+            f"Зачем — {day1_why}",
         ]
     parts += [
         "",
-        f"⏰ Завтра в *{notify_time} ({tz_str})* пришлю день 2 сюда.",
+        f"Завтра в {notify_time} ({tz_str}) пришлю день 2.",
         "",
-        "✅ *Как отметить выполнение*",
-        "Открой Фреди → раздел *💬 Сообщения* → нажми *«✅ Выполнил»* "
-        "под этим заданием.",
+        "— Фреди",
     ]
     text = "\n".join(parts)
     result = await send_to_channel(db, user_id, plan["channel"], text)
