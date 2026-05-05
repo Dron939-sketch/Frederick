@@ -255,19 +255,9 @@ function _ptProgress(plan) {
     const pct      = Math.round((done.length / 21) * 100);
     const allEx    = plan.plan.weeks.flatMap(w => w.exercises);
 
-    // Полная сетка 21 день
-    const gridHtml = Array.from({length:21}, (_, i) => {
-        const d = i + 1;
-        const isDone    = done.includes(d);
-        const isCurrent = d === day && !isDone;
-        return `
-        <div class="pt-grid-cell${isDone?' done':''}${isCurrent?' current':''}">
-            <div class="pt-grid-num">${d}</div>
-            <div class="pt-grid-dot"></div>
-        </div>`;
-    }).join('');
-
-    // Три недели детально
+    // Три недели — детальная сетка с темой и счётчиком n/7.
+    // Раньше сверху была вторая «точечная» 21-сетка, дублировала эту —
+    // удалена ради чистоты: одна точка истины о ходе плана.
     const weeksHtml = plan.plan.weeks.map((week, wi) => {
         const daysHtml = week.exercises.map(ex => {
             const d         = ex.day;
@@ -293,17 +283,17 @@ function _ptProgress(plan) {
     const isDone = done.includes(day);
 
     const curBlock = curEx ? `
-        <div class="pt-section-label" style="margin-top:20px">⚡ Сегодня — день ${day}</div>
+        <div class="pt-section-label" style="margin-top:20px">Сегодня — день ${day}</div>
         <div class="pt-insight-card">
             <div class="pt-insight-title">${curEx.task}</div>
-            <div class="pt-insight-text">⏱ ${curEx.dur} · ${isDone ? '✅ Выполнено' : '⏳ Ещё не выполнено'}</div>
+            <div class="pt-insight-text">${curEx.dur} · ${isDone ? 'выполнено' : 'не выполнено'}</div>
         </div>
-        ${!isDone ? `<button class="pt-btn pt-btn-primary" id="ptGoTraining">⚡ Перейти к тренировке</button>` : ''}
+        ${!isDone ? `<button class="pt-btn pt-btn-primary" id="ptGoTraining">Перейти к тренировке</button>` : ''}
     ` : '';
 
     return `
         <div class="pt-skill-card">
-            <div class="pt-skill-name">🎯 ${plan.skillName}</div>
+            <div class="pt-skill-name">${plan.skillName}</div>
             <div class="pt-skill-meta">День ${day} из 21 · выполнено ${done.length} упражнений</div>
             <div class="pt-progress-bar">
                 <div class="pt-progress-fill" style="width:${pct}%"></div>
@@ -315,17 +305,15 @@ function _ptProgress(plan) {
         </div>
 
         <div class="pt-section-label">21-дневный план</div>
-        <div class="pt-grid">${gridHtml}</div>
-
         ${weeksHtml}
         ${curBlock}
 
         <div class="pt-btn-row" style="margin-top:16px">
-            <button class="pt-btn pt-btn-ghost" id="ptGoChoice">🔄 Сменить навык</button>
+            <button class="pt-btn pt-btn-ghost" id="ptGoChoice">Сменить навык</button>
         </div>
 
         <div class="pt-tip">
-            💡 <strong>Серые</strong> — не выполнено, <strong>красноватые</strong> — пропущенные дни (прошли но не отмечены), <strong>светлые</strong> — выполнены.
+            Светлые — выполнены. Серые — впереди. Полые с пунктиром — пропущенные (прошли, но не отмечены).
         </div>`;
 }
 
@@ -368,35 +356,54 @@ function _ptStats(plan) {
     const pct      = Math.round((done.length / 21) * 100);
     const reflCount = _ptGetReflections().length;
 
-    // Лучший стрейк подряд
-    let maxStreak = 0, curStreak = 0;
-    for (let d = 1; d <= 21; d++) {
-        if (done.includes(d)) { curStreak++; maxStreak = Math.max(maxStreak, curStreak); }
-        else curStreak = 0;
-    }
-
-    // Пропущенные дни (прошедшие но не отмеченные)
+    // Пропущенные дни (прошедшие, но не отмеченные)
     const missed = Array.from({length: Math.min(day-1, 21)}, (_, i) => i+1)
         .filter(d => !done.includes(d)).length;
 
-    // Прогнозируемое завершение
+    // Дней с записью в дневнике (для метрики «глубина», а не «упрямство»):
+    // считаем уникальные дни, где есть рефлексия.
+    const reflDays = new Set();
+    try {
+        for (const r of _ptGetReflections()) {
+            if (r && r.date) reflDays.add(new Date(r.date).toLocaleDateString('ru-RU'));
+        }
+    } catch {}
+    const reflDaysCount = reflDays.size;
+
+    // Дата завершения — на основе РЕАЛЬНОГО темпа, а не «старт + 20».
+    // Если темп 0 (юзер не сделал ни дня) — показываем «зависит от темпа».
     const startDate = plan.startDate ? new Date(plan.startDate) : new Date();
-    const endDate   = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 20);
-    const endStr    = endDate.toLocaleDateString('ru-RU', { day:'numeric', month:'long' });
-
-    // AI-инсайты на основе данных
-    const consistency = done.length > 0 ? Math.round((done.length / Math.max(day-1,1)) * 100) : 0;
-
-    let insightText = '';
-    if (done.length === 0) {
-        insightText = 'Начните сегодня — первый шаг самый важный. Даже 5 минут практики лучше нуля.';
-    } else if (consistency >= 80) {
-        insightText = `Отличная стабильность — ${consistency}% дней выполнено. Такой темп ведёт к реальному изменению нейронных связей.`;
-    } else if (consistency >= 50) {
-        insightText = `Хороший старт. Для формирования навыка ключева непрерывность — постарайтесь не пропускать больше одного дня.`;
+    const startStr = startDate.toLocaleDateString('ru-RU', { day:'numeric', month:'long' });
+    const todayMs = Date.now();
+    const daysFromStart = Math.max(1, Math.floor((todayMs - startDate.getTime()) / 86400000) + 1);
+    const remaining = Math.max(0, 21 - done.length);
+    let etaBlock;
+    if (pct >= 100) {
+        etaBlock = `Вы прошли все 21 день. Старт: ${startStr}.`;
+    } else if (done.length === 0) {
+        etaBlock = `Старт: ${startStr}. Чтобы дать прогноз, нужно отметить хотя бы один день.`;
     } else {
-        insightText = `Пропусков больше, чем хотелось бы. Попробуйте привязать практику к якорю — например, к утреннему кофе.`;
+        // Простой прогноз: средний темп = выполнено / прошло_дней; экстраполируем оставшиеся.
+        const pace = done.length / daysFromStart; // дней-выполнено в среднем за прошедший календарный день
+        const extraDays = pace > 0 ? Math.ceil(remaining / pace) : remaining;
+        const eta = new Date(todayMs + extraDays * 86400000);
+        const etaStr = eta.toLocaleDateString('ru-RU', { day:'numeric', month:'long' });
+        etaBlock = `При текущем темпе закончите примерно <strong style="color:var(--chrome)">${etaStr}</strong>. ${missed > 0 ? `Пропущено ${missed} ${_ptDaysWord(missed)} — наверстать можно.` : 'Без пропусков.'}`;
+    }
+
+    // Подсказка — без претензии на «📈 Анализ» / «AI-инсайты».
+    // Это четыре заранее заготовленные ветки текста, и подача должна
+    // соответствовать: спокойная фраза, не метрическая магия.
+    const consistency = done.length > 0 ? Math.round((done.length / Math.max(day-1, 1)) * 100) : 0;
+    let hintText;
+    if (done.length === 0) {
+        hintText = 'Начните сегодня — первый шаг самый важный. Пять минут практики лучше нуля.';
+    } else if (consistency >= 80) {
+        hintText = `Стабильно — выполнено ${consistency}% от прошедших дней. Такой темп даёт устойчивую интеграцию.`;
+    } else if (consistency >= 50) {
+        hintText = 'Темп умеренный. Чтобы навык закрепился, важна непрерывность — постарайтесь не пропускать больше одного дня подряд.';
+    } else {
+        hintText = 'Пропусков больше, чем хочется. Попробуйте привязать практику к якорю — например, к утреннему кофе или дороге на работу.';
     }
 
     return `
@@ -410,8 +417,8 @@ function _ptStats(plan) {
                 <div class="pt-stat-label">Прогресс</div>
             </div>
             <div class="pt-stat-card">
-                <div class="pt-stat-value">${maxStreak}</div>
-                <div class="pt-stat-label">Лучший стрейк подряд</div>
+                <div class="pt-stat-value">${reflDaysCount}</div>
+                <div class="pt-stat-label">Дней с рефлексией</div>
             </div>
             <div class="pt-stat-card">
                 <div class="pt-stat-value">${reflCount}</div>
@@ -419,34 +426,40 @@ function _ptStats(plan) {
             </div>
         </div>
 
-        <div class="pt-section-label">📈 Анализ</div>
+        <div class="pt-section-label">Подсказка</div>
         <div class="pt-insight-card">
-            <div class="pt-insight-title">Стабильность</div>
-            <div class="pt-insight-text">${insightText}</div>
+            <div class="pt-insight-text">${hintText}</div>
         </div>
 
         <div class="pt-insight-card">
-            <div class="pt-insight-title">📅 Дата завершения плана</div>
-            <div class="pt-insight-text">
-                При старте ${startDate.toLocaleDateString('ru-RU', { day:'numeric', month:'long' })} — 
-                план завершится <strong style="color:var(--chrome)">${endStr}</strong>.
-                ${missed > 0 ? `Пропущено ${missed} дней — их можно наверстать.` : 'Пропусков нет.'}
-            </div>
+            <div class="pt-insight-title">Дата завершения</div>
+            <div class="pt-insight-text">${etaBlock}</div>
         </div>
 
         ${pct >= 100 ? `
         <div class="pt-insight-card" style="border-color:rgba(224,224,224,0.3)">
-            <div class="pt-insight-title">🏆 Навык сформирован!</div>
+            <div class="pt-insight-title">Базовая интеграция пройдена</div>
             <div class="pt-insight-text">
-                Вы прошли все 21 день. Поздравляем — это требует настоящей дисциплины.
-                Следующий шаг: выберите новый навык или углубите текущий.
+                Все 21 день закрыты — это первый цикл интеграции навыка.
+                Чтобы он закрепился глубже, можно повторить план через
+                месяц на новой задаче или углубить текущую через вторую петлю.
             </div>
         </div>` : ''}
 
         <div class="pt-btn-row" style="margin-top:16px">
-            <button class="pt-btn pt-btn-ghost" id="ptGoTraining">⚡ К тренировке</button>
-            <button class="pt-btn pt-btn-ghost" id="ptGoChoice">🎯 Новый навык</button>
+            <button class="pt-btn pt-btn-ghost" id="ptGoTraining">К тренировке</button>
+            <button class="pt-btn pt-btn-ghost" id="ptGoChoice">Сменить навык</button>
         </div>`;
+}
+
+// Маленький хелпер для склонения «1 день / 2 дня / 5 дней».
+function _ptDaysWord(n) {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    if (a > 10 && a < 20) return 'дней';
+    if (b > 1 && b < 5) return 'дня';
+    if (b === 1) return 'день';
+    return 'дней';
 }
 
 // ============================================
