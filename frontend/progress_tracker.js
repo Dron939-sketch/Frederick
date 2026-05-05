@@ -146,6 +146,79 @@ function _ptInjectStyles() {
             color: var(--text-secondary); line-height: 1.5; margin-top: 12px;
         }
         .pt-tip strong { color: var(--chrome); }
+
+        /* ===== КАРТА РОСТА (transitions) ===== */
+        .pt-nodes {
+            display: flex; flex-direction: column; gap: 12px;
+        }
+        .pt-node {
+            background: rgba(224,224,224,0.04);
+            border: 1px solid rgba(224,224,224,0.10);
+            border-radius: 16px; padding: 14px 16px;
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+        .pt-node-done {
+            background: rgba(255,140,0,0.06);
+            border-color: rgba(255,140,0,0.30);
+        }
+        .pt-node-in-progress {
+            background: rgba(224,224,224,0.06);
+            border-color: rgba(224,224,224,0.22);
+        }
+        .pt-node-next {
+            box-shadow: 0 0 0 1px rgba(255,140,0,0.40);
+        }
+        .pt-node-header {
+            display: flex; gap: 12px; align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        .pt-node-num {
+            flex: 0 0 28px;
+            width: 28px; height: 28px; border-radius: 50%;
+            background: rgba(224,224,224,0.10);
+            color: var(--text-primary);
+            font-size: 12px; font-weight: 700;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .pt-node-done .pt-node-num {
+            background: rgba(255,140,0,0.35); color: #fff;
+        }
+        .pt-node-title-wrap { flex: 1; min-width: 0; }
+        .pt-node-title {
+            font-size: 14px; font-weight: 600; color: var(--text-primary);
+            line-height: 1.35;
+        }
+        .pt-node-status {
+            font-size: 11px; color: var(--text-secondary);
+            margin-top: 2px; letter-spacing: 0.2px;
+        }
+        .pt-node-explain {
+            font-size: 13px; color: var(--text-secondary);
+            line-height: 1.6; margin-top: 4px;
+        }
+        .pt-node-days {
+            display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+        }
+        .pt-node-day {
+            font-size: 11px; font-weight: 600;
+            min-width: 24px; height: 22px; padding: 0 6px; border-radius: 11px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: rgba(224,224,224,0.06);
+            border: 1px solid rgba(224,224,224,0.12);
+            color: var(--text-secondary);
+        }
+        .pt-node-day.done {
+            background: rgba(255,140,0,0.20);
+            border-color: rgba(255,140,0,0.45);
+            color: var(--text-primary);
+        }
+        [data-theme="light"] .pt-node-done {
+            background: rgba(255,140,0,0.10);
+            border-color: rgba(255,140,0,0.45);
+        }
+        [data-theme="light"] .pt-node-day.done {
+            background: rgba(255,140,0,0.25);
+        }
     `;
     document.head.appendChild(s);
 }
@@ -153,7 +226,10 @@ function _ptInjectStyles() {
 // ============================================
 // СОСТОЯНИЕ
 // ============================================
-if (!window._ptState) window._ptState = { tab: 'progress' };
+if (!window._ptState) window._ptState = {
+    tab: 'progress',
+    transitions: {},   // { [skillId]: { loaded:bool, items:[{key,explain,days}] } }
+};
 const _pt = window._ptState;
 
 // ============================================
@@ -162,12 +238,39 @@ const _pt = window._ptState;
 function _ptToast(msg, t) { if (window.showToast) window.showToast(msg, t||'info'); }
 function _ptHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
 function _ptUid()   { return window.CONFIG?.USER_ID; }
+function _ptApiBase() {
+    return (window.API_BASE_URL || window.CONFIG?.API_BASE_URL || '').replace(/\/$/, '');
+}
 
 function _ptLoadPlan() {
     try {
         const raw = localStorage.getItem('trainer_skill_'+_ptUid());
         return raw ? JSON.parse(raw) : null;
     } catch { return null; }
+}
+
+// Тянем transitions (узлы перехода) с бэка для текущего навыка.
+// Кешируем в _pt.transitions[skillId]; при следующем рендере берём из кеша.
+// Если бэк не ответил / навык кастомный без модели — оставляем пустой массив.
+async function _ptFetchTransitions(skillId) {
+    if (!skillId) return [];
+    const cached = _pt.transitions[skillId];
+    if (cached && cached.loaded) return cached.items;
+    try {
+        const r = await fetch(`${_ptApiBase()}/api/skill-plan/details/${encodeURIComponent(skillId)}`,
+                              { cache: 'no-store' });
+        if (!r.ok) {
+            _pt.transitions[skillId] = { loaded: true, items: [] };
+            return [];
+        }
+        const j = await r.json();
+        const items = (j && j.success && Array.isArray(j.transitions)) ? j.transitions : [];
+        _pt.transitions[skillId] = { loaded: true, items };
+        return items;
+    } catch (e) {
+        _pt.transitions[skillId] = { loaded: true, items: [] };
+        return [];
+    }
 }
 
 function _ptGetReflections() {
@@ -201,9 +304,10 @@ function _ptRender() {
     if (!c) return;
 
     const TABS = [
-        { id:'progress',   label:'📊 Прогресс' },
-        { id:'reflection', label:'📝 Дневник' },
-        { id:'stats',      label:'🏆 Итоги' }
+        { id:'progress',   label:'Прогресс' },
+        { id:'growth',     label:'Карта роста' },
+        { id:'reflection', label:'Дневник' },
+        { id:'stats',      label:'Итоги' }
     ];
 
     const tabsHtml = TABS.map(t => `
@@ -223,6 +327,7 @@ function _ptRender() {
             </div>`;
     } else {
         if      (_pt.tab === 'progress')   body = _ptProgress(plan);
+        else if (_pt.tab === 'growth')     body = _ptGrowthMap(plan);
         else if (_pt.tab === 'reflection') body = _ptReflection();
         else if (_pt.tab === 'stats')      body = _ptStats(plan);
     }
@@ -346,6 +451,144 @@ function _ptReflection() {
         <div class="pt-section-label">Все записи (${reflections.length})</div>
         ${reflHtml}`;
 }
+
+// ============================================
+// ВКЛАДКА: КАРТА РОСТА (узлы перехода)
+// ============================================
+// Главный методологический артефакт навыка. У каждого плана есть
+// transitions: 5 ключевых перестроек поведения с привязкой к дням.
+// Здесь юзер видит, какие узлы он уже прошёл, какой следующий и почему
+// — это и есть структура роста, а не «отметка дней».
+function _ptGrowthMap(plan) {
+    const skillId = plan.skillId;
+    const cached = _pt.transitions[skillId];
+    const done = plan.daysDone || [];
+
+    // Загружаем асинхронно — рендер перерисуется по завершении.
+    if (!cached || !cached.loaded) {
+        _ptFetchTransitions(skillId).then(() => _ptRender()).catch(() => {});
+    }
+
+    const items = cached && cached.loaded ? cached.items : null;
+
+    if (items === null) {
+        // Идёт загрузка — мягкий placeholder.
+        return `
+            <div class="pt-section-label">Карта роста</div>
+            <div class="pt-insight-card">
+                <div class="pt-insight-text">Загружаем карту узлов перехода...</div>
+            </div>`;
+    }
+
+    if (!items.length) {
+        // Кастомный навык или редкий случай без transitions.
+        return `
+            <div class="pt-section-label">Карта роста</div>
+            <div class="pt-insight-card">
+                <div class="pt-insight-title">Карта пока недоступна</div>
+                <div class="pt-insight-text">
+                    У этого навыка ещё нет описанных узлов перехода — это случается
+                    у пользовательских навыков, для которых модель не сгенерирована.
+                    Прогресс по дням можно смотреть на вкладке «Прогресс».
+                </div>
+            </div>`;
+    }
+
+    // Для каждого узла считаем, сколько привязанных к нему дней выполнено,
+    // и определяем статус: done / inProgress / pending.
+    const totalDays = items.reduce((acc, t) => acc + (Array.isArray(t.days) ? t.days.length : 0), 0);
+    const passedDays = items.reduce((acc, t) => {
+        if (!Array.isArray(t.days)) return acc;
+        return acc + t.days.filter(d => done.includes(d)).length;
+    }, 0);
+    const overallPct = totalDays > 0 ? Math.round((passedDays / totalDays) * 100) : 0;
+
+    let nextNode = null;  // первый ещё не пройденный полностью узел
+    const nodeStatus = items.map((t, i) => {
+        const days = Array.isArray(t.days) ? t.days : [];
+        const doneInNode = days.filter(d => done.includes(d)).length;
+        const total = days.length;
+        let status;
+        if (total === 0) status = 'pending';
+        else if (doneInNode >= total) status = 'done';
+        else if (doneInNode > 0) status = 'in-progress';
+        else status = 'pending';
+        if (!nextNode && status !== 'done') nextNode = { idx: i, item: t, doneInNode, total };
+        return { item: t, days, doneInNode, total, status };
+    });
+
+    const nodesHtml = nodeStatus.map((n, i) => {
+        const statusLabel = n.status === 'done' ? 'Пройден'
+                          : n.status === 'in-progress' ? 'В процессе'
+                          : 'Впереди';
+        const dayPills = n.days.map(d => {
+            const isDone = done.includes(d);
+            return `<span class="pt-node-day${isDone?' done':''}">${d}</span>`;
+        }).join('');
+        const isNext = nextNode && nextNode.idx === i;
+        return `
+        <div class="pt-node pt-node-${n.status}${isNext?' pt-node-next':''}">
+            <div class="pt-node-header">
+                <div class="pt-node-num">${i+1}</div>
+                <div class="pt-node-title-wrap">
+                    <div class="pt-node-title">${n.item.key || ''}</div>
+                    <div class="pt-node-status">${statusLabel} · ${n.doneInNode}/${n.total}</div>
+                </div>
+            </div>
+            <div class="pt-node-explain">${n.item.explain || ''}</div>
+            ${dayPills ? `<div class="pt-node-days">${dayPills}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    // Введение — что вообще такое "карта роста".
+    const intro = `
+        <div class="pt-section-label">Карта роста</div>
+        <div class="pt-insight-card">
+            <div class="pt-insight-text">
+                Это пять ключевых перестроек, через которые навык реально встраивается.
+                Дни плана раскиданы по узлам — пройти узел значит закрыть привязанные
+                к нему дни. Здесь видно, где вы сейчас и какой узел следующий.
+            </div>
+        </div>`;
+
+    const overall = `
+        <div class="pt-skill-card" style="margin-top:16px">
+            <div class="pt-skill-meta">Узлов пройдено: ${nodeStatus.filter(n => n.status === 'done').length} из ${nodeStatus.length}</div>
+            <div class="pt-progress-bar">
+                <div class="pt-progress-fill" style="width:${overallPct}%"></div>
+            </div>
+            <div class="pt-progress-stats">
+                <span>${passedDays} из ${totalDays} дней-в-узлах</span>
+                <span>${overallPct}%</span>
+            </div>
+        </div>`;
+
+    const nextHint = nextNode ? `
+        <div class="pt-section-label" style="margin-top:18px">Следующий узел</div>
+        <div class="pt-insight-card">
+            <div class="pt-insight-title">${nextNode.item.key || ''}</div>
+            <div class="pt-insight-text">${nextNode.item.explain || ''}</div>
+        </div>` : `
+        <div class="pt-insight-card" style="margin-top:18px;border-color:rgba(224,224,224,0.3)">
+            <div class="pt-insight-title">Все узлы пройдены</div>
+            <div class="pt-insight-text">
+                Базовая интеграция навыка завершена. Чтобы он закрепился глубже,
+                можно повторить план через месяц на новой задаче.
+            </div>
+        </div>`;
+
+    return `
+        ${intro}
+        ${overall}
+        ${nextHint}
+        <div class="pt-section-label" style="margin-top:18px">Все узлы</div>
+        <div class="pt-nodes">${nodesHtml}</div>
+        <div class="pt-tip">
+            Каждый узел — это «было до» → «стало после». Узел считается пройденным,
+            когда закрыты все привязанные к нему дни плана.
+        </div>`;
+}
+
 
 // ============================================
 // ВКЛАДКА: ИТОГИ И СТАТИСТИКА
