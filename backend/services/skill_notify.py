@@ -83,8 +83,18 @@ def _build_app_url(user_id: int, screen: Optional[str] = None) -> str:
       - 'progress' → showProgressScreen (карта роста / дневник)
       - 'skill_choice' → showSkillChoiceScreen
     Если передан и не входит в whitelist — фронт его проигнорирует.
+
+    ВАЖНО: если WEB_URL содержит подпуть (например meysternlp.ru/fredi/),
+    URL должен заканчиваться на '/' ДО query-string. Иначе браузер
+    интерпретирует '/fredi' как файл, а не директорию, и относительные
+    src='tracker.js' резолвятся в /tracker.js (корень домена) → 404
+    на все скрипты страницы.
     """
-    base = (os.environ.get("WEB_URL") or "https://meysternlp.ru/fredi/").rstrip("/")
+    base = (os.environ.get("WEB_URL") or "https://meysternlp.ru/fredi/").strip()
+    # Уже есть query-string? Тогда не трогаем — пусть остаётся как есть.
+    # Иначе гарантируем завершающий '/' для корректного резолва относительных путей.
+    if "?" not in base and not base.endswith("/"):
+        base = base + "/"
     token = make_messenger_token(user_id)
     sep = "&" if "?" in base else "?"
     url = f"{base}{sep}fid={user_id}&t={token}"
