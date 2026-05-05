@@ -401,6 +401,32 @@ const SC_SKILLS = {
     ]
 };
 
+// Точка расширения каталога: внешние файлы (например, frontend/skill_choice_extras.js)
+// могут до загрузки skill_choice.js положить в window._scExtraSkills массив вида
+//   [{ category: 'influence', entries: [ {id, icon, name, desc, longDesc, promise, isNew?}, ... ] }, ...]
+// и эти карточки попадут в SC_SKILLS без правок основного файла. Фронт-каталог
+// тут читает SC_SKILLS многократно (рендер, _scFindSkill, _scCategoryLabel),
+// поэтому мерджить надо ОДИН раз и сразу — иначе часть кода видела бы старую
+// версию каталога.
+try {
+    const _extra = (typeof window !== 'undefined' && Array.isArray(window._scExtraSkills))
+        ? window._scExtraSkills : [];
+    for (const grp of _extra) {
+        if (!grp || !grp.category || !Array.isArray(grp.entries)) continue;
+        if (!Array.isArray(SC_SKILLS[grp.category])) SC_SKILLS[grp.category] = [];
+        for (const entry of grp.entries) {
+            if (!entry || !entry.id) continue;
+            // Не добавляем дубликат: если такой id уже есть в любой категории — пропускаем.
+            let dup = false;
+            for (const cat of Object.values(SC_SKILLS)) {
+                if (cat.some(s => s.id === entry.id)) { dup = true; break; }
+            }
+            if (dup) continue;
+            SC_SKILLS[grp.category].push(entry);
+        }
+    }
+} catch (e) { /* extras corrupted — продолжаем со штатным каталогом */ }
+
 const _SC_CUSTOM_PROMISE = 'Через 21 день у вас будет рабочий навык, который вы тренировали ежедневно — устойчивая привычка, а не разовая попытка.';
 const _SC_CUSTOM_LONGDESC = 'Свой навык — мы тренируем его по тому же 21-дневному каркасу: знакомство, активная тренировка, закрепление. Каждый день — короткое упражнение.';
 
