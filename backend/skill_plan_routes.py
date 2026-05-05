@@ -27,16 +27,36 @@ logger = logging.getLogger(__name__)
 _SKILL_PLANS_CACHE = None
 
 def _load_skill_plans():
+    """Загружает все 21-дневные планы навыков.
+
+    Источники (мерджатся, дубликаты — последний выигрывает):
+      1. data/skill_plans.json        — основной каталог (версия в git).
+      2. data/skill_plans_extra.json  — добавочные навыки. Этот файл —
+         точка расширения каталога: добавлять навыки сюда дешевле, чем
+         переписывать основной 500+KB файл.
+    """
     global _SKILL_PLANS_CACHE
     if _SKILL_PLANS_CACHE is not None:
         return _SKILL_PLANS_CACHE
-    path = os.path.join(os.path.dirname(__file__), "data", "skill_plans.json")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            _SKILL_PLANS_CACHE = json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to load skill_plans.json: {e}")
-        _SKILL_PLANS_CACHE = {}
+    base_dir = os.path.join(os.path.dirname(__file__), "data")
+    merged: dict = {}
+    for fname in ("skill_plans.json", "skill_plans_extra.json"):
+        path = os.path.join(base_dir, fname)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                # _version/_framework берём только из основного файла —
+                # extras не имеет права их переопределять.
+                for k, v in data.items():
+                    if k.startswith("_") and k in merged:
+                        continue
+                    merged[k] = v
+        except Exception as e:
+            logger.error(f"Failed to load {fname}: {e}")
+    _SKILL_PLANS_CACHE = merged
     return _SKILL_PLANS_CACHE
 
 
@@ -132,6 +152,47 @@ def register_skill_plan_routes(app, db, limiter):
             user_id = data.get("user_id")
             if not user_id:
                 return {"success": False, "error": "user_id required"}
+
+            # Запрет на одновременное ведение нескольких навыков.
+            # Если у юзера уже активный план и навык в запросе — другой,
+            # не подменяем его молча: возвращаем структурированную ошибку.
+            # Фронт показывает модал «уже есть активный навык» с объяснением,
+            # почему параллельно вести 2-3 навыка вредно. Сбросить можно
+            # явно: DELETE /api/skill-plan/{user_id} → повторный POST,
+            # либо тот же POST с force=true.
+            new_skill_id = data.get("skill_id")
+            force = bool(data.get("force"))
+            if not force and new_skill_id:
+                existing = await db.fetchrow(
+                    "SELECT skill_id, skill_name, days_done, started_at "
+                    "FROM fredi_skill_plans WHERE user_id = $1",
+                    int(user_id),
+                )
+                if existing and existing["skill_id"] and existing["skill_id"] != new_skill_id:
+                    done = existing["days_done"] or []
+                    if isinstance(done, str):
+                        try:
+                            done = json.loads(done)
+                        except Exception:
+                            done = []
+                    return {
+                        "success": False,
+                        "error": "active_skill_exists",
+                        "message": (
+                            "У вас уже идёт активная 21-дневная программа другого навыка. "
+                            "Один навык за раз — это не ограничение, а условие, чтобы он реально "
+                            "сформировался. Параллельно нагружая 2–3 навыка, мозг распыляет "
+                            "внимание: ни один не доходит до автоматизма за 21 день, и через "
+                            "месяц у вас 0 закреплённых навыков вместо 1. Заверши́те текущий "
+                            "или сбросьте его явно (DELETE), а потом начните новый."
+                        ),
+                        "active_skill": {
+                            "skill_id":   existing["skill_id"],
+                            "skill_name": existing["skill_name"],
+                            "days_done":  len(done) if isinstance(done, list) else 0,
+                            "started_at": existing["started_at"].isoformat() if existing["started_at"] else None,
+                        },
+                    }
 
             started_at = data.get("started_at")
             started_at_dt = None
