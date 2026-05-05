@@ -70,16 +70,27 @@ def verify_messenger_token(user_id: int, token: str) -> bool:
         return False
 
 
-def _build_app_url(user_id: int) -> str:
-    """URL приложения с подписанными fid+t. Тык → автологин.
+def _build_app_url(user_id: int, screen: Optional[str] = None) -> str:
+    """URL приложения с подписанными fid+t (+ опциональный deep-link).
 
     По умолчанию ведём на премиум-домен meysternlp.ru/fredi/. Override-нуть
     можно через env WEB_URL — например, для staging-окружений.
+
+    Параметр `screen` — это deep-link на конкретный модуль, чтобы юзер
+    после клика на кнопку под утренним сообщением попадал не на главный
+    дашборд, а сразу в нужный экран:
+      - 'training' → showDailyTrainingScreen (сегодняшнее задание)
+      - 'progress' → showProgressScreen (карта роста / дневник)
+      - 'skill_choice' → showSkillChoiceScreen
+    Если передан и не входит в whitelist — фронт его проигнорирует.
     """
     base = (os.environ.get("WEB_URL") or "https://meysternlp.ru/fredi/").rstrip("/")
     token = make_messenger_token(user_id)
     sep = "&" if "?" in base else "?"
-    return f"{base}{sep}fid={user_id}&t={token}"
+    url = f"{base}{sep}fid={user_id}&t={token}"
+    if screen:
+        url = f"{url}&screen={screen}"
+    return url
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +191,14 @@ async def send_max(chat_id: str, text: str, app_url: Optional[str] = None) -> bo
         return False
 
 
-async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
+async def send_to_channel(db, user_id: int, channel: str, text: str,
+                           screen: Optional[str] = None) -> dict:
     """Шлёт текст пользователю по указанному каналу.
+
+    `screen` — deep-link для inline-кнопки «Открыть Фреди»: фронт после
+    автологина откроет не главную, а указанный экран (training / progress /
+    skill_choice). По умолчанию — None (главная).
+
     Возвращает {success: bool, error?: str, sent_via?: str}.
     """
     if channel == "none":
@@ -192,7 +209,7 @@ async def send_to_channel(db, user_id: int, channel: str, text: str) -> dict:
         if not chat_id:
             return {"success": False, "error": f"{channel} not linked"}
         # Inline-кнопка «Открыть Фреди» с подписанным URL — авто-логин на сайте.
-        app_url = _build_app_url(user_id)
+        app_url = _build_app_url(user_id, screen=screen)
         if channel == "telegram":
             ok = await send_telegram(chat_id, text, app_url)
         else:
@@ -398,7 +415,8 @@ async def send_day_message(db, user_id: int) -> dict:
     user_now = datetime.now(timezone.utc).astimezone(tz)
 
     text = build_day_message(plan["skill_name"], day, exercise, name, user_now.hour)
-    return await send_to_channel(db, user_id, plan["channel"], text)
+    # Кнопка под сообщением → сразу на «Тренировку дня».
+    return await send_to_channel(db, user_id, plan["channel"], text, screen="training")
 
 
 async def send_welcome_message(db, user_id: int) -> dict:
@@ -454,7 +472,8 @@ async def send_welcome_message(db, user_id: int) -> dict:
         "— Фреди",
     ]
     text = "\n".join(parts)
-    result = await send_to_channel(db, user_id, plan["channel"], text)
+    # Welcome → сразу на «Тренировку дня» (там видно задание дня 1 + кнопка «выполнил»).
+    result = await send_to_channel(db, user_id, plan["channel"], text, screen="training")
 
     # Дублируем день 1 в уведомления — чтобы у юзера сразу была кнопка «✅ Выполнил».
     # И ставим last_sent_at = NOW(), чтобы планировщик сегодня не отправил день 1 ещё раз
@@ -491,6 +510,8 @@ async def send_test_message(db, user_id: int) -> dict:
         f"Это тестовое сообщение. Сюда будут приходить ежедневные задания "
         f"по навыку «{skill}» — короткие, на 5–15 минут."
     )
+    # Тестовое — без deep-link, юзеру важно увидеть, что канал работает,
+    # глубоких сценариев тут не нужно.
     return await send_to_channel(db, user_id, plan["channel"], text)
 
 
@@ -568,14 +589,17 @@ async def _send_touchpoint(db, plan_row, kind: str) -> dict:
 
     if kind == "morning":
         text = build_day_message(skill_name, day, exercise, name, user_hour)
+        screen = "training"  # утром удобно сразу на тренировку
     elif kind == "check":
         text = build_check_message(skill_name, day, exercise, name, user_hour)
+        screen = "training"  # дневной чек — туда же, чтобы быстро отметить
     elif kind == "eve":
         text = build_evening_message(skill_name, day, name, user_hour)
+        screen = "progress"  # вечером — на прогресс / дневник для рефлексии
     else:
         return {"success": False, "error": f"unknown kind: {kind}"}
 
-    result = await send_to_channel(db, user_id, plan_row["channel"], text)
+    result = await send_to_channel(db, user_id, plan_row["channel"], text, screen=screen)
 
     # Утреннее сообщение дублируем в in-app уведомления — там есть кнопка «✅ Выполнил».
     if kind == "morning" and result.get("success"):
