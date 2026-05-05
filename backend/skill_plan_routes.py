@@ -12,6 +12,7 @@ Endpoints:
 Таблица fredi_skill_plans создаётся автоматически на старте приложения.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -104,6 +105,16 @@ def register_skill_plan_routes(app, db, limiter):
             except Exception as _e:
                 logger.warning(f"user_tz column init failed: {_e}")
         logger.info("Skill plan tables ready")
+
+        # Запускаем фоновый планировщик 21-дневной программы навыка.
+        # Без этой задачи в фоне приходит только приветствие (Day 1, через
+        # POST /welcome-send из фронта), а сообщения дней 2..21 не уходят.
+        try:
+            from services.skill_notify import skill_plan_scheduler
+            asyncio.create_task(skill_plan_scheduler(db))
+            logger.info("✅ skill_plan_scheduler launched")
+        except Exception as _e:
+            logger.warning(f"skill_plan_scheduler launch failed: {_e}")
 
     @app.post("/api/skill-plan")
     @limiter.limit("30/minute")
