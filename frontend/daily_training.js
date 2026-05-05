@@ -59,6 +59,15 @@ function _dtInjectStyles() {
         .dt-exercise-inst {
             font-size: 14px; color: var(--text-secondary); line-height: 1.7;
         }
+        .dt-exercise-why-label {
+            font-size: 11px; font-weight: 600; letter-spacing: 0.4px;
+            color: var(--text-secondary); text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+        .dt-exercise-why {
+            font-size: 13px; color: var(--text-secondary); line-height: 1.7;
+            opacity: 0.85;
+        }
 
         /* ===== ТАЙМЕР ===== */
         .dt-timer-wrap {
@@ -230,9 +239,22 @@ function _dtCurrentDay(startDate) {
 }
 
 function _dtParseDuration(durStr) {
-    // Парсим строку типа "5 мин", "2 мин", "25 мин"
-    const m = (durStr || '').match(/(\d+)/);
-    return m ? parseInt(m[1]) * 60 : 300;
+    // Парсим строку «5 мин», «10 мин», «25 мин», «1 час» и т.п.
+    // Возвращаем СЕКУНДЫ или null, если строка — не настоящая длительность.
+    // Премиум-логика: на «1 разговор», «1 встреча», «весь день», «1 ночь»,
+    // «разный» таймер не показываем — он там бессмысленный.
+    const s = (durStr || '').toLowerCase().trim();
+    if (!s) return null;
+    // Если рядом с числом нет слова «мин» / «час» / «сек» — это не таймер.
+    const m = s.match(/^(\d+)\s*(мин|минут|сек|секунд|час|часа|часов)?\b/);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    const unit = m[2] || '';
+    if (unit.startsWith('мин')) return n * 60;
+    if (unit.startsWith('сек')) return n;
+    if (unit.startsWith('час')) return n * 3600;
+    // Число без единицы измерения — слишком неоднозначно, лучше без таймера.
+    return null;
 }
 
 function _dtFormatTime(sec) {
@@ -241,22 +263,9 @@ function _dtFormatTime(sec) {
     return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
-function _dtSaveReflection(text) {
-    try {
-        const key = 'dt_reflections_' + _dtUid();
-        const raw = localStorage.getItem(key);
-        const arr = raw ? JSON.parse(raw) : [];
-        arr.unshift({ text, date: new Date().toISOString() });
-        localStorage.setItem(key, JSON.stringify(arr.slice(0, 30)));
-    } catch {}
-}
-
-function _dtGetReflections() {
-    try {
-        const raw = localStorage.getItem('dt_reflections_'+_dtUid());
-        return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
-}
+// Запись/чтение рефлексии теперь полностью на стороне Прогресса
+// (frontend/progress_tracker.js — _ptSaveReflection / _ptGetReflections),
+// чтобы не было двух UI на одно хранилище.
 
 // ============================================
 // РЕНДЕР
@@ -309,34 +318,14 @@ function _dtRender() {
         `<div class="dt-streak-dot${daysDone.includes(i+1)?' done':''}"></div>`
     ).join('');
 
-    // Иконки по типу задания
-    const ICONS = {
-        дыхани: '🫁', медита: '🧘', дневни: '📝', зерка: '🪞',
-        прогул: '🚶', звон:   '📞', письм:  '✍️', список: '📋',
-        разго:  '💬', аффир:  '🔮', упражн: '💪', практ:  '⚡',
-        чита:   '📖', таймер: '⏱', помод:  '🎯', дела:   '✅'
-    };
-    function _guessIcon(task) {
-        const t = (task||'').toLowerCase();
-        for (const [key, icon] of Object.entries(ICONS)) {
-            if (t.includes(key)) return icon;
-        }
-        return '⚡';
-    }
-
-    const targetSec = curEx ? _dtParseDuration(curEx.dur) : 300;
-    if (_dtT.target !== targetSec && !_dtT.running) {
+    // Длительность таймера: только если строка реально парсится как минуты/секунды/часы.
+    // Иначе у упражнения нет таймера-имеющего-смысл (типа «1 разговор», «1 встреча»).
+    const targetSec = curEx ? _dtParseDuration(curEx.dur) : null;
+    const showTimer = targetSec !== null && targetSec > 0;
+    if (showTimer && _dtT.target !== targetSec && !_dtT.running) {
         _dtT.target  = targetSec;
         _dtT.seconds = targetSec;
     }
-
-    // Рефлексии
-    const reflections = _dtGetReflections().slice(0, 3);
-    const reflHtml = reflections.length ? reflections.map(r => `
-        <div style="background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.08);border-radius:12px;padding:10px 12px;margin-bottom:8px">
-            <div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px">${new Date(r.date).toLocaleDateString('ru-RU')}</div>
-            <div style="font-size:13px;color:var(--text-secondary);line-height:1.5">${r.text}</div>
-        </div>`).join('') : `<div style="font-size:12px;color:var(--text-secondary)">Записей пока нет</div>`;
 
     c.innerHTML = `
         <div class="full-content-page">
@@ -365,11 +354,11 @@ function _dtRender() {
             <!-- Уже выполнено -->
             <div class="dt-done-banner">
                 <span class="dt-done-icon">✅</span>
-                <div class="dt-done-title">День ${day} завершён!</div>
+                <div class="dt-done-title">День ${day} завершён</div>
                 <div class="dt-done-sub">
                     ${day < 21
-                        ? `Отличная работа. Завтра — день ${day+1}.<br>Выполнено ${daysDone.length} из 21 дней.`
-                        : '🏆 Вы прошли все 21 день! Навык сформирован.'
+                        ? `Завтра — день ${day+1}. Выполнено ${daysDone.length} из 21.`
+                        : 'Все 21 день пройдены. Базовая интеграция навыка завершена.'
                     }
                 </div>
             </div>` : curEx ? `
@@ -377,7 +366,7 @@ function _dtRender() {
             <div class="dt-section-label">Задание на сегодня</div>
             <div class="dt-exercise-card">
                 <div class="dt-exercise-header">
-                    <div class="dt-exercise-icon">${_guessIcon(curEx.task)}</div>
+                    <div class="dt-exercise-icon">${day}</div>
                     <div class="dt-exercise-meta">
                         <div class="dt-exercise-task">${curEx.task}</div>
                         <div class="dt-exercise-dur">⏱ ${curEx.dur}</div>
@@ -385,9 +374,14 @@ function _dtRender() {
                 </div>
                 <div class="dt-exercise-divider"></div>
                 <div class="dt-exercise-inst">${curEx.inst}</div>
+                ${curEx.why ? `
+                <div class="dt-exercise-divider"></div>
+                <div class="dt-exercise-why-label">Зачем</div>
+                <div class="dt-exercise-why">${curEx.why}</div>` : ''}
             </div>
 
-            <!-- Таймер -->
+            ${showTimer ? `
+            <!-- Таймер: показываем только если длительность реально численная -->
             <div class="dt-section-label">Таймер</div>
             <div class="dt-timer-wrap">
                 <div class="dt-timer-display${_dtT.running?' running':''}" id="dtTimerDisplay">
@@ -399,33 +393,16 @@ function _dtRender() {
                     </button>
                     <button class="dt-timer-btn dt-timer-reset" id="dtTimerReset">↺ Сброс</button>
                 </div>
-            </div>
+            </div>` : ''}
 
             <!-- Отметить -->
             <button class="dt-btn dt-btn-primary" id="dtMarkDone">✅ Отметить выполнение</button>
             ` : `<p style="color:var(--text-secondary);text-align:center;padding:20px">Упражнение не найдено</p>`}
 
-            <!-- Рефлексия -->
-            <div class="dt-section-label" style="margin-top:24px">📝 Рефлексия после тренировки</div>
-            <div class="dt-reflection">
-                <div class="dt-reflection-label">Что получилось? Что было сложно? Что заметили?</div>
-                <textarea class="dt-textarea" id="dtReflectionInput" placeholder="Напишите пару строк о сегодняшней тренировке..."></textarea>
-            </div>
-            <button class="dt-btn dt-btn-ghost" id="dtSaveRefl" style="width:100%;border-radius:40px;padding:12px">💾 Сохранить рефлексию</button>
-
-            <!-- Прошлые рефлексии -->
-            ${reflections.length ? `
-            <div class="dt-section-label">Прошлые записи</div>
-            ${reflHtml}` : ''}
-
             <!-- Навигация -->
             <div class="dt-btn-row" style="margin-top:20px">
                 <button class="dt-btn dt-btn-ghost" id="dtGoChoice">🎯 Сменить навык</button>
-                <button class="dt-btn dt-btn-ghost" id="dtGoProgress">📊 Прогресс</button>
-            </div>
-
-            <div class="dt-tip">
-                💡 <strong>Главное правило:</strong> не пропускайте больше одного дня подряд — это сбивает формирование нейронной связи.
+                <button class="dt-btn dt-btn-ghost" id="dtGoProgress">📊 Прогресс и дневник</button>
             </div>
         </div>`;
 
@@ -481,16 +458,6 @@ function _dtRender() {
             else _dtToast(`✅ День ${day} выполнен!`, 'success');
             _dtRender();
         }
-    });
-
-    // Сохранить рефлексию
-    document.getElementById('dtSaveRefl')?.addEventListener('click', () => {
-        const text = (document.getElementById('dtReflectionInput')?.value || '').trim();
-        if (!text) { _dtToast('Напишите рефлексию', 'error'); return; }
-        _dtSaveReflection(text);
-        _dtToast('💾 Сохранено', 'success');
-        document.getElementById('dtReflectionInput').value = '';
-        _dtRender();
     });
 
     // Сменить навык
