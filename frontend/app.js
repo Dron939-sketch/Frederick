@@ -1673,7 +1673,7 @@ function renderDashboard() {
                 <div class="quick-actions-grid">
                     <div class="quick-action" data-action="profile"><div class="action-icon">🧠</div><div class="action-name">Мой портрет</div></div>
                     <div class="quick-action" data-action="thoughts"><div class="action-icon">💭</div><div class="action-name">Мысли психолога</div></div>
-                    <div class="quick-action" data-action="newThought"><div class="action-icon">✨</div><div class="action-name">Свежая мысль</div></div>
+                    <div class="quick-action" data-action="prompter"><div class="action-icon">🎙️</div><div class="action-name">ИИ Суфлёр</div></div>
                     <div class="quick-action" data-action="weekend"><div class="action-icon">🎨</div><div class="action-name">Идеи на выходные</div></div>
                     <div class="quick-action" data-action="brand"><div class="action-icon">🏆</div><div class="action-name">Мой бренд</div></div>
                     <div class="quick-action" data-action="doubles"><div class="action-icon">👥</div><div class="action-name">Двойники</div></div>
@@ -1774,6 +1774,7 @@ function renderDashboard() {
             const handlers = {
                 profile: handleShowProfile,
                 thoughts: handleShowThoughts,
+                prompter: () => { if (typeof showPrompterScreen==='function') showPrompterScreen(); else { const s=document.createElement('script'); s.src='prompter.js'; s.onload=()=>{ if(typeof showPrompterScreen==='function') showPrompterScreen(); }; document.head.appendChild(s); } },
                 newThought: handleShowNewThought,
                 weekend: () => { if (typeof showWeekendScreen === 'function') showWeekendScreen(); else { const s=document.createElement('script');s.src='weekend.js';s.onload=()=>{if(typeof showWeekendScreen==='function')showWeekendScreen();};document.head.appendChild(s); } },
                 goals: () => { if (typeof showGoalsScreen === "function") showGoalsScreen(); else { showToast("🎯 Загрузка...", "info"); const s = document.createElement("script"); s.src = "goals.js"; s.onload = () => { if (typeof showGoalsScreen === "function") showGoalsScreen(); }; document.head.appendChild(s); } },
