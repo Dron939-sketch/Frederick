@@ -1494,6 +1494,16 @@ const Test = {
         this.currentStage=0; this.currentQuestionIndex=0;
         this.reset(); this.saveProgress();
         this.showTestScreen();
+        // Инструментирование воронки теста. В дампе аналитики:
+        // 7 screen_view test, 5 feature_open, средняя 21 сек —
+        // люди открывают и сразу уходят. Нам нужно знать ГДЕ.
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('test_start_clicked', {
+                    has_userId: !!this.userId
+                });
+            }
+        } catch {}
         // Параллельно подтягиваем расширенные интерпретации с бэка —
         // нужны для этапа 4 (Дилтс). До этапа 4 пользователь идёт
         // 4-5 минут, JSON успеет загрузиться задолго.
@@ -1644,9 +1654,30 @@ const Test = {
     sendStageIntro() {
         if (this.currentStage>=this.stages.length) { this.showFinalProfile(); return; }
         const stage = this.stages[this.currentStage];
+        // Инструментирование: видно, на каком этапе intro показан и сколько
+        // людей нажмут «НАЧАТЬ ЭТАП» (vs закроют). Этап 1 — самый важный
+        // для анализа дроп-офф (по дампу — главная утечка).
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('test_stage_intro_shown', {
+                    stage: this.currentStage,
+                    stage_id: stage.id
+                });
+            }
+        } catch {}
         this.addBotMessage('🧠 '+stage.name+'\n\n'+stage.shortDesc+'\n\n'+stage.detailedDesc+'\n\n👇 НАЧИНАЕМ?', true);
         this.addMessageWithButtons('', [
-            {text:'▶️ НАЧАТЬ ЭТАП',callback:()=>this.sendNextQuestion()},
+            {text:'▶️ НАЧАТЬ ЭТАП',callback:()=>{
+                try {
+                    if (window.FrediTracker?.track) {
+                        window.FrediTracker.track('test_stage_started', {
+                            stage: this.currentStage,
+                            stage_id: stage.id
+                        });
+                    }
+                } catch {}
+                this.sendNextQuestion();
+            }},
             {text:'📖 ПОДРОБНЕЕ',callback:()=>this.showStageDetails(this.currentStage)}
         ]);
     },
@@ -2138,11 +2169,54 @@ ${this.getStage3Interpretation()}
             text += '\n\n**🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:**\n\n' + this.aiGeneratedProfile.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>');
         }
 
+        // Инструментирование: финальная точка воронки. Различаем anon и authed —
+        // именно здесь должна срабатывать первая регистрация для anon-юзеров.
+        const isAuthed = !!(window.FrediAuth && typeof window.FrediAuth.isAuthed === 'function' && window.FrediAuth.isAuthed());
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('test_completed', {
+                    is_authed: isAuthed,
+                    has_ai_profile: !!this.aiGeneratedProfile,
+                    profile_code: p.displayName || null
+                });
+            }
+        } catch {}
+
         this.addBotMessage(text, true);
-        this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
-            {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
-            {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
-        ]);
+
+        // Триггер регистрации для anon-юзеров. Согласно дампу: 77 anon vs 2 authed,
+        // у authed сессии 17 минут vs 1.5 у anon — конверсия в auth = ключевой
+        // рычаг retention. Финал теста — самый естественный момент: пользователь
+        // только что инвестировал 5-10 минут и получил персональный портрет,
+        // мотивация сохранить его наиболее высока.
+        if (!isAuthed && window.FrediAuth && typeof window.FrediAuth.openRegister === 'function') {
+            this.addBotMessage(
+                '💾 <b>Сохраните ваш профиль</b>\n\n' +
+                'Зарегистрируйтесь, чтобы:\n' +
+                '• Вернуться к портрету в любой момент\n' +
+                '• Получать персональные рекомендации скиллов\n' +
+                '• Отслеживать прогресс по 21-дневным программам\n\n' +
+                'Это бесплатно и займёт 30 секунд.',
+                true
+            );
+            this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
+                {text:'💾 СОХРАНИТЬ ПРОФИЛЬ',callback:()=>{
+                    try {
+                        if (window.FrediTracker?.track) {
+                            window.FrediTracker.track('test_completed_register_clicked', {});
+                        }
+                    } catch {}
+                    window.FrediAuth.openRegister();
+                }},
+                {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
+                {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
+            ]);
+        } else {
+            this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
+                {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
+                {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
+            ]);
+        }
 
         if (this.userId) {
             try {
