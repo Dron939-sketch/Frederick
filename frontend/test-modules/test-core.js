@@ -50,6 +50,13 @@ class TestCore {
         // Кэш для AI-профиля
         this.aiGeneratedProfile = null;
         this.psychologistThought = null;
+
+        // Кэш расширенных интерпретаций этапов (грузится с бэка через
+        // GET /api/test/interpretations при старте теста; см. loadInterpretations).
+        // Формат: см. backend/data/test_interpretations.json
+        // Если загрузка не удалась — методы getStageNInterpretation() уходят
+        // в захардкоренный fallback (короткие старые тексты).
+        this.interpretations = null;
         
         // Структура этапов
         this.stages = [
@@ -245,48 +252,173 @@ class TestCore {
     // ИНТЕРПРЕТАЦИИ
     // ============================================
     
+    // ============================================
+    // ЗАГРУЗКА РАСШИРЕННЫХ ИНТЕРПРЕТАЦИЙ С БЭКА
+    // ============================================
+    // Источник правды: backend/data/test_interpretations.json
+    // Эндпоинт: GET /api/test/interpretations
+    // Грузим один раз при первом обращении, кэшируем в this.interpretations.
+    // При любой ошибке методы getStageNInterpretation() уходят в захардкоренный
+    // fallback — короткие тексты как до рефакторинга. Тест продолжает работать,
+    // просто без расширенных блоков.
+    async loadInterpretations() {
+        if (this.interpretations) return this.interpretations;
+        try {
+            const response = await fetch(`${TEST_API_BASE_URL}/api/test/interpretations`);
+            if (response.ok) {
+                this.interpretations = await response.json();
+                return this.interpretations;
+            }
+        } catch (e) {
+            console.warn('Failed to load interpretations, using fallback:', e);
+        }
+        this.interpretations = {};
+        return this.interpretations;
+    }
+
+    // Распределение перцептивных баллов в проценты по 4 осям —
+    // используется для визуализации в showStage1Result.
+    getPerceptionDistribution() {
+        const total = Object.values(this.perceptionScores).reduce((a, b) => a + b, 0) || 1;
+        return {
+            EXTERNAL: Math.round(100 * this.perceptionScores.EXTERNAL / total),
+            INTERNAL: Math.round(100 * this.perceptionScores.INTERNAL / total),
+            SYMBOLIC: Math.round(100 * this.perceptionScores.SYMBOLIC / total),
+            MATERIAL: Math.round(100 * this.perceptionScores.MATERIAL / total)
+        };
+    }
+
+    // Доминирующий уровень Дилтса (для этапа 4) и распределение в процентах.
+    getDiltsDistribution() {
+        const total = Object.values(this.diltsCounts).reduce((a, b) => a + b, 0) || 1;
+        const result = {};
+        for (const [k, v] of Object.entries(this.diltsCounts)) {
+            result[k] = Math.round(100 * v / total);
+        }
+        return result;
+    }
+
+    // Реальный confidence для этапа 4 — раньше был захардкорен 0.7.
+    // Считаем как соответствие между типом восприятия (этап 1) и
+    // доминантой Дилтса (этап 4). Если согласованы — высокая, противоречат —
+    // ниже. Базовая 0.6, +/- по согласованности.
+    calculateStage4Confidence() {
+        const dominant = this.determineDominantDilts();
+        const type = this.perceptionType;
+        // Соответствия (мягкая эвристика):
+        // СОЦИАЛЬНО → ENVIRONMENT/BEHAVIOR (внешнее)
+        // СТАТУСНО → BEHAVIOR/CAPABILITIES
+        // СМЫСЛО → VALUES/IDENTITY
+        // ПРАКТИКО → BEHAVIOR/CAPABILITIES
+        const expected = {
+            "СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ": ["ENVIRONMENT", "BEHAVIOR"],
+            "СТАТУСНО-ОРИЕНТИРОВАННЫЙ": ["BEHAVIOR", "CAPABILITIES"],
+            "СМЫСЛО-ОРИЕНТИРОВАННЫЙ": ["VALUES", "IDENTITY"],
+            "ПРАКТИКО-ОРИЕНТИРОВАННЫЙ": ["BEHAVIOR", "CAPABILITIES"]
+        };
+        let confidence = 0.6;
+        if (expected[type]?.includes(dominant)) {
+            confidence = 0.85;
+        } else if (expected[type]) {
+            confidence = 0.55;
+        }
+        return confidence;
+    }
+
+    // ============================================
+    // ИНТЕРПРЕТАЦИИ — структурированные (для расширенного UI)
+    // ============================================
+    // Каждый getStageNInterpretation() возвращает либо расширенную структуру
+    // из загруженного JSON, либо короткий fallback-текст (если загрузка
+    // не удалась). showStageNResult в test-main.js знает, как рендерить и то,
+    // и другое.
+
     getStage1Interpretation() {
-        const interpretations = {
+        const data = this.interpretations?.stage1?.perception_types?.[this.perceptionType];
+        if (data) {
+            return {
+                main: data.main,
+                anxiety: data.anxiety,
+                practice: data.practice,
+                distribution: this.getPerceptionDistribution()
+            };
+        }
+        // Fallback (старый короткий формат)
+        const fallback = {
             "СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ": "Вы ориентированы на других, чутко считываете настроение и ожидания окружающих. Ваше внимание направлено вовне, а тревога связана с отвержением.",
             "СТАТУСНО-ОРИЕНТИРОВАННЫЙ": "Для вас важны статус, положение и материальные достижения. Вы ориентированы на внешние атрибуты успеха, а тревожитесь о потере контроля.",
             "СМЫСЛО-ОРИЕНТИРОВАННЫЙ": "Вы ищете глубинные смыслы и ориентируетесь на внутренние ощущения. Ваша тревога связана с отвержением и непониманием.",
             "ПРАКТИКО-ОРИЕНТИРОВАННЫЙ": "Вы ориентированы на практические результаты и конкретные действия. Ваше внимание направлено внутрь, а тревога — о потере контроля."
         };
-        return interpretations[this.perceptionType] || interpretations["СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ"];
+        return { main: fallback[this.perceptionType] || fallback["СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ"] };
     }
-    
+
     getStage2Interpretation() {
+        const level = String(this.thinkingLevel);
+        const levels = this.interpretations?.stage2?.by_type_and_level?.[this.perceptionType];
+        const meta = this.interpretations?.stage2?.level_meta?.[level];
+        if (levels && levels[level]) {
+            return {
+                main: levels[level],
+                level: this.thinkingLevel,
+                strength: meta?.strength,
+                weakness: meta?.weakness
+            };
+        }
+        // Fallback (старый формат — группы)
         const levelGroup = this.getLevelGroup(this.thinkingLevel);
-        
-        const interpretations = {
+        const fallbackByGroup = {
             "СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ": {
-                "1-3": "Ваше мышление конкретно и привязано к социальным ситуациям. Вы хорошо понимаете сиюминутные взаимодействия, но не всегда видите общие закономерности.",
-                "4-6": "Вы замечаете социальные закономерности и тренды. Видите, как складываются отношения и почему люди ведут себя определенным образом.",
-                "7-9": "Вы видите глубинные социальные механизмы и законы. Можете предсказывать развитие социальных ситуаций."
+                "1-3": "Ваше мышление конкретно и привязано к социальным ситуациям.",
+                "4-6": "Вы замечаете социальные закономерности и тренды.",
+                "7-9": "Вы видите глубинные социальные механизмы и законы."
             },
             "СТАТУСНО-ОРИЕНТИРОВАННЫЙ": {
-                "1-3": "Ваше мышление направлено на достижение статуса. Вы хорошо понимаете иерархию и позиции, но не всегда видите скрытые механизмы.",
-                "4-6": "Вы стратегически мыслите в категориях статуса. Видите, как меняются позиции и что нужно для продвижения.",
-                "7-9": "Вы видите иерархические закономерности. Понимаете законы власти и влияния."
+                "1-3": "Ваше мышление направлено на достижение статуса.",
+                "4-6": "Вы стратегически мыслите в категориях статуса.",
+                "7-9": "Вы видите иерархические закономерности."
             },
             "СМЫСЛО-ОРИЕНТИРОВАННЫЙ": {
-                "1-3": "Вы ищете смыслы в отдельных событиях. Вам важно понять 'почему' в конкретных ситуациях.",
-                "4-6": "Вы находите закономерности в жизненных историях. Видите связь событий и их глубинный смысл.",
-                "7-9": "Вы постигаете глубинные смыслы бытия. Видите универсальные законы, управляющие жизнью."
+                "1-3": "Вы ищете смыслы в отдельных событиях.",
+                "4-6": "Вы находите закономерности в жизненных историях.",
+                "7-9": "Вы постигаете глубинные смыслы бытия."
             },
             "ПРАКТИКО-ОРИЕНТИРОВАННЫЙ": {
-                "1-3": "Ваше мышление конкретно и практично. Вы хорошо решаете текущие задачи, но не всегда видите перспективу.",
-                "4-6": "Вы видите практические закономерности. Понимаете, как устроены процессы и системы.",
-                "7-9": "Вы создаёте эффективные практические модели. Можете оптимизировать любые процессы."
+                "1-3": "Ваше мышление конкретно и практично.",
+                "4-6": "Вы видите практические закономерности.",
+                "7-9": "Вы создаёте эффективные практические модели."
             }
         };
-        
-        return interpretations[this.perceptionType]?.[levelGroup] || interpretations["СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ"]["4-6"];
+        return { main: fallbackByGroup[this.perceptionType]?.[levelGroup] || fallbackByGroup["СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ"]["4-6"], level: this.thinkingLevel };
     }
-    
+
     getStage3Interpretation() {
         const finalLevel = this.calculateFinalLevel();
-        const feedback = {
+        const vectorsCfg = this.interpretations?.stage3?.vectors;
+        const summaryCfg = this.interpretations?.stage3?.summary_by_final_level;
+
+        // Считаем средние по 4 векторам
+        const avg = (arr) => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+        const sbAvg = avg(this.behavioralLevels["СБ"]);
+        const tfAvg = avg(this.behavioralLevels["ТФ"]);
+        const ubAvg = avg(this.behavioralLevels["УБ"]);
+        const chvAvg = avg(this.behavioralLevels["ЧВ"]);
+
+        if (vectorsCfg && summaryCfg) {
+            return {
+                averages: { sbAvg, tfAvg, ubAvg, chvAvg },
+                finalLevel,
+                vectors: {
+                    sb: { name: vectorsCfg.sb.name, icon: vectorsCfg.sb.icon, level: sbAvg, text: vectorsCfg.sb.by_level[String(sbAvg)] || "" },
+                    tf: { name: vectorsCfg.tf.name, icon: vectorsCfg.tf.icon, level: tfAvg, text: vectorsCfg.tf.by_level[String(tfAvg)] || "" },
+                    ub: { name: vectorsCfg.ub.name, icon: vectorsCfg.ub.icon, level: ubAvg, text: vectorsCfg.ub.by_level[String(ubAvg)] || "" },
+                    chv: { name: vectorsCfg.chv.name, icon: vectorsCfg.chv.icon, level: chvAvg, text: vectorsCfg.chv.by_level[String(chvAvg)] || "" }
+                },
+                summary: summaryCfg[String(finalLevel)] || ""
+            };
+        }
+        // Fallback (старый короткий формат)
+        const fallback = {
             1: "Ваше поведение реактивно — вы скорее отвечаете на стимулы, чем действуете осознанно.",
             2: "Вы начинаете осознавать свои автоматические реакции.",
             3: "Вы можете выбирать реакции, но не всегда.",
@@ -294,24 +426,59 @@ class TestCore {
             5: "Поведение становится инструментом для достижения целей.",
             6: "Вы мастерски владеете своим поведением."
         };
-        
         let level = finalLevel <= 2 ? 1 : finalLevel <= 4 ? 2 : finalLevel <= 6 ? 3 : finalLevel <= 8 ? 4 : 5;
         if (finalLevel >= 9) level = 6;
-        
-        return feedback[level] || feedback[3];
+        return { averages: { sbAvg, tfAvg, ubAvg, chvAvg }, finalLevel, summary: fallback[level] || fallback[3] };
     }
-    
+
+    // НОВЫЙ метод (раньше для этапа 4 не было полной интерпретации,
+    // только однострочный getGrowthTip и захардкоренный confidence 0.7).
+    getStage4Interpretation() {
+        const dominant = this.determineDominantDilts();
+        const cfg = this.interpretations?.stage4?.dilts_levels?.[dominant];
+        const distribution = this.getDiltsDistribution();
+        const confidence = this.calculateStage4Confidence();
+        if (cfg) {
+            return {
+                dominant,
+                title: cfg.title,
+                icon: cfg.icon,
+                what_means: cfg.what_means,
+                lever: cfg.lever,
+                blind_spot: cfg.blind_spot,
+                distribution,
+                confidence
+            };
+        }
+        // Fallback (нет JSON — собираем по-минимуму)
+        return {
+            dominant,
+            title: dominant,
+            icon: "🎯",
+            what_means: `Ваша точка роста — на уровне ${dominant.toLowerCase()}.`,
+            distribution,
+            confidence
+        };
+    }
+
     getStage5Interpretation() {
         const deep = this.deepPatterns || { attachment: "🤗 Надежный" };
-        
-        const attachmentDesc = {
+        const cfg = this.interpretations?.stage5?.attachment?.[deep.attachment];
+        if (cfg) {
+            return {
+                attachment: { emoji: deep.attachment, label: cfg.label, text: cfg.text }
+            };
+        }
+        // Fallback
+        const fallback = {
             "🤗 Надежный": "У тебя надёжный тип привязанности — ты уверен в отношениях и не боишься близости.",
             "😥 Тревожный": "Тревожный тип привязанности: ты часто боишься, что тебя бросят, нуждаешься в подтверждениях любви.",
             "🛡️ Избегающий": "Избегающий тип привязанности: ты держишь дистанцию, боишься близости, надеясь только на себя.",
             "🏔️ Отстраненный": "Отстранённый тип: ты обесцениваешь отношения, считая, что лучше быть одному."
         };
-        
-        return `🔗 Тип привязанности:\n${attachmentDesc[deep.attachment] || attachmentDesc["🤗 Надежный"]}`;
+        return {
+            attachment: { emoji: deep.attachment, label: deep.attachment, text: fallback[deep.attachment] || fallback["🤗 Надежный"] }
+        };
     }
     
     // ============================================
