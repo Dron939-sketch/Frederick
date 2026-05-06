@@ -1617,6 +1617,18 @@ function renderDashboard() {
     // Делаем функцию глобальной для test.js
     window.renderDashboard = renderDashboard;
 
+    // Инструментирование воронки. До этого dashboard_viewed не трекался
+    // (в дампе аналитики 269 session_starts vs 77 screen_views — большая
+    // часть пользователей вообще не доходит до отслеживаемых экранов).
+    try {
+        if (window.FrediTracker?.track) {
+            window.FrediTracker.track('dashboard_viewed', {
+                mode: typeof currentMode === 'string' ? currentMode : null,
+                is_premium: window.IS_PREMIUM === true
+            });
+        }
+    } catch {}
+
     // Если сайдбар остался открытым после навигации — закрываем, иначе он
     // перекроет ☰-кнопку на мобильных устройствах.
     document.getElementById('chatsPanel')?.classList.remove('open');
@@ -1701,6 +1713,19 @@ function renderDashboard() {
 
     // Загружаем статус профиля
     getUserStatus().then(status => {
+        const isAnon = !status.has_profile;
+
+        // Инструментирование: статус резолвнут — трекаем сегмент пользователя.
+        // Это то, что покажет реальную пропорцию anon vs has_profile в трафике.
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('dashboard_status_resolved', {
+                    has_profile: !!status.has_profile,
+                    test_completed: !!status.test_completed
+                });
+            }
+        } catch {}
+
         const badge  = document.getElementById('profileBadge');
         const codeEl = document.getElementById('profileCode');
         const statusEl = document.getElementById('profileStatus');
@@ -1712,23 +1737,64 @@ function renderDashboard() {
             if (codeEl) { codeEl.textContent = '📊'; codeEl.style.fontSize = '22px'; }
             if (statusEl) statusEl.textContent = '→ пройти тест';
             if (badge) badge.classList.add('profile-badge--cta');
-            // Показываем CTA-баннер
+            // Показываем CTA-баннер для anon. Делаем визуально доминирующим:
+            // увеличиваем тень, padding и приглушаем нижние кнопки чтобы
+            // взгляд анона направлялся на тест, а не на пёструю сетку модулей.
             const ctaBanner = document.getElementById('ctaTestBanner');
-            if (ctaBanner) ctaBanner.style.display = 'flex';
+            if (ctaBanner) {
+                ctaBanner.style.display = 'flex';
+                ctaBanner.style.padding = '24px 22px';
+                ctaBanner.style.boxShadow = '0 12px 40px rgba(168,196,224,0.18)';
+                ctaBanner.style.border = '1.5px solid rgba(168,196,224,0.45)';
+            }
+            // Visually de-emphasise the modules grid + quick actions for anon
+            // so that the test CTA is the obvious primary action. Не скрываем
+            // полностью — если кому-то надо, пусть видит, но не визуально первым.
+            const modulesGrid = document.querySelector('.modules-grid');
+            if (modulesGrid) modulesGrid.style.opacity = '0.62';
+            const quickActions = document.querySelector('.quick-actions');
+            if (quickActions) quickActions.style.opacity = '0.62';
         }
     }).catch(() => {
         const statusEl = document.getElementById('profileStatus');
         if (statusEl) statusEl.textContent = 'нет профиля';
     });
 
+    // Инструментирование клика по CTA-баннеру теста (отдельным событием,
+    // чтобы было видно: сколько анонов проходят CTA → тест).
+    document.getElementById('ctaTestBanner')?.addEventListener('click', () => {
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('dashboard_cta_clicked', { cta: 'test_banner' });
+            }
+        } catch {}
+    });
+
     document.getElementById('profileBadge')?.addEventListener('click', async () => {
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('dashboard_cta_clicked', { cta: 'profile_badge' });
+            }
+        } catch {}
         const completed = await isTestCompleted();
         if (!completed) startTest();
         else handleShowProfile();
     });
 
     document.querySelectorAll('.mode-btn').forEach(btn => {
-        btn.addEventListener('click', () => { if (btn.dataset.mode) switchMode(btn.dataset.mode); });
+        btn.addEventListener('click', () => {
+            if (btn.dataset.mode) {
+                try {
+                    if (window.FrediTracker?.track) {
+                        window.FrediTracker.track('dashboard_cta_clicked', {
+                            cta: 'mode_btn',
+                            mode: btn.dataset.mode
+                        });
+                    }
+                } catch {}
+                switchMode(btn.dataset.mode);
+            }
+        });
     });
 
     document.getElementById('modeUpgradeLink')?.addEventListener('click', (e) => {
@@ -1746,6 +1812,14 @@ function renderDashboard() {
     document.querySelectorAll('.module-card').forEach(card => {
         card.addEventListener('click', () => {
             const moduleId = card.dataset.module;
+            try {
+                if (window.FrediTracker?.track) {
+                    window.FrediTracker.track('dashboard_cta_clicked', {
+                        cta: 'module_card',
+                        module: moduleId
+                    });
+                }
+            } catch {}
             const _load = (src, fn) => { if (typeof fn==='function') { fn(); } else { const s=document.createElement('script'); s.src=src; s.onload=()=>{ if(typeof fn==='function') fn(); }; s.onerror=()=>{showToast('Не удалось загрузить модуль','error');}; document.head.appendChild(s); } };
             const moduleHandlers = {
                 analysis:   () => { if (typeof openAnalysisScreen==='function') openAnalysisScreen(); else _load('analysis.js', window.openAnalysisScreen); },
@@ -1771,6 +1845,14 @@ function renderDashboard() {
     document.querySelectorAll('.quick-action').forEach(action => {
         action.addEventListener('click', async () => {
             const type = action.dataset.action;
+            try {
+                if (window.FrediTracker?.track) {
+                    window.FrediTracker.track('dashboard_cta_clicked', {
+                        cta: 'quick_action',
+                        action: type
+                    });
+                }
+            } catch {}
             const handlers = {
                 profile: handleShowProfile,
                 thoughts: handleShowThoughts,
