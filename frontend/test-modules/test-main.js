@@ -628,7 +628,13 @@ ${this.core.context.weather.icon} Погода: ${this.core.context.weather.desc
         this.core.reset();
         this.core.saveProgress();
         this.showTestScreen();
-        
+
+        // Прогрев расширенных интерпретаций — параллельно с прохождением.
+        // Если успеют загрузиться к концу первого этапа (обычно 2-3 минуты) —
+        // показываем расширенные блоки. Если нет — fallback на короткий текст.
+        // Не ждём завершения: тест начинается сразу.
+        this.core.loadInterpretations().catch(() => {});
+
         setTimeout(() => {
             this.sendStageIntro();
         }, 500);
@@ -760,12 +766,32 @@ ${intro.detailedDesc || stage.detailedDesc}
     }
     
     showStage1Result(interpretation) {
+        // Поддерживаем оба формата: новый объект {main, anxiety, practice, distribution}
+        // и старый — просто строку (если interpretations не загрузились).
+        const isExtended = typeof interpretation === 'object' && interpretation.main;
+        const main = isExtended ? interpretation.main : interpretation;
+        const anxiety = isExtended ? interpretation.anxiety : null;
+        const practice = isExtended ? interpretation.practice : null;
+        const dist = isExtended ? interpretation.distribution : null;
+
+        let distBlock = '';
+        if (dist) {
+            const bar = (pct) => '█'.repeat(Math.floor(pct / 10)) + '░'.repeat(10 - Math.floor(pct / 10));
+            distBlock = `
+
+📊 Распределение внимания:
+👥 Внешнее   ${bar(dist.EXTERNAL)} ${dist.EXTERNAL}%
+💭 Внутреннее ${bar(dist.INTERNAL)} ${dist.INTERNAL}%
+✨ Символическое ${bar(dist.SYMBOLIC)} ${dist.SYMBOLIC}%
+📈 Материальное ${bar(dist.MATERIAL)} ${dist.MATERIAL}%`;
+        }
+
         const text = `
 ✨ РЕЗУЛЬТАТ ЭТАПА 1
 
-Ваш тип восприятия: ${this.core.perceptionType}
+Ваш тип восприятия: ${this.core.perceptionType}${distBlock}
 
-${interpretation}
+${main}${anxiety ? `\n\n🔔 ${anxiety}` : ''}${practice ? `\n\n💡 Как это работает в жизни:\n${practice}` : ''}
 
 ▶️ ЧТО ДАЛЬШЕ?
 
@@ -776,7 +802,7 @@ ${interpretation}
 📊 Вопросов: ${this.core.stages[1].total}
 ⏱ Время: ~3-4 минуты
 `;
-        
+
         this.addMessageWithButtons(text, [
             { text: "📖 ПОДРОБНЕЕ ОБ ЭТАПЕ", callback: () => this.showStageDetails(0) },
             { text: "▶️ ПЕРЕЙТИ К ЭТАПУ 2", callback: () => this.goToNextStage() }
@@ -784,12 +810,32 @@ ${interpretation}
     }
     
     showStage2Result(interpretation) {
+        const isExtended = typeof interpretation === 'object' && interpretation.main;
+        const main = isExtended ? interpretation.main : interpretation;
+        const strength = isExtended ? interpretation.strength : null;
+        const weakness = isExtended ? interpretation.weakness : null;
+        const level = this.core.thinkingLevel;
+
+        // Шкала с маркером на текущем уровне (1-9)
+        let scaleBlock = '';
+        if (level) {
+            const dots = [];
+            for (let i = 1; i <= 9; i++) {
+                dots.push(i === level ? '⭐' : i.toString());
+            }
+            scaleBlock = `
+
+📊 Шкала уровней:
+${dots.join('  ')}
+Конкретное ←──→ Закономерности ←──→ Глубинные законы`;
+        }
+
         const text = `
 ✨ РЕЗУЛЬТАТ ЭТАПА 2
 
-Уровень мышления: ${this.core.thinkingLevel}/9
+Уровень мышления: ${level}/9${scaleBlock}
 
-${interpretation}
+${main}${strength ? `\n\n💪 ${strength}` : ''}${weakness ? `\n⚠️ ${weakness}` : ''}
 
 ▶️ ЧТО ДАЛЬШЕ?
 
@@ -800,7 +846,7 @@ ${interpretation}
 📊 Вопросов: 8
 ⏱ Время: ~3 минуты
 `;
-        
+
         this.addMessageWithButtons(text, [
             { text: "📖 ПОДРОБНЕЕ ОБ ЭТАПЕ", callback: () => this.showStageDetails(1) },
             { text: "▶️ ПЕРЕЙТИ К ЭТАПУ 3", callback: () => this.goToNextStage() }
@@ -808,9 +854,36 @@ ${interpretation}
     }
     
     showStage3Result(result) {
-        const text = `
-✨ РЕЗУЛЬТАТ ЭТАПА 3
+        // result.interpretation теперь структурированный объект (если interpretations
+        // загрузились) или старая короткая строка (fallback).
+        const interp = result.interpretation;
+        const isExtended = typeof interp === 'object' && interp.vectors;
 
+        let body;
+        if (isExtended) {
+            const bar = (val, max) => '█'.repeat(val) + '░'.repeat(max - val);
+            const v = interp.vectors;
+            body = `
+📊 Ваши поведенческие векторы:
+
+${v.sb.icon} ${v.sb.name} (СБ): ${bar(v.sb.level, 6)} ${v.sb.level}/6
+${v.sb.text}
+
+${v.tf.icon} ${v.tf.name} (ТФ): ${bar(v.tf.level, 6)} ${v.tf.level}/6
+${v.tf.text}
+
+${v.ub.icon} ${v.ub.name} (УБ): ${bar(v.ub.level, 6)} ${v.ub.level}/6
+${v.ub.text}
+
+${v.chv.icon} ${v.chv.name} (ЧВ): ${bar(v.chv.level, 6)} ${v.chv.level}/6
+${v.chv.text}
+
+📊 Финальный уровень: ${interp.finalLevel}/9
+${interp.summary}`;
+        } else {
+            // Fallback (старый короткий формат)
+            const interpText = (typeof interp === 'object' ? interp.summary : interp) || '';
+            body = `
 Ваши поведенческие уровни:
 • Реакция на давление (СБ ${result.averages.sbAvg}/6)
 • Отношение к деньгам (ТФ ${result.averages.tfAvg}/6)
@@ -819,7 +892,12 @@ ${interpretation}
 
 Финальный уровень: ${result.finalLevel}/9
 
-${result.interpretation}
+${interpText}`;
+        }
+
+        const text = `
+✨ РЕЗУЛЬТАТ ЭТАПА 3
+${body}
 
 ▶️ ЧТО ДАЛЬШЕ?
 
@@ -830,7 +908,7 @@ ${result.interpretation}
 📊 Вопросов: 8
 ⏱ Время: ~3 минуты
 `;
-        
+
         this.addMessageWithButtons(text, [
             { text: "📖 ПОДРОБНЕЕ ОБ ЭТАПЕ", callback: () => this.showStageDetails(2) },
             { text: "▶️ ПЕРЕЙТИ К ЭТАПУ 4", callback: () => this.goToNextStage() }
@@ -838,36 +916,58 @@ ${result.interpretation}
     }
     
     showStage4Result(profile) {
-        const growthManager = this.stageManagers.growth;
-        const growthTip = growthManager.getGrowthTip();
-        
-        const attentionDesc = profile.perceptionType.includes("СОЦИАЛЬНО") || profile.perceptionType.includes("СТАТУСНО")
-            ? "Для вас важно, что думают другие, вы чутко считываете настроение и ожидания окружающих."
-            : "Для вас важнее ваши внутренние ощущения и чувства, чем мнение других.";
-        
-        const thinkingDesc = profile.thinkingLevel <= 3 
-            ? "Вы хорошо видите отдельные ситуации, но не всегда замечаете общие закономерности."
-            : profile.thinkingLevel <= 6
-            ? "Вы замечаете закономерности, но не всегда видите, к чему они приведут в будущем."
-            : "Вы видите общие законы и можете предсказывать развитие ситуаций.";
-        
-        const confidence = 0.7;
-        const confidenceBar = "█".repeat(Math.floor(confidence * 10)) + "░".repeat(10 - Math.floor(confidence * 10));
-        
+        // Полноценная интерпретация этапа 4 (раньше отсутствовала).
+        // getStage4Interpretation() возвращает структуру с уровнем Дилтса,
+        // распределением, what_means / lever / blind_spot, реальной confidence.
+        const interp = this.core.getStage4Interpretation();
+        const dist = interp.distribution || {};
+        const hasJSON = !!interp.what_means && !!interp.lever;
+
+        const bar = (pct) => '█'.repeat(Math.floor(pct / 10)) + '░'.repeat(10 - Math.floor(pct / 10));
+        const distBlock = `📊 Распределение по уровням Дилтса:
+🌍 Окружение     ${bar(dist.ENVIRONMENT || 0)} ${dist.ENVIRONMENT || 0}%${interp.dominant === 'ENVIRONMENT' ? ' ⭐' : ''}
+🛠️ Поведение    ${bar(dist.BEHAVIOR || 0)} ${dist.BEHAVIOR || 0}%${interp.dominant === 'BEHAVIOR' ? ' ⭐' : ''}
+📚 Способности   ${bar(dist.CAPABILITIES || 0)} ${dist.CAPABILITIES || 0}%${interp.dominant === 'CAPABILITIES' ? ' ⭐' : ''}
+💎 Ценности      ${bar(dist.VALUES || 0)} ${dist.VALUES || 0}%${interp.dominant === 'VALUES' ? ' ⭐' : ''}
+🧠 Идентичность  ${bar(dist.IDENTITY || 0)} ${dist.IDENTITY || 0}%${interp.dominant === 'IDENTITY' ? ' ⭐' : ''}`;
+
+        const confidence = interp.confidence || 0.6;
+        const confidenceBar = '█'.repeat(Math.floor(confidence * 10)) + '░'.repeat(10 - Math.floor(confidence * 10));
+
+        let body;
+        if (hasJSON) {
+            body = `
+🎯 Ваша точка роста: ${interp.title.toUpperCase()}
+
+${distBlock}
+
+Что это значит:
+${interp.what_means}
+
+🚀 Ваш природный рычаг:
+${interp.lever}
+
+⚠️ Слепая зона:
+${interp.blind_spot}`;
+        } else {
+            // Fallback — пока interpretations не загрузились
+            const growthManager = this.stageManagers.growth;
+            const growthTip = growthManager.getGrowthTip();
+            body = `
+${distBlock}
+
+🎯 Точка роста: ${growthTip}`;
+        }
+
         const text = `
-🧠 ПРЕДВАРИТЕЛЬНЫЙ ПОРТРЕТ
+✨ РЕЗУЛЬТАТ ЭТАПА 4
+${body}
 
-${attentionDesc}
-
-${thinkingDesc}
-
-🎯 Точка роста: ${growthTip}
-
-📊 Уверенность: ${confidenceBar} ${Math.floor(confidence * 100)}%
+📊 Уверенность портрета: ${confidenceBar} ${Math.floor(confidence * 100)}%
 
 👇 ЭТО ПОХОЖЕ НА ВАС?
 `;
-        
+
         this.addMessageWithButtons(text, [
             { text: "✅ ДА", callback: () => this.profileConfirm() },
             { text: "❓ ЕСТЬ СОМНЕНИЯ", callback: () => this.profileDoubt() },
@@ -1026,16 +1126,26 @@ ${q.text}
     }
     
     showStage5Result(interpretation) {
+        // Поддерживаем оба формата
+        let body;
+        if (typeof interpretation === 'object' && interpretation.attachment) {
+            const a = interpretation.attachment;
+            body = `🔗 Тип привязанности: ${a.emoji} ${a.label}
+${a.text}`;
+        } else {
+            body = typeof interpretation === 'string' ? interpretation : '';
+        }
+
         const text = `
 ✨ РЕЗУЛЬТАТ ЭТАПА 5
 
-${interpretation}
+${body}
 
 ✅ ТЕСТ ЗАВЕРШЕН!
 
-🧠 Собираю воедино результаты 5 этапов...
+🧠 Собираю воедино результаты 5 этапов в финальный портрет...
 `;
-        
+
         this.addBotMessage(text, true);
         this.finishTest();
     }
