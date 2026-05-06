@@ -13,7 +13,7 @@
  *   - Не премиум → premium-lock
  *   - Премиум, но не тестер → «скоро будет доступен»
  *
- * Логирование интереса в /api/log-event (event=prompter_activate_clicked)
+ * Логирование интереса через window.FrediTracker.track('prompter_activate_clicked')
  * с payload { context_id, goal_id, has_custom_context, has_custom_goal,
  * is_tester } — это даст аналитику какие сценарии чаще выбирают.
  */
@@ -557,23 +557,20 @@
         }
         _ppSaveDraft();
 
-        // Логирование интереса — для аналитики гипотезы спроса.
+        // Логирование интереса через штатный tracker — для аналитики
+        // гипотезы спроса. Раньше шёл прямой POST на /api/log-event,
+        // которого на бэке нет (был 404 в логах). FrediTracker.track
+        // батчует и отправляет на /api/analytics/events.
         try {
-            fetch(`${_ppApi()}/api/log-event`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: _ppUid(),
-                    event: 'prompter_activate_clicked',
-                    payload: {
-                        context_id: _pp.contextId,
-                        goal_id: _pp.goalId,
-                        has_custom_context: _pp.contextId === 'custom',
-                        has_custom_goal:    _pp.goalId === 'custom',
-                        is_tester: _ppIsTester()
-                    }
-                })
-            }).catch(() => {});
+            if (window.FrediTracker && window.FrediTracker.track) {
+                window.FrediTracker.track('prompter_activate_clicked', {
+                    context_id: _pp.contextId,
+                    goal_id: _pp.goalId,
+                    has_custom_context: _pp.contextId === 'custom',
+                    has_custom_goal:    _pp.goalId === 'custom',
+                    is_tester: _ppIsTester()
+                });
+            }
         } catch {}
 
         if (_ppIsTester()) {
