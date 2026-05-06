@@ -42,6 +42,12 @@ const Test = {
     aiGeneratedProfile: null,
     psychologistThought: null,
 
+    // Кэш расширенных интерпретаций с бэка (грузится через
+    // GET /api/test/interpretations при startTest).
+    // Используется в getStage4Interpretation для уровней Дилтса.
+    // При недоступности API — фронт работает на старых текстах (fallback).
+    interpretations: null,
+
     // ============================================
     // ЭТАПЫ
     // ============================================
@@ -584,6 +590,88 @@ const Test = {
     // ============================================
     // ИНТЕРПРЕТАЦИИ
     // ============================================
+
+    // Грузит расширенные интерпретации с бэка (для этапа 4 — распределение
+    // Дилтса с what_means/lever/blind_spot). Параллельно с прохождением
+    // теста, не блокирует UI. При ошибке тест продолжает работать на
+    // встроенных fallback-текстах.
+    async _loadInterpretations() {
+        if (this.interpretations) return this.interpretations;
+        try {
+            const r = await fetch(TEST_API_BASE_URL + '/api/test/interpretations');
+            if (r.ok) {
+                this.interpretations = await r.json();
+                return this.interpretations;
+            }
+        } catch (e) {
+            console.warn('Failed to load interpretations:', e);
+        }
+        this.interpretations = {};
+        return this.interpretations;
+    },
+
+    // Распределение по 5 уровням Дилтса в процентах — для визуализации
+    // в showStage4Result. Сумма всегда ≈100%.
+    getDiltsDistribution() {
+        const total = Object.values(this.diltsCounts || {}).reduce((a, b) => a + b, 0) || 1;
+        const r = {};
+        for (const k of ['ENVIRONMENT', 'BEHAVIOR', 'CAPABILITIES', 'VALUES', 'IDENTITY']) {
+            r[k] = Math.round(100 * (this.diltsCounts?.[k] || 0) / total);
+        }
+        return r;
+    },
+
+    // Реальная confidence для этапа 4 — из соответствия типа восприятия
+    // (этап 1) и доминанты Дилтса (этап 4). Раньше в production confidence
+    // не показывалась вообще; в test-modules была захардкожена 0.7.
+    calculateStage4Confidence() {
+        const dominant = this.determineDominantDilts();
+        const expected = {
+            'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ': ['ENVIRONMENT', 'BEHAVIOR'],
+            'СТАТУСНО-ОРИЕНТИРОВАННЫЙ': ['BEHAVIOR', 'CAPABILITIES'],
+            'СМЫСЛО-ОРИЕНТИРОВАННЫЙ': ['VALUES', 'IDENTITY'],
+            'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ': ['BEHAVIOR', 'CAPABILITIES']
+        };
+        if (expected[this.perceptionType]?.includes(dominant)) return 0.85;
+        if (expected[this.perceptionType]) return 0.55;
+        return 0.6;
+    },
+
+    // НОВЫЙ метод — раньше для этапа 4 в production не было полной
+    // интерпретации. Возвращает структуру с доминантой Дилтса,
+    // распределением по 5 уровням, what_means/lever/blind_spot и
+    // confidence. Опирается на JSON, загруженный _loadInterpretations.
+    getStage4Interpretation() {
+        const dominant = this.determineDominantDilts();
+        const cfg = this.interpretations?.stage4?.dilts_levels?.[dominant];
+        const distribution = this.getDiltsDistribution();
+        const confidence = this.calculateStage4Confidence();
+        if (cfg) {
+            return {
+                dominant: dominant,
+                title: cfg.title,
+                icon: cfg.icon,
+                what_means: cfg.what_means,
+                lever: cfg.lever,
+                blind_spot: cfg.blind_spot,
+                distribution: distribution,
+                confidence: confidence
+            };
+        }
+        // Fallback (JSON не загрузился) — собираем минимум из захардкоренных дефолтов.
+        const fallbackTitles = {
+            ENVIRONMENT: 'Окружение', BEHAVIOR: 'Поведение',
+            CAPABILITIES: 'Способности', VALUES: 'Ценности', IDENTITY: 'Идентичность'
+        };
+        return {
+            dominant: dominant,
+            title: fallbackTitles[dominant] || dominant,
+            icon: '🎯',
+            distribution: distribution,
+            confidence: confidence
+        };
+    },
+
     getStage1Interpretation() {
         const map = {
             'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ': `🔍 Что это значит:
@@ -1166,6 +1254,10 @@ const Test = {
         this.currentStage=0; this.currentQuestionIndex=0;
         this.reset(); this.saveProgress();
         this.showTestScreen();
+        // Параллельно подтягиваем расширенные интерпретации с бэка —
+        // нужны для этапа 4 (Дилтс). До этапа 4 пользователь идёт
+        // 4-5 минут, JSON успеет загрузиться задолго.
+        this._loadInterpretations().catch(() => {});
         setTimeout(()=>this.sendStageIntro(), 500);
     },
 
@@ -1437,8 +1529,49 @@ ${this.getStage3Interpretation()}
         const tfD = {1:'Деньги как повезёт',2:'Ищете возможности',3:'Зарабатываете трудом',4:'Хорошо зарабатываете',5:'Создаёте системы дохода',6:'Управляете капиталом'}[p.tfLevel]||'—';
         const ubD = {1:'Не думаете о сложном',2:'Верите в знаки',3:'Доверяете экспертам',4:'Ищете заговоры',5:'Анализируете факты',6:'Строите теории'}[p.ubLevel]||'—';
         const cvD = {1:'Сильно привязываетесь',2:'Подстраиваетесь',3:'Хотите нравиться',4:'Умеете влиять',5:'Строите равные отношения',6:'Создаёте сообщества'}[p.chvLevel]||'—';
-        const gr  = {ENVIRONMENT:'Посмотрите вокруг — может, дело в обстоятельствах?',BEHAVIOR:'Попробуйте делать хоть что-то по-другому.',CAPABILITIES:'Развивайте новые навыки.',VALUES:'Поймите, что для вас действительно важно.',IDENTITY:'Ответьте себе на вопрос «кто я?»'}[p.dominantDilts]||'Начните с малого.';
-        this.addMessageWithButtons('🧠 ПРЕДВАРИТЕЛЬНЫЙ ПОРТРЕТ\n\n📊 ТВОИ ВЕКТОРЫ:\n\n• СБ '+p.sbLevel+'/6: '+sbD+'\n• ТФ '+p.tfLevel+'/6: '+tfD+'\n• УБ '+p.ubLevel+'/6: '+ubD+'\n• ЧВ '+p.chvLevel+'/6: '+cvD+'\n\n🎯 Точка роста: '+gr+'\n\n👇 ЭТО ПОХОЖЕ НА ВАС?', [
+
+        // Расширенная интерпретация этапа 4 (раньше отсутствовала).
+        // Использует JSON-интерпретации с бэка, fallback — короткий tip.
+        const interp = this.getStage4Interpretation();
+        const dist = interp.distribution || {};
+        const bar = (pct) => '█'.repeat(Math.floor(pct / 10)) + '░'.repeat(10 - Math.floor(pct / 10));
+        const star = (key) => interp.dominant === key ? ' ⭐' : '';
+        const distBlock = '📊 РАСПРЕДЕЛЕНИЕ ПО УРОВНЯМ ДИЛТСА:\n'
+            + '🌍 Окружение     ' + bar(dist.ENVIRONMENT||0) + ' ' + (dist.ENVIRONMENT||0) + '%' + star('ENVIRONMENT') + '\n'
+            + '🛠️ Поведение    ' + bar(dist.BEHAVIOR||0) + ' ' + (dist.BEHAVIOR||0) + '%' + star('BEHAVIOR') + '\n'
+            + '📚 Способности   ' + bar(dist.CAPABILITIES||0) + ' ' + (dist.CAPABILITIES||0) + '%' + star('CAPABILITIES') + '\n'
+            + '💎 Ценности      ' + bar(dist.VALUES||0) + ' ' + (dist.VALUES||0) + '%' + star('VALUES') + '\n'
+            + '🧠 Идентичность  ' + bar(dist.IDENTITY||0) + ' ' + (dist.IDENTITY||0) + '%' + star('IDENTITY');
+
+        // Если JSON загрузился — показываем what_means/lever/blind_spot.
+        // Если нет — однострочный tip как раньше.
+        let interpBlock;
+        if (interp.what_means && interp.lever) {
+            interpBlock = '🎯 Ваша точка роста: ' + (interp.title || '').toUpperCase() + '\n\n'
+                + 'Что это значит:\n' + interp.what_means + '\n\n'
+                + '🚀 Ваш природный рычаг:\n' + interp.lever
+                + (interp.blind_spot ? '\n\n⚠️ Слепая зона:\n' + interp.blind_spot : '');
+        } else {
+            const fallbackTip = {ENVIRONMENT:'Посмотрите вокруг — может, дело в обстоятельствах?',BEHAVIOR:'Попробуйте делать хоть что-то по-другому.',CAPABILITIES:'Развивайте новые навыки.',VALUES:'Поймите, что для вас действительно важно.',IDENTITY:'Ответьте себе на вопрос «кто я?»'}[p.dominantDilts]||'Начните с малого.';
+            interpBlock = '🎯 Точка роста: ' + fallbackTip;
+        }
+
+        const conf = interp.confidence || 0.6;
+        const confBar = '█'.repeat(Math.floor(conf * 10)) + '░'.repeat(10 - Math.floor(conf * 10));
+        const confBlock = '📊 Уверенность портрета: ' + confBar + ' ' + Math.floor(conf * 100) + '%';
+
+        const text = '🧠 ПРЕДВАРИТЕЛЬНЫЙ ПОРТРЕТ\n\n'
+            + '📊 ТВОИ ВЕКТОРЫ:\n\n'
+            + '• СБ ' + p.sbLevel + '/6: ' + sbD + '\n'
+            + '• ТФ ' + p.tfLevel + '/6: ' + tfD + '\n'
+            + '• УБ ' + p.ubLevel + '/6: ' + ubD + '\n'
+            + '• ЧВ ' + p.chvLevel + '/6: ' + cvD + '\n\n'
+            + distBlock + '\n\n'
+            + interpBlock + '\n\n'
+            + confBlock + '\n\n'
+            + '👇 ЭТО ПОХОЖЕ НА ВАС?';
+
+        this.addMessageWithButtons(text, [
             {text:'✅ ДА',callback:()=>this.profileConfirm()},
             {text:'❓ ЕСТЬ СОМНЕНИЯ',callback:()=>this.profileDoubt()},
             {text:'◀️ НАЗАД',callback:()=>this.goToPreviousStage()}
