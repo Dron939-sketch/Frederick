@@ -994,6 +994,96 @@ const Test = {
         return sorted.slice(0, 5).map(e => e[0]);
     },
 
+    // ============================================
+    // КРОСС-ЭТАПНЫЕ ИНСАЙТЫ
+    // ============================================
+    // Каждый шаблон срабатывает по условию из ответов 1-4 этапов и
+    // даёт интегрирующий текст. Возвращает топ-3 наиболее релевантных
+    // (по приоритету: ранние в списке выше). Шаблоны и тексты —
+    // в JSON cross_stage_insights.patterns. Логика триггеров — здесь.
+    //
+    // Назначение: показать пользователю, что тест видит ЕГО ПРОФИЛЬ
+    // целиком, а не как набор изолированных результатов. Это и есть
+    // переход от чек-листа к живому портрету.
+    getCrossStageInsights() {
+        const patterns = this.interpretations?.cross_stage_insights?.patterns;
+        if (!patterns) return [];
+
+        const tl = this.thinkingLevel || 5;
+        const fl = this.calculateFinalLevel ? this.calculateFinalLevel() : 5;
+        const t = this.perceptionType || '';
+        const dominant = this.determineDominantDilts();
+        const attachment = (this.deepPatterns || {}).attachment || '';
+        const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 3;
+        const chvAvg = avg(this.behavioralLevels?.['ЧВ'] || []);
+        const sbAvg = avg(this.behavioralLevels?.['СБ'] || []);
+
+        // Распределение по 4 осям восприятия — нужно для balanced_profile
+        const dist = Object.values(this.perceptionScores || {});
+        const total = dist.reduce((a, b) => a + b, 0) || 1;
+        const pcts = dist.map(v => 100 * v / total);
+        const maxSpread = Math.max(...pcts) - Math.min(...pcts);
+
+        // Триггеры — упорядочены по приоритету (более специфичные сначала)
+        const triggers = {
+            cognitive_action_gap: tl >= 6 && fl <= 4,
+            harmonic_high: tl >= 6 && fl >= 6,
+            anxious_low_chv: attachment.includes('Тревожный') && chvAvg <= 3,
+            social_avoidant: t === 'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ' && attachment.includes('Избегающий'),
+            meaning_no_action: t === 'СМЫСЛО-ОРИЕНТИРОВАННЫЙ' && fl <= 3,
+            status_low_emotion: t === 'СТАТУСНО-ОРИЕНТИРОВАННЫЙ' && chvAvg <= 3,
+            behavior_dominant_low_action: dominant === 'BEHAVIOR' && fl <= 4,
+            values_dominant_practical: dominant === 'VALUES' && t === 'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ',
+            high_meaning_high_attachment: t === 'СМЫСЛО-ОРИЕНТИРОВАННЫЙ' && attachment.includes('Надежный'),
+            balanced_profile: maxSpread <= 15 && total > 4
+        };
+
+        const fired = [];
+        for (const [key, fires] of Object.entries(triggers)) {
+            if (fires && patterns[key]) {
+                const text = patterns[key].text
+                    .replace('{thinkingLevel}', tl)
+                    .replace('{finalBehavioralLevel}', fl);
+                fired.push({ key, title: patterns[key].title, text });
+            }
+        }
+        // Топ-3 наиболее релевантных
+        return fired.slice(0, 3);
+    },
+
+    // ============================================
+    // ОТПРАВКА ОТЗЫВА ОБ ЭТАПЕ 4 (АНАЛИТИКА)
+    // ============================================
+    // Логирует выбор пользователя на «✅ ДА / ❓ ЕСТЬ СОМНЕНИЯ / 🔄 НЕТ»
+    // на этапе 4. Через несколько недель данные показывают, какие
+    // комбинации профиля чаще получают «не моё» — это карта слабых
+    // формулировок интерпретации, материал для будущих правок JSON.
+    async logTestFeedback(response) {
+        if (!this.userId) return;
+        try {
+            await fetch(TEST_API_BASE_URL + '/api/test/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: this.userId,
+                    stage: 4,
+                    response: response,
+                    profile: {
+                        perceptionType: this.perceptionType,
+                        thinkingLevel: this.thinkingLevel,
+                        finalLevel: this.calculateFinalLevel ? this.calculateFinalLevel() : null,
+                        dominantDilts: this.determineDominantDilts(),
+                        confidence: this.calculateStage4Confidence ? this.calculateStage4Confidence() : null
+                    },
+                    timestamp: new Date().toISOString()
+                })
+            });
+        } catch (e) {
+            // Аналитика — не блокирует UX
+            console.warn('Failed to log test feedback:', e);
+        }
+    },
+
     getStage5Interpretation() {
         const d = (this.deepPatterns||{attachment:'🤗 Надежный'}).attachment;
         const map = {
@@ -1729,11 +1819,15 @@ ${this.getStage3Interpretation()}
     },
 
     profileConfirm() {
+        // Логируем подтверждение портрета на этапе 4 — материал
+        // для аналитики «какие профили попадают, какие нет».
+        this.logTestFeedback('yes');
         this.addBotMessage('✅ Отлично! Тогда исследуем глубину...', true);
         setTimeout(()=>this.goToNextStage(), 1500);
     },
 
     profileDoubt() {
+        this.logTestFeedback('doubt');
         this.addMessageWithButtons('🔍 ДАВАЙ УТОЧНИМ\n\nЧто именно вам не подходит?\n\n👇 Выберите и нажмите ДАЛЬШЕ', [
             {text:'🎭 Про людей',callback:()=>this.toggleDiscrepancy('people')},
             {text:'💰 Про деньги',callback:()=>this.toggleDiscrepancy('money')},
@@ -1799,6 +1893,15 @@ ${this.getStage3Interpretation()}
             body = body + defBlock + drvBlock + shdBlock;
         }
 
+        // Кросс-этапные инсайты — связывают данные нескольких этапов
+        // в интегрирующий портрет. Показываются перед рекомендациями.
+        let crossBlock = '';
+        const insights = this.getCrossStageInsights();
+        if (insights.length) {
+            const lines = insights.map(i => `▸ <b>${i.title}</b>\n${i.text}`);
+            crossBlock = `\n\n━━━━━━━━━━━━━━━━━\n🧬 ВАША КОНФИГУРАЦИЯ:\n\n${lines.join('\n\n')}`;
+        }
+
         // Рекомендации скиллов — финальный продукт теста, мост к Фреди.
         let recBlock = '';
         const meta = this.interpretations?.recommendations?.skill_meta;
@@ -1816,7 +1919,7 @@ ${this.getStage3Interpretation()}
             }
         }
 
-        const text = `🧠 ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ\n\n${body}${recBlock}\n\n✅ Тест завершён! Собираю воедино результаты 5 этапов...`;
+        const text = `🧠 ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ\n\n${body}${crossBlock}${recBlock}\n\n✅ Тест завершён! Собираю воедино результаты 5 этапов...`;
         this.addBotMessage(text, true);
         this._showAILoader('AI составляет ваш психологический портрет', 'Анализ 5 этапов, подбор инсайтов и формирование рекомендаций. 20-40 секунд.');
         this.sendTestResultsToServer();
