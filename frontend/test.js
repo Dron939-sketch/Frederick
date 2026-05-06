@@ -802,11 +802,50 @@ const Test = {
             }
         };
         const pt = map[this.perceptionType] || map['СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ'];
-        return pt[g] || pt['4-6'];
+        const fallback = pt[g] || pt['4-6'];
+
+        // Если интерпретации с бэка загрузились — используем гранулярный
+        // текст под точный уровень 1-9 (а не 3 группы), плюс добавляем
+        // strength/weakness под уровень. Иначе — fallback на старый
+        // продакшн-текст по группе.
+        const levelKey = String(this.thinkingLevel);
+        const granular = this.interpretations?.stage2?.by_type_and_level?.[this.perceptionType]?.[levelKey];
+        const meta = this.interpretations?.stage2?.level_meta?.[levelKey];
+        if (granular) {
+            const strengthBlock = meta?.strength ? `\n\n💪 ${meta.strength}` : '';
+            const weaknessBlock = meta?.weakness ? `\n⚠️ ${meta.weakness}` : '';
+            return granular + strengthBlock + weaknessBlock;
+        }
+        return fallback;
     },
 
     getStage3Interpretation() {
         const l = this.calculateFinalLevel();
+
+        // Если JSON загрузился — собираем расширенный текст с разбивкой
+        // на 4 вектора (СБ/ТФ/УБ/ЧВ), каждый с уровнем 1-6 и собственной
+        // интерпретацией. Финальный уровень — общий.
+        const vec = this.interpretations?.stage3?.vectors;
+        const summaryByLevel = this.interpretations?.stage3?.summary_by_final_level;
+        if (vec && summaryByLevel) {
+            const avg = (arr) => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 3;
+            const sb = avg(this.behavioralLevels['СБ'] || []);
+            const tf = avg(this.behavioralLevels['ТФ'] || []);
+            const ub = avg(this.behavioralLevels['УБ'] || []);
+            const chv = avg(this.behavioralLevels['ЧВ'] || []);
+
+            const txt = (v, lvl) => v?.by_level?.[String(lvl)] || '';
+            const blocks = [
+                `${vec.sb.icon} ${vec.sb.name} (СБ): ${sb}/6\n${txt(vec.sb, sb)}`,
+                `${vec.tf.icon} ${vec.tf.name} (ТФ): ${tf}/6\n${txt(vec.tf, tf)}`,
+                `${vec.ub.icon} ${vec.ub.name} (УБ): ${ub}/6\n${txt(vec.ub, ub)}`,
+                `${vec.chv.icon} ${vec.chv.name} (ЧВ): ${chv}/6\n${txt(vec.chv, chv)}`
+            ];
+            const summary = summaryByLevel[String(l)] || '';
+            return `📊 Ваши векторы поведения:\n\n${blocks.join('\n\n')}\n\n📌 Финальный уровень: ${l}/9\n${summary}`;
+        }
+
+        // Fallback — старые тексты по 3 диапазонам.
         if (l <= 3) return `🔍 Как это проявляется:
 Твоё поведение реактивно — ты отвечаешь на внешние стимулы, но редко инициируешь сам.
 
@@ -842,6 +881,117 @@ const Test = {
 
 ⚠️ Риск:
 Системы могут отрываться от реальности — важно сохранять контакт с живыми людьми.`;
+    },
+
+    // ============================================
+    // STAGE 5 — DEFENSE / DRIVER / SHADOW
+    // ============================================
+    // Эти три блока выводятся по перекрёстной логике из ответов
+    // этапов 1-4. Они НЕ собираются отдельным набором вопросов —
+    // это новый слой над уже существующими данными.
+
+    deriveDefense() {
+        // Защита определяется типом восприятия + общим паттерном поведения.
+        // Это эвристика, не диагноз — но точная для большинства профилей.
+        const t = this.perceptionType;
+        const sb = (this.behavioralLevels?.['СБ'] || []);
+        const sbAvg = sb.length ? sb.reduce((a,b)=>a+b,0)/sb.length : 3;
+        if (t === 'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ' && sbAvg <= 3) return 'people_pleasing';
+        if (t === 'СТАТУСНО-ОРИЕНТИРОВАННЫЙ') return 'control';
+        if (t === 'СМЫСЛО-ОРИЕНТИРОВАННЫЙ') return 'rationalization';
+        if (t === 'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ' && sbAvg >= 4) return 'control';
+        if (sbAvg <= 2) return 'withdrawal';
+        return 'rationalization';
+    },
+
+    deriveDriver() {
+        // Драйвер = что включает человека. Из типа восприятия + Дилтс.
+        const t = this.perceptionType;
+        const dilts = this.determineDominantDilts();
+        if (t === 'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ') return 'connection';
+        if (t === 'СТАТУСНО-ОРИЕНТИРОВАННЫЙ' || t === 'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ') {
+            if (dilts === 'IDENTITY' || dilts === 'VALUES') return 'autonomy';
+            return 'achievement';
+        }
+        if (t === 'СМЫСЛО-ОРИЕНТИРОВАННЫЙ') return 'meaning';
+        return 'achievement';
+    },
+
+    deriveShadow() {
+        // Тень = оборотная сторона драйвера.
+        const drv = this.deriveDriver();
+        const map = {
+            achievement: 'control',
+            connection: 'merger',
+            meaning: 'perfectionism',
+            autonomy: 'isolation'
+        };
+        return map[drv] || 'control';
+    },
+
+    // ============================================
+    // РЕКОМЕНДАЦИИ СКИЛЛОВ ФРЕДИ ПО ПРОФИЛЮ
+    // ============================================
+    // Простой rule-engine: правила набирают веса для каждого скилла,
+    // top-3-5 по весу — финальная рекомендация. Универсальный навык
+    // (russell) добавляется отдельно как мета-рекомендация.
+
+    recommendSkills() {
+        const scores = {};
+        const add = (skill, weight) => { scores[skill] = (scores[skill] || 0) + weight; };
+
+        const t = this.perceptionType;
+        const tl = this.thinkingLevel || 5;
+        const fl = this.calculateFinalLevel ? this.calculateFinalLevel() : 5;
+        const dominant = this.determineDominantDilts();
+        const attachment = (this.deepPatterns || {}).attachment || '🤗 Надежный';
+        const avg = (arr) => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 3;
+        const sb = avg(this.behavioralLevels?.['СБ'] || []);
+        const tf = avg(this.behavioralLevels?.['ТФ'] || []);
+        const ub = avg(this.behavioralLevels?.['УБ'] || []);
+        const chv = avg(this.behavioralLevels?.['ЧВ'] || []);
+
+        // Универсальный — почти всем
+        add('russell', 4);
+
+        // По типу восприятия
+        if (t === 'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ') {
+            add('active_listening', 3);
+            add('boundaries', 2);
+            add('emotion_partner', 2);
+        } else if (t === 'СТАТУСНО-ОРИЕНТИРОВАННЫЙ') {
+            add('negotiation_anchor', 3);
+            add('storytelling', 2);
+            add('calibration', 2);
+        } else if (t === 'СМЫСЛО-ОРИЕНТИРОВАННЫЙ') {
+            add('self_hearing', 3);
+            add('reframing', 3);
+        } else if (t === 'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ') {
+            add('smd_thinking', 3);
+            add('meta_learning', 2);
+        }
+
+        // По векторам поведения
+        if (sb <= 3) { add('boundaries', 2); add('emotion_partner', 1); }
+        if (chv <= 3) { add('active_listening', 2); add('boundaries', 1); }
+        if (chv >= 5) { add('storytelling', 1); }
+        if (ub <= 3) { add('smd_thinking', 1); add('meta_learning', 1); }
+
+        // Когнитивно-действенный разрыв (высокое мышление, низкое поведение)
+        if (tl >= 6 && fl <= 4) add('russell', 3);
+
+        // По доминанте Дилтса
+        if (dominant === 'BEHAVIOR') { add('russell', 1); }
+        if (dominant === 'VALUES') { add('self_hearing', 2); add('reframing', 1); }
+        if (dominant === 'IDENTITY') { add('russell', 1); add('self_hearing', 1); }
+
+        // По типу привязанности
+        if (attachment.includes('Тревожный')) { add('boundaries', 2); add('self_hearing', 1); }
+        if (attachment.includes('Избегающий')) { add('active_listening', 1); add('emotion_partner', 1); }
+
+        // Top-5 по весу
+        const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+        return sorted.slice(0, 5).map(e => e[0]);
     },
 
     getStage5Interpretation() {
@@ -1631,11 +1781,42 @@ ${this.getStage3Interpretation()}
     },
 
     showStage5Result() {
-        const text = `🧠 ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ
+        // Базовая интерпретация (тип привязанности) — была раньше.
+        let body = this.getStage5Interpretation();
 
-${this.getStage5Interpretation()}
+        // Расширенные блоки defense/driver/shadow — выводятся только
+        // если интерпретации с бэка загрузились. Иначе пропускаем тихо.
+        const def = this.interpretations?.stage5?.defense?.patterns;
+        const drv = this.interpretations?.stage5?.driver?.patterns;
+        const shd = this.interpretations?.stage5?.shadow?.patterns;
+        if (def && drv && shd) {
+            const defKey = this.deriveDefense();
+            const drvKey = this.deriveDriver();
+            const shdKey = this.deriveShadow();
+            const defBlock = def[defKey] ? `\n\n🌑 Базовая защита: ${def[defKey].label}\n${def[defKey].text}` : '';
+            const drvBlock = drv[drvKey] ? `\n\n⚡ Ведущий драйвер: ${drv[drvKey].label}\n${drv[drvKey].text}` : '';
+            const shdBlock = shd[shdKey] ? `\n\n🎭 Теневая сторона: ${shd[shdKey].label}\n${shd[shdKey].text}` : '';
+            body = body + defBlock + drvBlock + shdBlock;
+        }
 
-✅ Тест завершён! Собираю воедино результаты 5 этапов...`;
+        // Рекомендации скиллов — финальный продукт теста, мост к Фреди.
+        let recBlock = '';
+        const meta = this.interpretations?.recommendations?.skill_meta;
+        if (meta) {
+            const top = this.recommendSkills();
+            const lines = [];
+            for (const skillId of top) {
+                const m = meta[skillId];
+                if (m) lines.push(`${m.icon} <b>${m.name}</b> — ${m.tagline}`);
+            }
+            if (lines.length) {
+                const tagline = this.interpretations?.recommendations?.tagline_template || 'По вашему профилю особенно ляжет:';
+                const footer = this.interpretations?.recommendations?.footer || '';
+                recBlock = `\n\n━━━━━━━━━━━━━━━━━\n🎯 ${tagline}\n\n${lines.join('\n')}${footer ? `\n\n<i>${footer}</i>` : ''}`;
+            }
+        }
+
+        const text = `🧠 ЭТАП 5: ГЛУБИННЫЕ ПАТТЕРНЫ\n\n${body}${recBlock}\n\n✅ Тест завершён! Собираю воедино результаты 5 этапов...`;
         this.addBotMessage(text, true);
         this._showAILoader('AI составляет ваш психологический портрет', 'Анализ 5 этапов, подбор инсайтов и формирование рекомендаций. 20-40 секунд.');
         this.sendTestResultsToServer();
