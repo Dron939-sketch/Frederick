@@ -1425,90 +1425,111 @@ const Test = {
     // ============================================
     startContextCollection() { this.showContextCollectionScreen(); },
 
+    // Сбор контекста разбит на 3 последовательных вопроса в чат-стиле —
+    // как остальные стадии теста. Раньше всё было одной формой-карточкой,
+    // что выбивалось из общего флоу.
     showContextCollectionScreen() {
-        this.addBotMessage('📝 ДАВАЙТЕ ПОЗНАКОМИМСЯ\n\nЗаполните небольшую анкету — это займёт меньше минуты.', true);
+        this.addBotMessage('📝 ДАВАЙТЕ ПОЗНАКОМИМСЯ\n\nЯ задам три коротких вопроса — это займёт меньше минуты.', true);
+        this.askContextCity();
+    },
 
-        const container = document.getElementById('testChatMessages');
-        if (!container) return;
+    askContextCity() {
+        this.addInputMessage('🏙️ Из какого вы города?', {
+            placeholder: 'Например: Москва',
+            type: 'text',
+            validate: v => v.length >= 2 ? null : 'Введите название города',
+            onSubmit: v => {
+                this.context.city = v;
+                this.askContextGender();
+            }
+        });
+    },
+
+    askContextGender() {
+        this.addMessageWithButtons('👤 Ваш пол?', [
+            { text: 'Мужской', callback: () => this.handleGenderAnswer('male') },
+            { text: 'Женский', callback: () => this.handleGenderAnswer('female') }
+        ]);
+    },
+
+    handleGenderAnswer(value) {
+        this.context.gender = value;
+        this.askContextAge();
+    },
+
+    askContextAge() {
+        this.addInputMessage('📅 Сколько вам лет?', {
+            placeholder: 'Например: 28',
+            type: 'number',
+            validate: v => {
+                const n = parseInt(v, 10);
+                if (!n || isNaN(n)) return 'Введите число';
+                if (n < 1 || n > 120) return 'Возраст должен быть от 1 до 120 лет';
+                return null;
+            },
+            onSubmit: v => {
+                this.context.age = parseInt(v, 10);
+                this.context.isComplete = true;
+                this.saveProgress();
+                this.addBotMessage('⏳ Сохраняю данные и узнаю погоду...', true);
+                this.saveContextToServer().then(() => this.showContextSummary());
+            }
+        });
+    },
+
+    // Универсальный input-bubble для текстовых/числовых ответов в чат-стиле.
+    // Используется для сбора контекста (город, возраст). Стилизация совпадает
+    // с остальными message-bubble'ами; ответ добавляется как user-message.
+    addInputMessage(prompt, opts) {
+        this.addBotMessage(prompt, true);
+        const c = document.getElementById('testChatMessages');
+        if (!c) return;
 
         const msgDiv = document.createElement('div');
         msgDiv.className = 'test-message test-message-bot';
-        msgDiv.style.maxWidth = '100%';
-
         const bubble = document.createElement('div');
         bubble.className = 'test-message-bubble test-message-bubble-bot';
-        bubble.style.cssText = 'background:rgba(224,224,224,0.05);border-radius:24px;padding:0;overflow:hidden;';
+        bubble.style.cssText = 'background:rgba(224,224,224,0.05);';
 
-        bubble.innerHTML = `
-            <div class="test-context-form">
-                <div style="margin-bottom:18px;">
-                    <label>🏙️ Город</label>
-                    <input type="text" id="contextCity" placeholder="Например: Москва">
-                </div>
-                <div style="margin-bottom:18px;">
-                    <label>👤 Пол</label>
-                    <div class="test-context-radio-group">
-                        <label class="test-context-radio-label">
-                            <input type="radio" name="gender" value="male"> Мужской
-                        </label>
-                        <label class="test-context-radio-label">
-                            <input type="radio" name="gender" value="female"> Женский
-                        </label>
-                        <label class="test-context-radio-label">
-                            <input type="radio" name="gender" value="other"> Другое
-                        </label>
-                    </div>
-                </div>
-                <div style="margin-bottom:20px;">
-                    <label>📅 Возраст</label>
-                    <input type="number" id="contextAge" placeholder="Например: 28" min="1" max="120">
-                </div>
-                <button id="saveContextBtn" class="test-context-submit">
-                    ✦ СОХРАНИТЬ И ПРОДОЛЖИТЬ
-                </button>
-            </div>`;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px;';
 
+        const input = document.createElement('input');
+        input.type = opts.type || 'text';
+        input.placeholder = opts.placeholder || '';
+        if (opts.type === 'number') { input.min = '1'; input.max = '120'; }
+        input.style.cssText = 'flex:1;padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.2);color:inherit;font-size:15px;outline:none;';
+
+        const btn = document.createElement('button');
+        btn.textContent = '✦';
+        btn.className = 'test-context-submit';
+        btn.style.cssText = 'padding:10px 18px;border-radius:14px;cursor:pointer;';
+        btn.setAttribute('aria-label', 'Отправить');
+
+        const submit = () => {
+            const v = (input.value || '').trim();
+            const err = opts.validate ? opts.validate(v) : null;
+            if (err) {
+                this.addBotMessage('❌ ' + err, true);
+                setTimeout(() => input.focus(), 50);
+                return;
+            }
+            input.disabled = true;
+            btn.disabled = true;
+            btn.style.opacity = '0.4';
+            this.addUserMessage(v);
+            opts.onSubmit(v);
+        };
+        btn.addEventListener('click', submit);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+
+        wrap.appendChild(input);
+        wrap.appendChild(btn);
+        bubble.appendChild(wrap);
         msgDiv.appendChild(bubble);
-        container.appendChild(msgDiv);
-
-        setTimeout(() => {
-            const btn = document.getElementById('saveContextBtn');
-            if (btn) btn.onclick = () => this.saveContextFromForm();
-        }, 100);
-
+        c.appendChild(msgDiv);
+        setTimeout(() => input.focus(), 100);
         this.scrollToBottom();
-    },
-
-    // *** ИСПРАВЛЕНО: сначала погода, потом сводка ***
-    saveContextFromForm() {
-        const city   = (document.getElementById('contextCity')?.value||'').trim();
-        const age    = (document.getElementById('contextAge')?.value||'').trim();
-        const gender = document.querySelector('input[name="gender"]:checked')?.value||null;
-
-        const errors = [];
-        if (!city)   errors.push('🏙️ Укажите город');
-        if (!gender) errors.push('👤 Укажите пол');
-        if (!age)    errors.push('📅 Укажите возраст');
-        else if (parseInt(age)<1||parseInt(age)>120) errors.push('📅 Возраст должен быть от 1 до 120 лет');
-
-        if (errors.length) {
-            this.addBotMessage('❌ Пожалуйста, заполните все поля:\n\n'+errors.join('\n'), true);
-            return;
-        }
-
-        this.context.city = city;
-        this.context.gender = gender;
-        this.context.age = parseInt(age);
-        this.context.isComplete = true;
-        this.saveProgress();
-
-        // Промежуточное сообщение пока грузится погода
-        this.addBotMessage('⏳ Сохраняю данные и узнаю погоду...', true);
-
-        // Ждём сервер + погоду, только потом показываем сводку
-        this.saveContextToServer().then(() => {
-            this.showContextSummary();
-        });
     },
 
     async saveContextToServer() {
@@ -1550,7 +1571,7 @@ const Test = {
 
     // Погода гарантированно уже в this.context.weather к этому моменту
     showContextSummary() {
-        const genderText = {male:'Мужчина',female:'Женщина',other:'Другое'}[this.context.gender]||'не указан';
+        const genderText = {male:'Мужчина',female:'Женщина'}[this.context.gender]||'не указан';
         const weatherLine = this.context.weather
             ? '\n\n🌡️ **Погода в '+this.context.city+':** '+this.context.weather.icon+' '+this.context.weather.description+', '+this.context.weather.temp+'°C'
             : '';
