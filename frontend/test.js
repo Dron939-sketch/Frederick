@@ -566,14 +566,55 @@ const Test = {
         return dominant;
     },
 
+    // 16 архетипов = 4 типа восприятия × 4 ведущих вектора. Раньше пользователь
+    // получал «СБ-2_ТФ-1_УБ-3_ЧВ-6» — артикул, не портрет. Архетип даёт человеку
+    // читаемую формулировку, под которой код профиля остаётся вторичной деталью.
+    getArchetypeTitle(perceptionType, sbLevel, tfLevel, ubLevel, chvLevel) {
+        const vectors = [
+            ['СБ', sbLevel||0], ['ТФ', tfLevel||0],
+            ['УБ', ubLevel||0], ['ЧВ', chvLevel||0]
+        ];
+        vectors.sort((a,b) => b[1] - a[1]);
+        const dominant = vectors[0][0];
+        const archetypes = {
+            'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '🕊️ Чуткий миротворец',
+                'ТФ': '🤝 Социальный коннектор',
+                'УБ': '👁️ Эмпатичный наблюдатель',
+                'ЧВ': '✨ Душа компании'
+            },
+            'СТАТУСНО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '🛡️ Защитник позиций',
+                'ТФ': '🏆 Достигатор',
+                'УБ': '♟️ Стратег репутации',
+                'ЧВ': '👑 Лидер сообщества'
+            },
+            'СМЫСЛО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '🗿 Несгибаемый созерцатель',
+                'ТФ': '🎯 Идейный предприниматель',
+                'УБ': '🔭 Мыслитель-исследователь',
+                'ЧВ': '🧭 Архетипический проводник'
+            },
+            'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '⚔️ Спокойный воин',
+                'ТФ': '🏗️ Системный строитель',
+                'УБ': '📊 Аналитик фактов',
+                'ЧВ': '🧰 Прагматичный наставник'
+            }
+        };
+        return archetypes[perceptionType]?.[dominant] || '🌀 Многогранный искатель';
+    },
+
     calculateFinalProfile() {
         const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 3;
         const sb=avg(this.behavioralLevels['СБ']), tf=avg(this.behavioralLevels['ТФ']),
               ub=avg(this.behavioralLevels['УБ']), cv=avg(this.behavioralLevels['ЧВ']);
+        const sbR=Math.round(sb), tfR=Math.round(tf), ubR=Math.round(ub), cvR=Math.round(cv);
         return {
-            displayName: `СБ-${Math.round(sb)}_ТФ-${Math.round(tf)}_УБ-${Math.round(ub)}_ЧВ-${Math.round(cv)}`,
+            displayName: `СБ-${sbR}_ТФ-${tfR}_УБ-${ubR}_ЧВ-${cvR}`,
+            archetype: this.getArchetypeTitle(this.perceptionType, sbR, tfR, ubR, cvR),
             perceptionType: this.perceptionType, thinkingLevel: this.thinkingLevel,
-            sbLevel:Math.round(sb), tfLevel:Math.round(tf), ubLevel:Math.round(ub), chvLevel:Math.round(cv),
+            sbLevel:sbR, tfLevel:tfR, ubLevel:ubR, chvLevel:cvR,
             dominantDilts: this.determineDominantDilts(), diltsCounts: this.diltsCounts
         };
     },
@@ -1831,10 +1872,11 @@ ${this.getStage3Interpretation()}
 
     showStage4Result() {
         const p = this.calculateFinalProfile();
-        const sbD = {1:'Под давлением замираете',2:'Избегаете конфликтов',3:'Внешне соглашаетесь',4:'Внешне спокойны',5:'Умеете защищать',6:'Защищаете и используете силу'}[p.sbLevel]||'—';
-        const tfD = {1:'Деньги как повезёт',2:'Ищете возможности',3:'Зарабатываете трудом',4:'Хорошо зарабатываете',5:'Создаёте системы дохода',6:'Управляете капиталом'}[p.tfLevel]||'—';
-        const ubD = {1:'Не думаете о сложном',2:'Верите в знаки',3:'Доверяете экспертам',4:'Ищете заговоры',5:'Анализируете факты',6:'Строите теории'}[p.ubLevel]||'—';
-        const cvD = {1:'Сильно привязываетесь',2:'Подстраиваетесь',3:'Хотите нравиться',4:'Умеете влиять',5:'Строите равные отношения',6:'Создаёте сообщества'}[p.chvLevel]||'—';
+        // Шкала /9 — синхронно с финальным экраном (см. showFinalProfileButtons).
+        const sbD = {1:'Под давлением замираете',2:'Избегаете конфликтов',3:'Внешне соглашаетесь',4:'Внешне спокойны',5:'Умеете защищать',6:'Защищаете и используете силу',7:'Видите давление как жизненный урок',8:'Распознаёте универсальные паттерны',9:'Опираетесь на законы развития'}[p.sbLevel]||'—';
+        const tfD = {1:'Деньги как повезёт',2:'Ищете возможности',3:'Зарабатываете трудом',4:'Хорошо зарабатываете',5:'Создаёте системы дохода',6:'Управляете капиталом',7:'Видите деньги как часть экономики',8:'Деньги — отражение ценности',9:'Деньги — универсальный эквивалент'}[p.tfLevel]||'—';
+        const ubD = {1:'Не думаете о сложном',2:'Верите в знаки',3:'Доверяете экспертам',4:'Ищете заговоры',5:'Анализируете факты',6:'Строите теории',7:'Ищете аналогии в истории',8:'Строите модели мира',9:'Видите закономерности'}[p.ubLevel]||'—';
+        const cvD = {1:'Сильно привязываетесь',2:'Подстраиваетесь',3:'Хотите нравиться',4:'Умеете влиять',5:'Строите равные отношения',6:'Создаёте сообщества',7:'Понимаете историю группы',8:'Видите архетипы отношений',9:'Понимаете универсальные законы'}[p.chvLevel]||'—';
 
         // Расширенная интерпретация этапа 4 (раньше отсутствовала).
         // Использует JSON-интерпретации с бэка, fallback — короткий tip.
@@ -1867,11 +1909,12 @@ ${this.getStage3Interpretation()}
         const confBlock = '📊 Уверенность портрета: ' + confBar + ' ' + Math.floor(conf * 100) + '%';
 
         const text = '🧠 ПРЕДВАРИТЕЛЬНЫЙ ПОРТРЕТ\n\n'
+            + (p.archetype ? '✨ Архетип: ' + p.archetype + '\n\n' : '')
             + '📊 ТВОИ ВЕКТОРЫ:\n\n'
-            + '• СБ ' + p.sbLevel + '/6: ' + sbD + '\n'
-            + '• ТФ ' + p.tfLevel + '/6: ' + tfD + '\n'
-            + '• УБ ' + p.ubLevel + '/6: ' + ubD + '\n'
-            + '• ЧВ ' + p.chvLevel + '/6: ' + cvD + '\n\n'
+            + '• СБ ' + p.sbLevel + '/9: ' + sbD + '\n'
+            + '• ТФ ' + p.tfLevel + '/9: ' + tfD + '\n'
+            + '• УБ ' + p.ubLevel + '/9: ' + ubD + '\n'
+            + '• ЧВ ' + p.chvLevel + '/9: ' + cvD + '\n\n'
             + distBlock + '\n\n'
             + interpBlock + '\n\n'
             + confBlock + '\n\n'
@@ -2201,7 +2244,7 @@ ${this.getStage3Interpretation()}
         const ubD = {1:'Не думаете о сложном',2:'Верите в знаки',3:'Доверяете экспертам',4:'Ищете заговоры',5:'Анализируете факты',6:'Строите теории',7:'Ищете аналогии в истории',8:'Строите модели мира',9:'Видите закономерности'}[p.ubLevel]||'—';
         const cvD = {1:'Сильно привязываетесь',2:'Подстраиваетесь',3:'Хотите нравиться',4:'Умеете влиять',5:'Строите равные отношения',6:'Создаёте сообщества',7:'Понимаете историю группы',8:'Видите архетипы отношений',9:'Понимаете универсальные законы'}[p.chvLevel]||'—';
 
-        let text = `🧠 **ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ**\n\n**Профиль:** ${p.displayName}\n**Тип восприятия:** ${p.perceptionType}\n**Уровень мышления:** ${p.thinkingLevel}/9\n\n**📊 ВАШИ ВЕКТОРЫ:**\n\n**СБ ${p.sbLevel}/9:** ${sbD}\n**ТФ ${p.tfLevel}/9:** ${tfD}\n**УБ ${p.ubLevel}/9:** ${ubD}\n**ЧВ ${p.chvLevel}/9:** ${cvD}\n\n**🧠 Глубинный паттерн:** ${deep.attachment}`;
+        let text = `🧠 **ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ**\n\n**Архетип:** ${p.archetype}\n**Код:** ${p.displayName}\n**Тип восприятия:** ${p.perceptionType}\n**Уровень мышления:** ${p.thinkingLevel}/9\n\n**📊 ВАШИ ВЕКТОРЫ:**\n\n**СБ ${p.sbLevel}/9:** ${sbD}\n**ТФ ${p.tfLevel}/9:** ${tfD}\n**УБ ${p.ubLevel}/9:** ${ubD}\n**ЧВ ${p.chvLevel}/9:** ${cvD}\n\n**🧠 Глубинный паттерн:** ${deep.attachment}`;
 
         if (this.aiGeneratedProfile) {
             text += '\n\n**🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:**\n\n' + this.aiGeneratedProfile.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>');
@@ -2215,7 +2258,8 @@ ${this.getStage3Interpretation()}
                 window.FrediTracker.track('test_completed', {
                     is_authed: isAuthed,
                     has_ai_profile: !!this.aiGeneratedProfile,
-                    profile_code: p.displayName || null
+                    profile_code: p.displayName || null,
+                    archetype: p.archetype || null
                 });
             }
         } catch {}
