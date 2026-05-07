@@ -234,6 +234,48 @@ window.getDialogMode = getDialogMode;
 window.loadPremiumStatus = loadPremiumStatus;
 
 // ============================================
+// АРХЕТИПЫ — синхронно с test.js getArchetypeTitle.
+// Используется на дашборде и в /профиле, чтобы показывать читаемый
+// архетип вместо кодового артикула «СБ-2_ТФ-1_УБ-3_ЧВ-6».
+// ============================================
+
+const ARCHETYPE_BY_TYPE_VECTOR = {
+    'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ': {
+        'СБ': '🕊️ Чуткий миротворец',
+        'ТФ': '🤝 Социальный коннектор',
+        'УБ': '👁️ Эмпатичный наблюдатель',
+        'ЧВ': '✨ Душа компании'
+    },
+    'СТАТУСНО-ОРИЕНТИРОВАННЫЙ': {
+        'СБ': '🛡️ Защитник позиций',
+        'ТФ': '🏆 Достигатор',
+        'УБ': '♟️ Стратег репутации',
+        'ЧВ': '👑 Лидер сообщества'
+    },
+    'СМЫСЛО-ОРИЕНТИРОВАННЫЙ': {
+        'СБ': '🗿 Несгибаемый созерцатель',
+        'ТФ': '🎯 Идейный предприниматель',
+        'УБ': '🔭 Мыслитель-исследователь',
+        'ЧВ': '🧭 Архетипический проводник'
+    },
+    'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ': {
+        'СБ': '⚔️ Спокойный воин',
+        'ТФ': '🏗️ Системный строитель',
+        'УБ': '📊 Аналитик фактов',
+        'ЧВ': '🧰 Прагматичный наставник'
+    }
+};
+
+function _computeArchetype(perceptionType, profileCode) {
+    if (!perceptionType || !profileCode) return null;
+    const m = String(profileCode).match(/СБ-(\d+)_ТФ-(\d+)_УБ-(\d+)_ЧВ-(\d+)/);
+    if (!m) return null;
+    const levels = { 'СБ': +m[1], 'ТФ': +m[2], 'УБ': +m[3], 'ЧВ': +m[4] };
+    const dominant = Object.entries(levels).sort((a, b) => b[1] - a[1])[0][0];
+    return ARCHETYPE_BY_TYPE_VECTOR[perceptionType]?.[dominant] || null;
+}
+
+// ============================================
 // API
 // ============================================
 
@@ -945,13 +987,15 @@ async function handleShowProfile() {
         const bl    = profile.behavioral_levels || {};
         const avg   = arr => Array.isArray(arr) ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : (arr||'?');
         const sb = avg(bl['СБ']), tf = avg(bl['ТФ']), ub = avg(bl['УБ']), cv = avg(bl['ЧВ']);
+        const archetype = _computeArchetype(type, code);
 
         // Шапка с мета-данными
         let meta = '<div class="profile-meta-block">';
-        if (code)  meta += `<div class="profile-meta-row"><span class="profile-meta-label">Профиль</span><span class="profile-meta-value">${code.replace(/_/g,' · ')}</span></div>`;
+        if (archetype) meta += `<div class="profile-meta-row"><span class="profile-meta-label">Архетип</span><span class="profile-meta-value">${archetype}</span></div>`;
+        if (code)  meta += `<div class="profile-meta-row"><span class="profile-meta-label">Код</span><span class="profile-meta-value">${code.replace(/_/g,' · ')}</span></div>`;
         if (type)  meta += `<div class="profile-meta-row"><span class="profile-meta-label">Восприятие</span><span class="profile-meta-value">${type}</span></div>`;
         if (lvl)   meta += `<div class="profile-meta-row"><span class="profile-meta-label">Мышление</span><span class="profile-meta-value">${lvl}/9</span></div>`;
-        if (bl['СБ']) meta += `<div class="profile-vectors-row"><span class="profile-vector">СБ ${sb}/6</span><span class="profile-vector">ТФ ${tf}/6</span><span class="profile-vector">УБ ${ub}/6</span><span class="profile-vector">ЧВ ${cv}/6</span></div>`;
+        if (bl['СБ']) meta += `<div class="profile-vectors-row"><span class="profile-vector">СБ ${sb}/9</span><span class="profile-vector">ТФ ${tf}/9</span><span class="profile-vector">УБ ${ub}/9</span><span class="profile-vector">ЧВ ${cv}/9</span></div>`;
         meta += '</div>';
 
         const rawAI   = profile.ai_generated_profile || '';
@@ -1730,9 +1774,23 @@ function renderDashboard() {
         const codeEl = document.getElementById('profileCode');
         const statusEl = document.getElementById('profileStatus');
         if (status.has_profile && status.profile_code) {
+            // Сначала показываем код (быстро, синхронно), затем подменяем
+            // на архетип — для этого нужно вытянуть perception_type из
+            // /api/get-profile, которого нет в /api/user-status.
             if (codeEl) codeEl.textContent = status.profile_code;
             if (statusEl) statusEl.textContent = 'ваш психотип';
             if (badge) badge.classList.remove('profile-badge--cta');
+            apiCall(`/api/get-profile/${CONFIG.USER_ID}`).then(data => {
+                const archetype = _computeArchetype(data?.profile?.perception_type, status.profile_code);
+                if (archetype) {
+                    if (codeEl) {
+                        codeEl.textContent = archetype;
+                        codeEl.title = status.profile_code;
+                        codeEl.style.fontSize = '15px';
+                    }
+                    if (statusEl) statusEl.textContent = 'ваш архетип';
+                }
+            }).catch(() => {});
         } else {
             if (codeEl) { codeEl.textContent = '📊'; codeEl.style.fontSize = '22px'; }
             if (statusEl) statusEl.textContent = '→ пройти тест';
