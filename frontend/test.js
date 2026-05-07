@@ -566,14 +566,55 @@ const Test = {
         return dominant;
     },
 
+    // 16 архетипов = 4 типа восприятия × 4 ведущих вектора. Раньше пользователь
+    // получал «СБ-2_ТФ-1_УБ-3_ЧВ-6» — артикул, не портрет. Архетип даёт человеку
+    // читаемую формулировку, под которой код профиля остаётся вторичной деталью.
+    getArchetypeTitle(perceptionType, sbLevel, tfLevel, ubLevel, chvLevel) {
+        const vectors = [
+            ['СБ', sbLevel||0], ['ТФ', tfLevel||0],
+            ['УБ', ubLevel||0], ['ЧВ', chvLevel||0]
+        ];
+        vectors.sort((a,b) => b[1] - a[1]);
+        const dominant = vectors[0][0];
+        const archetypes = {
+            'СОЦИАЛЬНО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '🕊️ Чуткий миротворец',
+                'ТФ': '🤝 Социальный коннектор',
+                'УБ': '👁️ Эмпатичный наблюдатель',
+                'ЧВ': '✨ Душа компании'
+            },
+            'СТАТУСНО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '🛡️ Защитник позиций',
+                'ТФ': '🏆 Достигатор',
+                'УБ': '♟️ Стратег репутации',
+                'ЧВ': '👑 Лидер сообщества'
+            },
+            'СМЫСЛО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '🗿 Несгибаемый созерцатель',
+                'ТФ': '🎯 Идейный предприниматель',
+                'УБ': '🔭 Мыслитель-исследователь',
+                'ЧВ': '🧭 Архетипический проводник'
+            },
+            'ПРАКТИКО-ОРИЕНТИРОВАННЫЙ': {
+                'СБ': '⚔️ Спокойный воин',
+                'ТФ': '🏗️ Системный строитель',
+                'УБ': '📊 Аналитик фактов',
+                'ЧВ': '🧰 Прагматичный наставник'
+            }
+        };
+        return archetypes[perceptionType]?.[dominant] || '🌀 Многогранный искатель';
+    },
+
     calculateFinalProfile() {
         const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 3;
         const sb=avg(this.behavioralLevels['СБ']), tf=avg(this.behavioralLevels['ТФ']),
               ub=avg(this.behavioralLevels['УБ']), cv=avg(this.behavioralLevels['ЧВ']);
+        const sbR=Math.round(sb), tfR=Math.round(tf), ubR=Math.round(ub), cvR=Math.round(cv);
         return {
-            displayName: `СБ-${Math.round(sb)}_ТФ-${Math.round(tf)}_УБ-${Math.round(ub)}_ЧВ-${Math.round(cv)}`,
+            displayName: `СБ-${sbR}_ТФ-${tfR}_УБ-${ubR}_ЧВ-${cvR}`,
+            archetype: this.getArchetypeTitle(this.perceptionType, sbR, tfR, ubR, cvR),
             perceptionType: this.perceptionType, thinkingLevel: this.thinkingLevel,
-            sbLevel:Math.round(sb), tfLevel:Math.round(tf), ubLevel:Math.round(ub), chvLevel:Math.round(cv),
+            sbLevel:sbR, tfLevel:tfR, ubLevel:ubR, chvLevel:cvR,
             dominantDilts: this.determineDominantDilts(), diltsCounts: this.diltsCounts
         };
     },
@@ -1359,7 +1400,7 @@ const Test = {
     showIntroScreen() {
         var name = (this.context && this.context.name) || (window.CONFIG && window.CONFIG.USER_NAME !== 'друг' ? window.CONFIG.USER_NAME : '') || '';
         var greeting = name ? name + ', привет!' : 'Привет!';
-        this.addBotMessage(greeting + '\n\nНу, здравствуйте, дорогой человек! 👋\n\n🧠 Я — Фреди, виртуальный психолог.\n\n🕒 Нам нужно познакомиться, потому что я пока не экстрасенс.\n\n🧐 Чтобы я понимал, с кем имею дело и чем могу быть полезен —\nдавайте-ка пройдём небольшой тест.\n\n📊 Всего 5 этапов:\n\n1️⃣ Конфигурация восприятия — как вы фильтруете реальность\n2️⃣ Конфигурация мышления — как ваш мозг перерабатывает информацию\n3️⃣ Конфигурация поведения — что вы делаете на автопилоте\n4️⃣ Точка роста — куда двигаться, чтобы не топтаться на месте\n5️⃣ Глубинные паттерны — что сформировало вас как личность\n\n⏱ 15 минут — и я буду знать о вас больше, чем вы думаете.\n\n🚀 Ну что, начнём наше знакомство?', true);
+        this.addBotMessage(greeting + '\n\n🧠 Я — Фреди, виртуальный психолог.\n🕒 Нам нужно познакомиться — я пока не экстрасенс.\n🧐 Пройдите небольшой тест, чтобы я понимал, с кем имею дело.\n\n📊 Всего 5 этапов:\n1️⃣ Восприятие — как вы фильтруете реальность\n2️⃣ Мышление — как мозг перерабатывает информацию\n3️⃣ Поведение — что делаете на автопилоте\n4️⃣ Точка роста — куда двигаться\n5️⃣ Глубинные паттерны — что сформировало вас\n\n⏱ 15 минут — и я буду знать о вас больше, чем вы думаете.\n🚀 Начнём?', true);
         this.addMessageWithButtons('', [
             {text:'🚀 НАЧАТЬ ЗНАКОМСТВО',callback:()=>this.startContextCollection()},
             {text:'🤨 А ТЫ ВООБЩЕ КТО ТАКОЙ?',callback:()=>this.showBotInfo()}
@@ -1384,90 +1425,111 @@ const Test = {
     // ============================================
     startContextCollection() { this.showContextCollectionScreen(); },
 
+    // Сбор контекста разбит на 3 последовательных вопроса в чат-стиле —
+    // как остальные стадии теста. Раньше всё было одной формой-карточкой,
+    // что выбивалось из общего флоу.
     showContextCollectionScreen() {
-        this.addBotMessage('📝 ДАВАЙТЕ ПОЗНАКОМИМСЯ\n\nЗаполните небольшую анкету — это займёт меньше минуты.', true);
+        this.addBotMessage('📝 ДАВАЙТЕ ПОЗНАКОМИМСЯ\n\nЯ задам три коротких вопроса — это займёт меньше минуты.', true);
+        this.askContextCity();
+    },
 
-        const container = document.getElementById('testChatMessages');
-        if (!container) return;
+    askContextCity() {
+        this.addInputMessage('🏙️ Из какого вы города?', {
+            placeholder: 'Например: Москва',
+            type: 'text',
+            validate: v => v.length >= 2 ? null : 'Введите название города',
+            onSubmit: v => {
+                this.context.city = v;
+                this.askContextGender();
+            }
+        });
+    },
+
+    askContextGender() {
+        this.addMessageWithButtons('👤 Ваш пол?', [
+            { text: 'Мужской', callback: () => this.handleGenderAnswer('male') },
+            { text: 'Женский', callback: () => this.handleGenderAnswer('female') }
+        ]);
+    },
+
+    handleGenderAnswer(value) {
+        this.context.gender = value;
+        this.askContextAge();
+    },
+
+    askContextAge() {
+        this.addInputMessage('📅 Сколько вам лет?', {
+            placeholder: 'Например: 28',
+            type: 'number',
+            validate: v => {
+                const n = parseInt(v, 10);
+                if (!n || isNaN(n)) return 'Введите число';
+                if (n < 1 || n > 120) return 'Возраст должен быть от 1 до 120 лет';
+                return null;
+            },
+            onSubmit: v => {
+                this.context.age = parseInt(v, 10);
+                this.context.isComplete = true;
+                this.saveProgress();
+                this.addBotMessage('⏳ Сохраняю данные и узнаю погоду...', true);
+                this.saveContextToServer().then(() => this.showContextSummary());
+            }
+        });
+    },
+
+    // Универсальный input-bubble для текстовых/числовых ответов в чат-стиле.
+    // Используется для сбора контекста (город, возраст). Стилизация совпадает
+    // с остальными message-bubble'ами; ответ добавляется как user-message.
+    addInputMessage(prompt, opts) {
+        this.addBotMessage(prompt, true);
+        const c = document.getElementById('testChatMessages');
+        if (!c) return;
 
         const msgDiv = document.createElement('div');
         msgDiv.className = 'test-message test-message-bot';
-        msgDiv.style.maxWidth = '100%';
-
         const bubble = document.createElement('div');
         bubble.className = 'test-message-bubble test-message-bubble-bot';
-        bubble.style.cssText = 'background:rgba(224,224,224,0.05);border-radius:24px;padding:0;overflow:hidden;';
+        bubble.style.cssText = 'background:rgba(224,224,224,0.05);';
 
-        bubble.innerHTML = `
-            <div class="test-context-form">
-                <div style="margin-bottom:18px;">
-                    <label>🏙️ Город</label>
-                    <input type="text" id="contextCity" placeholder="Например: Москва">
-                </div>
-                <div style="margin-bottom:18px;">
-                    <label>👤 Пол</label>
-                    <div class="test-context-radio-group">
-                        <label class="test-context-radio-label">
-                            <input type="radio" name="gender" value="male"> Мужской
-                        </label>
-                        <label class="test-context-radio-label">
-                            <input type="radio" name="gender" value="female"> Женский
-                        </label>
-                        <label class="test-context-radio-label">
-                            <input type="radio" name="gender" value="other"> Другое
-                        </label>
-                    </div>
-                </div>
-                <div style="margin-bottom:20px;">
-                    <label>📅 Возраст</label>
-                    <input type="number" id="contextAge" placeholder="Например: 28" min="1" max="120">
-                </div>
-                <button id="saveContextBtn" class="test-context-submit">
-                    ✦ СОХРАНИТЬ И ПРОДОЛЖИТЬ
-                </button>
-            </div>`;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px;';
 
+        const input = document.createElement('input');
+        input.type = opts.type || 'text';
+        input.placeholder = opts.placeholder || '';
+        if (opts.type === 'number') { input.min = '1'; input.max = '120'; }
+        input.style.cssText = 'flex:1;padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.2);color:inherit;font-size:15px;outline:none;';
+
+        const btn = document.createElement('button');
+        btn.textContent = '✦';
+        btn.className = 'test-context-submit';
+        btn.style.cssText = 'padding:10px 18px;border-radius:14px;cursor:pointer;';
+        btn.setAttribute('aria-label', 'Отправить');
+
+        const submit = () => {
+            const v = (input.value || '').trim();
+            const err = opts.validate ? opts.validate(v) : null;
+            if (err) {
+                this.addBotMessage('❌ ' + err, true);
+                setTimeout(() => input.focus(), 50);
+                return;
+            }
+            input.disabled = true;
+            btn.disabled = true;
+            btn.style.opacity = '0.4';
+            this.addUserMessage(v);
+            opts.onSubmit(v);
+        };
+        btn.addEventListener('click', submit);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+
+        wrap.appendChild(input);
+        wrap.appendChild(btn);
+        bubble.appendChild(wrap);
         msgDiv.appendChild(bubble);
-        container.appendChild(msgDiv);
-
-        setTimeout(() => {
-            const btn = document.getElementById('saveContextBtn');
-            if (btn) btn.onclick = () => this.saveContextFromForm();
-        }, 100);
-
+        c.appendChild(msgDiv);
+        setTimeout(() => input.focus(), 100);
         this.scrollToBottom();
-    },
-
-    // *** ИСПРАВЛЕНО: сначала погода, потом сводка ***
-    saveContextFromForm() {
-        const city   = (document.getElementById('contextCity')?.value||'').trim();
-        const age    = (document.getElementById('contextAge')?.value||'').trim();
-        const gender = document.querySelector('input[name="gender"]:checked')?.value||null;
-
-        const errors = [];
-        if (!city)   errors.push('🏙️ Укажите город');
-        if (!gender) errors.push('👤 Укажите пол');
-        if (!age)    errors.push('📅 Укажите возраст');
-        else if (parseInt(age)<1||parseInt(age)>120) errors.push('📅 Возраст должен быть от 1 до 120 лет');
-
-        if (errors.length) {
-            this.addBotMessage('❌ Пожалуйста, заполните все поля:\n\n'+errors.join('\n'), true);
-            return;
-        }
-
-        this.context.city = city;
-        this.context.gender = gender;
-        this.context.age = parseInt(age);
-        this.context.isComplete = true;
-        this.saveProgress();
-
-        // Промежуточное сообщение пока грузится погода
-        this.addBotMessage('⏳ Сохраняю данные и узнаю погоду...', true);
-
-        // Ждём сервер + погоду, только потом показываем сводку
-        this.saveContextToServer().then(() => {
-            this.showContextSummary();
-        });
     },
 
     async saveContextToServer() {
@@ -1509,7 +1571,7 @@ const Test = {
 
     // Погода гарантированно уже в this.context.weather к этому моменту
     showContextSummary() {
-        const genderText = {male:'Мужчина',female:'Женщина',other:'Другое'}[this.context.gender]||'не указан';
+        const genderText = {male:'Мужчина',female:'Женщина'}[this.context.gender]||'не указан';
         const weatherLine = this.context.weather
             ? '\n\n🌡️ **Погода в '+this.context.city+':** '+this.context.weather.icon+' '+this.context.weather.description+', '+this.context.weather.temp+'°C'
             : '';
@@ -1831,10 +1893,11 @@ ${this.getStage3Interpretation()}
 
     showStage4Result() {
         const p = this.calculateFinalProfile();
-        const sbD = {1:'Под давлением замираете',2:'Избегаете конфликтов',3:'Внешне соглашаетесь',4:'Внешне спокойны',5:'Умеете защищать',6:'Защищаете и используете силу'}[p.sbLevel]||'—';
-        const tfD = {1:'Деньги как повезёт',2:'Ищете возможности',3:'Зарабатываете трудом',4:'Хорошо зарабатываете',5:'Создаёте системы дохода',6:'Управляете капиталом'}[p.tfLevel]||'—';
-        const ubD = {1:'Не думаете о сложном',2:'Верите в знаки',3:'Доверяете экспертам',4:'Ищете заговоры',5:'Анализируете факты',6:'Строите теории'}[p.ubLevel]||'—';
-        const cvD = {1:'Сильно привязываетесь',2:'Подстраиваетесь',3:'Хотите нравиться',4:'Умеете влиять',5:'Строите равные отношения',6:'Создаёте сообщества'}[p.chvLevel]||'—';
+        // Шкала /9 — синхронно с финальным экраном (см. showFinalProfileButtons).
+        const sbD = {1:'Под давлением замираете',2:'Избегаете конфликтов',3:'Внешне соглашаетесь',4:'Внешне спокойны',5:'Умеете защищать',6:'Защищаете и используете силу',7:'Видите давление как жизненный урок',8:'Распознаёте универсальные паттерны',9:'Опираетесь на законы развития'}[p.sbLevel]||'—';
+        const tfD = {1:'Деньги как повезёт',2:'Ищете возможности',3:'Зарабатываете трудом',4:'Хорошо зарабатываете',5:'Создаёте системы дохода',6:'Управляете капиталом',7:'Видите деньги как часть экономики',8:'Деньги — отражение ценности',9:'Деньги — универсальный эквивалент'}[p.tfLevel]||'—';
+        const ubD = {1:'Не думаете о сложном',2:'Верите в знаки',3:'Доверяете экспертам',4:'Ищете заговоры',5:'Анализируете факты',6:'Строите теории',7:'Ищете аналогии в истории',8:'Строите модели мира',9:'Видите закономерности'}[p.ubLevel]||'—';
+        const cvD = {1:'Сильно привязываетесь',2:'Подстраиваетесь',3:'Хотите нравиться',4:'Умеете влиять',5:'Строите равные отношения',6:'Создаёте сообщества',7:'Понимаете историю группы',8:'Видите архетипы отношений',9:'Понимаете универсальные законы'}[p.chvLevel]||'—';
 
         // Расширенная интерпретация этапа 4 (раньше отсутствовала).
         // Использует JSON-интерпретации с бэка, fallback — короткий tip.
@@ -1867,11 +1930,12 @@ ${this.getStage3Interpretation()}
         const confBlock = '📊 Уверенность портрета: ' + confBar + ' ' + Math.floor(conf * 100) + '%';
 
         const text = '🧠 ПРЕДВАРИТЕЛЬНЫЙ ПОРТРЕТ\n\n'
+            + (p.archetype ? '✨ Архетип: ' + p.archetype + '\n\n' : '')
             + '📊 ТВОИ ВЕКТОРЫ:\n\n'
-            + '• СБ ' + p.sbLevel + '/6: ' + sbD + '\n'
-            + '• ТФ ' + p.tfLevel + '/6: ' + tfD + '\n'
-            + '• УБ ' + p.ubLevel + '/6: ' + ubD + '\n'
-            + '• ЧВ ' + p.chvLevel + '/6: ' + cvD + '\n\n'
+            + '• СБ ' + p.sbLevel + '/9: ' + sbD + '\n'
+            + '• ТФ ' + p.tfLevel + '/9: ' + tfD + '\n'
+            + '• УБ ' + p.ubLevel + '/9: ' + ubD + '\n'
+            + '• ЧВ ' + p.chvLevel + '/9: ' + cvD + '\n\n'
             + distBlock + '\n\n'
             + interpBlock + '\n\n'
             + confBlock + '\n\n'
@@ -2201,7 +2265,7 @@ ${this.getStage3Interpretation()}
         const ubD = {1:'Не думаете о сложном',2:'Верите в знаки',3:'Доверяете экспертам',4:'Ищете заговоры',5:'Анализируете факты',6:'Строите теории',7:'Ищете аналогии в истории',8:'Строите модели мира',9:'Видите закономерности'}[p.ubLevel]||'—';
         const cvD = {1:'Сильно привязываетесь',2:'Подстраиваетесь',3:'Хотите нравиться',4:'Умеете влиять',5:'Строите равные отношения',6:'Создаёте сообщества',7:'Понимаете историю группы',8:'Видите архетипы отношений',9:'Понимаете универсальные законы'}[p.chvLevel]||'—';
 
-        let text = `🧠 **ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ**\n\n**Профиль:** ${p.displayName}\n**Тип восприятия:** ${p.perceptionType}\n**Уровень мышления:** ${p.thinkingLevel}/9\n\n**📊 ВАШИ ВЕКТОРЫ:**\n\n**СБ ${p.sbLevel}/9:** ${sbD}\n**ТФ ${p.tfLevel}/9:** ${tfD}\n**УБ ${p.ubLevel}/9:** ${ubD}\n**ЧВ ${p.chvLevel}/9:** ${cvD}\n\n**🧠 Глубинный паттерн:** ${deep.attachment}`;
+        let text = `🧠 **ВАШ ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ**\n\n**Архетип:** ${p.archetype}\n**Код:** ${p.displayName}\n**Тип восприятия:** ${p.perceptionType}\n**Уровень мышления:** ${p.thinkingLevel}/9\n\n**📊 ВАШИ ВЕКТОРЫ:**\n\n**СБ ${p.sbLevel}/9:** ${sbD}\n**ТФ ${p.tfLevel}/9:** ${tfD}\n**УБ ${p.ubLevel}/9:** ${ubD}\n**ЧВ ${p.chvLevel}/9:** ${cvD}\n\n**🧠 Глубинный паттерн:** ${deep.attachment}`;
 
         if (this.aiGeneratedProfile) {
             text += '\n\n**🧠 AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ:**\n\n' + this.aiGeneratedProfile.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>');
@@ -2215,7 +2279,8 @@ ${this.getStage3Interpretation()}
                 window.FrediTracker.track('test_completed', {
                     is_authed: isAuthed,
                     has_ai_profile: !!this.aiGeneratedProfile,
-                    profile_code: p.displayName || null
+                    profile_code: p.displayName || null,
+                    archetype: p.archetype || null
                 });
             }
         } catch {}
