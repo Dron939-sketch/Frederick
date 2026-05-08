@@ -348,9 +348,6 @@ const SC_SKILLS = {
         { id:'resilience', icon:'🧗', name:'Стрессоустойчивость', desc:'Восстанавливаться после трудностей',
           longDesc:'Не отсутствие реакции на стресс, а скорость возвращения в баланс. Расширяем «окно толерантности», в котором вы остаётесь функциональны.',
           promise:'Через 21 день вы будете быстрее возвращаться в строй после ударов и не залипать в плохом настроении на дни.' },
-        { id:'focus', icon:'🔍', name:'Фокус и концентрация', desc:'Удерживать внимание на важном',
-          longDesc:'Удерживать внимание на одной задаче 25–90 минут без отвлечений. Базовый ресурс продуктивности и качественного мышления.',
-          promise:'Через 21 день вы будете удерживать внимание на главном по 60–90 минут без скатывания в соцсети и переключения.' },
         { id:'growth', icon:'🌱', name:'Установка на рост', desc:'Воспринимать трудности как возможности',
           longDesc:'Восприятие способностей как развиваемых, а не врождённых. Ошибка → информация, а не приговор. Подход Кэрол Двек, переведённый в ежедневные действия.',
           promise:'Через 21 день вы будете воспринимать неудачи как данные, а не как приговор себе — и быстрее идти дальше.' }
@@ -840,6 +837,8 @@ function _scCategoryLabel(id) {
     if (SC_SKILLS.personal.some(s => s.id === id))     return '🧠 Личностный навык';
     if (SC_SKILLS.professional.some(s => s.id === id)) return '💼 Профессиональный навык';
     if (SC_SKILLS.influence.some(s => s.id === id))    return '🎙️ Влияние и коммуникация';
+    if (Array.isArray(SC_SKILLS.cognitive) && SC_SKILLS.cognitive.some(s => s.id === id))
+        return '🧩 Когнитивный навык';
     return '✏️ Свой навык';
 }
 
@@ -1001,6 +1000,8 @@ function _scRenderSelect() {
         ${renderList(SC_SKILLS.personal)}
         <div class="sc-section-label">💼 Профессиональные навыки</div>
         ${renderList(SC_SKILLS.professional)}
+        <div class="sc-section-label">🧩 Когнитивные навыки</div>
+        ${renderList(SC_SKILLS.cognitive || [])}
         <div class="sc-section-label">🎙️ Влияние и коммуникация</div>
         ${renderList(SC_SKILLS.influence)}
 
