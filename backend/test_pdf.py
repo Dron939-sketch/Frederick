@@ -136,10 +136,18 @@ def _last_level(arr) -> int:
     return 0
 
 
-def generate_test_pdf_bytes(profile: Dict[str, Any], user_name: Optional[str] = None) -> bytes:
+def generate_test_pdf_bytes(profile: Dict[str, Any],
+                              user_name: Optional[str] = None,
+                              psychologist_thought: Optional[str] = None) -> bytes:
     """
-    Собирает PDF-портрет по profile (как он лежит в fredi_users.profile JSONB).
-    Возвращает байты PDF. Бросает исключение, если шрифт не найден.
+    Собирает «полный отчёт» PDF по результатам теста:
+      - архетип, код, тип восприятия, уровень мышления
+      - 4 поведенческих вектора (СБ/ТФ/УБ/ЧВ) с описаниями уровней /9
+      - глубинный паттерн привязанности
+      - AI-комментарий к профилю
+      - мысли психолога (если сгенерированы)
+
+    Бросает исключение, если шрифт DejaVu не найден.
     """
     try:
         from fpdf import FPDF  # type: ignore
@@ -185,7 +193,7 @@ def generate_test_pdf_bytes(profile: Dict[str, Any], user_name: Optional[str] = 
     # Заголовок
     pdf.set_font("DejaVu", "B", 22)
     pdf.set_text_color(20, 20, 20)
-    pdf.cell(0, 12, "Психологический портрет", ln=1)
+    pdf.cell(0, 12, "Полный отчёт", ln=1)
     pdf.set_font("DejaVu", "", 11)
     pdf.set_text_color(110, 110, 110)
     addressee = (user_name or "").strip()
@@ -250,12 +258,26 @@ def generate_test_pdf_bytes(profile: Dict[str, Any], user_name: Optional[str] = 
     if ai_text:
         pdf.set_font("DejaVu", "B", 13)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 8, "Комментарий", ln=1)
+        pdf.cell(0, 8, "AI-комментарий", ln=1)
         pdf.set_font("DejaVu", "", 11)
         pdf.set_text_color(60, 60, 60)
         # Чистим markdown-bold и переносы.
         clean = ai_text.replace("**", "").replace("__", "")
         for para in clean.split("\n\n"):
+            pdf.multi_cell(0, 6, para.strip())
+            pdf.ln(1)
+
+    # Мысли психолога — отдельный аналитический раздел.
+    pt_clean = _clean_for_pdf(psychologist_thought or "")
+    pt_clean = pt_clean.replace("**", "").replace("__", "")
+    if pt_clean:
+        pdf.ln(2)
+        pdf.set_font("DejaVu", "B", 13)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 8, "Мысли психолога", ln=1)
+        pdf.set_font("DejaVu", "", 11)
+        pdf.set_text_color(60, 60, 60)
+        for para in pt_clean.split("\n\n"):
             pdf.multi_cell(0, 6, para.strip())
             pdf.ln(1)
 
