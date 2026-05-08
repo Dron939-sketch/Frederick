@@ -5406,10 +5406,12 @@ async def admin_recent_users(request: Request):
     try:
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
-                SELECT u.user_id, u.username, u.first_name,
+                SELECT u.user_id, u.username, u.first_name, u.email,
                        u.last_activity, u.created_at,
+                       c.name AS context_name, c.age, c.gender, c.city,
                        t.profile_code
                 FROM fredi_users u
+                LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
                 LEFT JOIN LATERAL (
                     SELECT profile_code FROM fredi_test_results
                     WHERE user_id = u.user_id
@@ -5420,10 +5422,23 @@ async def admin_recent_users(request: Request):
             """)
         users = []
         for r in rows:
+            # Имя для отображения: как юзер представился в чате →
+            # first_name (Telegram) → локальная часть email → ничего
+            # (фронт сам подставит "Юзер #<short_id>").
+            display_name = (
+                (r['context_name'] or '').strip()
+                or (r['first_name'] or '').strip()
+                or ((r['email'] or '').split('@', 1)[0].strip() if r['email'] else '')
+            )
             users.append({
                 'user_id': r['user_id'],
                 'username': r['username'],
-                'first_name': r['first_name'],
+                'first_name': r['first_name'] or display_name or None,
+                'display_name': display_name or None,
+                'context_name': r['context_name'],
+                'age': r['age'],
+                'gender': r['gender'],
+                'city': r['city'],
                 'last_activity': r['last_activity'].isoformat() if r['last_activity'] else '',
                 'created_at': r['created_at'].isoformat() if r['created_at'] else '',
                 'profile_code': r['profile_code'],
