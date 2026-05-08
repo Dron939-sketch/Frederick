@@ -837,11 +837,12 @@ async function _brandLoadProfile() {
         _brandState.hasProfile = data.has_profile === true;
         
         if (_brandState.hasProfile && data.vectors) {
+            const v = data.vectors;
             _brandState.vectors = {
-                СБ: data.vectors.SB || 4,
-                ТФ: data.vectors.TF || 4,
-                УБ: data.vectors.UB || 4,
-                ЧВ: data.vectors.CV || 4
+                СБ: v['СБ'] ?? v.SB ?? 4,
+                ТФ: v['ТФ'] ?? v.TF ?? 4,
+                УБ: v['УБ'] ?? v.UB ?? 4,
+                ЧВ: v['ЧВ'] ?? v.CV ?? v.ChV ?? 4
             };
         }
         

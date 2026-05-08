@@ -694,15 +694,29 @@
                     '<thead><tr style="background:rgba(127,127,127,0.06);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim)">' +
                         '<th style="padding:10px 12px;text-align:left">Юзер</th>' +
                         '<th style="padding:10px 12px;text-align:left">User ID</th>' +
+                        '<th style="padding:10px 12px;text-align:left">Демография</th>' +
                         '<th style="padding:10px 12px;text-align:left">Profile</th>' +
                         '<th style="padding:10px 12px;text-align:right">Last activity</th>' +
                     '</tr></thead>' +
                     '<tbody>' +
                         users.map(function(usr){
-                            var name = usr.username ? '@' + usr.username : (usr.first_name || 'Юзер');
+                            var name = (usr.context_name && String(usr.context_name).trim())
+                                || (usr.display_name && String(usr.display_name).trim())
+                                || (usr.username ? '@' + usr.username : '')
+                                || (usr.first_name || '')
+                                || 'Юзер';
+                            var demoBits = [];
+                            if (usr.age != null && usr.age !== '') demoBits.push(_esc(String(usr.age)) + ' лет');
+                            if (usr.gender) {
+                                var g = String(usr.gender).toLowerCase();
+                                demoBits.push(g === 'male' || g === 'м' || g === 'мужской' ? '♂' : (g === 'female' || g === 'ж' || g === 'женский' ? '♀' : _esc(usr.gender)));
+                            }
+                            if (usr.city) demoBits.push('📍 ' + _esc(usr.city));
+                            var demo = demoBits.join(' · ') || '—';
                             return '<tr style="border-top:1px solid var(--border)">' +
                                 '<td style="padding:8px 12px;font-size:13px">' + _esc(name) + '</td>' +
                                 '<td style="padding:8px 12px;font-size:12px;font-family:ui-monospace,monospace;color:var(--text-dim)">' + _esc(String(usr.user_id || '')) + '</td>' +
+                                '<td style="padding:8px 12px;font-size:12px;color:var(--text-dim)">' + demo + '</td>' +
                                 '<td style="padding:8px 12px;font-size:12px;font-family:ui-monospace,monospace;color:' + (usr.profile_code ? 'var(--accent)' : 'var(--text-dim)') + '">' + _esc(usr.profile_code || '—') + '</td>' +
                                 '<td style="padding:8px 12px;font-size:11px;text-align:right;color:var(--text-dim)">' + _esc((usr.last_activity || '').substring(0, 16)) + '</td>' +
                             '</tr>';
@@ -879,6 +893,21 @@
         return '<span style="display:inline-block;padding:1px 7px;border-radius:8px;background:'+m.color+';border:1px solid '+m.border+';font-size:10px;font-weight:600;margin-left:4px;white-space:nowrap;vertical-align:middle">'+m.icon+' '+_esc(m.label)+'</span>';
     }
 
+    function _genderIcon(g){
+        if (!g) return '';
+        var s = String(g).toLowerCase();
+        if (s === 'male' || s === 'м' || s === 'мужской') return '♂';
+        if (s === 'female' || s === 'ж' || s === 'женский') return '♀';
+        return _esc(g);
+    }
+    function _demoSuffix(m){
+        var bits = [];
+        if (m.age != null && m.age !== '') bits.push(_esc(String(m.age)));
+        var g = _genderIcon(m.gender); if (g) bits.push(g);
+        if (m.city) bits.push('📍 ' + _esc(m.city));
+        return bits.length ? ' <span style="color:var(--text-dim);font-weight:400;font-size:11px">· ' + bits.join(' · ') + '</span>' : '';
+    }
+
     function renderMessagesList(d){
         var events = (d && d.messages) || [];
         if (!events.length) {
@@ -892,6 +921,7 @@
             if ((m.content || '').length > 180) preview += '…';
             var userLabel = _esc(m.user_id || '—');
             if (m.user_name) userLabel += ' <span style="color:var(--text-dim);font-weight:400">('+_esc(m.user_name)+')</span>';
+            userLabel += _demoSuffix(m);
             var voiceMark = m.metadata && m.metadata.voice ? ' 🎤' : '';
             var modeHtml = m.metadata && m.metadata.mode ? _modeBadge(m.metadata.mode) : '';
             return '<tr style="cursor:pointer" data-uid="'+_esc(m.user_id)+'">' +
@@ -931,8 +961,15 @@
 
     function renderDialog(d){
         var messages = (d && d.messages) || [];
+        var demoBits = [];
+        if (d.age != null && d.age !== '') demoBits.push(String(d.age) + ' лет');
+        var gIcon = _genderIcon(d.gender);
+        if (gIcon) demoBits.push(gIcon);
+        if (d.city) demoBits.push('📍 ' + d.city);
+        var demoStr = demoBits.length ? ' · ' + demoBits.join(' · ') : '';
+        var headPrefix = (d.user_name ? d.user_name : '') + demoStr;
         document.getElementById('dialogSub').textContent =
-            (d.user_name ? d.user_name + ' • ' : '') + messages.length + ' сообщений';
+            (headPrefix ? headPrefix + ' • ' : '') + messages.length + ' сообщений';
         if (!messages.length) {
             document.getElementById('dialogMessages').innerHTML = '<div class="empty">Нет сообщений</div>';
             return;
@@ -948,7 +985,7 @@
             : '';
         if (modeSummary) {
             document.getElementById('dialogSub').textContent =
-                (d.user_name ? d.user_name + ' • ' : '') + messages.length + ' сообщений — ' + modeSummary;
+                (headPrefix ? headPrefix + ' • ' : '') + messages.length + ' сообщений — ' + modeSummary;
         }
 
         var html = messages.map(function(m){
