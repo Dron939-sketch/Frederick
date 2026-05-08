@@ -3609,6 +3609,12 @@ async def find_psychometric_doubles(request: Request, user_id: str, limit: int =
                 "name": other_context.get('name') or f"User_{row['user_id']}",
                 "age": other_context.get('age'),
                 "city": other_context.get('city'),
+                # Пол и вектора нужны фронту для фильтра «противоположный пол»
+                # в lover/spouse и для пересчёта совместимости под цель.
+                # Без них doubles.js не мог отличить М от Ж и показывал
+                # «мужикам мужиков».
+                "gender": other_context.get('gender'),
+                "vectors": other_vectors,
                 "profile_code": other_profile.get('display_name', ''),
                 "profile_type": other_profile.get('perception_type', ''),
                 "similarity": similarity,
