@@ -964,12 +964,28 @@ const GENDER_RULES = {
     twin: 'any'
 };
 
+// Нормализация пола в канон 'male' / 'female'. В БД встречаются разные
+// варианты: 'male'/'female', 'm'/'f', 'м'/'ж', 'мужской'/'женский',
+// в любом регистре. Без этой нормализации фильтр пола в lover/spouse
+// просто не срабатывал — и мужчинам показывались мужчины.
+function _normGender(g) {
+    if (g == null) return null;
+    const s = String(g).trim().toLowerCase();
+    if (!s) return null;
+    if (s === 'male'   || s === 'm' || s === 'м' || s === 'мужской' || s === 'мужчина')   return 'male';
+    if (s === 'female' || s === 'f' || s === 'ж' || s === 'женский' || s === 'женщина')   return 'female';
+    return null;  // неизвестное значение — трактуем как «не задан»
+}
+
 function _getRequiredGender(goal, userGender, explicitGender) {
-    // Если пользователь явно указал пол — используем его
-    if (explicitGender && explicitGender !== 'any') return explicitGender;
+    // Если пользователь явно указал пол в фильтре — используем его (нормализованный)
+    const explicit = _normGender(explicitGender);
+    if (explicit) return explicit;
     // Для романтических целей — автоматически противоположный
-    if (GENDER_RULES[goal] === 'opposite' && userGender) {
-        return userGender === 'male' ? 'female' : (userGender === 'female' ? 'male' : 'any');
+    if (GENDER_RULES[goal] === 'opposite') {
+        const u = _normGender(userGender);
+        if (u === 'male') return 'female';
+        if (u === 'female') return 'male';
     }
     return 'any';
 }
@@ -1449,11 +1465,15 @@ async function _doSearch(container) {
         const questionDef = CLARIFYING_QUESTIONS[goal];
         const params = questionDef ? questionDef.buildSearchParams(doublesState.searchParams) : {};
         
-        // Автоматический фильтр по полу для романтических целей
-        const userGenderForApi = userDoublesProfile.gender || doublesState.searchParams?.gender_preference;
+        // Автоматический фильтр по полу для романтических целей.
+        // Нормализуем входящее значение, чтобы 'м'/'мужской'/'Male' и т.п.
+        // корректно сходились с 'male' и backend получил каноничный фильтр.
+        const userGenderForApi = _normGender(
+            userDoublesProfile.gender || doublesState.searchParams?.gender_preference
+        );
         if (GENDER_RULES[goal] === 'opposite' && userGenderForApi) {
-            const opposite = userGenderForApi === 'male' ? 'female' : (userGenderForApi === 'female' ? 'male' : null);
-            if (opposite) doublesState.filters.gender = opposite;
+            const opposite = userGenderForApi === 'male' ? 'female' : 'male';
+            doublesState.filters.gender = opposite;
         }
 
         // Пробуем сначала использовать специализированный эндпоинт
@@ -1489,13 +1509,19 @@ async function _doSearch(container) {
         // Определяем требуемый пол
         const userGender = userDoublesProfile.gender || doublesState.searchParams?.gender_preference;
         const requiredGender = _getRequiredGender(goal, userGender, doublesState.filters.gender);
+        const isRomantic = GENDER_RULES[goal] === 'opposite';
 
         // Рассчитываем совместимость, фильтруем по полу и порогу 75%
         const results = candidates
             .filter(candidate => {
-                // Фильтр по полу
-                if (requiredGender && requiredGender !== 'any' && candidate.gender) {
-                    if (candidate.gender !== requiredGender) return false;
+                // Фильтр по полу. Нормализуем пол кандидата перед сравнением,
+                // чтобы 'м'/'мужской'/'Male' и т.п. сходились с 'male'.
+                if (requiredGender && requiredGender !== 'any') {
+                    const cg = _normGender(candidate.gender);
+                    // Для романтических целей: если у кандидата пол не задан
+                    // или не совпал — исключаем (лучше пусто, чем «мужикам мужики»).
+                    if (isRomantic && !cg) return false;
+                    if (cg && cg !== requiredGender) return false;
                 }
                 return true;
             })
