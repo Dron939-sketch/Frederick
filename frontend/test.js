@@ -2287,41 +2287,15 @@ ${this.getStage3Interpretation()}
 
         this.addBotMessage(text, true);
 
-        // Триггер регистрации для anon-юзеров. Согласно дампу: 77 anon vs 2 authed,
-        // у authed сессии 17 минут vs 1.5 у anon — конверсия в auth = ключевой
-        // рычаг retention. Финал теста — самый естественный момент: пользователь
-        // только что инвестировал 5-10 минут и получил персональный портрет,
-        // мотивация сохранить его наиболее высока.
-        if (!isAuthed && window.FrediAuth && typeof window.FrediAuth.openRegister === 'function') {
-            this.addBotMessage(
-                '💾 <b>Сохраните ваш профиль</b>\n\n' +
-                'Зарегистрируйтесь, чтобы:\n' +
-                '• Вернуться к портрету в любой момент\n' +
-                '• Получать персональные рекомендации скиллов\n' +
-                '• Отслеживать прогресс по 21-дневным программам\n\n' +
-                'Это бесплатно и займёт 30 секунд.',
-                true
-            );
-            this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
-                {text:'💾 СОХРАНИТЬ ПРОФИЛЬ',callback:()=>{
-                    try {
-                        if (window.FrediTracker?.track) {
-                            window.FrediTracker.track('test_completed_register_clicked', {});
-                        }
-                    } catch {}
-                    window.FrediAuth.openRegister();
-                }},
-                {text:'📄 PDF В MAX',callback:()=>this.sendPortraitToMax()},
-                {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
-                {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
-            ]);
-        } else {
-            this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
-                {text:'📄 PDF В MAX',callback:()=>this.sendPortraitToMax()},
-                {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
-                {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
-            ]);
-        }
+        // На финале теста ничего не предлагаем регистрировать или «сохранять
+        // профиль» — это раздражает и обрывает момент. Показываем AI-портрет
+        // (он уже добавлен в text выше), и единственное мягкое действие —
+        // отправить PDF в MAX, чтобы у пользователя остался артефакт.
+        this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
+            {text:'📄 PDF В MAX',callback:()=>this.sendPortraitToMax()},
+            {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
+            {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
+        ]);
 
         if (this.userId) {
             try {
