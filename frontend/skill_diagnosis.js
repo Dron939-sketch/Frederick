@@ -194,26 +194,38 @@ function _sdInjectStyles() {
         /* ===== ВЫБОР СФЕРЫ ===== */
         .sd-sphere-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
             margin-bottom: 20px;
         }
         .sd-sphere-card {
             background: rgba(224,224,224,0.05);
             border: 1px solid rgba(224,224,224,0.12);
-            border-radius: 18px;
-            padding: 18px 12px;
+            border-radius: 16px;
+            padding: 14px 10px;
             text-align: center;
             cursor: pointer;
             transition: background 0.18s, border-color 0.18s, transform 0.12s;
             touch-action: manipulation;
+            min-width: 0;
+            overflow: hidden;
         }
         .sd-sphere-card:hover  { background: rgba(224,224,224,0.1); border-color: rgba(224,224,224,0.25); }
         .sd-sphere-card:active { transform: scale(0.97); }
         .sd-sphere-card.active { background: rgba(224,224,224,0.16); border-color: rgba(224,224,224,0.4); }
-        .sd-sphere-icon { font-size: 34px; display: block; margin-bottom: 8px; }
-        .sd-sphere-name { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
-        .sd-sphere-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.35; }
+        .sd-sphere-icon { font-size: 30px; display: block; margin-bottom: 6px; }
+        .sd-sphere-name { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; line-height: 1.25; overflow-wrap: break-word; }
+        .sd-sphere-desc { font-size: 10.5px; color: var(--text-secondary); line-height: 1.35; overflow-wrap: break-word; word-break: break-word; }
+
+        /* На узких телефонах (≤420px) три карточки в ряд становятся слишком тесными
+           — переходим в один столбец. На планшетах/десктопах остаётся 3 в ряд. */
+        @media (max-width: 420px) {
+            .sd-sphere-grid { grid-template-columns: 1fr; gap: 8px; }
+            .sd-sphere-card { padding: 12px 14px; text-align: left; display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 12px; }
+            .sd-sphere-icon { font-size: 28px; margin-bottom: 0; }
+            .sd-sphere-name { font-size: 13px; margin-bottom: 2px; }
+            .sd-sphere-desc { font-size: 11px; white-space: normal; }
+        }
 
         @media (max-width: 480px) {
             .sd-q-text { font-size: 15px; }
