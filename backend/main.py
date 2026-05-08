@@ -3579,7 +3579,7 @@ async def find_psychometric_doubles(request: Request, user_id: str, limit: int =
 
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
-                SELECT DISTINCT u.user_id, u.profile, u.username
+                SELECT DISTINCT u.user_id, u.profile, u.username, u.first_name
                 FROM fredi_users u
                 WHERE u.user_id::text != $1
                 AND u.profile IS NOT NULL
@@ -3604,9 +3604,22 @@ async def find_psychometric_doubles(request: Request, user_id: str, limit: int =
 
             other_context = await context_repo.get(row['user_id']) or {}
 
+            # Имя для карточки в результатах. Кандидата без своего имени
+            # в чате выводить как «User_12345» уродливо. Каскад:
+            #   c.name (как сам представился в чате) →
+            #   u.first_name (имя из Telegram) →
+            #   '@' + u.username (telegram-юзернейм, публичен) →
+            #   None (фронт сам подставит «Пользователь»).
+            #   email специально не используем — приватные данные.
+            display_name = (
+                ((other_context.get('name') or '').strip()) or
+                ((row['first_name'] or '').strip()) or
+                (('@' + row['username']) if (row['username'] or '').strip() else None)
+            )
+
             doubles.append({
                 "user_id": row['user_id'],
-                "name": other_context.get('name') or f"User_{row['user_id']}",
+                "name": display_name or f"User_{row['user_id']}",
                 "age": other_context.get('age'),
                 "city": other_context.get('city'),
                 # Пол и вектора нужны фронту для фильтра «противоположный пол»
@@ -4554,7 +4567,9 @@ async def users_list(request: Request, limit: int = 200):
     try:
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
-                SELECT u.user_id, u.profile, u.profile_photo, c.name, c.age, c.city, c.gender, c.bio, c.privacy
+                SELECT u.user_id, u.profile, u.profile_photo,
+                       u.first_name, u.username,
+                       c.name, c.age, c.city, c.gender, c.bio, c.privacy
                 FROM fredi_users u
                 LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
                 WHERE u.profile IS NOT NULL
@@ -4577,9 +4592,16 @@ async def users_list(request: Request, limit: int = 200):
             # В списке отдаём фото/био только если приватность = public
             photo = r['profile_photo'] if priv.get('photo') == 'public' else None
             bio   = r['bio'] if priv.get('bio') == 'public' else None
+            # Каскад имени: c.name → u.first_name → '@' + u.username → User_<id>.
+            display_name = (
+                ((r['name'] or '').strip()) or
+                ((r['first_name'] or '').strip()) or
+                (('@' + r['username']) if (r['username'] or '').strip() else None)
+                or f'User_{r["user_id"]}'
+            )
             users.append({
                 'user_id': r['user_id'],
-                'name': r['name'] or f'User_{r["user_id"]}',
+                'name': display_name,
                 'age': r['age'],
                 'city': r['city'],
                 'gender': r['gender'],
