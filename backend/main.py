@@ -1442,6 +1442,38 @@ async def init_database_tables():
         # MAX Platform API не принимает наш upload (ловит 404), поэтому
         # отправляем юзеру ссылку с подписанным токеном — он скачивает PDF
         # из браузера. TTL 30 дней.
+        #
+        # Защита от orphan-type. На проде встретилась ситуация, когда
+        # pg_type содержит fredi_pdf_tokens, а pg_class — нет (прошлый
+        # деплой упал между созданием типа и таблицы). CREATE TABLE
+        # IF NOT EXISTS в этом случае падает с UniqueViolation на
+        # pg_type_typname_nsp_index.
+        #
+        # Стратегия: проверяем по pg_class, существует ли реально таблица.
+        # Если нет, но в pg_type есть осиротевший row-тип — дропаем его
+        # и создаём таблицу заново.
+        table_exists = await conn.fetchval(
+            "SELECT 1 FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE c.relname = $1 AND n.nspname = current_schema() "
+            "AND c.relkind = 'r'",
+            "fredi_pdf_tokens",
+        )
+        if not table_exists:
+            type_exists = await conn.fetchval(
+                "SELECT 1 FROM pg_type t "
+                "JOIN pg_namespace n ON n.oid = t.typnamespace "
+                "WHERE t.typname = $1 AND n.nspname = current_schema()",
+                "fredi_pdf_tokens",
+            )
+            if type_exists:
+                logger.warning(
+                    "fredi_pdf_tokens: orphan composite type without table — dropping"
+                )
+                try:
+                    await conn.execute("DROP TYPE IF EXISTS fredi_pdf_tokens CASCADE")
+                except Exception as _e:
+                    logger.warning(f"DROP TYPE fredi_pdf_tokens failed: {_e}")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_pdf_tokens (
                 token TEXT PRIMARY KEY,
