@@ -192,9 +192,14 @@ function _sdInjectStyles() {
         .sd-tip strong { color: var(--chrome); }
 
         /* ===== ВЫБОР СФЕРЫ ===== */
+        /* Базовая сетка: количество карточек у нас 3–4, ширину колонок
+           подстраиваем по числу children через :has() — но Safari/iOS-версии,
+           где :has() ещё не везде, мы поддерживаем и через медиа-запросы.
+           По умолчанию ставим 4 равные колонки — на десктопе/планшете
+           помещаются и 3 (с тренировочным запасом), и 4. */
         .sd-sphere-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 10px;
             margin-bottom: 20px;
         }
@@ -213,12 +218,18 @@ function _sdInjectStyles() {
         .sd-sphere-card:hover  { background: rgba(224,224,224,0.1); border-color: rgba(224,224,224,0.25); }
         .sd-sphere-card:active { transform: scale(0.97); }
         .sd-sphere-card.active { background: rgba(224,224,224,0.16); border-color: rgba(224,224,224,0.4); }
-        .sd-sphere-icon { font-size: 30px; display: block; margin-bottom: 6px; }
-        .sd-sphere-name { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; line-height: 1.25; overflow-wrap: break-word; }
+        .sd-sphere-icon { font-size: 28px; display: block; margin-bottom: 6px; }
+        .sd-sphere-name { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; line-height: 1.25; overflow-wrap: break-word; word-break: break-word; }
         .sd-sphere-desc { font-size: 10.5px; color: var(--text-secondary); line-height: 1.35; overflow-wrap: break-word; word-break: break-word; }
 
-        /* На узких телефонах (≤420px) три карточки в ряд становятся слишком тесными
-           — переходим в один столбец. На планшетах/десктопах остаётся 3 в ряд. */
+        /* Планшет/средний экран: 2x2 — лучше читаются длинные имена сфер. */
+        @media (max-width: 720px) {
+            .sd-sphere-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .sd-sphere-name { font-size: 13px; }
+            .sd-sphere-desc { font-size: 11px; }
+        }
+
+        /* Узкий мобайл — один столбец, иконка слева, текст справа. */
         @media (max-width: 420px) {
             .sd-sphere-grid { grid-template-columns: 1fr; gap: 8px; }
             .sd-sphere-card { padding: 12px 14px; text-align: left; display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 12px; }
