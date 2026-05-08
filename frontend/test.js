@@ -2311,11 +2311,13 @@ ${this.getStage3Interpretation()}
                     } catch {}
                     window.FrediAuth.openRegister();
                 }},
+                {text:'📄 PDF В MAX',callback:()=>this.sendPortraitToMax()},
                 {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
                 {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
             ]);
         } else {
             this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
+                {text:'📄 PDF В MAX',callback:()=>this.sendPortraitToMax()},
                 {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
                 {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
             ]);
@@ -2336,6 +2338,57 @@ ${this.getStage3Interpretation()}
         if (c) c.innerHTML='';
         if (typeof renderDashboard==='function') renderDashboard();
         else if (window.dashboard?.renderDashboard) window.dashboard.renderDashboard();
+    },
+
+    async sendPortraitToMax() {
+        // Тон — забота, не давление. Всегда показываем «можно отвязать в настройках».
+        if (!this.userId) {
+            this.addBotMessage('⚠ Нет user_id — обнови страницу и попробуй снова.', true);
+            return;
+        }
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('test_completed_send_to_max_clicked', {});
+            }
+        } catch {}
+
+        this.addBotMessage('📄 Готовлю портрет в PDF…', true);
+        try {
+            const r = await fetch(TEST_API_BASE_URL + '/api/test/send-to-max', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ user_id: this.userId })
+            });
+            const data = await r.json();
+            if (!data.success && data.linked === undefined) {
+                this.addBotMessage('⚠ Не получилось: ' + (data.error || 'попробуй позже'), true);
+                return;
+            }
+            if (data.linked && data.sent) {
+                this.addBotMessage(
+                    '💛 Готово — портрет уже у тебя в MAX.<br><br>' +
+                    '<span style="font-size:12px;opacity:0.75">Я не буду писать без причины. Если захочешь напоминания — включишь их в настройках; отвязать MAX можно в любой момент.</span>',
+                    true
+                );
+                return;
+            }
+            if (data.linked === false && data.deeplink) {
+                this.addBotMessage(
+                    '🤖 Сейчас откроется MAX-бот. Напиши там <b>/start</b> — и я пришлю портрет файлом.<br><br>' +
+                    '<span style="font-size:12px;opacity:0.75">Один шаг, чтобы не потерять портрет. Без рассылок: только то, что попросишь сам.</span>',
+                    true
+                );
+                // Дадим миллисекунду на отрисовку, потом откроем deeplink.
+                setTimeout(() => {
+                    try { window.open(data.deeplink, '_blank', 'noopener'); }
+                    catch { window.location.href = data.deeplink; }
+                }, 600);
+                return;
+            }
+            this.addBotMessage('⚠ Что-то пошло не так — попробуй ещё раз.', true);
+        } catch (e) {
+            this.addBotMessage('⚠ Сеть подвисла: ' + (e.message || 'попробуй ещё раз'), true);
+        }
     },
 
     async showPsychologistThought() {

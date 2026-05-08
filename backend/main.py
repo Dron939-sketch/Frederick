@@ -1427,6 +1427,17 @@ async def init_database_tables():
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_fredi_messenger_links_user ON fredi_messenger_links(user_id) WHERE is_active = TRUE")
+        # Очередь ожидающих PDF-портретов: пользователь нажал «Отправить в MAX»,
+        # но мессенджер ещё не привязан. Бот при /start вызовет /api/messenger/link,
+        # хук в этом эндпоинте подберёт pending и отправит файл.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_pending_pdfs (
+                user_id BIGINT PRIMARY KEY REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'test_profile',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_mirrors (
                 id BIGSERIAL PRIMARY KEY,
@@ -1716,6 +1727,128 @@ async def _send_via_max(chat_id: str, text: str) -> bool:
             return False
     except Exception as e:
         logger.error(f"Max send error: {e}")
+        return False
+
+
+async def _send_pdf_via_max(chat_id: str, pdf_bytes: bytes, filename: str, caption: str) -> bool:
+    """
+    Двухшаговая загрузка файла в MAX Platform API:
+    1) GET /uploads?type=file → upload_url
+    2) POST upload_url с multipart файлом → token
+    3) POST /messages c attachments=[{type:"file", payload:{token}}]
+    """
+    token = os.environ.get("MAX_TOKEN")
+    if not token:
+        logger.warning("MAX_TOKEN не задан — пропускаю отправку PDF в Max")
+        return False
+    try:
+        import httpx
+        headers_auth = {"Authorization": token}
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            # Шаг 1: получить upload_url
+            up = await client.get(
+                "https://platform-api.max.ru/uploads",
+                params={"type": "file"}, headers=headers_auth,
+            )
+            if up.status_code not in (200, 201):
+                logger.error(f"MAX uploads init failed: {up.status_code} {up.text[:200]}")
+                return False
+            upload_url = (up.json() or {}).get("url")
+            if not upload_url:
+                logger.error("MAX uploads init: пустой url")
+                return False
+            # Шаг 2: загрузить файл
+            files = {"data": (filename, pdf_bytes, "application/pdf")}
+            up2 = await client.post(upload_url, files=files)
+            if up2.status_code not in (200, 201):
+                logger.error(f"MAX upload PUT failed: {up2.status_code} {up2.text[:200]}")
+                return False
+            payload = up2.json() or {}
+            file_token = payload.get("token") or (payload.get("payload") or {}).get("token")
+            if not file_token:
+                logger.error(f"MAX upload: token не пришёл, ответ: {str(payload)[:300]}")
+                return False
+            # Шаг 3: отправить сообщение с прикреплённым файлом
+            msg = {
+                "text": caption,
+                "format": "markdown",
+                "notify": True,
+                "attachments": [{"type": "file", "payload": {"token": file_token}}],
+            }
+            r = await client.post(
+                "https://platform-api.max.ru/messages",
+                params={"chat_id": chat_id},
+                json=msg,
+                headers={**headers_auth, "Content-Type": "application/json"},
+            )
+            if r.status_code in (200, 201):
+                return True
+            logger.error(f"MAX sendMessage(file) failed: {r.status_code} {r.text[:200]}")
+            return False
+    except Exception as e:
+        logger.error(f"MAX send PDF error: {e}")
+        return False
+
+
+async def _build_test_pdf_for_user(user_id: int) -> Optional[bytes]:
+    """
+    Генерирует PDF-портрет по сохранённому в БД профилю. Возвращает bytes
+    или None, если нет данных.
+    """
+    try:
+        profile = await user_repo.get_profile(int(user_id)) or {}
+    except Exception as e:
+        logger.error(f"_build_test_pdf_for_user: get_profile failed: {e}")
+        return None
+    has_data = bool(profile.get("profile_data") or profile.get("ai_generated_profile")
+                    or profile.get("behavioral_levels"))
+    if not has_data:
+        return None
+    try:
+        async with db.get_connection() as conn:
+            ctx_name = await conn.fetchval(
+                "SELECT name FROM fredi_user_contexts WHERE user_id = $1", int(user_id)
+            )
+    except Exception:
+        ctx_name = None
+    try:
+        from test_pdf import generate_test_pdf_bytes
+        return generate_test_pdf_bytes(profile, user_name=ctx_name)
+    except Exception as e:
+        logger.error(f"generate_test_pdf_bytes failed: {e}")
+        return None
+
+
+async def _deliver_test_pdf_to_messenger(user_id: int, platform: str) -> bool:
+    """
+    Тянет chat_id из fredi_messenger_links, генерирует PDF и отправляет.
+    Возвращает True при успехе.
+    """
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT chat_id FROM fredi_messenger_links "
+                "WHERE user_id = $1 AND platform = $2 AND is_active = TRUE",
+                int(user_id), platform,
+            )
+        if not row:
+            return False
+        pdf_bytes = await _build_test_pdf_for_user(int(user_id))
+        if not pdf_bytes:
+            return False
+        caption = (
+            "Это твой портрет — я прикрепил его файлом, чтобы был под рукой.\n\n"
+            "Без давления: я не буду писать сюда без причины. Если захочешь "
+            "напоминания о практиках — включи их в настройках, в любой "
+            "момент можно отвязать."
+        )
+        if platform == "max":
+            return await _send_pdf_via_max(row["chat_id"], pdf_bytes,
+                                           "fredi_portrait.pdf", caption)
+        # Telegram fallback: можно тоже добавить sendDocument, но скоп — MAX.
+        return False
+    except Exception as e:
+        logger.error(f"_deliver_test_pdf_to_messenger error: {e}")
         return False
 
 
@@ -5161,12 +5294,10 @@ async def admin_recent_users(request: Request):
     try:
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
-                SELECT u.user_id, u.username, u.first_name, u.email,
+                SELECT u.user_id, u.username, u.first_name,
                        u.last_activity, u.created_at,
-                       c.name AS context_name, c.age, c.gender, c.city,
                        t.profile_code
                 FROM fredi_users u
-                LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
                 LEFT JOIN LATERAL (
                     SELECT profile_code FROM fredi_test_results
                     WHERE user_id = u.user_id
@@ -5177,23 +5308,10 @@ async def admin_recent_users(request: Request):
             """)
         users = []
         for r in rows:
-            # Имя для отображения: как юзер представился в чате →
-            # first_name (Telegram) → локальная часть email → ничего
-            # (фронт сам подставит "Юзер #<short_id>").
-            display_name = (
-                (r['context_name'] or '').strip()
-                or (r['first_name'] or '').strip()
-                or ((r['email'] or '').split('@', 1)[0].strip() if r['email'] else '')
-            )
             users.append({
                 'user_id': r['user_id'],
                 'username': r['username'],
-                'first_name': r['first_name'] or display_name or None,
-                'display_name': display_name or None,
-                'context_name': r['context_name'],
-                'age': r['age'],
-                'gender': r['gender'],
-                'city': r['city'],
+                'first_name': r['first_name'],
                 'last_activity': r['last_activity'].isoformat() if r['last_activity'] else '',
                 'created_at': r['created_at'].isoformat() if r['created_at'] else '',
                 'profile_code': r['profile_code'],
@@ -5577,9 +5695,92 @@ async def link_messenger(request: Request):
             """, int(user_id), platform, str(chat_id), username)
 
         await log_event(int(user_id), "messenger_linked", {"platform": platform})
-        return {"success": True}
+
+        # Если у юзера висит pending PDF-портрет под этот мессенджер —
+        # сразу отправляем его. Это и есть «забота»: пользователь нажал
+        # «Отправить в MAX» в вебе → попал в бота → бот сам прислал портрет
+        # без дополнительных действий.
+        delivered = False
+        try:
+            async with db.get_connection() as conn:
+                pending = await conn.fetchrow(
+                    "SELECT kind FROM fredi_pending_pdfs "
+                    "WHERE user_id = $1 AND platform = $2",
+                    int(user_id), platform,
+                )
+            if pending and pending["kind"] == "test_profile":
+                delivered = await _deliver_test_pdf_to_messenger(int(user_id), platform)
+                if delivered:
+                    async with db.get_connection() as conn:
+                        await conn.execute(
+                            "DELETE FROM fredi_pending_pdfs WHERE user_id = $1 AND platform = $2",
+                            int(user_id), platform,
+                        )
+                    await log_event(int(user_id), "test_pdf_delivered_after_link",
+                                    {"platform": platform})
+        except Exception as e:
+            logger.warning(f"pending pdf delivery after link failed: {e}")
+        return {"success": True, "pdf_delivered": delivered}
     except Exception as e:
         logger.error(f"link_messenger error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/test/send-to-max")
+@limiter.limit("10/minute")
+async def send_test_pdf_to_max(request: Request):
+    """
+    Запрашивает отправку PDF-портрета в MAX-бот.
+
+    - Если MAX уже привязан к user_id (fredi_messenger_links) — генерируем
+      PDF и шлём сразу. Фронт показывает «готово, проверь MAX».
+    - Если не привязан — записываем намерение в fredi_pending_pdfs и отдаём
+      deeplink на MAX-бот. Фронт открывает его, бот вызывает /api/messenger/link,
+      и в этом эндпоинте срабатывает хук — PDF улетает.
+    """
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        if not user_id:
+            return {"success": False, "error": "user_id required"}
+        try:
+            uid = int(user_id)
+        except (ValueError, TypeError):
+            return {"success": False, "error": "user_id must be integer"}
+
+        async with db.get_connection() as conn:
+            link = await conn.fetchrow(
+                "SELECT chat_id FROM fredi_messenger_links "
+                "WHERE user_id = $1 AND platform = 'max' AND is_active = TRUE",
+                uid,
+            )
+
+        if link:
+            sent = await _deliver_test_pdf_to_messenger(uid, "max")
+            await log_event(uid, "test_pdf_send_to_max",
+                            {"linked": True, "sent": sent})
+            return {"success": sent, "linked": True, "sent": sent}
+
+        # Не привязан — кладём в очередь и отдаём deeplink.
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO fredi_pending_pdfs (user_id, platform, kind) "
+                "VALUES ($1, 'max', 'test_profile') "
+                "ON CONFLICT (user_id) DO UPDATE SET "
+                "  platform = EXCLUDED.platform, "
+                "  kind = EXCLUDED.kind, "
+                "  created_at = NOW()",
+                uid,
+            )
+        max_bot_link = (os.environ.get("MAX_BOT_LINK")
+                        or "https://max.ru/id502238728185_1_bot")
+        sep = "&" if "?" in max_bot_link else "?"
+        deeplink = f"{max_bot_link}{sep}start=web_{uid}"
+        await log_event(uid, "test_pdf_send_to_max",
+                        {"linked": False, "deeplink": True})
+        return {"success": True, "linked": False, "deeplink": deeplink}
+    except Exception as e:
+        logger.error(f"send_test_pdf_to_max error: {e}")
         return {"success": False, "error": str(e)}
 
 
