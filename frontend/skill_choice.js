@@ -1951,7 +1951,7 @@ function _scBindHandlers() {
 // ============================================
 // ТОЧКА ВХОДА
 // ============================================
-async function showSkillChoiceScreen() {
+async function showSkillChoiceScreen(opts) {
     // Сначала рендерим экран выбора (мгновенно), параллельно подтягиваем план
     // с бэка/localStorage. Если план есть — UI обновится автоматически.
     _sc.view = 'select';
@@ -1975,6 +1975,37 @@ async function showSkillChoiceScreen() {
         }
     }
     _scRender();
+
+    // Если открыли экран с пред-выбранным навыком (из диагностики
+    // или из localStorage), сразу проваливаемся на «Знакомство».
+    let preselectId = opts && opts.preselectId;
+    if (!preselectId) {
+        try { preselectId = localStorage.getItem('sd_recommended_skill') || null; } catch {}
+    }
+    if (preselectId) {
+        try { localStorage.removeItem('sd_recommended_skill'); } catch {}
+        const sk = _scFindSkill(preselectId);
+        if (sk && _sc.activePlanSkillId !== sk.id) {
+            _sc.skillId       = sk.id;
+            _sc.skillName     = sk.name;
+            _sc.skillDesc     = sk.desc;
+            _sc.skillLongDesc = sk.longDesc;
+            _sc.skillPromise  = sk.promise;
+            if (_sc.detailPlanFor !== sk.id) _sc.detailPlan = null;
+            _sc.view = 'detail';
+            _scRender();
+            // Подтягиваем специализированный план в фоне, как это делается
+            // при обычном клике по карточке.
+            (async () => {
+                const p = await _scFetchPlan(sk.id);
+                if (!p || !p.weeks) return;
+                if (_sc.view !== 'detail' || _sc.skillId !== sk.id) return;
+                _sc.detailPlan = p;
+                _sc.detailPlanFor = sk.id;
+                _scRender();
+            })();
+        }
+    }
 }
 
 window.showSkillChoiceScreen = showSkillChoiceScreen;
