@@ -462,7 +462,10 @@ def register_analytics_routes(app, db):
                     "                NULLIF(u.first_name, ''), "
                     "                CASE WHEN NULLIF(u.username, '') IS NOT NULL "
                     "                     THEN '@' || u.username END, "
-                    "                '') AS user_name "
+                    "                CASE WHEN NULLIF(u.email, '') IS NOT NULL "
+                    "                     THEN split_part(u.email, '@', 1) END, "
+                    "                '') AS user_name, "
+                    "       c.name AS context_name, c.age, c.gender, c.city "
                     "FROM fredi_messages m "
                     "LEFT JOIN fredi_user_contexts c ON c.user_id = m.user_id "
                     "LEFT JOIN fredi_users u ON u.user_id = m.user_id "
@@ -474,6 +477,10 @@ def register_analytics_routes(app, db):
                     "id": r["id"],
                     "user_id": r["user_id"],
                     "user_name": r["user_name"] or "",
+                    "context_name": r["context_name"],
+                    "age": r["age"],
+                    "gender": r["gender"],
+                    "city": r["city"],
                     "role": r["role"],
                     "content": r["content"],
                     "metadata": (json.loads(r["metadata"]) if isinstance(r["metadata"], str)
@@ -493,13 +500,16 @@ def register_analytics_routes(app, db):
         try:
             lim = max(1, min(int(limit), 1000))
             async with db.get_connection() as conn:
-                name = await conn.fetchval(
+                meta = await conn.fetchrow(
                     "SELECT COALESCE("
                     "    NULLIF(c.name, ''), "
                     "    NULLIF(u.first_name, ''), "
                     "    CASE WHEN NULLIF(u.username, '') IS NOT NULL "
                     "         THEN '@' || u.username END, "
-                    "    '') "
+                    "    CASE WHEN NULLIF(u.email, '') IS NOT NULL "
+                    "         THEN split_part(u.email, '@', 1) END, "
+                    "    '') AS user_name, "
+                    "    c.name AS context_name, c.age, c.gender, c.city "
                     "FROM fredi_users u "
                     "LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id "
                     "WHERE u.user_id = $1", int(user_id)
@@ -520,7 +530,11 @@ def register_analytics_routes(app, db):
             messages.reverse()
             return {
                 "user_id": user_id,
-                "user_name": name or "",
+                "user_name": (meta["user_name"] if meta else "") or "",
+                "context_name": meta["context_name"] if meta else None,
+                "age": meta["age"] if meta else None,
+                "gender": meta["gender"] if meta else None,
+                "city": meta["city"] if meta else None,
                 "messages": messages,
             }
         except Exception as e:
