@@ -1827,8 +1827,8 @@ async def _send_max_text_with_link(chat_id: str, text: str, link_url: str,
 
 async def _build_test_pdf_for_user(user_id: int) -> Optional[bytes]:
     """
-    Генерирует PDF-портрет по сохранённому в БД профилю. Возвращает bytes
-    или None, если нет данных.
+    Генерирует «полный отчёт» PDF: профиль теста + AI-комментарий +
+    мысли психолога. Возвращает bytes или None, если нет данных.
     """
     try:
         profile = await user_repo.get_profile(int(user_id)) or {}
@@ -1846,9 +1846,18 @@ async def _build_test_pdf_for_user(user_id: int) -> Optional[bytes]:
             )
     except Exception:
         ctx_name = None
+    # Мысли психолога — отдельное поле, лежит в fredi_psychologist_thoughts.
+    psychologist_thought = None
+    try:
+        psychologist_thought = await user_repo.get_psychologist_thought(int(user_id))
+    except Exception as e:
+        logger.warning(f"get_psychologist_thought failed (non-fatal): {e}")
     try:
         from test_pdf import generate_test_pdf_bytes
-        return generate_test_pdf_bytes(profile, user_name=ctx_name)
+        return generate_test_pdf_bytes(
+            profile, user_name=ctx_name,
+            psychologist_thought=psychologist_thought,
+        )
     except Exception as e:
         logger.error(f"generate_test_pdf_bytes failed: {e}")
         return None
@@ -1876,7 +1885,8 @@ async def _deliver_test_pdf_to_messenger(user_id: int, platform: str) -> bool:
         token = await _issue_pdf_token(int(user_id), kind="test_profile")
         link_url = f"{_public_base_url()}/api/test/portrait-pdf?token={token}"
         caption = (
-            "Это твой портрет — открой ссылку, и PDF загрузится в браузер.\n\n"
+            "Это твой полный отчёт по тесту — профиль, AI-комментарий и "
+            "мысли психолога. Открой ссылку, PDF загрузится в браузер.\n\n"
             "Без давления: я не буду писать сюда без причины. Если захочешь "
             "напоминания о практиках — включи их в настройках, отвязать "
             "можно в любой момент."
@@ -1884,7 +1894,7 @@ async def _deliver_test_pdf_to_messenger(user_id: int, platform: str) -> bool:
         if platform == "max":
             return await _send_max_text_with_link(row["chat_id"], caption,
                                                    link_url,
-                                                   "📄 Скачать портрет")
+                                                   "📄 Скачать отчёт")
         return False
     except Exception as e:
         logger.error(f"_deliver_test_pdf_to_messenger error: {e}")

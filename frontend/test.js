@@ -2292,7 +2292,7 @@ ${this.getStage3Interpretation()}
         // (он уже добавлен в text выше), и единственное мягкое действие —
         // отправить PDF в MAX, чтобы у пользователя остался артефакт.
         this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
-            {text:'📄 PDF В MAX',callback:()=>this.sendPortraitToMax()},
+            {text:'📄 ПОЛНЫЙ ОТЧЁТ В MAX',callback:()=>this.sendPortraitToMax()},
             {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
             {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
         ]);
@@ -2326,7 +2326,7 @@ ${this.getStage3Interpretation()}
             }
         } catch {}
 
-        this.addBotMessage('📄 Готовлю портрет в PDF…', true);
+        this.addBotMessage('📄 Собираю полный отчёт (профиль + AI-комментарий + мысли психолога)…', true);
         try {
             const r = await fetch(TEST_API_BASE_URL + '/api/test/send-to-max', {
                 method:'POST',
@@ -2340,7 +2340,7 @@ ${this.getStage3Interpretation()}
             }
             if (data.linked && data.sent) {
                 this.addBotMessage(
-                    '💛 Готово — портрет уже у тебя в MAX.<br><br>' +
+                    '💛 Готово — полный отчёт уже в MAX.<br><br>' +
                     '<span style="font-size:12px;opacity:0.75">Я не буду писать без причины. Если захочешь напоминания — включишь их в настройках; отвязать MAX можно в любой момент.</span>',
                     true
                 );
@@ -2348,8 +2348,8 @@ ${this.getStage3Interpretation()}
             }
             if (data.linked === false && data.deeplink) {
                 this.addBotMessage(
-                    '🤖 Сейчас откроется MAX-бот. Напиши там <b>/start</b> — и я пришлю портрет файлом.<br><br>' +
-                    '<span style="font-size:12px;opacity:0.75">Один шаг, чтобы не потерять портрет. Без рассылок: только то, что попросишь сам.</span>',
+                    '🤖 Сейчас откроется MAX-бот. Напиши там <b>/start</b> — и я пришлю полный отчёт ссылкой.<br><br>' +
+                    '<span style="font-size:12px;opacity:0.75">Один шаг, чтобы не потерять отчёт. Без рассылок: только то, что попросишь сам.</span>',
                     true
                 );
                 // Дадим миллисекунду на отрисовку, потом откроем deeplink.
