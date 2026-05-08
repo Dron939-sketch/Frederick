@@ -458,9 +458,14 @@ def register_analytics_routes(app, db):
             async with db.get_connection() as conn:
                 rows = await conn.fetch(
                     "SELECT m.id, m.user_id, m.role, m.content, m.metadata, m.created_at, "
-                    "       COALESCE(c.name, '') AS user_name "
+                    "       COALESCE(NULLIF(c.name, ''), "
+                    "                NULLIF(u.first_name, ''), "
+                    "                CASE WHEN NULLIF(u.username, '') IS NOT NULL "
+                    "                     THEN '@' || u.username END, "
+                    "                '') AS user_name "
                     "FROM fredi_messages m "
                     "LEFT JOIN fredi_user_contexts c ON c.user_id = m.user_id "
+                    "LEFT JOIN fredi_users u ON u.user_id = m.user_id "
                     "WHERE m.role = 'user' "
                     "ORDER BY m.id DESC LIMIT $1", lim
                 )
@@ -489,7 +494,15 @@ def register_analytics_routes(app, db):
             lim = max(1, min(int(limit), 1000))
             async with db.get_connection() as conn:
                 name = await conn.fetchval(
-                    "SELECT name FROM fredi_user_contexts WHERE user_id = $1", int(user_id)
+                    "SELECT COALESCE("
+                    "    NULLIF(c.name, ''), "
+                    "    NULLIF(u.first_name, ''), "
+                    "    CASE WHEN NULLIF(u.username, '') IS NOT NULL "
+                    "         THEN '@' || u.username END, "
+                    "    '') "
+                    "FROM fredi_users u "
+                    "LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id "
+                    "WHERE u.user_id = $1", int(user_id)
                 )
                 rows = await conn.fetch(
                     "SELECT id, role, content, metadata, created_at FROM fredi_messages "
