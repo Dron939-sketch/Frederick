@@ -690,7 +690,11 @@
         var ub = document.getElementById('mirrorsUsers');
         if (users.length){
             ub.innerHTML =
-                '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
+                // На узких экранах 5 колонок не помещаются — оборачиваем в
+                // overflow:auto, минимальная ширина гарантирует, что
+                // содержимое не схлопнется и не порвёт ячейки.
+                '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px">' +
+                '<table style="width:100%;min-width:640px;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">' +
                     '<thead><tr style="background:rgba(127,127,127,0.06);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim)">' +
                         '<th style="padding:10px 12px;text-align:left">Юзер</th>' +
                         '<th style="padding:10px 12px;text-align:left">User ID</th>' +
@@ -722,7 +726,7 @@
                             '</tr>';
                         }).join('') +
                     '</tbody>' +
-                '</table>';
+                '</table></div>';
         } else {
             ub.innerHTML = '<div style="color:var(--text-dim);padding:14px;font-size:12px">Нет данных. Эндпоинт /api/admin/recent-users пуст или недоступен.</div>';
         }
