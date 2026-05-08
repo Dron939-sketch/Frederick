@@ -1438,6 +1438,23 @@ async def init_database_tables():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
+        # Одноразовые токены для скачивания PDF-портрета по ссылке из MAX-бота.
+        # MAX Platform API не принимает наш upload (ловит 404), поэтому
+        # отправляем юзеру ссылку с подписанным токеном — он скачивает PDF
+        # из браузера. TTL 30 дней.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_pdf_tokens (
+                token TEXT PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES fredi_users(user_id) ON DELETE CASCADE,
+                kind TEXT NOT NULL DEFAULT 'test_profile',
+                expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fredi_pdf_tokens_user "
+            "ON fredi_pdf_tokens(user_id, expires_at DESC)"
+        )
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_mirrors (
                 id BIGSERIAL PRIMARY KEY,
@@ -1730,63 +1747,81 @@ async def _send_via_max(chat_id: str, text: str) -> bool:
         return False
 
 
-async def _send_pdf_via_max(chat_id: str, pdf_bytes: bytes, filename: str, caption: str) -> bool:
+async def _issue_pdf_token(user_id: int, kind: str = "test_profile",
+                            ttl_seconds: int = 30 * 86400) -> str:
+    """Создаёт одноразовую длинную случайную ссылку для скачивания PDF."""
+    import secrets
+    from datetime import datetime, timedelta, timezone
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    async with db.get_connection() as conn:
+        await conn.execute(
+            "INSERT INTO fredi_pdf_tokens (token, user_id, kind, expires_at) "
+            "VALUES ($1, $2, $3, $4)",
+            token, int(user_id), kind, expires_at,
+        )
+    return token
+
+
+def _public_base_url() -> str:
+    """Базовый URL бэка (для построения скачиваемых ссылок)."""
+    base = (os.environ.get("PUBLIC_API_BASE_URL")
+            or os.environ.get("APP_BASE_URL")
+            or "https://fredi-backend-flz2.onrender.com")
+    return base.rstrip("/")
+
+
+async def _send_max_text_with_link(chat_id: str, text: str, link_url: str,
+                                    button_label: str = "📄 Открыть портрет") -> bool:
     """
-    Двухшаговая загрузка файла в MAX Platform API:
-    1) GET /uploads?type=file → upload_url
-    2) POST upload_url с multipart файлом → token
-    3) POST /messages c attachments=[{type:"file", payload:{token}}]
+    Шлёт в MAX текстовое сообщение с inline-кнопкой-ссылкой.
+    Это работающая альтернатива загрузке файла: MAX Platform API
+    не принимает наш upload (на /uploads ловим 404), а текст с
+    кнопкой-линком ходит штатно.
     """
     token = os.environ.get("MAX_TOKEN")
     if not token:
-        logger.warning("MAX_TOKEN не задан — пропускаю отправку PDF в Max")
+        logger.warning("MAX_TOKEN не задан — пропускаю отправку в Max")
         return False
     try:
         import httpx
-        headers_auth = {"Authorization": token}
-        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-            # Шаг 1: получить upload_url
-            up = await client.get(
-                "https://platform-api.max.ru/uploads",
-                params={"type": "file"}, headers=headers_auth,
-            )
-            if up.status_code not in (200, 201):
-                logger.error(f"MAX uploads init failed: {up.status_code} {up.text[:200]}")
-                return False
-            upload_url = (up.json() or {}).get("url")
-            if not upload_url:
-                logger.error("MAX uploads init: пустой url")
-                return False
-            # Шаг 2: загрузить файл
-            files = {"data": (filename, pdf_bytes, "application/pdf")}
-            up2 = await client.post(upload_url, files=files)
-            if up2.status_code not in (200, 201):
-                logger.error(f"MAX upload PUT failed: {up2.status_code} {up2.text[:200]}")
-                return False
-            payload = up2.json() or {}
-            file_token = payload.get("token") or (payload.get("payload") or {}).get("token")
-            if not file_token:
-                logger.error(f"MAX upload: token не пришёл, ответ: {str(payload)[:300]}")
-                return False
-            # Шаг 3: отправить сообщение с прикреплённым файлом
-            msg = {
-                "text": caption,
-                "format": "markdown",
-                "notify": True,
-                "attachments": [{"type": "file", "payload": {"token": file_token}}],
-            }
+        body = {
+            "text": text,
+            "format": "markdown",
+            "notify": True,
+            "attachments": [{
+                "type": "inline_keyboard",
+                "payload": {
+                    "buttons": [[{
+                        "type": "link",
+                        "text": button_label,
+                        "url": link_url,
+                    }]]
+                }
+            }],
+        }
+        headers = {"Authorization": token, "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             r = await client.post(
                 "https://platform-api.max.ru/messages",
                 params={"chat_id": chat_id},
-                json=msg,
-                headers={**headers_auth, "Content-Type": "application/json"},
+                json=body, headers=headers,
             )
             if r.status_code in (200, 201):
                 return True
-            logger.error(f"MAX sendMessage(file) failed: {r.status_code} {r.text[:200]}")
+            # На случай, если в БД лежит user_id вместо chat_id
+            if r.status_code == 404 and "dialog.not.found" in r.text:
+                r = await client.post(
+                    "https://platform-api.max.ru/messages",
+                    params={"user_id": chat_id},
+                    json=body, headers=headers,
+                )
+                if r.status_code in (200, 201):
+                    return True
+            logger.error(f"MAX sendMessage(link) failed: {r.status_code} {r.text[:200]}")
             return False
     except Exception as e:
-        logger.error(f"MAX send PDF error: {e}")
+        logger.error(f"MAX send link error: {e}")
         return False
 
 
@@ -1821,8 +1856,9 @@ async def _build_test_pdf_for_user(user_id: int) -> Optional[bytes]:
 
 async def _deliver_test_pdf_to_messenger(user_id: int, platform: str) -> bool:
     """
-    Тянет chat_id из fredi_messenger_links, генерирует PDF и отправляет.
-    Возвращает True при успехе.
+    Тянет chat_id из fredi_messenger_links и шлёт ссылку на PDF-портрет
+    (с inline-кнопкой). MAX Platform API не принимает upload файла, поэтому
+    отдаём ссылку — пользователь скачивает PDF из браузера.
     """
     try:
         async with db.get_connection() as conn:
@@ -1833,23 +1869,57 @@ async def _deliver_test_pdf_to_messenger(user_id: int, platform: str) -> bool:
             )
         if not row:
             return False
+        # Проверяем, что профиль есть — без него ссылка бесполезна.
         pdf_bytes = await _build_test_pdf_for_user(int(user_id))
         if not pdf_bytes:
             return False
+        token = await _issue_pdf_token(int(user_id), kind="test_profile")
+        link_url = f"{_public_base_url()}/api/test/portrait-pdf?token={token}"
         caption = (
-            "Это твой портрет — я прикрепил его файлом, чтобы был под рукой.\n\n"
+            "Это твой портрет — открой ссылку, и PDF загрузится в браузер.\n\n"
             "Без давления: я не буду писать сюда без причины. Если захочешь "
-            "напоминания о практиках — включи их в настройках, в любой "
-            "момент можно отвязать."
+            "напоминания о практиках — включи их в настройках, отвязать "
+            "можно в любой момент."
         )
         if platform == "max":
-            return await _send_pdf_via_max(row["chat_id"], pdf_bytes,
-                                           "fredi_portrait.pdf", caption)
-        # Telegram fallback: можно тоже добавить sendDocument, но скоп — MAX.
+            return await _send_max_text_with_link(row["chat_id"], caption,
+                                                   link_url,
+                                                   "📄 Скачать портрет")
         return False
     except Exception as e:
         logger.error(f"_deliver_test_pdf_to_messenger error: {e}")
         return False
+
+
+@app.get("/api/test/portrait-pdf")
+async def download_test_portrait_pdf(token: str = ""):
+    """Скачивание PDF-портрета по одноразовому токену из MAX-сообщения."""
+    from fastapi.responses import Response
+    if not token:
+        return Response(status_code=400, content=b"token required")
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT user_id, kind FROM fredi_pdf_tokens "
+                "WHERE token = $1 AND expires_at > NOW()",
+                token,
+            )
+        if not row:
+            return Response(status_code=404, content=b"token not found or expired")
+        pdf_bytes = await _build_test_pdf_for_user(int(row["user_id"]))
+        if not pdf_bytes:
+            return Response(status_code=404, content=b"profile not ready")
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'inline; filename="fredi_portrait.pdf"',
+                "Cache-Control": "private, max-age=300",
+            },
+        )
+    except Exception as e:
+        logger.error(f"download_test_portrait_pdf error: {e}")
+        return Response(status_code=500, content=b"internal error")
 
 
 async def _deliver_morning_message(user_id: int, channel: str, title: str, body_short: str, full_text: str) -> bool:

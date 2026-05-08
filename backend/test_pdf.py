@@ -13,10 +13,45 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import logging
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# DejaVu Sans (наш шрифт для кириллицы) не содержит цветных эмодзи —
+# fpdf2 на каждом 🏔/🔑/💪/🎯 ругается «missing glyph» и оставляет
+# квадратик. Чистим строки от эмодзи перед рендером, оставляя только
+# текст и стандартную пунктуацию. Для уже существующих heading-эмодзи
+# (🔑/💪/🎯/🌱 в AI-тексте) это даёт «КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА» вместо
+# «🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА» — без визуального мусора.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001F9FF"   # symbols + pictographs, emoticons, supplemental
+    "\U0001FA00-\U0001FAFF"   # symbols & pictographs ext-A
+    "\U00002600-\U000027BF"   # misc symbols + dingbats
+    "\U0001F000-\U0001F02F"   # mahjong/dominoes
+    "\U0001F0A0-\U0001F0FF"   # playing cards
+    "\U0001F100-\U0001F1FF"   # enclosed alphanumerics + flags
+    "\U0001F200-\U0001F2FF"   # enclosed ideographs
+    "\U0000FE00-\U0000FE0F"   # variation selectors
+    "\U0001F3FB-\U0001F3FF"   # skin tone modifiers
+    "\U0000200D"              # ZWJ — emoji-склейщик
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _clean_for_pdf(text: str) -> str:
+    """Удаляет эмодзи и схлопывает образовавшиеся двойные пробелы."""
+    if not text:
+        return ""
+    s = _EMOJI_RE.sub("", text)
+    # Убираем двойные пробелы и пустые строки в начале строк после удаления.
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    s = re.sub(r"\n[ \t]+", "\n", s)
+    return s.strip()
 
 # Попытка найти DejaVu — стандартный кириллический Unicode-шрифт.
 # Render/Debian-образ обычно содержит его. Для локальной разработки можно
@@ -118,13 +153,14 @@ def generate_test_pdf_bytes(profile: Dict[str, Any], user_name: Optional[str] = 
 
     profile_data = profile.get("profile_data") or {}
     behavioral = profile.get("behavioral_levels") or profile_data.get("behavioral_levels") or {}
-    ai_text = (profile.get("ai_generated_profile")
-               or profile_data.get("ai_generated_profile") or "").strip()
-    archetype = (profile_data.get("archetype")
-                 or profile.get("archetype") or "—")
-    display_name = (profile_data.get("display_name") or profile.get("display_name") or "")
-    perception_type = (profile_data.get("perception_type")
-                       or profile.get("perception_type") or "")
+    ai_text = _clean_for_pdf(profile.get("ai_generated_profile")
+               or profile_data.get("ai_generated_profile") or "")
+    archetype = _clean_for_pdf(str(profile_data.get("archetype")
+                 or profile.get("archetype") or "—"))
+    display_name = _clean_for_pdf(str(profile_data.get("display_name")
+                                       or profile.get("display_name") or ""))
+    perception_type = _clean_for_pdf(str(profile_data.get("perception_type")
+                       or profile.get("perception_type") or ""))
     thinking_level = (profile_data.get("thinking_level")
                       or profile.get("thinking_level") or "—")
     deep = (profile_data.get("deep_patterns")
@@ -200,7 +236,7 @@ def generate_test_pdf_bytes(profile: Dict[str, Any], user_name: Optional[str] = 
     pdf.ln(2)
 
     # Глубинный паттерн
-    attach = (deep.get("attachment") or "").strip()
+    attach = _clean_for_pdf(deep.get("attachment") or "")
     if attach:
         pdf.set_font("DejaVu", "B", 13)
         pdf.set_text_color(30, 30, 30)
