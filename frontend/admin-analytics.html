@@ -709,7 +709,7 @@
                             if (usr.age != null && usr.age !== '') demoBits.push(_esc(String(usr.age)) + ' лет');
                             if (usr.gender) {
                                 var g = String(usr.gender).toLowerCase();
-                                demoBits.push(g === 'male' || g === 'м' || g === 'мужской' ? '♂' : (g === 'female' || g === 'ж' || g === 'женский' ? '♀' : _esc(usr.gender)));
+                                demoBits.push(g === 'male' || g === 'м' || g === 'мужской' ? 'М' : (g === 'female' || g === 'ж' || g === 'женский' ? 'Ж' : _esc(usr.gender)));
                             }
                             if (usr.city) demoBits.push('📍 ' + _esc(usr.city));
                             var demo = demoBits.join(' · ') || '—';
@@ -896,8 +896,8 @@
     function _genderIcon(g){
         if (!g) return '';
         var s = String(g).toLowerCase();
-        if (s === 'male' || s === 'м' || s === 'мужской') return '♂';
-        if (s === 'female' || s === 'ж' || s === 'женский') return '♀';
+        if (s === 'male' || s === 'м' || s === 'мужской') return 'М';
+        if (s === 'female' || s === 'ж' || s === 'женский') return 'Ж';
         return _esc(g);
     }
     function _demoSuffix(m){
