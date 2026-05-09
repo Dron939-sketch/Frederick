@@ -2287,14 +2287,15 @@ ${this.getStage3Interpretation()}
 
         this.addBotMessage(text, true);
 
-        // На финале теста ничего не предлагаем регистрировать или «сохранять
-        // профиль» — это раздражает и обрывает момент. Показываем AI-портрет
-        // (он уже добавлен в text выше), и единственное мягкое действие —
-        // отправить PDF в MAX, чтобы у пользователя остался артефакт.
+        // CTA «зарегистрироваться» здесь намеренно НЕ показываем —
+        // регистрация теперь предлагается единым окном при входе в
+        // приложение (см. login.js: bootstrap auth-модалки). Размазывать
+        // её по разным экранам = терять ясность. Здесь только то, что
+        // про сам результат: PDF-отчёт, мысли психолога, на главную.
         this.addMessageWithButtons('👇 **ЧТО ДАЛЬШЕ?**', [
-            {text:'📄 ПОЛНЫЙ ОТЧЁТ В MAX',callback:()=>this.sendPortraitToMax()},
-            {text:'🧠 МЫСЛИ ПСИХОЛОГА',callback:()=>this.showPsychologistThought()},
-            {text:'🏠 НА ГЛАВНУЮ',callback:()=>this.goToDashboard()}
+            { text: '📄 ПОЛНЫЙ ОТЧЁТ В MAX', callback: () => this.sendPortraitToMax() },
+            { text: '🧠 МЫСЛИ ПСИХОЛОГА',    callback: () => this.showPsychologistThought() },
+            { text: '🏠 НА ГЛАВНУЮ',         callback: () => this.goToDashboard() }
         ]);
 
         if (this.userId) {
