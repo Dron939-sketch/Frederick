@@ -376,20 +376,53 @@ async def _scan_and_send_d3(db, email_service):
         await asyncio.sleep(1.2)
 
 
-async def reengagement_scheduler(db, email_service_getter):
-    """Бэкграунд-loop: раз в час сканируем кандидатов и шлём.
+async def _count_candidates(db) -> int:
+    """Дешёвый COUNT — для логов и polling из админки."""
+    row = await db.fetchrow(
+        """SELECT COUNT(*)::int AS n
+           FROM fredi_users u
+           WHERE u.created_at < NOW() - INTERVAL '3 days'
+             AND u.last_activity < NOW() - INTERVAL '3 days'
+             AND u.last_activity > NOW() - INTERVAL '14 days'
+             AND u.email IS NOT NULL
+             AND COALESCE(u.email_opted_in, TRUE) = TRUE
+             AND NOT EXISTS (
+                 SELECT 1 FROM fredi_reengagement_log l
+                 WHERE l.user_id = u.user_id AND l.campaign = $1
+             )""",
+        CAMPAIGN_D3
+    )
+    return int(row["n"] if row else 0)
 
-    email_service_getter — callable, возвращающий актуальный
-    EmailService. Делаем через getter, потому что в main.py
-    email_service инициализируется внутри lifespan, и прямая
-    ссылка на момент создания шедулера может быть None.
+
+async def reengagement_scheduler(db, email_service_getter):
+    """Бэкграунд-loop: раз в час считаем кандидатов и (опционально) шлём.
+
+    Полу-автомат: по умолчанию REENG_AUTOSEND=0 — шедулер ничего не
+    отправляет, только логирует количество кандидатов. Оператор
+    смотрит число в админке и нажимает кнопку «Отправить».
+
+    Полностью автоматический режим включается env REENG_AUTOSEND=1 —
+    тогда каждый час шлём batch до 50.
     """
+    autosend = (os.environ.get("REENG_AUTOSEND") or "0").strip() == "1"
+    if autosend:
+        logger.info("[reeng] AUTOSEND=1 — режим полностью автоматический")
+    else:
+        logger.info("[reeng] AUTOSEND=0 — полу-автомат: шлём только из админки")
+
     # Стартовая пауза — даём приложению полностью подняться.
     await asyncio.sleep(60)
     while True:
         try:
-            es = email_service_getter() if callable(email_service_getter) else email_service_getter
-            await _scan_and_send_d3(db, es)
+            if autosend:
+                es = email_service_getter() if callable(email_service_getter) else email_service_getter
+                await _scan_and_send_d3(db, es)
+            else:
+                n = await _count_candidates(db)
+                if n > 0:
+                    logger.info(f"[reeng] d3: ожидают отправки {n} (autosend off, "
+                                f"открой админку → Reengagement)")
         except asyncio.CancelledError:
             raise
         except Exception as e:

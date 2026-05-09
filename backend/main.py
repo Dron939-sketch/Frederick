@@ -347,13 +347,13 @@ async def lifespan(app: FastAPI):
         _init_test = register_test_routes(app, db, limiter)
         await _init_test()
 
-        # Reengagement (Phase 1: одна кампания «d3_first»). Подключаем
-        # routes + bg-scheduler. Scheduler вызывается через getter —
-        # email_service может быть переинициализирован, getter всегда
-        # отдаст актуальный экземпляр.
+        # Reengagement (Phase 1 + полу-автомат). Подключаем routes
+        # (публичные + админские) + bg-scheduler. EmailService getter
+        # — лямбда, чтобы admin-эндпоинты и шедулер всегда брали
+        # актуальный экземпляр (на случай переинициализации).
         try:
             from reengagement_routes import register_reengagement_routes
-            register_reengagement_routes(app, db)
+            register_reengagement_routes(app, db, lambda: email_service)
             from services.reengagement import reengagement_scheduler
             background_tasks_extra_reeng = asyncio.create_task(
                 reengagement_scheduler(db, lambda: email_service)

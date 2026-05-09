@@ -195,6 +195,7 @@
         <button data-tab="costs">💰 Расходы</button>
         <button data-tab="mirrors">🪞 Зеркала</button>
         <button data-tab="control">🎛️ Пульт</button>
+        <button data-tab="reeng">📨 Возврат</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
     </div>
 
@@ -304,6 +305,49 @@
         <pre id="controlActiveText" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:12px;line-height:1.55;color:var(--text);white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;max-height:480px;overflow:auto"></pre>
     </section>
 
+    <section id="reengTab" style="display:none">
+        <h3 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-dim);margin:0 0 14px">📨 Reengagement — кампания d3_first (полу-автомат)</h3>
+        <p style="font-size:12px;color:var(--text-dim);margin:0 0 18px;line-height:1.6">
+            Здесь видно, у кого сегодня третий день неактивности и кто ещё не получал win-back-сообщение.
+            AI собирает поведенческое summary (без чтения диалогов) и пишет персональный текст.
+            Канал: MAX → email fallback. Каждое сообщение содержит opt-out в один клик.
+        </p>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Сейчас в очереди</div>
+                <div id="reengCount" style="font-size:28px;font-weight:700;color:var(--text)">—</div>
+                <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Кандидатов d3</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Всего отправлено</div>
+                <div id="reengSent" style="font-size:28px;font-weight:700;color:var(--text)">—</div>
+                <div style="font-size:11px;color:var(--text-dim);margin-top:4px">За всё время</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Кликов</div>
+                <div id="reengClicks" style="font-size:28px;font-weight:700;color:var(--text)">—</div>
+                <div id="reengCTR" style="font-size:11px;color:var(--text-dim);margin-top:4px">CTR — %</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Отписалось</div>
+                <div id="reengOptouts" style="font-size:28px;font-weight:700;color:var(--text)">—</div>
+                <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Юзеров</div>
+            </div>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+            <button id="reengReload" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer">🔄 Обновить</button>
+            <button id="reengSendAll" style="padding:8px 14px;border-radius:8px;border:none;background:#10b981;color:#fff;font:inherit;font-weight:600;cursor:pointer">📨 Отправить всем</button>
+            <button id="reengDryRun" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;cursor:pointer" title="Без реальной отправки — посмотреть, кому пошло бы">🧪 Dry-run</button>
+            <span id="reengStatus" style="font-size:12px;color:var(--text-dim);align-self:center;margin-left:6px"></span>
+        </div>
+
+        <div id="reengList" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+            <div style="padding:14px;color:var(--text-dim);font-size:13px">Нажмите «Обновить», чтобы загрузить кандидатов.</div>
+        </div>
+    </section>
+
     <!-- Dialog drawer -->
     <div id="dialogOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)">
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
@@ -384,6 +428,8 @@
         if (mirrorsTab) mirrorsTab.style.display = 'none';
         var controlTab = document.getElementById('controlTab');
         if (controlTab) controlTab.style.display = 'none';
+        var reengTab = document.getElementById('reengTab');
+        if (reengTab) reengTab.style.display = 'none';
         try {
             if (currentTab === 'summary') {
                 var d = await _fetch('/api/analytics/summary');
@@ -415,6 +461,9 @@
                 var ctrl = await _fetch('/api/admin/basic-mode-preset');
                 renderControl(ctrl);
                 if (controlTab) controlTab.style.display = 'block';
+            } else if (currentTab === 'reeng') {
+                if (reengTab) reengTab.style.display = 'block';
+                await reengReload();
             }
         } catch (e) {
             _err(e.message || 'Ошибка');
@@ -1230,6 +1279,129 @@
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
     });
+
+    // ============================================
+    // REENGAGEMENT — кандидаты, статистика, отправка
+    // ============================================
+    function _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function _ago(iso) {
+        if (!iso) return '—';
+        var d = new Date(iso);
+        var sec = (Date.now() - d.getTime()) / 1000;
+        if (sec < 86400) return Math.round(sec / 3600) + ' ч';
+        return Math.round(sec / 86400) + ' д';
+    }
+
+    function _setReengStatus(text, kind) {
+        var el = document.getElementById('reengStatus');
+        if (!el) return;
+        el.textContent = text || '';
+        el.style.color = kind === 'err' ? '#ef4444'
+                       : kind === 'ok' ? '#10b981'
+                       : 'var(--text-dim)';
+    }
+
+    async function reengReload() {
+        _setReengStatus('Загружаем…');
+        try {
+            var [cands, stats] = await Promise.all([
+                _fetch('/api/admin/reengagement/d3-candidates'),
+                _fetch('/api/admin/reengagement/stats')
+            ]);
+
+            // Карточки сверху
+            document.getElementById('reengCount').textContent = cands.count || 0;
+
+            var d3 = (stats.campaigns || []).find(function (c) { return c.campaign === 'd3_first'; });
+            var sent = d3 ? d3.delivered_count : 0;
+            var clicks = d3 ? d3.clicked_count : 0;
+            var optouts = stats.users && stats.users.opted_out || 0;
+            document.getElementById('reengSent').textContent = sent;
+            document.getElementById('reengClicks').textContent = clicks;
+            document.getElementById('reengOptouts').textContent = optouts;
+            var ctr = sent > 0 ? Math.round((clicks / sent) * 100) : 0;
+            document.getElementById('reengCTR').textContent = 'CTR ' + ctr + '%';
+
+            // Список кандидатов
+            var list = document.getElementById('reengList');
+            if (!cands.candidates || !cands.candidates.length) {
+                list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim)">'
+                    + 'Сегодня кандидатов нет 👌</div>';
+                _setReengStatus('Нет кандидатов', 'ok');
+                return;
+            }
+
+            var html = '<table style="width:100%;border-collapse:collapse">'
+                + '<thead><tr style="background:rgba(0,0,0,0.04)">'
+                + '<th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--text-dim)">user_id</th>'
+                + '<th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--text-dim)">Имя / Email</th>'
+                + '<th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--text-dim)">Регистрация</th>'
+                + '<th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--text-dim)">Не активен</th>'
+                + '<th style="padding:10px 12px;text-align:center;font-size:11px;text-transform:uppercase;color:var(--text-dim)">MAX</th>'
+                + '</tr></thead><tbody>';
+            cands.candidates.forEach(function (c) {
+                html += '<tr style="border-top:1px solid var(--border)">'
+                    + '<td style="padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12px">' + _esc(c.user_id) + '</td>'
+                    + '<td style="padding:10px 12px;font-size:13px"><div>' + _esc(c.name || '—') + '</div>'
+                    + '<div style="font-size:11px;color:var(--text-dim)">' + _esc(c.email) + '</div></td>'
+                    + '<td style="padding:10px 12px;text-align:right;font-size:12px;color:var(--text-dim)">' + _ago(c.created_at) + ' назад</td>'
+                    + '<td style="padding:10px 12px;text-align:right;font-size:12px;color:var(--text)">' + (c.days_inactive || 0).toFixed(1) + ' д</td>'
+                    + '<td style="padding:10px 12px;text-align:center;font-size:14px">' + (c.has_max ? '✅' : '—') + '</td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table>';
+            list.innerHTML = html;
+            _setReengStatus('Загружено: ' + cands.count + ' кандидатов', 'ok');
+        } catch (e) {
+            _setReengStatus(e.message || 'Ошибка', 'err');
+        }
+    }
+
+    async function reengSend(dry) {
+        var btn = dry ? document.getElementById('reengDryRun')
+                       : document.getElementById('reengSendAll');
+        if (btn) btn.disabled = true;
+        try {
+            if (!dry) {
+                if (!confirm('Отправить win-back-сообщения всем кандидатам в очереди? Каждое сообщение содержит opt-out.')) {
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+            }
+            _setReengStatus(dry ? 'Dry-run…' : 'Отправляем…');
+            var res = await fetch(API + '/api/admin/reengagement/d3-send', {
+                method: 'POST',
+                headers: {
+                    'X-Admin-Token': token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ dry_run: !!dry, limit: 50 })
+            });
+            var data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error((data && data.detail && data.detail.message) || 'HTTP ' + res.status);
+            }
+            if (dry) {
+                _setReengStatus('Dry-run: пошло бы ' + (data.would_send || 0) + ' сообщений', 'ok');
+            } else {
+                _setReengStatus('Отправлено: ' + (data.sent || 0) + ', не доставлено: ' + (data.failed || 0), 'ok');
+            }
+            await reengReload();
+        } catch (e) {
+            _setReengStatus(e.message || 'Ошибка', 'err');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    document.getElementById('reengReload').addEventListener('click', reengReload);
+    document.getElementById('reengSendAll').addEventListener('click', function () { reengSend(false); });
+    document.getElementById('reengDryRun').addEventListener('click', function () { reengSend(true); });
 })();
 </script>
 <script src="clients-tab.js"></script>
