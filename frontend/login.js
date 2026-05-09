@@ -93,14 +93,42 @@
         var lastEmail = _safeGet(LS_LAST_EMAIL) || '';
         var isRegister = (mode === 'register');
         var fromAppStart = (_lastSource === 'app_start');
-        var title = isRegister ? 'Добро пожаловать' : 'Вход';
-        // Сабтайтл подстраиваем под контекст: при автопоказе на старте —
-        // мягко объясняем зачем регистрация. В обычных вызовах — короче.
+
+        // Возвращающийся anon: в localStorage есть fredi_user_id и есть
+        // признаки активности (хоть какие-то локальные данные — например,
+        // результат теста). Им показываем другую копию: акцент на «не
+        // потерять накопленное», а не на «начать пользоваться».
+        var hasAnonData = (function () {
+            try {
+                if (!localStorage.getItem('fredi_user_id')) return false;
+                var keys = Object.keys(localStorage);
+                for (var i = 0; i < keys.length; i++) {
+                    var k = keys[i];
+                    // Маркеры активности: тест, навыки, дневник, рефлексии.
+                    if (k.indexOf('test_results_') === 0) return true;
+                    if (k.indexOf('trainer_skill_') === 0) return true;
+                    if (k.indexOf('dt_reflections_') === 0) return true;
+                    if (k.indexOf('sc_plan_') === 0) return true;
+                }
+                return false;
+            } catch (e) { return false; }
+        })();
+
+        var title = isRegister
+            ? (hasAnonData ? 'Сохраните прогресс' : 'Добро пожаловать')
+            : 'Вход';
+        // Сабтайтл подстраиваем под контекст: при автопоказе на старте
+        // и наличии данных — акцент на «не потерять». Просто новичкам —
+        // объяснение «зачем». В обычных вызовах из settings — короче.
         var subtitle;
         if (isRegister) {
-            subtitle = fromAppStart
-                ? 'Чтобы прогресс, тесты и переписка с Фреди не терялись и были доступны с любого устройства. Email + 4-значный пин-код — больше ничего не нужно.'
-                : 'Email станет вашим логином. Придумайте пин-код из 4 цифр.';
+            if (fromAppStart && hasAnonData) {
+                subtitle = 'У вас уже есть данные на этом устройстве — давайте привяжем их к аккаунту, чтобы они не терялись и были доступны с любого устройства. Email + 4-значный пин-код.';
+            } else if (fromAppStart) {
+                subtitle = 'Чтобы прогресс, тесты и переписка с Фреди не терялись и были доступны с любого устройства. Email + 4-значный пин-код — больше ничего не нужно.';
+            } else {
+                subtitle = 'Email станет вашим логином. Придумайте пин-код из 4 цифр.';
+            }
         } else {
             subtitle = 'Войдите, чтобы работать с Фреди с любого устройства.';
         }
@@ -212,6 +240,17 @@
     async function _doRegister(name, email, password, remember) {
         var btn = document.getElementById('faSubmit');
         if (btn) { btn.disabled = true; btn.textContent = 'Создаём...'; }
+        // Захватываем anon user_id ДО перезаписи. Возвращающийся anon
+        // имел data, привязанные к этому id — после register их нужно
+        // смержить на новый authed-id, иначе тест/дневник/диалоги
+        // «потеряются» на сервере (orphan-записи). Раньше merge был
+        // только в _doLogin, на register — нет.
+        var anonUidBefore = (function () {
+            try {
+                var v = localStorage.getItem('fredi_user_id');
+                return v ? Number(v) : null;
+            } catch (e) { return null; }
+        })();
         try {
             var res = await fetch(API_BASE + '/api/auth/register', {
                 method: 'POST',
@@ -222,18 +261,58 @@
             var data = null;
             try { data = await res.json(); } catch (e) {}
             if (!res.ok) {
+                _track('auth_register_failed', {
+                    source: _lastSource,
+                    reason: (data && data.detail && data.detail.error) || (data && data.error) || 'unknown',
+                    status: res.status
+                });
                 _handleAuthError(data, 'register');
                 return;
             }
             _safeSet(LS_LAST_EMAIL, email);
-            try { localStorage.setItem('fredi_user_id', data.user_id); } catch (e) {}
-            _track('register_success', { had_anon: !!_safeGet('fredi_user_id') });
+            var newUid = Number(data.user_id);
+            // had_anon считаем ДО перезаписи — в существующей версии было
+            // обратное (читали уже после localStorage.setItem), что давало
+            // had_anon=true всегда. Теперь видим реальное соотношение.
+            var hadAnon = !!(anonUidBefore && anonUidBefore !== newUid);
+            try { localStorage.setItem('fredi_user_id', String(newUid)); } catch (e) {}
+            _track('register_success', { had_anon: hadAnon, source: _lastSource });
             _toast('Аккаунт создан ✓', 'success');
+
+            // Если был возвращающийся anon — мержим его данные на новый
+            // authed-id. Confirm-диалог (как в _askMergeAnon при login)
+            // здесь не нужен: юзер только что сам нажал «Создать аккаунт»,
+            // намерение однозначное. Лишний шаг = friction, отвалятся
+            // чувствительные к простоте флоу.
+            if (hadAnon) {
+                try {
+                    var mr = await fetch(API_BASE + '/api/auth/merge-anon', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ anon_user_id: anonUidBefore })
+                    });
+                    var md = null;
+                    try { md = await mr.json(); } catch (e) {}
+                    _track('register_anon_merged', {
+                        success: !!(md && (md.success || md.merged !== undefined)),
+                        merged_records: (md && md.merged) || 0,
+                        anon_uid: anonUidBefore
+                    });
+                    if (md && md.merged) {
+                        _toast('Объединили ' + md.merged + ' записей с устройства', 'info');
+                    }
+                } catch (e) {
+                    _track('register_anon_merge_failed', { anon_uid: anonUidBefore });
+                }
+            }
+
             _closeModal();
             // Перечитаем серверную сессию и перезагрузим экран под новым user_id.
             if (typeof window.refreshAuth === 'function') await window.refreshAuth();
             _reloadApp();
         } catch (e) {
+            _track('auth_register_failed', { source: _lastSource, reason: 'network', status: 0 });
             _setErr('faErrEmail', 'Нет связи с сервером. Попробуйте позже.');
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = 'Создать аккаунт'; }
@@ -642,7 +721,30 @@
             var p = new URLSearchParams(window.location.search);
             if (p.get('reset_token')) return;
         } catch (e) {}
-        _track('auth_modal_auto_shown', { source: 'app_start' });
+
+        // Различаем «свежий юзер» vs «возвращающийся anon с данными» —
+        // им показываем разную копирайтерскую подачу, и в аналитике
+        // считаем их отдельно (их доля влияет на стратегию: если 80%
+        // открытий — fresh, важнее onboarding; если возвращаются —
+        // важнее merge-flow и доверие к сохранности).
+        var hasUid = false;
+        var hasData = false;
+        try {
+            hasUid = !!localStorage.getItem('fredi_user_id');
+            var keys = Object.keys(localStorage);
+            for (var i = 0; i < keys.length; i++) {
+                var k = keys[i];
+                if (k.indexOf('test_results_') === 0
+                    || k.indexOf('trainer_skill_') === 0
+                    || k.indexOf('dt_reflections_') === 0
+                    || k.indexOf('sc_plan_') === 0) { hasData = true; break; }
+            }
+        } catch (e) {}
+
+        _track('auth_modal_auto_shown', {
+            source: 'app_start',
+            user_kind: hasData ? 'returning_anon' : (hasUid ? 'returning_no_data' : 'fresh')
+        });
         _open('register', { source: 'app_start' });
     }
 
