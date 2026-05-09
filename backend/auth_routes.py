@@ -54,6 +54,10 @@ class RegisterIn(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=4, max_length=4)
     remember: bool = True
+    # Согласие на reengagement-сообщения. Если фронт не передал —
+    # считаем TRUE (мягкий дефолт, как в БД-колонке). Юзер в любой
+    # момент может отписаться через ссылку в сообщении.
+    email_opted_in: bool = True
 
 
 class LoginIn(BaseModel):
@@ -247,11 +251,26 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
         sess = await _resolve_session(token)
         if not sess:
             raise HTTPException(status_code=401, detail={"error": "unauthenticated"})
+        # has_max — нужно фронту, чтобы решить, показывать ли banner
+        # «Привязать MAX» на дашборде. Один лишний запрос за сессию,
+        # дешёвый: индекс по (user_id, platform).
+        has_max = False
+        try:
+            row = await db.fetchrow(
+                "SELECT 1 FROM fredi_messenger_links "
+                "WHERE user_id = $1 AND platform = 'max' "
+                "  AND COALESCE(is_active, TRUE) = TRUE LIMIT 1",
+                sess["user_id"]
+            )
+            has_max = bool(row)
+        except Exception:
+            pass
         return {
             "success": True,
             "user_id": sess["user_id"],
             "email": sess["email"],
             "name": sess["name"],
+            "has_max": has_max,
         }
 
     # -------------------- /register --------------------
@@ -313,6 +332,15 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                 """,
                 uid, body.name.strip(),
             )
+
+            # Reengagement opt-in. Если юзер снял галочку — выставляем
+            # FALSE сразу при регистрации, и тогда d3-кампания его пропустит.
+            if body.email_opted_in is False:
+                await conn.execute(
+                    "UPDATE fredi_users SET email_opted_in = FALSE, "
+                    "email_opted_out_at = NOW() WHERE user_id = $1",
+                    uid
+                )
 
             raw, _exp = await _create_session(conn, uid, body.remember, ua, ip)
 

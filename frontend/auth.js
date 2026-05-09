@@ -152,6 +152,7 @@
             _applyUserId(me.user_id);
             try { window.CURRENT_USER_EMAIL = me.email || ''; } catch (e) {}
             try { window.CURRENT_USER_NAME = me.name || ''; } catch (e) {}
+            try { window.HAS_MAX = !!me.has_max; } catch (e) {}
             try { window.IS_AUTHENTICATED = true; } catch (e) {}
             _safeSet(LS_AUTH_SYNCED, '1');
             console.log('🔐 auth: signed in as', me.email, 'user_id =', me.user_id);
@@ -173,6 +174,7 @@
             _applyUserId(me.user_id);
             try { window.CURRENT_USER_EMAIL = me.email || ''; } catch (e) {}
             try { window.CURRENT_USER_NAME = me.name || ''; } catch (e) {}
+            try { window.HAS_MAX = !!me.has_max; } catch (e) {}
             try { window.IS_AUTHENTICATED = true; } catch (e) {}
             return me;
         }

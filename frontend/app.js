@@ -1680,8 +1680,35 @@ function renderDashboard() {
     const modeConfig = MODES[currentMode];
     const modules = MODULES[currentMode];
 
+    // MAX-banner: показываем юзеру, который не привязал MAX, мягкое
+    // приглашение — для второго канала reengagement-сообщений (MAX
+    // доходит мгновенно и виднее, чем email). Dismiss кешируется на
+    // 7 дней в localStorage. Показываем только если: авторизован,
+    // has_max=false, не dismissed в последние 7 дней.
+    var maxBannerHtml = '';
+    try {
+        var dismissedAt = parseInt(localStorage.getItem('max_banner_dismissed_at') || '0', 10);
+        var daysSinceDismiss = (Date.now() - dismissedAt) / 86400000;
+        if (window.IS_AUTHENTICATED && window.HAS_MAX === false && daysSinceDismiss > 7) {
+            var uid = window.USER_ID || window.CONFIG?.USER_ID || '';
+            var maxBotLink = 'https://max.ru/id502238728185_1_bot';
+            var deeplink = maxBotLink + '?start=web_' + encodeURIComponent(uid);
+            maxBannerHtml = ''
+                + '<div class="max-banner" id="maxBanner" style="background:linear-gradient(135deg,rgba(252,206,40,0.12),rgba(252,206,40,0.04));border:1px solid rgba(252,206,40,0.3);border-radius:14px;padding:14px 16px;margin:12px 16px 0;display:flex;align-items:center;gap:12px">'
+                + '  <div style="font-size:24px;flex-shrink:0">💬</div>'
+                + '  <div style="flex:1;min-width:0">'
+                + '    <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px">Привязать MAX</div>'
+                + '    <div style="font-size:11px;color:var(--text-secondary);line-height:1.4">Чтобы важное приходило в мессенджер, а не только в email</div>'
+                + '  </div>'
+                + '  <a href="' + deeplink + '" target="_blank" rel="noopener" id="maxBannerOpen" style="background:#1c1c1e;color:#fff;text-decoration:none;padding:8px 14px;border-radius:10px;font-size:12px;font-weight:600;flex-shrink:0">Открыть</a>'
+                + '  <button id="maxBannerDismiss" aria-label="Закрыть" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:18px;padding:4px 6px;line-height:1">✕</button>'
+                + '</div>';
+        }
+    } catch (e) {}
+
     container.innerHTML = `
         <div class="dashboard-container">
+            ${maxBannerHtml}
             <div class="hero-section">
                 <div class="hero-greeting">
                     <div class="hero-mode-emoji">${modeConfig.emoji}</div>
@@ -1715,6 +1742,20 @@ function renderDashboard() {
                 <a href="#" id="modeUpgradeLink" style="color:#3b82ff;text-decoration:none;font-weight:600">с подпиской</a>.
             </div>` : ''}
 
+            <!-- В github.io кнопка записи стоит ВЫШЕ модулей (исторически, до Pass A).
+                 В Frederick она snap'ится к низу со sticky-стилями (.voice-section--bottom),
+                 которых на github.io нет в styles.css. Поэтому здесь возвращаем старую
+                 раскладку: кнопка сразу после селектора режима. -->
+            <div class="voice-section">
+                <div class="voice-card">
+                    <button class="voice-record-btn-premium" id="mainVoiceBtn">
+                        <span class="voice-icon">🎤</span>
+                        <span class="voice-text">${modeConfig.voicePrompt}</span>
+                    </button>
+                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
+                </div>
+            </div>
+
             <div class="modules-grid">
                 ${modules.map(m => `
                     <div class="module-card" data-module="${m.id}">
@@ -1738,20 +1779,8 @@ function renderDashboard() {
                 </div>
             </div>
 
-            <!-- Скроллящийся поток сообщений диалога — появляется снизу,
-                 над кнопкой записи, со своим скроллом, чтобы вся страница
-                 не превращалась в портянку. -->
+            <!-- Скроллящийся поток сообщений диалога. -->
             <div class="dashboard-chat-stream" id="dashChatStream"></div>
-
-            <div class="voice-section voice-section--bottom">
-                <div class="voice-card">
-                    <button class="voice-record-btn-premium" id="mainVoiceBtn">
-                        <span class="voice-icon">🎤</span>
-                        <span class="voice-text">${modeConfig.voicePrompt}</span>
-                    </button>
-                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
-                </div>
-            </div>
         </div>
     `;
 
@@ -1933,6 +1962,32 @@ function renderDashboard() {
 
     const voiceBtn = document.getElementById('mainVoiceBtn');
     if (voiceBtn && voiceManager) setupVoiceButton(voiceBtn);
+
+    // MAX-banner handlers
+    var maxBan = document.getElementById('maxBanner');
+    if (maxBan) {
+        try {
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('max_banner_shown', {});
+            }
+        } catch {}
+        document.getElementById('maxBannerOpen')?.addEventListener('click', function () {
+            try {
+                if (window.FrediTracker?.track) {
+                    window.FrediTracker.track('max_banner_clicked', {});
+                }
+            } catch {}
+        });
+        document.getElementById('maxBannerDismiss')?.addEventListener('click', function () {
+            try { localStorage.setItem('max_banner_dismissed_at', String(Date.now())); } catch (e) {}
+            try {
+                if (window.FrediTracker?.track) {
+                    window.FrediTracker.track('max_banner_dismissed', {});
+                }
+            } catch {}
+            maxBan.style.display = 'none';
+        });
+    }
 }
 
 // ============================================

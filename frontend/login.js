@@ -175,6 +175,9 @@
                 '</div>' +
                 passCheckField +
                 '<label class="fa-check"><input id="faRemember" type="checkbox" checked>Запомнить меня на этом устройстве</label>' +
+                (isRegister
+                  ? '<label class="fa-check"><input id="faOptIn" type="checkbox" checked>Согласен(на) получать редкие сообщения от Фреди (≤ 1 в неделю, отписаться — 1 клик)</label>'
+                  : '') +
                 '<div class="fa-actions">' +
                   '<button class="fa-btn fa-btn-primary" id="faSubmit">' + primaryLabel + '</button>' +
                   (isRegister
@@ -225,8 +228,12 @@
                 return;
             }
 
-            _track('auth_register_started', { source: _lastSource });
-            await _doRegister(name, email, password, remember);
+            // Чекбокс opt-in: если элемента нет (старая разметка) —
+            // считаем true (мягкий дефолт, как в БД).
+            var optInEl = document.getElementById('faOptIn');
+            var optIn = optInEl ? !!optInEl.checked : true;
+            _track('auth_register_started', { source: _lastSource, opt_in: optIn });
+            await _doRegister(name, email, password, remember, optIn);
         } else {
             if (!ok) {
                 _track('auth_validation_error', { mode: mode, source: _lastSource, fields: errs.join(',') });
@@ -237,7 +244,7 @@
         }
     }
 
-    async function _doRegister(name, email, password, remember) {
+    async function _doRegister(name, email, password, remember, optIn) {
         var btn = document.getElementById('faSubmit');
         if (btn) { btn.disabled = true; btn.textContent = 'Создаём...'; }
         // Захватываем anon user_id ДО перезаписи. Возвращающийся anon
@@ -256,7 +263,10 @@
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name, email: email, password: password, remember: remember })
+                body: JSON.stringify({
+                    name: name, email: email, password: password,
+                    remember: remember, email_opted_in: optIn !== false
+                })
             });
             var data = null;
             try { data = await res.json(); } catch (e) {}
@@ -712,6 +722,27 @@
     //   - уже авторизован (IS_AUTHENTICATED после authReady = true)
     //   - в этой сессии уже скипнул (sessionStorage.fredi_auth_skipped)
     //   - в URL есть reset_token (откроет _checkResetParam)
+    // Reengagement return handler: если юзер пришёл по ссылке из
+    // win-back сообщения (?ref=reeng&cid=<token>), пишем событие
+    // в трекер, чтобы посчитать конверсию «отправлено → клик → сессия».
+    // Просто событие, без UI-эффектов — UX дальше обычный.
+    (function () {
+        try {
+            var p = new URLSearchParams(window.location.search);
+            if (p.get('ref') === 'reeng') {
+                _track('reengagement_return_open', {
+                    cid: (p.get('cid') || '').slice(0, 32),
+                    campaign: 'd3_first'
+                });
+                // Чистим query, чтобы reload не дублировал событие.
+                try {
+                    var clean = window.location.pathname + window.location.hash;
+                    window.history.replaceState({}, '', clean);
+                } catch (e) {}
+            }
+        } catch (e) {}
+    })();
+
     function _maybeShowOnLoad() {
         if (window.IS_AUTHENTICATED) return;
         try {
