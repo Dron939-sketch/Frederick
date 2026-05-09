@@ -288,30 +288,52 @@ def _build_html(text: str, return_link: str, optout_link: str) -> str:
 
 async def send_reengagement(db, email_service, user_id: int,
                              campaign: str = CAMPAIGN_D3) -> bool:
-    """Главная фукнция отправки. Возвращает True, если хотя бы
-    один канал доставил."""
+    """Главная функция отправки. Возвращает True, если хотя бы
+    один канал доставил.
+
+    INSERT-first защита от гонки: сначала пробуем застолбить запись
+    в fredi_reengagement_log с placeholder text и delivered=FALSE.
+    Если ON CONFLICT DO NOTHING сработал (запись уже есть) — выходим
+    без отправки. Так два параллельных вызова (например, оператор
+    дважды быстро кликнул «Отправить всем») не дублируют сообщение.
+    После успешной отправки — UPDATE с реальным текстом и delivered.
+    """
     s = await build_user_summary(db, user_id)
     if not s or not s.get('email'):
         return False
 
     token = secrets.token_urlsafe(20)
+    channel = 'max' if s.get('has_max') else 'email'
+
+    inserted = await db.fetchrow(
+        """INSERT INTO fredi_reengagement_log
+            (user_id, campaign, channel, message_text, delivered, opt_out_token, sent_at)
+           VALUES ($1, $2, $3, '', FALSE, $4, NOW())
+           ON CONFLICT (user_id, campaign) DO NOTHING
+           RETURNING id""",
+        user_id, campaign, channel, token
+    )
+    if not inserted:
+        # Запись уже есть — кампания этому юзеру отправлялась.
+        # Параллельный процесс уже её обрабатывает (или обработал).
+        logger.info(f"[reeng] {campaign} already logged for user {user_id} — skip")
+        return False
+    log_id = inserted['id']
+
     return_link = f"{APP_BASE_URL}?ref=reeng&cid={token}"
     optout_link = f"{API_BASE_URL}/api/reengagement/optout?t={token}"
 
     text = await generate_message_text(s)
-
     delivered = False
-    channel = 'max' if s.get('has_max') else 'email'
 
     if channel == 'max':
-        # В MAX даём текст + кнопку. Optout-ссылку добавляем подписью.
         max_text = (
             f"{text}\n\n"
             f"<sub>Если такие сообщения не нужны — [отписаться]({optout_link}).</sub>"
         )
         delivered = await _send_via_max(s['max_chat_id'], max_text, return_link)
         if not delivered:
-            # MAX-фолбэк → email
+            # MAX-фолбэк → email. Меняем зафиксированный канал.
             channel = 'email'
             delivered = await _send_via_email(
                 email_service, s['email'],
@@ -329,14 +351,12 @@ async def send_reengagement(db, email_service, user_id: int,
             _build_html(text, return_link, optout_link)
         )
 
-    # Лог независимо от успеха — чтобы не спамить юзера на каждой
-    # неудачной попытке.
+    # Дописываем реальный результат в зафиксированную ранее строку.
     await db.execute(
-        """INSERT INTO fredi_reengagement_log
-            (user_id, campaign, channel, message_text, delivered, opt_out_token, sent_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
-           ON CONFLICT (user_id, campaign) DO NOTHING""",
-        user_id, campaign, channel, text, delivered, token
+        """UPDATE fredi_reengagement_log
+           SET message_text = $1, delivered = $2, channel = $3
+           WHERE id = $4""",
+        text, delivered, channel, log_id
     )
     return delivered
 

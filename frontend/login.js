@@ -89,6 +89,28 @@
         }
     }
 
+    // fetch с таймаутом — критично для mandatory-модалки. Если сервер
+    // на Render заснул и регистрация висит >15с, юзер заперт без X
+    // и без Escape. Таймаут даёт ему хотя бы понятную ошибку и кнопку
+    // «Попробовать ещё раз». Сигнализатор: ошибка с .name === 'AbortError'.
+    async function _fetchWithTimeout(url, opts, timeoutMs) {
+        timeoutMs = timeoutMs || 15000;
+        var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var timer = setTimeout(function () { try { ctrl && ctrl.abort(); } catch (e) {} }, timeoutMs);
+        try {
+            opts = opts || {};
+            if (ctrl) opts.signal = ctrl.signal;
+            return await fetch(url, opts);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    function _isTimeoutErr(e) {
+        if (!e) return false;
+        return e.name === 'AbortError' || /aborted|timeout/i.test(String(e.message || ''));
+    }
+
     function _buildHtml(mode) {
         var lastEmail = _safeGet(LS_LAST_EMAIL) || '';
         var isRegister = (mode === 'register');
@@ -259,7 +281,7 @@
             } catch (e) { return null; }
         })();
         try {
-            var res = await fetch(API_BASE + '/api/auth/register', {
+            var res = await _fetchWithTimeout(API_BASE + '/api/auth/register', {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
@@ -267,7 +289,7 @@
                     name: name, email: email, password: password,
                     remember: remember, email_opted_in: optIn !== false
                 })
-            });
+            }, 15000);
             var data = null;
             try { data = await res.json(); } catch (e) {}
             if (!res.ok) {
@@ -322,10 +344,20 @@
             if (typeof window.refreshAuth === 'function') await window.refreshAuth();
             _reloadApp();
         } catch (e) {
-            _track('auth_register_failed', { source: _lastSource, reason: 'network', status: 0 });
-            _setErr('faErrEmail', 'Нет связи с сервером. Попробуйте позже.');
+            var isTimeout = _isTimeoutErr(e);
+            _track('auth_register_failed', {
+                source: _lastSource,
+                reason: isTimeout ? 'timeout' : 'network',
+                status: 0
+            });
+            _setErr('faErrEmail', isTimeout
+                ? 'Сервер не отвечает. Это бывает на первом старте — попробуйте ещё раз.'
+                : 'Нет связи с сервером. Попробуйте ещё раз.');
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = 'Создать аккаунт'; }
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Создать аккаунт';
+            }
         }
     }
 
@@ -333,12 +365,12 @@
         var btn = document.getElementById('faSubmit');
         if (btn) { btn.disabled = true; btn.textContent = 'Входим...'; }
         try {
-            var res = await fetch(API_BASE + '/api/auth/login', {
+            var res = await _fetchWithTimeout(API_BASE + '/api/auth/login', {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: email, password: password, remember: remember })
-            });
+            }, 15000);
             var data = null;
             try { data = await res.json(); } catch (e) {}
             if (!res.ok) {
@@ -358,7 +390,11 @@
                 _reloadApp();
             }
         } catch (e) {
-            _setErr('faErrEmail', 'Нет связи с сервером. Попробуйте позже.');
+            var isTimeout = _isTimeoutErr(e);
+            _track('auth_login_failed', { reason: isTimeout ? 'timeout' : 'network' });
+            _setErr('faErrEmail', isTimeout
+                ? 'Сервер не отвечает. Это бывает на первом старте — попробуйте ещё раз.'
+                : 'Нет связи с сервером. Попробуйте ещё раз.');
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = 'Войти'; }
         }
