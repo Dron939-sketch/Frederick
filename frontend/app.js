@@ -1689,7 +1689,11 @@ function renderDashboard() {
     try {
         var dismissedAt = parseInt(localStorage.getItem('max_banner_dismissed_at') || '0', 10);
         var daysSinceDismiss = (Date.now() - dismissedAt) / 86400000;
-        if (window.IS_AUTHENTICATED && window.HAS_MAX === false && daysSinceDismiss > 7) {
+        // HAS_MAX !== true ловит и явный false, и undefined — последнее
+        // случается, если auth.js ещё не сходил на /me к моменту первого
+        // рендера. Так у нового авторизованного юзера банер появится
+        // даже при холодном старте.
+        if (window.IS_AUTHENTICATED && window.HAS_MAX !== true && daysSinceDismiss > 7) {
             var uid = window.USER_ID || window.CONFIG?.USER_ID || '';
             var maxBotLink = 'https://max.ru/id502238728185_1_bot';
             var deeplink = maxBotLink + '?start=web_' + encodeURIComponent(uid);

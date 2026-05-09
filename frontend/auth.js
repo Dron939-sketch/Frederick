@@ -152,7 +152,10 @@
             _applyUserId(me.user_id);
             try { window.CURRENT_USER_EMAIL = me.email || ''; } catch (e) {}
             try { window.CURRENT_USER_NAME = me.name || ''; } catch (e) {}
-            try { window.HAS_MAX = !!me.has_max; } catch (e) {}
+            // Явно булево, иначе HAS_MAX может остаться undefined и
+            // банер на дашборде (проверяет === false) не появится у
+            // юзеров, у которых поля нет в JSON-ответе.
+            try { window.HAS_MAX = (me && me.has_max === true); } catch (e) {}
             try { window.IS_AUTHENTICATED = true; } catch (e) {}
             _safeSet(LS_AUTH_SYNCED, '1');
             console.log('🔐 auth: signed in as', me.email, 'user_id =', me.user_id);
@@ -163,6 +166,7 @@
 
         // Нет активной сессии — работаем как раньше, через device_id.
         try { window.IS_AUTHENTICATED = false; } catch (e) {}
+        try { window.HAS_MAX = false; } catch (e) {}
         return await _syncByDevice();
     })();
 
@@ -174,11 +178,15 @@
             _applyUserId(me.user_id);
             try { window.CURRENT_USER_EMAIL = me.email || ''; } catch (e) {}
             try { window.CURRENT_USER_NAME = me.name || ''; } catch (e) {}
-            try { window.HAS_MAX = !!me.has_max; } catch (e) {}
+            // Явно булево, иначе HAS_MAX может остаться undefined и
+            // банер на дашборде (проверяет === false) не появится у
+            // юзеров, у которых поля нет в JSON-ответе.
+            try { window.HAS_MAX = (me && me.has_max === true); } catch (e) {}
             try { window.IS_AUTHENTICATED = true; } catch (e) {}
             return me;
         }
         try { window.IS_AUTHENTICATED = false; } catch (e) {}
+        try { window.HAS_MAX = false; } catch (e) {}
         return null;
     };
 
