@@ -118,11 +118,18 @@
             : '';
 
         var primaryLabel = isRegister ? 'Создать аккаунт' : 'Войти';
+        // На app_start модалка обязательная — без X-крестика, без overlay-
+        // close, без Escape, без «Пропустить». Из settings/иначе X
+        // отображается как обычно.
+        var isMandatory = fromAppStart;
+        var closeBtnHtml = isMandatory
+            ? ''
+            : '<button class="fa-close" id="faClose" aria-label="Закрыть">✕</button>';
 
         return '' +
-            '<div class="fa-modal-overlay" id="faAuthModal">' +
+            '<div class="fa-modal-overlay" id="faAuthModal" data-mandatory="' + (isMandatory ? '1' : '0') + '">' +
               '<div class="fa-modal"><div class="fa-modal-inner">' +
-                '<button class="fa-close" id="faClose" aria-label="Закрыть">\u2715</button>' +
+                closeBtnHtml +
                 '<div class="fa-title">' + title + '</div>' +
                 '<div class="fa-subtitle">' + subtitle + '</div>' +
                 '<div class="fa-tabs">' +
@@ -145,7 +152,6 @@
                   (isRegister
                     ? ''
                     : '<button class="fa-btn fa-btn-ghost" id="faForgot">Забыли пин-код?</button>') +
-                  '<button class="fa-btn fa-btn-ghost" id="faSkip">Пропустить — продолжить без входа</button>' +
                 '</div>' +
                 '<div class="fa-info">Пин-код хранится в виде необратимого хеша (Argon2). Сессия защищена HttpOnly-cookie и живёт до 1 года.</div>' +
               '</div></div>' +
@@ -333,24 +339,31 @@
         wrap.innerHTML = _buildHtml(mode);
         document.body.appendChild(wrap.firstChild);
 
-        document.getElementById('faClose').addEventListener('click', function () {
-            _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'close_btn' });
-            _closeModal();
-        });
-        document.getElementById('faSkip').addEventListener('click', function () {
-            _track('auth_modal_skipped', { mode: mode, source: _lastSource });
-            _closeModal();
-        });
+        var isMandatory = (_lastSource === 'app_start');
+
+        // Кнопка X и Skip существуют только в опциональном режиме.
+        var faCloseBtn = document.getElementById('faClose');
+        if (faCloseBtn) {
+            faCloseBtn.addEventListener('click', function () {
+                _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'close_btn' });
+                _closeModal();
+            });
+        }
+
         var forgotBtn = document.getElementById('faForgot');
         if (forgotBtn) forgotBtn.addEventListener('click', function () {
             var prefill = (document.getElementById('faEmail') && document.getElementById('faEmail').value) || '';
             _openForgot(prefill);
         });
+
+        // Overlay-click и Escape закрывают модалку только в опциональном
+        // режиме. Mandatory (app_start) — без выхода до успешной авторизации
+        // или регистрации. Реальный «выход» = закрыть вкладку браузера.
         document.getElementById('faAuthModal').addEventListener('click', function (e) {
-            if (e.target.id === 'faAuthModal') {
-                _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'overlay' });
-                _closeModal();
-            }
+            if (e.target.id !== 'faAuthModal') return;
+            if (isMandatory) return;
+            _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'overlay' });
+            _closeModal();
         });
         document.querySelectorAll('.fa-tab').forEach(function (t) {
             t.addEventListener('click', function () {
@@ -364,6 +377,7 @@
         form.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') { e.preventDefault(); _submit(mode); }
             if (e.key === 'Escape') {
+                if (isMandatory) { e.preventDefault(); return; }
                 _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'escape' });
                 e.preventDefault();
                 _closeModal();
@@ -423,7 +437,6 @@
         var html = '' +
             '<div class="fa-modal-overlay" id="faAuthModal">' +
               '<div class="fa-modal"><div class="fa-modal-inner">' +
-                '<button class="fa-close" id="faClose" aria-label="Закрыть">\u2715</button>' +
                 '<div class="fa-title">Забыли пин-код?</div>' +
                 '<div class="fa-subtitle">Укажите email, который вы использовали при регистрации. Мы пришлём ссылку для установки нового пин-кода.</div>' +
                 '<div class="fa-field"><label class="fa-label" for="faEmail">Email</label>' +
@@ -495,7 +508,6 @@
         var html = '' +
             '<div class="fa-modal-overlay" id="faAuthModal">' +
               '<div class="fa-modal"><div class="fa-modal-inner">' +
-                '<button class="fa-close" id="faClose" aria-label="Закрыть">\u2715</button>' +
                 '<div class="fa-title">Новый пин-код</div>' +
                 '<div class="fa-subtitle">Придумайте новый пин-код из 4 цифр. После сохранения вы будете автоматически разлогинены на всех устройствах.</div>' +
                 '<div class="fa-field"><label class="fa-label" for="faNewPin">Новый пин-код</label>' +
