@@ -81,15 +81,29 @@
     function _closeModal() {
         var m = document.getElementById('faAuthModal');
         if (m && m.parentNode) m.parentNode.removeChild(m);
+        // Если автопоказ при входе закрылся без авторизации — запоминаем
+        // в sessionStorage. Не докучаем при перезагрузках этой же сессии.
+        // На следующий день / в другом браузере модалка снова появится.
+        if (_lastSource === 'app_start' && !window.IS_AUTHENTICATED) {
+            try { sessionStorage.setItem('fredi_auth_skipped', '1'); } catch (e) {}
+        }
     }
 
     function _buildHtml(mode) {
         var lastEmail = _safeGet(LS_LAST_EMAIL) || '';
         var isRegister = (mode === 'register');
-        var title = isRegister ? 'Создать аккаунт' : 'Вход';
-        var subtitle = isRegister
-            ? 'Email станет вашим логином. Придумайте пин-код из 4 цифр.'
-            : 'Войдите, чтобы работать с Фреди с любого устройства.';
+        var fromAppStart = (_lastSource === 'app_start');
+        var title = isRegister ? 'Добро пожаловать' : 'Вход';
+        // Сабтайтл подстраиваем под контекст: при автопоказе на старте —
+        // мягко объясняем зачем регистрация. В обычных вызовах — короче.
+        var subtitle;
+        if (isRegister) {
+            subtitle = fromAppStart
+                ? 'Чтобы прогресс, тесты и переписка с Фреди не терялись и были доступны с любого устройства. Email + 4-значный пин-код — больше ничего не нужно.'
+                : 'Email станет вашим логином. Придумайте пин-код из 4 цифр.';
+        } else {
+            subtitle = 'Войдите, чтобы работать с Фреди с любого устройства.';
+        }
 
         var nameField = isRegister
             ? '<div class="fa-field"><label class="fa-label" for="faName">Имя</label>' +
@@ -159,23 +173,32 @@
         var remember = !!document.getElementById('faRemember').checked;
 
         var ok = true;
-        if (!_isEmail(email)) { _setErr('faErrEmail', 'Неверный формат email'); ok = false; }
+        var errs = [];
+        if (!_isEmail(email)) { _setErr('faErrEmail', 'Неверный формат email'); ok = false; errs.push('email'); }
         if (mode === 'register') {
-            if (!/^\d{4}$/.test(password)) { _setErr('faErrPass', 'Пин-код — 4 цифры'); ok = false; }
+            if (!/^\d{4}$/.test(password)) { _setErr('faErrPass', 'Пин-код — 4 цифры'); ok = false; errs.push('pass_format'); }
         } else {
-            if (!password) { _setErr('faErrPass', 'Введите пин-код'); ok = false; }
+            if (!password) { _setErr('faErrPass', 'Введите пин-код'); ok = false; errs.push('pass_empty'); }
         }
 
         if (mode === 'register') {
             var name = (document.getElementById('faName').value || '').trim();
             var pass2 = document.getElementById('faPass2').value || '';
-            if (!name) { _setErr('faErrName', 'Введите имя'); ok = false; }
-            if (pass2 !== password) { _setErr('faErrPass2', 'Пин-коды не совпадают'); ok = false; }
-            if (!ok) return;
+            if (!name) { _setErr('faErrName', 'Введите имя'); ok = false; errs.push('name'); }
+            if (pass2 !== password) { _setErr('faErrPass2', 'Пин-коды не совпадают'); ok = false; errs.push('pass2_mismatch'); }
+            if (!ok) {
+                _track('auth_validation_error', { mode: mode, source: _lastSource, fields: errs.join(',') });
+                return;
+            }
 
+            _track('auth_register_started', { source: _lastSource });
             await _doRegister(name, email, password, remember);
         } else {
-            if (!ok) return;
+            if (!ok) {
+                _track('auth_validation_error', { mode: mode, source: _lastSource, fields: errs.join(',') });
+                return;
+            }
+            _track('auth_login_started', { source: _lastSource });
             await _doLogin(email, password, remember);
         }
     }
@@ -296,32 +319,68 @@
         window.location.reload();
     }
 
-    function _open(mode) {
+    // Источник последнего открытия модалки. Прокидывается во ВСЕ
+    // вороночные события, чтобы видеть, откуда пришёл юзер
+    // (test_complete / settings / dashboard / иначе).
+    var _lastSource = null;
+
+    function _open(mode, opts) {
+        opts = opts || {};
+        if (opts.source) _lastSource = opts.source;
         _injectStyles();
         _closeModal();
         var wrap = document.createElement('div');
         wrap.innerHTML = _buildHtml(mode);
         document.body.appendChild(wrap.firstChild);
 
-        document.getElementById('faClose').addEventListener('click', _closeModal);
-        document.getElementById('faSkip').addEventListener('click', _closeModal);
+        document.getElementById('faClose').addEventListener('click', function () {
+            _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'close_btn' });
+            _closeModal();
+        });
+        document.getElementById('faSkip').addEventListener('click', function () {
+            _track('auth_modal_skipped', { mode: mode, source: _lastSource });
+            _closeModal();
+        });
         var forgotBtn = document.getElementById('faForgot');
         if (forgotBtn) forgotBtn.addEventListener('click', function () {
             var prefill = (document.getElementById('faEmail') && document.getElementById('faEmail').value) || '';
             _openForgot(prefill);
         });
         document.getElementById('faAuthModal').addEventListener('click', function (e) {
-            if (e.target.id === 'faAuthModal') _closeModal();
+            if (e.target.id === 'faAuthModal') {
+                _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'overlay' });
+                _closeModal();
+            }
         });
         document.querySelectorAll('.fa-tab').forEach(function (t) {
-            t.addEventListener('click', function () { _open(t.dataset.tab); });
+            t.addEventListener('click', function () {
+                _track('auth_modal_tab_switched', {
+                    from: mode, to: t.dataset.tab, source: _lastSource
+                });
+                _open(t.dataset.tab, { source: _lastSource });
+            });
         });
         var form = document.getElementById('faAuthModal');
         form.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') { e.preventDefault(); _submit(mode); }
-            if (e.key === 'Escape') { e.preventDefault(); _closeModal(); }
+            if (e.key === 'Escape') {
+                _track('auth_modal_closed', { mode: mode, source: _lastSource, reason: 'escape' });
+                e.preventDefault();
+                _closeModal();
+            }
         });
         document.getElementById('faSubmit').addEventListener('click', function () { _submit(mode); });
+
+        // Префилл для регистрации после теста: имя из контекста теста,
+        // email — если уже сохранён в localStorage (LS_LAST_EMAIL).
+        if (mode === 'register' && opts.prefillName) {
+            var nameInput = document.getElementById('faName');
+            if (nameInput) nameInput.value = String(opts.prefillName).slice(0, 100);
+        }
+        if (opts.prefillEmail) {
+            var emailInput = document.getElementById('faEmail');
+            if (emailInput && !emailInput.value) emailInput.value = String(opts.prefillEmail).slice(0, 254);
+        }
 
         // Курсор — туда, где пусто
         setTimeout(function () {
@@ -332,6 +391,13 @@
             else if (email && !email.value) email.focus();
             else if (pass) pass.focus();
         }, 50);
+
+        _track('auth_modal_opened', {
+            mode: mode,
+            source: _lastSource,
+            prefilled_name: !!(opts.prefillName),
+            prefilled_email: !!(opts.prefillEmail)
+        });
     }
 
     async function _logout() {
@@ -535,13 +601,52 @@
     _checkResetParam();
 
     window.FrediAuth = {
-        openLogin: function () { _open('login'); },
-        openRegister: function () { _open('register'); },
+        // openLogin/openRegister теперь принимают opts: { prefillName,
+        // prefillEmail, source }. Старые вызовы без аргументов работают
+        // как раньше — opts получает {} и трекинг просто пишет source=null.
+        openLogin: function (opts) { _open('login', opts || {}); },
+        openRegister: function (opts) { _open('register', opts || {}); },
         openForgot: function () { _openForgot(); },
         openReset: function (token) { _openReset(token); },
         logout: _logout,
         isAuthed: function () { return !!window.IS_AUTHENTICATED; }
     };
+
+    // Авто-показ при входе. Раньше регистрация была размазана: post-test
+    // CTA, ссылка в settings, ничего на дашборде. Теперь — единая точка:
+    // при первом заходе в сессию anon-юзеру показываем модалку (по дефолту
+    // вкладка «Регистрация», переключаемая на «Вход»).
+    //
+    // НЕ показываем если:
+    //   - уже авторизован (IS_AUTHENTICATED после authReady = true)
+    //   - в этой сессии уже скипнул (sessionStorage.fredi_auth_skipped)
+    //   - в URL есть reset_token (откроет _checkResetParam)
+    function _maybeShowOnLoad() {
+        if (window.IS_AUTHENTICATED) return;
+        try {
+            if (sessionStorage.getItem('fredi_auth_skipped') === '1') return;
+        } catch (e) {}
+        try {
+            var p = new URLSearchParams(window.location.search);
+            if (p.get('reset_token')) return;
+        } catch (e) {}
+        _track('auth_modal_auto_shown', { source: 'app_start' });
+        _open('register', { source: 'app_start' });
+    }
+
+    if (window.authReady && typeof window.authReady.then === 'function') {
+        // Главный путь: ждём, пока auth.js сходит на /api/auth/me и
+        // выставит IS_AUTHENTICATED. Только потом решаем — показывать
+        // модалку или нет. Без этого ожидания мы открыли бы модалку
+        // даже залогиненным юзерам.
+        window.authReady.then(_maybeShowOnLoad).catch(function () { _maybeShowOnLoad(); });
+    } else if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(_maybeShowOnLoad, 200);
+        });
+    } else {
+        setTimeout(_maybeShowOnLoad, 200);
+    }
 
     console.log('✅ login.js loaded (FrediAuth ready)');
 })();
