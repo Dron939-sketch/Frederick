@@ -347,6 +347,21 @@ async def lifespan(app: FastAPI):
         _init_test = register_test_routes(app, db, limiter)
         await _init_test()
 
+        # Reengagement (Phase 1: одна кампания «d3_first»). Подключаем
+        # routes + bg-scheduler. Scheduler вызывается через getter —
+        # email_service может быть переинициализирован, getter всегда
+        # отдаст актуальный экземпляр.
+        try:
+            from reengagement_routes import register_reengagement_routes
+            register_reengagement_routes(app, db)
+            from services.reengagement import reengagement_scheduler
+            background_tasks_extra_reeng = asyncio.create_task(
+                reengagement_scheduler(db, lambda: email_service)
+            )
+        except Exception as e:
+            logger.warning(f"reengagement init failed: {e}")
+            background_tasks_extra_reeng = None
+
         # Подключаем учёт расходов на внешние API.
         try:
             from services.api_usage import set_db as _set_api_usage_db
@@ -375,6 +390,8 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(cycle_reminders_scheduler()),
             asyncio.create_task(life_experience_scheduler()),
         ]
+        if background_tasks_extra_reeng is not None:
+            background_tasks.append(background_tasks_extra_reeng)
         logger.info("✅ Фоновые задачи запущены")
 
         logger.info("=" * 60)
@@ -1329,6 +1346,50 @@ async def init_database_tables():
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_hash TEXT")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP WITH TIME ZONE")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMP WITH TIME ZONE")
+
+        # === reengagement (Phase 1) ===
+        # email_opted_in — общий флаг согласия получать win-back сообщения
+        # (как email, так и MAX). Дефолт TRUE — при регистрации мы явно
+        # просим согласие чек-боксом, но если кто-то регистрировался ДО
+        # внедрения чек-бокса, флаг по умолчанию TRUE = маркетинговое
+        # решение (можно поменять на FALSE и считать opt-in явным
+        # действием — обсуждать).
+        await conn.execute(
+            "ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS "
+            "email_opted_in BOOLEAN DEFAULT TRUE"
+        )
+        await conn.execute(
+            "ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS "
+            "email_opted_out_at TIMESTAMP WITH TIME ZONE"
+        )
+
+        # Лог отправок reengagement-кампаний.
+        # UNIQUE (user_id, campaign) — дедуп, одну кампанию слать
+        # юзеру один раз.
+        # opt_out_token — публичный токен в URL отписки/трекинга,
+        # привязан 1:1 к строке лога.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_reengagement_log (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                campaign TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                message_text TEXT,
+                delivered BOOLEAN DEFAULT FALSE,
+                opt_out_token TEXT UNIQUE,
+                sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                clicked_at TIMESTAMP WITH TIME ZONE,
+                opted_out_at TIMESTAMP WITH TIME ZONE
+            )
+        """)
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_reeng_user_campaign "
+            "ON fredi_reengagement_log (user_id, campaign)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reeng_user_sent "
+            "ON fredi_reengagement_log (user_id, sent_at DESC)"
+        )
 
         # Нормализация и дедупликация ДО создания уникального индекса —
         # иначе миграция падает, если кто-то успел завести дубли через раннюю версию auth.
