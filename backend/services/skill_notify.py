@@ -23,13 +23,43 @@ import httpx
 
 
 def _strip_markdown(text: str) -> str:
-    """Убирает *bold* и _italic_ для каналов без поддержки разметки (MAX, email)."""
+    """Убирает *bold* и _italic_ для каналов без поддержки разметки (email, push)."""
     if not text:
         return text
     # *жирный* → жирный
     text = re.sub(r'\*([^*]+)\*', r'\1', text)
     # _курсив_ → курсив (внутри слова не трогаем)
     text = re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'\1', text)
+    return text
+
+
+def _telegram_md_to_commonmark(text: str) -> str:
+    """Конвертирует Telegram-Markdown в CommonMark для MAX.
+
+    В Telegram: *bold* / _italic_.
+    В MAX (как и в общем CommonMark): **bold** / *italic*.
+
+    Если отправить наш Telegram-формат в MAX как есть, *текст* станет
+    КУРСИВОМ (а не жирным), что мы и видим в проде: все «выделенные»
+    куски наклонные вместо жирных.
+
+    Алгоритм:
+      1. Сначала помечаем _italic_ временным маркером (чтобы * не
+         сломал его на следующем шаге).
+      2. Превращаем *bold* в **bold**.
+      3. Возвращаем маркер обратно в *italic* (CommonMark italic).
+    """
+    if not text:
+        return text
+    PLACEHOLDER = "\x00\x00ITALIC\x00\x00"
+    # _italic_ → \x00...\x00  (только когда _ на границе слова, как в _strip_markdown)
+    def _italic_repl(m):
+        return f"{PLACEHOLDER}{m.group(1)}{PLACEHOLDER}"
+    text = re.sub(r'(?<!\w)_([^_\n]+?)_(?!\w)', _italic_repl, text)
+    # *bold* → **bold**
+    text = re.sub(r'\*([^*\n]+?)\*', r'**\1**', text)
+    # \x00...\x00 → *italic*
+    text = text.replace(PLACEHOLDER, '*')
     return text
 
 try:
@@ -170,7 +200,11 @@ async def send_max(chat_id: str, text: str, app_url: Optional[str] = None) -> bo
                 "buttons": [[{"type": "link", "text": "🚀 Открыть Фреди", "url": app_url}]]
             }
         })
-    body = {"text": text, "attachments": attachments, "format": "markdown", "notify": True}
+    # MAX использует CommonMark-Markdown: *X* — курсив, **X** — жирный.
+    # Наш текст сформирован в Telegram-Markdown: *X* — жирный, _X_ — курсив.
+    # Конвертируем перед отправкой, иначе все «выделения» станут наклонными.
+    text_for_max = _telegram_md_to_commonmark(text)
+    body = {"text": text_for_max, "attachments": attachments, "format": "markdown", "notify": True}
     headers = {"Authorization": MAX_TOKEN, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
