@@ -11,6 +11,26 @@
     function _uid() { return window.CONFIG?.USER_ID; }
     function _toast(msg, type) { if (window.showToast) window.showToast(msg, type || 'info'); }
 
+    function _injectBadgeStyles() {
+        if (document.getElementById('meter-badge-styles')) return;
+        var s = document.createElement('style');
+        s.id = 'meter-badge-styles';
+        s.textContent = [
+            // Бадж-таймер в правом верхнем углу. Видим всегда для free-юзеров.
+            // На мобильных — чуть меньше и ниже от safe-area, чтобы не перекрыть статус-бар.
+            '.meter-badge{position:fixed;top:max(12px,env(safe-area-inset-top,12px));right:14px;z-index:9000;display:flex;align-items:center;gap:6px;padding:7px 11px;background:rgba(20,20,22,0.85);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(224,224,224,0.18);border-radius:14px;font-size:12px;font-weight:600;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#e0e0e0;cursor:pointer;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(0,0,0,0.25);transition:transform 0.15s,border-color 0.2s,background 0.2s}',
+            '.meter-badge:hover{transform:translateY(-1px);border-color:rgba(224,224,224,0.32)}',
+            '.meter-badge:active{transform:scale(0.97)}',
+            '.meter-badge-icon{font-size:14px;line-height:1}',
+            '.meter-badge-time{min-width:34px;text-align:center}',
+            '.meter-badge-day{font-size:10px;font-weight:600;color:#9b9b9d;letter-spacing:0.3px;border-left:1px solid rgba(224,224,224,0.18);padding-left:8px;margin-left:2px}',
+            '.meter-badge.warn{border-color:rgba(252,206,40,0.45);background:rgba(70,55,15,0.7)}',
+            '.meter-badge.danger{border-color:rgba(239,68,68,0.55);background:rgba(70,20,20,0.78);color:#ffcccc}',
+            '@media (max-width:480px){.meter-badge{font-size:11px;padding:6px 10px}.meter-badge-day{font-size:9px}}'
+        ].join('\n');
+        document.head.appendChild(s);
+    }
+
     function _injectMeterStyles() {
         if (document.getElementById('meter-styles')) return;
         var s = document.createElement('style');
@@ -38,9 +58,7 @@
 
     var _lastCheck = null;
     var _lastCheckTime = 0;
-    var _warningShown = false;       // legacy: «осталось 5 мин»
-    var _fadeShownLight = false;     // fade_level=1 toast (5–10 мин)
-    var _fadeShownHeavy = false;     // fade_level=2 toast (10–15 мин)
+    var _warningShown = false;       // legacy: «осталось 2 мин»
     var CHECK_CACHE_MS = 5000;
 
     async function checkCanSend() {
@@ -59,46 +77,14 @@
         }
     }
 
-    // «Угасающий» toast: разные уровни на разных стадиях.
-    // Каждый показывается максимум 1 раз в 2 минуты, чтобы не быть навязчивым.
-    function _showFadeToast(check) {
-        if (!check) return;
-        // Premium / can't_send уже обработан — нас интересуют free до блока.
-        if (check.is_premium) return;
-        var fade = (typeof check.fade_level === 'number') ? check.fade_level : null;
-
-        // Heavy fade (level 2): 10–15 минут — резко короче, явно «устаю».
-        if (fade === 2 && !_fadeShownHeavy) {
-            _fadeShownHeavy = true;
-            _toast('🟠 Фреди уже устал — отвечает короче. С Premium силы не кончаются.', 'warn');
-            try {
-                if (window.FrediTracker && window.FrediTracker.track) {
-                    window.FrediTracker.track('meter_fade_toast', { fade_level: 2 });
-                }
-            } catch (e) {}
-            setTimeout(function() { _fadeShownHeavy = false; }, 120000);
-            return;
-        }
-
-        // Light fade (level 1): 5–10 минут — лёгкое усечение, мягкая нотка.
-        if (fade === 1 && !_fadeShownLight) {
-            _fadeShownLight = true;
-            _toast('💛 Фреди отвечает короче — лимит дня близко к середине', 'info');
-            try {
-                if (window.FrediTracker && window.FrediTracker.track) {
-                    window.FrediTracker.track('meter_fade_toast', { fade_level: 1 });
-                }
-            } catch (e) {}
-            setTimeout(function() { _fadeShownLight = false; }, 120000);
-            return;
-        }
-
-        // Legacy «remaining ≤ 5» — оставляем как safety-net на случай,
-        // если бэк не выдал fade_level (старая версия).
-        if (fade == null && check.warning && !_warningShown) {
+    // Лёгкий warning, когда осталось ≤ 2 мин на сегодня.
+    function _showWarningToast(check) {
+        if (!check || check.is_premium) return;
+        var rem = check.remaining_minutes;
+        if (rem != null && rem <= 2 && !_warningShown) {
             _warningShown = true;
-            _toast('💛 Фреди скоро устанет — осталось ' + Math.round(check.remaining_minutes || 5) + ' мин', 'info');
-            setTimeout(function() { _warningShown = false; }, 60000);
+            _toast('⏱ Осталось ' + Math.round(rem) + ' мин на сегодня. Завтра — новый день.', 'info');
+            setTimeout(function() { _warningShown = false; }, 120000);
         }
     }
 
@@ -152,22 +138,38 @@
         if (existing) existing.remove();
 
         var minutesUntilReset = data.minutes_until_reset || 0;
-        var limit = data.limit_minutes || 15;
+        var limit = data.limit_minutes || 10;
+        var trialExhausted = !!data.trial_exhausted;
+        var daysUsed = data.free_days_used || 0;
 
         _track('meter_blocked_shown', {
             limit_minutes: limit,
-            minutes_until_reset: minutesUntilReset
+            minutes_until_reset: minutesUntilReset,
+            trial_exhausted: trialExhausted,
+            free_days_used: daysUsed,
         });
 
-        var emoji = '\uD83D\uDE34';
-        var title = '\u0424\u0440\u0435\u0434\u0438 \u043E\u0442\u0434\u044B\u0445\u0430\u0435\u0442';
-        var mainText =
-            '\u041C\u044B \u043E\u0431\u0449\u0430\u043B\u0438\u0441\u044C ' + limit + ' \u043C\u0438\u043D\u0443\u0442 \u2014 \u044D\u0442\u043E \u0432\u0435\u0441\u044C \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0439 \u043B\u0438\u043C\u0438\u0442 \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F.<br>' +
-            '\u0412\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0439\u0441\u044F \u0432 \u043F\u043E\u043B\u043D\u043E\u0447\u044C \u2014 \u0424\u0440\u0435\u0434\u0438 \u043E\u0442\u0434\u043E\u0445\u043D\u0451\u0442 \u0438 \u0441\u043D\u043E\u0432\u0430 \u0431\u0443\u0434\u0435\u0442 \u0440\u044F\u0434\u043E\u043C.';
+        var emoji, title, mainText, timerHtml;
 
-        var timerHtml = minutesUntilReset > 0
-            ? '<div class="meter-timer" id="meterTimer">\u0421\u0438\u043B\u044B \u0432\u0435\u0440\u043D\u0443\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ' + _formatResetCountdown(minutesUntilReset) + '</div>'
-            : '';
+        if (trialExhausted) {
+            // \u0424\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 paywall: 3 free-\u0434\u043D\u044F \u043F\u0440\u043E\u0448\u043B\u0438, \u0434\u0430\u043B\u044C\u0448\u0435 \u0442\u043E\u043B\u044C\u043A\u043E Premium.
+            emoji = '\uD83D\uDD13'; // \uD83D\uDD13
+            title = '3 \u0434\u043D\u044F \u043F\u0440\u043E\u0431\u044B \u043F\u0440\u043E\u0448\u043B\u0438';
+            mainText =
+                '\u0422\u044B \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B\u0441\u044F \u0424\u0440\u0435\u0434\u0438 ' + daysUsed + ' \u0434\u043D\u044F \u2014 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0439 trial \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D.<br>' +
+                '\u0427\u0442\u043E\u0431\u044B \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432 \u2014 \u043E\u0442\u043A\u0440\u043E\u0439 Premium.';
+            timerHtml = '';
+        } else {
+            // \u0414\u043D\u0435\u0432\u043D\u043E\u0439 \u043B\u0438\u043C\u0438\u0442 \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D, \u043D\u043E trial-\u0434\u043D\u0438 \u0435\u0449\u0451 \u0435\u0441\u0442\u044C.
+            emoji = '\u23F1\uFE0F'; // \u23F1
+            title = '10 \u043C\u0438\u043D\u0443\u0442 \u0441\u0435\u0433\u043E\u0434\u043D\u044F \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D\u044B';
+            mainText =
+                '\u0414\u043D\u0435\u0432\u043D\u043E\u0439 \u043B\u0438\u043C\u0438\u0442 \u0432 ' + limit + ' \u043C\u0438\u043D\u0443\u0442 \u2014 \u043F\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u0441\u044F \u0432 00:00 UTC.<br>' +
+                '\u041C\u043E\u0436\u043D\u043E \u0436\u0434\u0430\u0442\u044C \u0438\u043B\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u044C Premium \u2014 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432.';
+            timerHtml = minutesUntilReset > 0
+                ? '<div class="meter-timer" id="meterTimer">\u041D\u043E\u0432\u044B\u0439 \u0434\u0435\u043D\u044C \u0447\u0435\u0440\u0435\u0437 ' + _formatResetCountdown(minutesUntilReset) + '</div>'
+                : '';
+        }
 
         var overlay = document.createElement('div');
         overlay.className = 'meter-overlay';
@@ -180,8 +182,10 @@
                 '<div class="meter-text">' + mainText + '</div>' +
                 '<div class="meter-features-title">\u0421 Premium \u0424\u0440\u0435\u0434\u0438 \u043D\u0435 \u0443\u0441\u0442\u0430\u0451\u0442:</div>' +
                 PREMIUM_FEATURES +
-                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u2728 Premium \u2014 690 \u20BD/\u043C\u0435\u0441, \u0431\u0435\u0437 \u043F\u0435\u0440\u0435\u0440\u044B\u0432\u043E\u0432</button>' +
-                '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u043D\u044F\u0442\u043D\u043E, \u0434\u043E \u0437\u0430\u0432\u0442\u0440\u0430</button>' +
+                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u2728 Premium \u2014 690 \u20BD/\u043C\u0435\u0441, \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432</button>' +
+                (trialExhausted
+                    ? '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u0434\u0443\u043C\u0430\u044E \u043F\u043E\u0437\u0436\u0435</button>'
+                    : '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u043D\u044F\u0442\u043D\u043E, \u0434\u043E \u0437\u0430\u0432\u0442\u0440\u0430</button>') +
             '</div>';
         document.body.appendChild(overlay);
 
@@ -236,7 +240,7 @@
             if (isAi && options && (options.method === 'POST' || options.body)) {
                 var check = await checkCanSend();
                 if (!check.can_send) { showFatigueModal(check); throw new Error('METER_BLOCKED'); }
-                _showFadeToast(check);
+                _showWarningToast(check);
             }
             var result = await _origApiCall(endpoint, options);
             if (result && result.error === 'METER_BLOCKED') {
@@ -273,7 +277,7 @@
                     showFatigueModal(check);
                     return new Response(JSON.stringify({ success: false, error: 'METER_BLOCKED', response: check.message || '\u0424\u0440\u0435\u0434\u0438 \u0443\u0441\u0442\u0430\u043B' }), { status: 402, headers: { 'Content-Type': 'application/json' } });
                 }
-                _showFadeToast(check);
+                _showWarningToast(check);
             }
             var response = await _origFetch.call(window, url, options);
             // Если бэк сам заблокировал (402) — достаём данные и показываем модалку.
@@ -287,14 +291,145 @@
                     }
                 } catch (e) {}
             }
-            if (isAi && response.ok) recordUsage(30);
+            // 15 сек на запрос — компромисс. При 10-мин/день это даёт
+            // примерно 40 сообщений. Реальное чтение длинного ответа
+            // часто занимает больше, но мы не хотим съедать лимит
+            // быстрее, чем юзер реально читает.
+            if (isAi && response.ok) recordUsage(15);
             return response;
         };
         console.log('meter: fetch patched');
     }
 
+    // ============================================
+    // PERSISTENT TIMER BADGE — правый верхний угол
+    // ============================================
+    // Идея: в trial юзер видит бадж «⏱ 7:32 · День 2/3» постоянно.
+    // Полный функционал работает, но лимит виден → создаёт ясное
+    // ощущение «free trial идёт» без агрессивного pull-в-подписку.
+    //
+    // Цвет:
+    //   серый    — > 5 мин осталось
+    //   жёлтый   — 1–5 мин
+    //   красный  — < 1 мин
+    // Premium-юзер бадж не видит вообще.
+
+    function _formatTime(minutes) {
+        if (minutes == null || minutes < 0) minutes = 0;
+        var totalSec = Math.max(0, Math.round(minutes * 60));
+        var m = Math.floor(totalSec / 60);
+        var s = totalSec % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    function _ensureBadge() {
+        _injectBadgeStyles();
+        var badge = document.getElementById('meterBadge');
+        if (badge) return badge;
+        badge = document.createElement('div');
+        badge.id = 'meterBadge';
+        badge.className = 'meter-badge';
+        badge.title = 'Дневной лимит free-trial';
+        badge.innerHTML = '<span class="meter-badge-icon">⏱</span>'
+            + '<span class="meter-badge-time" id="meterBadgeTime">--:--</span>'
+            + '<span class="meter-badge-day" id="meterBadgeDay"></span>';
+        // Клик по баджу — paywall (показываем модалку, как при блоке).
+        badge.addEventListener('click', function () {
+            if (_lastCheck) {
+                showFatigueModal(_lastCheck);
+                try {
+                    if (window.FrediTracker && window.FrediTracker.track) {
+                        window.FrediTracker.track('meter_badge_clicked', {});
+                    }
+                } catch (e) {}
+            }
+        });
+        document.body.appendChild(badge);
+        return badge;
+    }
+
+    function _renderBadge(check) {
+        // Premium / нет данных / не free-юзер → бадж не показываем.
+        if (!check || check.is_premium) {
+            var existing = document.getElementById('meterBadge');
+            if (existing) existing.remove();
+            return;
+        }
+        var badge = _ensureBadge();
+        var rem = check.remaining_minutes;
+        var daysUsed = check.free_days_used || 0;
+        var daysLeft = check.free_days_left;
+        // Если trial исчерпан — показываем без таймера, текстом «Trial исчерпан».
+        if (check.trial_exhausted) {
+            badge.classList.remove('warn');
+            badge.classList.add('danger');
+            var t = document.getElementById('meterBadgeTime');
+            var d = document.getElementById('meterBadgeDay');
+            if (t) t.textContent = 'Trial';
+            if (d) d.textContent = 'Купить';
+            return;
+        }
+        // Цвет по остатку минут.
+        badge.classList.remove('warn', 'danger');
+        if (rem != null) {
+            if (rem < 1) badge.classList.add('danger');
+            else if (rem <= 5) badge.classList.add('warn');
+        }
+        var timeEl = document.getElementById('meterBadgeTime');
+        var dayEl = document.getElementById('meterBadgeDay');
+        if (timeEl) timeEl.textContent = _formatTime(rem);
+        if (dayEl) {
+            // «День 2/3»: считаем активный день. Если daysUsed=0 (ещё не
+            // ничего не записывали) — показываем «День 1/3» как стартовое.
+            var active = Math.max(1, Math.min(daysUsed || 1, 3));
+            dayEl.textContent = 'День ' + active + '/3';
+        }
+    }
+
+    // Локально тикаем таймер каждую секунду (без походов на сервер),
+    // отталкиваясь от последнего известного remaining_minutes.
+    var _tickInterval = null;
+    function _startBadgeTicker() {
+        if (_tickInterval) return;
+        _tickInterval = setInterval(function () {
+            // Если есть текущий чек, мы УЖЕ показали бадж.
+            // Каждую секунду уменьшаем local-копию remaining_minutes на 1/60.
+            // Бэк всё равно — источник правды; периодически (раз в 60 сек)
+            // дёргаем checkCanSend, чтобы синхронизироваться.
+            if (!_lastCheck || _lastCheck.is_premium) return;
+            if (_lastCheck.trial_exhausted) {
+                _renderBadge(_lastCheck);
+                return;
+            }
+            // Уменьшаем local remaining только если идёт активный chat?
+            // Безопаснее НЕ уменьшать, а просто перерисовывать —
+            // обновление пойдёт через recordUsage → invalidate cache → next checkCanSend.
+            _renderBadge(_lastCheck);
+        }, 1000);
+
+        // Каждые 60 сек — освежаем данные с сервера.
+        setInterval(function () {
+            _lastCheck = null;
+            checkCanSend().then(function (data) { _renderBadge(data); });
+        }, 60000);
+    }
+
+    // При первой возможности — рисуем бадж.
+    function _initBadge() {
+        if (!_uid()) {
+            // user_id не готов, повторим через 1 сек.
+            setTimeout(_initBadge, 1000);
+            return;
+        }
+        checkCanSend().then(function (data) {
+            _renderBadge(data);
+            _startBadgeTicker();
+        });
+    }
+
     function _applyPatches() {
         _patchFetch();
+        _initBadge();
         if (window.apiCall) { _patchApiCall(); }
         else {
             setTimeout(function() { if (window.apiCall) _patchApiCall(); }, 2000);

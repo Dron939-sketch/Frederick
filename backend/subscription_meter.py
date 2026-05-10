@@ -1,19 +1,19 @@
 """
-subscription_meter.py — Free-tier meter (Anthropic-style) с «угасанием».
+subscription_meter.py — 3-дневный free trial с дневным окном 10 минут.
 
-Простая модель: 15 минут в день суммарно. Без сессий, без cooldown'ов.
-Reset в 00:00 UTC.
+Модель (после ребута Fading Fredi):
+- 10 минут на день
+- Сброс счётчика в 00:00 UTC
+- Максимум 3 дня использования. Пропуск дня НЕ сжигает trial.
+- После 3-го дня — paywall, купить пакет.
+- Внутри trial-дня: полный функционал, без урезания.
+- На UI: видимый бадж-таймер в правом верхнем углу.
 
-«Fading Fredi»: вместо бинарного «лимит/блок» юзер физически чувствует,
-как Фреди становится короче и устаёт по мере приближения к лимиту.
-Это создаёт мягкое давление к подписке ДО блока, а не только В моменте.
-
-  fade_level = 0  | 0–5 минут       | полный режим (~600 токенов)
-  fade_level = 1  | 5–10 минут      | ответы короче (~300 токенов) +
-                  |                 | мягкая нотка «отвечаю короче»
-  fade_level = 2  | 10–15 минут     | резко короче (~120 токенов) +
-                  |                 | явная «устаю»
-  fade_level = 3  | 15+ минут       | заблокирован (paywall)
+Принципиально отличается от прежнего Fading Fredi:
+- НЕ урезаем ответы AI по уровню — всё работает 100%.
+- Ставка на видимость лимита через постоянный таймер, а не на
+  деградацию качества.
+- Trial считается по «дням использования», а не календарным дням.
 """
 
 import logging
@@ -24,18 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 # Бесплатный дневной лимит в минутах. Reset в 00:00 UTC.
-FREE_DAILY_MINUTES = 15
+FREE_DAILY_MINUTES = 10
 
-# Когда осталось ≤ этой границы — фронт показывает warning-toast.
-WARNING_THRESHOLD_MINUTES = 5
+# Сколько дней использования предоставляем как trial.
+# Пропуск дня НЕ списывает один из 3 — считаем только активные дни.
+FREE_TRIAL_DAYS = 3
 
-# Пороги «угасания». Минут использовано → уровень.
-# Привязаны к FREE_DAILY_MINUTES, но абсолютные числа дают ясную карту.
-FADE_THRESHOLD_LIGHT_MIN  = 5    # после 5 мин — лёгкое усечение
-FADE_THRESHOLD_HEAVY_MIN  = 10   # после 10 мин — резкое усечение
-
-# Целевая длина ответа на каждом уровне (в словах после усечения).
-FADE_TARGET_WORDS = {0: None, 1: 150, 2: 60, 3: 0}
+# Когда осталось ≤ этой границы — фронт может отметить бадж красным.
+WARNING_THRESHOLD_MINUTES = 2
 
 
 class SubscriptionMeter:
@@ -48,7 +44,8 @@ class SubscriptionMeter:
                 UPDATE fredi_users SET
                     trial_started_at = COALESCE(trial_started_at, NOW()),
                     daily_usage_seconds = COALESCE(daily_usage_seconds, 0),
-                    last_usage_reset = COALESCE(last_usage_reset, CURRENT_DATE)
+                    last_usage_reset = COALESCE(last_usage_reset, CURRENT_DATE),
+                    free_days_used = COALESCE(free_days_used, 0)
                 WHERE user_id = $1
             """, user_id)
 
@@ -70,10 +67,10 @@ class SubscriptionMeter:
                 "remaining_minutes": None,
                 "used_minutes_today": 0,
                 "limit_minutes": None,
-                # Premium никогда не угасает.
-                "fade_level": 0,
-                "fade_target_words": None,
-                # Backward-compat: фронт ещё может ждать эти поля.
+                "free_days_used": 0,
+                "free_days_left": None,  # без лимита
+                "trial_exhausted": False,
+                # Backward-compat: старые билды могут читать.
                 "is_on_cooldown": False,
                 "remaining_cooldown_minutes": 0,
                 "free_session_count": 0,
@@ -82,45 +79,52 @@ class SubscriptionMeter:
 
         async with self.db.get_connection() as conn:
             row = await conn.fetchrow("""
-                SELECT daily_usage_seconds, last_usage_reset
+                SELECT daily_usage_seconds, last_usage_reset, free_days_used
                 FROM fredi_users WHERE user_id = $1
             """, user_id)
 
         if not row:
             await self.init_user_tracking(user_id)
-            return self._fresh_status(used_seconds=0)
+            return self._compose_status(used_seconds=0, free_days_used=0)
 
         daily_seconds = row["daily_usage_seconds"] or 0
         last_reset = row["last_usage_reset"]
+        free_days_used = row["free_days_used"] or 0
         now = datetime.now(timezone.utc)
 
-        # Daily reset в 00:00 UTC.
+        # Daily reset в 00:00 UTC. На новой дате счётчик минут обнуляется.
+        # Инкремент free_days_used произойдёт ПРИ ПЕРВОЙ активности дня
+        # (см. record_usage), а не сейчас — так пропущенный день не
+        # сжигает trial.
         if last_reset and last_reset < now.date():
             daily_seconds = 0
             async with self.db.get_connection() as conn:
                 await conn.execute("""
-                    UPDATE fredi_users SET daily_usage_seconds = 0, last_usage_reset = CURRENT_DATE
+                    UPDATE fredi_users
+                    SET daily_usage_seconds = 0, last_usage_reset = CURRENT_DATE
                     WHERE user_id = $1
                 """, user_id)
 
-        return self._fresh_status(used_seconds=daily_seconds)
+        return self._compose_status(used_seconds=daily_seconds,
+                                    free_days_used=free_days_used)
 
-    def _fresh_status(self, used_seconds: int) -> Dict[str, Any]:
+    def _compose_status(self, used_seconds: int, free_days_used: int) -> Dict[str, Any]:
         used_minutes = used_seconds / 60.0
         remaining_minutes = max(0.0, FREE_DAILY_MINUTES - used_minutes)
-        can_send = remaining_minutes > 0
 
-        # Определяем уровень «угасания» по количеству ИСПОЛЬЗОВАННЫХ минут.
-        # Это ключевая часть Fading Fredi: к концу дня отвечает короче,
-        # с лёгкой ноткой «устал», создаёт мягкое pull к подписке.
-        if used_minutes >= FREE_DAILY_MINUTES:
-            fade_level = 3
-        elif used_minutes >= FADE_THRESHOLD_HEAVY_MIN:
-            fade_level = 2
-        elif used_minutes >= FADE_THRESHOLD_LIGHT_MIN:
-            fade_level = 1
-        else:
-            fade_level = 0
+        # Trial исчерпан, если юзер уже потратил >= FREE_TRIAL_DAYS
+        # дней (полностью или частично — каждый день, в котором было
+        # использование, считается одним из trial-дней).
+        trial_exhausted = free_days_used >= FREE_TRIAL_DAYS
+
+        # Можно отправлять, если:
+        # 1) trial не исчерпан И
+        # 2) есть минуты на сегодня
+        # ИЛИ юзер уже сегодня записал активность (тогда даже исчерпан-trial
+        # позволяет дописать день — мы не блокируем mid-session).
+        # Здесь упрощаем: блок настаёт ровно когда исчерпано минут на день
+        # ИЛИ исчерпан весь trial.
+        can_send = (not trial_exhausted) and (remaining_minutes > 0)
 
         return {
             "has_subscription": False,
@@ -129,9 +133,9 @@ class SubscriptionMeter:
             "remaining_minutes": round(remaining_minutes, 1),
             "used_minutes_today": round(used_minutes, 1),
             "limit_minutes": FREE_DAILY_MINUTES,
-            # «Угасание» — для фронта (UI-намёки) и бэкенда (обрезка ответа).
-            "fade_level": fade_level,
-            "fade_target_words": FADE_TARGET_WORDS.get(fade_level),
+            "free_days_used": free_days_used,
+            "free_days_left": max(0, FREE_TRIAL_DAYS - free_days_used),
+            "trial_exhausted": trial_exhausted,
             # Backward-compat.
             "is_on_cooldown": False,
             "remaining_cooldown_minutes": 0,
@@ -144,21 +148,32 @@ class SubscriptionMeter:
         return status["can_send"], status
 
     async def record_usage(self, user_id: int, seconds: int) -> Dict[str, Any]:
+        """Записываем активность. При первой активности дня инкрементируем
+        free_days_used (если ещё не инкрементили на эту дату)."""
         if await self.has_active_subscription(user_id):
             return {"is_premium": True}
 
         async with self.db.get_connection() as conn:
+            # Если это первая активность нового дня — увеличиваем free_days_used.
+            # Условие: last_usage_reset < CURRENT_DATE ИЛИ
+            # daily_usage_seconds = 0 (никогда сегодня не записывали).
+            # Используем атомарный UPDATE, чтобы избежать race conditions.
             await conn.execute("""
                 UPDATE fredi_users SET
-                    daily_usage_seconds = COALESCE(daily_usage_seconds, 0) + $2
+                    daily_usage_seconds = COALESCE(daily_usage_seconds, 0) + $2,
+                    free_days_used = CASE
+                        WHEN last_usage_reset IS NULL OR last_usage_reset < CURRENT_DATE
+                            THEN COALESCE(free_days_used, 0) + 1
+                        WHEN COALESCE(daily_usage_seconds, 0) = 0
+                            THEN COALESCE(free_days_used, 0) + 1
+                        ELSE COALESCE(free_days_used, 0)
+                    END,
+                    last_usage_reset = CURRENT_DATE
                 WHERE user_id = $1
             """, user_id, seconds)
 
         return await self.get_user_status(user_id)
 
     async def start_cooldown(self, user_id: int):
-        """Заглушка для backward compat — cooldown'ов больше нет.
-
-        Если что-то ещё дёргает — просто no-op.
-        """
+        """Backward compat — cooldown'ов больше нет."""
         return

@@ -2620,46 +2620,6 @@ async def get_profile_interpretation(request: Request, user_id: int):
 
 
 # ---------- ЧАТ ----------
-
-# === Fading Fredi: пост-обработка ответа по уровню «угасания» ===
-# Идея: вместо бинарного «лимит / блок» юзер физически чувствует,
-# как Фреди становится короче и устаёт по мере приближения к лимиту.
-# Это создаёт мягкое pull к подписке ДО блока.
-#
-# fade_level берётся из subscription_meter.get_user_status(): 0 — полный,
-# 1 (5–10 мин) — 150 слов + лёгкая нотка, 2 (10–15 мин) — 60 слов +
-# явная «устаю», 3 — заблокирован (не доходит сюда).
-
-_FADE_NOTE = {
-    1: "\n\n_(Сегодня я отвечаю короче — дневной лимит подходит к середине. С Premium я был бы полным.)_",
-    2: "\n\n_(Уже близко к концу дня. С Premium силы не кончаются — попробуй.)_",
-}
-
-
-def _truncate_words(text: str, n: int) -> str:
-    """Обрезает текст до N слов; если меньше — возвращает как есть.
-    Для длинных ответов добавляет "…" чтобы виден был факт обрезки."""
-    if not text or n <= 0:
-        return text or ""
-    words = text.split()
-    if len(words) <= n:
-        return text
-    truncated = " ".join(words[:n]).rstrip(",.;:—-")
-    return truncated + "…"
-
-
-def _apply_fade_to_response(response_text: str, fade_level: int) -> str:
-    """Применяет «угасание» к тексту ответа AI: усечение + маркер."""
-    if not response_text or fade_level <= 0 or fade_level >= 3:
-        return response_text
-    target = {1: 150, 2: 60}.get(fade_level)
-    if target is None:
-        return response_text
-    truncated = _truncate_words(response_text, target)
-    note = _FADE_NOTE.get(fade_level, "")
-    return truncated + note
-
-
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat(request: Request, data: ChatRequest):
@@ -2771,28 +2731,6 @@ async def chat(request: Request, data: ChatRequest):
             context_obj["basic_test_offered"] = mode_instance.test_offered
             await context_repo.save(data.user_id, context_obj)
         await _save_psychologist_state(data.user_id, context_obj, mode_instance, mode_name)
-
-        # Fading Fredi: усекаем ответ по уровню «угасания». Free-юзер,
-        # который близок к дневному лимиту, получает короче — и видит
-        # маркер «с Premium я был бы полным». В БД сохраняем УЖЕ
-        # усечённую версию (то, что юзер реально увидел).
-        try:
-            _fade_status = await _meter.get_user_status(int(data.user_id))
-            if not _fade_status.get("is_premium"):
-                _fade_level = int(_fade_status.get("fade_level", 0) or 0)
-                if _fade_level >= 1:
-                    result["response"] = _apply_fade_to_response(
-                        result["response"], _fade_level
-                    )
-                    try:
-                        await log_server_event(int(data.user_id), "fade_applied", {
-                            "fade_level": _fade_level,
-                            "used_minutes": _fade_status.get("used_minutes_today", 0),
-                        })
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning(f"fade apply failed for user {data.user_id}: {e}")
 
         await message_repo.save(data.user_id, "user", data.message, {"mode": mode_name})
         await message_repo.save(data.user_id, "assistant", result["response"], {"mode": mode_name})

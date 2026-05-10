@@ -33,6 +33,10 @@ def register_meter_routes(app, db, limiter):
                 ("last_cooldown_started_at", "TIMESTAMP WITH TIME ZONE", None),
                 ("cooldown_ends_at", "TIMESTAMP WITH TIME ZONE", None),
                 ("subscription_reminded_at", "TIMESTAMP WITH TIME ZONE", None),
+                # Trial: считаем, сколько ДНЕЙ юзер реально пользовался free.
+                # Пропуск дня НЕ списывает trial — счётчик растёт только
+                # на активных днях (см. record_usage в subscription_meter.py).
+                ("free_days_used", "INTEGER", "0"),
             ]:
                 default_clause = f" DEFAULT {default}" if default else ""
                 try:
@@ -91,8 +95,11 @@ def register_meter_routes(app, db, limiter):
                 "limit_minutes": status.get("limit_minutes"),
                 "used_minutes_today": status.get("used_minutes_today"),
                 "remaining_minutes": status.get("remaining_minutes"),
-                # Fading Fredi: фронт показывает прогрессивные toasts по level
-                "fade_level": status.get("fade_level", 0),
+                # Trial: фронт показывает «День 2 из 3» в бадж-таймере
+                # и paywall «купить пакет», когда trial_exhausted=True.
+                "free_days_used": status.get("free_days_used", 0),
+                "free_days_left": status.get("free_days_left"),
+                "trial_exhausted": status.get("trial_exhausted", False),
             }
             if not can_send:
                 # Когда лимит исчерпан — даём фронту понять, что reset в полночь UTC.
