@@ -622,6 +622,16 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
         # Формируем ссылку и отправляем письмо.
         app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru").rstrip("/")
         reset_link = f"{app_url}/?reset_pin={raw_token}"
+
+        # ВСЕГДА логируем reset-link (warning-уровень) — это failsafe для
+        # админа: если письмо застряло в спаме/удалёнке/блоке Yandex,
+        # админ может найти ссылку в логе и отправить юзеру вручную.
+        # Render-логи не публичны, риск приемлемый.
+        logger.warning(
+            f"🔐 forgot-pin: для {email} (user_id={uid}) выдан reset-link: {reset_link} "
+            f"(действует 1 час, single-use)"
+        )
+
         if email_service is not None and getattr(email_service, "enabled", False):
             sent = await email_service.send(
                 to=email,
@@ -645,11 +655,15 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                 ),
             )
             if not sent:
-                logger.warning(f"🔐 forgot-pin: email send failed for {email}")
+                logger.error(
+                    f"🔐 [!] EMAIL DELIVERY FAILED for {email} — SMTP не принял "
+                    f"или вернул ошибку. Юзеру нужно отправить ссылку вручную "
+                    f"(см. предыдущую warning-строку с reset-link)."
+                )
         else:
             logger.warning(
-                f"🔐 forgot-pin: EmailService disabled, не отправлено письмо для {email}. "
-                f"Reset-link (для отладки): {reset_link}"
+                f"🔐 forgot-pin: EmailService disabled — письмо не отправлено для {email}. "
+                f"Юзеру нужно отправить ссылку вручную."
             )
 
         await _track(None, "auth_forgot_requested", {"email_found": bool(row) if 'row' in locals() else False})
@@ -713,6 +727,86 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
         await _track(uid, "auth_pin_reset", {})
         logger.info(f"🔐 reset-pin: pin updated, sessions cleared for user_id={uid}")
         return {"success": True}
+
+    # -------------------- /admin/manual-reset-link --------------------
+
+    @router.post("/admin/manual-reset-link")
+    @limiter.limit("30/hour")
+    async def admin_manual_reset_link(request: Request, body: ForgotPinIn):
+        """Failsafe для админа: генерирует reset-link и ВОЗВРАЩАЕТ его в ответе.
+        Используется когда юзер забыл пин, а письмо не пришло (SMTP сломан /
+        попало в спам / Yandex заблокировал). Админ передаёт ссылку юзеру вручную.
+
+        Защита: header 'X-Admin-Token' должен совпасть с env ADMIN_TOKEN.
+        """
+        admin_token = (request.headers.get("X-Admin-Token") or "").strip()
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected:
+            raise HTTPException(status_code=503, detail={
+                "error": "admin_disabled",
+                "message": "Админ-эндпоинты выключены: задайте ADMIN_TOKEN в env",
+            })
+        if admin_token != expected:
+            raise HTTPException(status_code=401, detail={"error": "unauthorized"})
+
+        try:
+            email = _normalize_email(body.email)
+        except HTTPException:
+            raise HTTPException(status_code=400, detail={"error": "invalid_email"})
+
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT user_id FROM fredi_users WHERE email = $1", email
+            )
+            if not row:
+                raise HTTPException(status_code=404, detail={
+                    "error": "email_not_found",
+                    "message": f"Email {email} не зарегистрирован.",
+                })
+
+            uid = int(row["user_id"])
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = _hash_token(raw_token)
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+            # Гасим прежние активные токены этого юзера (тот же принцип
+            # что в /forgot-pin) — чтобы старая ссылка из почты не работала
+            # параллельно с этой админской.
+            await conn.execute(
+                "UPDATE fredi_password_resets SET used_at = NOW() "
+                "WHERE user_id = $1 AND used_at IS NULL",
+                uid,
+            )
+            await conn.execute(
+                """
+                INSERT INTO fredi_password_resets
+                    (token_hash, user_id, created_at, expires_at, ip_address, user_agent)
+                VALUES ($1, $2, NOW(), $3, $4, $5)
+                """,
+                token_hash, uid, expires_at, _client_ip(request),
+                f"admin-manual:{_user_agent(request)[:100]}",
+            )
+
+        app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru").rstrip("/")
+        reset_link = f"{app_url}/?reset_pin={raw_token}"
+
+        await _track(uid, "auth_admin_manual_reset_issued", {"email": email})
+        logger.warning(
+            f"🔐 [admin-manual] reset-link выдан для {email} (user_id={uid}): {reset_link}"
+        )
+
+        return {
+            "success": True,
+            "user_id": uid,
+            "email": email,
+            "reset_link": reset_link,
+            "expires_at": expires_at.isoformat(),
+            "message": (
+                "Передай эту ссылку юзеру любым удобным способом. "
+                "Действует 1 час, single-use. После использования — "
+                "юзер задаст новый пин и войдёт."
+            ),
+        }
 
     return router
 
