@@ -38,7 +38,9 @@
 
     var _lastCheck = null;
     var _lastCheckTime = 0;
-    var _warningShown = false;
+    var _warningShown = false;       // legacy: «осталось 5 мин»
+    var _fadeShownLight = false;     // fade_level=1 toast (5–10 мин)
+    var _fadeShownHeavy = false;     // fade_level=2 toast (10–15 мин)
     var CHECK_CACHE_MS = 5000;
 
     async function checkCanSend() {
@@ -54,6 +56,49 @@
             return data;
         } catch (e) {
             return { can_send: true };
+        }
+    }
+
+    // «Угасающий» toast: разные уровни на разных стадиях.
+    // Каждый показывается максимум 1 раз в 2 минуты, чтобы не быть навязчивым.
+    function _showFadeToast(check) {
+        if (!check) return;
+        // Premium / can't_send уже обработан — нас интересуют free до блока.
+        if (check.is_premium) return;
+        var fade = (typeof check.fade_level === 'number') ? check.fade_level : null;
+
+        // Heavy fade (level 2): 10–15 минут — резко короче, явно «устаю».
+        if (fade === 2 && !_fadeShownHeavy) {
+            _fadeShownHeavy = true;
+            _toast('🟠 Фреди уже устал — отвечает короче. С Premium силы не кончаются.', 'warn');
+            try {
+                if (window.FrediTracker && window.FrediTracker.track) {
+                    window.FrediTracker.track('meter_fade_toast', { fade_level: 2 });
+                }
+            } catch (e) {}
+            setTimeout(function() { _fadeShownHeavy = false; }, 120000);
+            return;
+        }
+
+        // Light fade (level 1): 5–10 минут — лёгкое усечение, мягкая нотка.
+        if (fade === 1 && !_fadeShownLight) {
+            _fadeShownLight = true;
+            _toast('💛 Фреди отвечает короче — лимит дня близко к середине', 'info');
+            try {
+                if (window.FrediTracker && window.FrediTracker.track) {
+                    window.FrediTracker.track('meter_fade_toast', { fade_level: 1 });
+                }
+            } catch (e) {}
+            setTimeout(function() { _fadeShownLight = false; }, 120000);
+            return;
+        }
+
+        // Legacy «remaining ≤ 5» — оставляем как safety-net на случай,
+        // если бэк не выдал fade_level (старая версия).
+        if (fade == null && check.warning && !_warningShown) {
+            _warningShown = true;
+            _toast('💛 Фреди скоро устанет — осталось ' + Math.round(check.remaining_minutes || 5) + ' мин', 'info');
+            setTimeout(function() { _warningShown = false; }, 60000);
         }
     }
 
@@ -191,11 +236,7 @@
             if (isAi && options && (options.method === 'POST' || options.body)) {
                 var check = await checkCanSend();
                 if (!check.can_send) { showFatigueModal(check); throw new Error('METER_BLOCKED'); }
-                if (check.warning && !_warningShown) {
-                    _warningShown = true;
-                    _toast('\uD83D\uDC9B \u0424\u0440\u0435\u0434\u0438 \u0441\u043A\u043E\u0440\u043E \u0443\u0441\u0442\u0430\u043D\u0435\u0442 \u2014 \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ' + Math.round(check.remaining_minutes || 5) + ' \u043C\u0438\u043D', 'info');
-                    setTimeout(function() { _warningShown = false; }, 60000);
-                }
+                _showFadeToast(check);
             }
             var result = await _origApiCall(endpoint, options);
             if (result && result.error === 'METER_BLOCKED') {
@@ -232,11 +273,7 @@
                     showFatigueModal(check);
                     return new Response(JSON.stringify({ success: false, error: 'METER_BLOCKED', response: check.message || '\u0424\u0440\u0435\u0434\u0438 \u0443\u0441\u0442\u0430\u043B' }), { status: 402, headers: { 'Content-Type': 'application/json' } });
                 }
-                if (check.warning && !_warningShown) {
-                    _warningShown = true;
-                    _toast('\uD83D\uDC9B \u0424\u0440\u0435\u0434\u0438 \u0441\u043A\u043E\u0440\u043E \u0443\u0441\u0442\u0430\u043D\u0435\u0442 \u2014 \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ' + Math.round(check.remaining_minutes || 5) + ' \u043C\u0438\u043D', 'info');
-                    setTimeout(function() { _warningShown = false; }, 60000);
-                }
+                _showFadeToast(check);
             }
             var response = await _origFetch.call(window, url, options);
             // Если бэк сам заблокировал (402) — достаём данные и показываем модалку.

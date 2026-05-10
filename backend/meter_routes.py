@@ -91,6 +91,8 @@ def register_meter_routes(app, db, limiter):
                 "limit_minutes": status.get("limit_minutes"),
                 "used_minutes_today": status.get("used_minutes_today"),
                 "remaining_minutes": status.get("remaining_minutes"),
+                # Fading Fredi: фронт показывает прогрессивные toasts по level
+                "fade_level": status.get("fade_level", 0),
             }
             if not can_send:
                 # Когда лимит исчерпан — даём фронту понять, что reset в полночь UTC.
