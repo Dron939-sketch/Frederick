@@ -311,9 +311,11 @@ def _user_now(plan_row) -> datetime:
 # ШАБЛОНЫ СООБЩЕНИЙ
 # ============================================================
 def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
-    """Утреннее сообщение — задание дня. Премиум-минимализм: без громоздких
-    разделителей, без отдельного блока «как отметить» (кнопка под сообщением
-    делает это сама), без подзаголовка «Зачем это» — связка идёт через тире."""
+    """Утреннее сообщение — задание дня. Премиум-минимализм с умеренным
+    форматированием: жирным выделены три якоря — где юзер в плане
+    (День N из 21), название навыка, и сама задача. Этого достаточно,
+    чтобы при беглом скроллинге сразу считывалась структура. Больше
+    жирного → шум."""
     task = exercise.get("task", "")
     dur = exercise.get("dur", "")
     inst = exercise.get("inst", "")
@@ -322,7 +324,7 @@ def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour
     parts = [
         f"{_greeting(hour, name)}",
         "",
-        f"День {day} из 21 · {skill_name}",
+        f"*День {day} из 21*  ·  *{skill_name}*",
         "",
         f"📌 *{task}*  ·  {dur}",
         "",
@@ -331,7 +333,7 @@ def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour
     if why:
         parts += [
             "",
-            f"Зачем — {why}",
+            f"_Зачем — {why}_",
         ]
     parts += [
         "",
@@ -341,15 +343,16 @@ def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour
 
 
 def build_check_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
-    """Дневной чек-ин (active mode) — короткое подбадривание в том же стиле,
-    что и утреннее сообщение."""
+    """Дневной чек-ин (active mode) — короткое подбадривание. Жирным —
+    конкретная задача и якорь дня; «пяти минут» жирным как мини-CTA
+    (снижает барьер начать)."""
     task = exercise.get("task", "")
     parts = [
         _greeting(hour, name),
         "",
-        f"Получилось начать «{task}»? День {day} из 21.",
+        f"Получилось начать «*{task}*»?  ·  *День {day} из 21*",
         "",
-        "Если ещё нет — пяти минут хватит, чтобы сделать первый шаг.",
+        "Если ещё нет — *пяти минут хватит*, чтобы сделать первый шаг.",
         "",
         "— Фреди",
     ]
@@ -357,13 +360,15 @@ def build_check_message(skill_name: str, day: int, exercise: dict, name: str, ho
 
 
 def build_evening_message(skill_name: str, day: int, name: str, hour: int) -> str:
-    """Вечерняя рефлексия (active mode). Тот же премиум-стиль."""
+    """Вечерняя рефлексия (active mode). Жирным — название навыка
+    (контекст) и CTA «одну-две фразы» (снижает барьер действия —
+    рефлексия = микро-усилие)."""
     parts = [
         _greeting(hour, name),
         "",
-        f"Что сегодня получилось по навыку «{skill_name}»? Что было неудобно?",
+        f"Что сегодня получилось по навыку «*{skill_name}*»? Что было неудобно?",
         "",
-        "Запишите одну-две фразы в дневник Фреди — это закрепляет результат. Можно просто подумать.",
+        "Запишите *одну-две фразы* в дневник Фреди — это закрепляет результат. Можно просто подумать.",
         "",
         "— Фреди",
     ]
@@ -460,11 +465,11 @@ async def send_welcome_message(db, user_id: int) -> dict:
     name_part = f", {name}" if name else ""
 
     parts = [
-        f"Поехали{name_part}.",
+        f"*Поехали{name_part}.*",
         "",
-        f"21 день навыка «{skill_name}». Каждый день одно короткое задание.",
+        f"*21 день навыка «{skill_name}».* Каждый день одно короткое задание.",
         "",
-        "День 1 из 21",
+        "*День 1 из 21*",
         "",
         f"📌 *{day1_task}*  ·  {day1_dur}",
         "",
@@ -473,11 +478,11 @@ async def send_welcome_message(db, user_id: int) -> dict:
     if day1_why:
         parts += [
             "",
-            f"Зачем — {day1_why}",
+            f"_Зачем — {day1_why}_",
         ]
     parts += [
         "",
-        f"Завтра в {notify_time} ({tz_str}) пришлю день 2.",
+        f"Завтра в *{notify_time}* ({tz_str}) пришлю день 2.",
         "",
         "— Фреди",
     ]
