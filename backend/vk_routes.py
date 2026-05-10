@@ -2129,7 +2129,11 @@ def register_vk_routes(app, db):
                         vk_id_int,
                     )
                 if cached and "КАК С ТОБОЙ МОЖНО ЗАЙТИ" in (cached["message"] or ""):
-                    cached = None  # stale, regenerate
+                    cached = None  # stale (старая B2C-версия), regenerate
+                # Инвалидация v1-tail (без подбора модулей под профиль).
+                # v2-tail помечен маркером [fredi_pitch_v2] в самом тексте.
+                if cached and "[fredi_pitch_v2]" not in (cached["message"] or ""):
+                    cached = None  # stale (v1-tail), regenerate
                 if cached:
                     return {
                         "success": True,
