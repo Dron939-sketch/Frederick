@@ -1,9 +1,19 @@
 """
-subscription_meter.py — Free-tier meter (Anthropic-style).
+subscription_meter.py — Free-tier meter (Anthropic-style) с «угасанием».
 
 Простая модель: 15 минут в день суммарно. Без сессий, без cooldown'ов.
-Когда лимит исчерпан → paywall (Premium или «приходи завтра»).
-Reset в 00:00 UTC (даты считаются по UTC).
+Reset в 00:00 UTC.
+
+«Fading Fredi»: вместо бинарного «лимит/блок» юзер физически чувствует,
+как Фреди становится короче и устаёт по мере приближения к лимиту.
+Это создаёт мягкое давление к подписке ДО блока, а не только В моменте.
+
+  fade_level = 0  | 0–5 минут       | полный режим (~600 токенов)
+  fade_level = 1  | 5–10 минут      | ответы короче (~300 токенов) +
+                  |                 | мягкая нотка «отвечаю короче»
+  fade_level = 2  | 10–15 минут     | резко короче (~120 токенов) +
+                  |                 | явная «устаю»
+  fade_level = 3  | 15+ минут       | заблокирован (paywall)
 """
 
 import logging
@@ -18,6 +28,14 @@ FREE_DAILY_MINUTES = 15
 
 # Когда осталось ≤ этой границы — фронт показывает warning-toast.
 WARNING_THRESHOLD_MINUTES = 5
+
+# Пороги «угасания». Минут использовано → уровень.
+# Привязаны к FREE_DAILY_MINUTES, но абсолютные числа дают ясную карту.
+FADE_THRESHOLD_LIGHT_MIN  = 5    # после 5 мин — лёгкое усечение
+FADE_THRESHOLD_HEAVY_MIN  = 10   # после 10 мин — резкое усечение
+
+# Целевая длина ответа на каждом уровне (в словах после усечения).
+FADE_TARGET_WORDS = {0: None, 1: 150, 2: 60, 3: 0}
 
 
 class SubscriptionMeter:
@@ -52,6 +70,9 @@ class SubscriptionMeter:
                 "remaining_minutes": None,
                 "used_minutes_today": 0,
                 "limit_minutes": None,
+                # Premium никогда не угасает.
+                "fade_level": 0,
+                "fade_target_words": None,
                 # Backward-compat: фронт ещё может ждать эти поля.
                 "is_on_cooldown": False,
                 "remaining_cooldown_minutes": 0,
@@ -88,6 +109,19 @@ class SubscriptionMeter:
         used_minutes = used_seconds / 60.0
         remaining_minutes = max(0.0, FREE_DAILY_MINUTES - used_minutes)
         can_send = remaining_minutes > 0
+
+        # Определяем уровень «угасания» по количеству ИСПОЛЬЗОВАННЫХ минут.
+        # Это ключевая часть Fading Fredi: к концу дня отвечает короче,
+        # с лёгкой ноткой «устал», создаёт мягкое pull к подписке.
+        if used_minutes >= FREE_DAILY_MINUTES:
+            fade_level = 3
+        elif used_minutes >= FADE_THRESHOLD_HEAVY_MIN:
+            fade_level = 2
+        elif used_minutes >= FADE_THRESHOLD_LIGHT_MIN:
+            fade_level = 1
+        else:
+            fade_level = 0
+
         return {
             "has_subscription": False,
             "is_premium": False,
@@ -95,6 +129,9 @@ class SubscriptionMeter:
             "remaining_minutes": round(remaining_minutes, 1),
             "used_minutes_today": round(used_minutes, 1),
             "limit_minutes": FREE_DAILY_MINUTES,
+            # «Угасание» — для фронта (UI-намёки) и бэкенда (обрезка ответа).
+            "fade_level": fade_level,
+            "fade_target_words": FADE_TARGET_WORDS.get(fade_level),
             # Backward-compat.
             "is_on_cooldown": False,
             "remaining_cooldown_minutes": 0,
