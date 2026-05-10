@@ -276,7 +276,10 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
     # -------------------- /register --------------------
 
     @router.post("/register")
-    @limiter.limit("3/hour")
+    # 10/minute вместо 3/hour: реальные юзеры опечатываются в email и
+    # пин-коде — 3 попытки в час создавали ловушку на час. 10/мин
+    # достаточно от bot-spam'а и не блокирует живых.
+    @limiter.limit("10/minute")
     async def register(request: Request, response: Response, body: RegisterIn):
         ip = _client_ip(request)
         ua = _user_agent(request)
@@ -290,59 +293,64 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
         anon_uid = _parse_int(request.cookies.get(ANON_COOKIE_NAME))
         password_hash = _hasher.hash(body.password)
 
+        # Вся регистрация — в одной транзакции. Без неё, если падает
+        # между INSERT в fredi_users и _create_session, email
+        # оказывается занят, а сессии нет → юзер не может ни войти,
+        # ни заново зарегистрироваться (409 forever).
         async with db.get_connection() as conn:
-            existing = await conn.fetchrow(
-                "SELECT user_id FROM fredi_users WHERE email = $1", email
-            )
-            if existing:
-                await _log_attempt(db, email, ip, ua, False, "email_exists")
-                raise HTTPException(status_code=409, detail={"error": "email_exists",
-                                                              "message": "Email уже зарегистрирован."})
-
-            uid: int
-            if anon_uid:
-                # Миграция анонима: если user существует и ещё без email — прикрепляем email к нему.
-                row = await conn.fetchrow(
-                    "SELECT email FROM fredi_users WHERE user_id = $1", anon_uid
+            async with conn.transaction():
+                existing = await conn.fetchrow(
+                    "SELECT user_id FROM fredi_users WHERE email = $1", email
                 )
-                if row and row["email"] is None:
-                    await conn.execute(
-                        """
-                        UPDATE fredi_users
-                        SET email = $1, password_hash = $2, password_updated_at = NOW(), updated_at = NOW()
-                        WHERE user_id = $3
-                        """,
-                        email, password_hash, anon_uid,
+                if existing:
+                    await _log_attempt(db, email, ip, ua, False, "email_exists")
+                    raise HTTPException(status_code=409, detail={"error": "email_exists",
+                                                                  "message": "Email уже зарегистрирован."})
+
+                uid: int
+                if anon_uid:
+                    # Миграция анонима: если user существует и ещё без email — прикрепляем email к нему.
+                    row = await conn.fetchrow(
+                        "SELECT email FROM fredi_users WHERE user_id = $1", anon_uid
                     )
-                    uid = int(anon_uid)
+                    if row and row["email"] is None:
+                        await conn.execute(
+                            """
+                            UPDATE fredi_users
+                            SET email = $1, password_hash = $2, password_updated_at = NOW(), updated_at = NOW()
+                            WHERE user_id = $3
+                            """,
+                            email, password_hash, anon_uid,
+                        )
+                        uid = int(anon_uid)
+                    else:
+                        uid = _new_user_id()
+                        await _insert_new_user(conn, uid, email, password_hash)
                 else:
                     uid = _new_user_id()
                     await _insert_new_user(conn, uid, email, password_hash)
-            else:
-                uid = _new_user_id()
-                await _insert_new_user(conn, uid, email, password_hash)
 
-            # Имя — в fredi_user_contexts (таблица уже есть).
-            await conn.execute(
-                """
-                INSERT INTO fredi_user_contexts (user_id, name, updated_at)
-                VALUES ($1, $2, NOW())
-                ON CONFLICT (user_id) DO UPDATE
-                    SET name = EXCLUDED.name, updated_at = NOW()
-                """,
-                uid, body.name.strip(),
-            )
-
-            # Reengagement opt-in. Если юзер снял галочку — выставляем
-            # FALSE сразу при регистрации, и тогда d3-кампания его пропустит.
-            if body.email_opted_in is False:
+                # Имя — в fredi_user_contexts (таблица уже есть).
                 await conn.execute(
-                    "UPDATE fredi_users SET email_opted_in = FALSE, "
-                    "email_opted_out_at = NOW() WHERE user_id = $1",
-                    uid
+                    """
+                    INSERT INTO fredi_user_contexts (user_id, name, updated_at)
+                    VALUES ($1, $2, NOW())
+                    ON CONFLICT (user_id) DO UPDATE
+                        SET name = EXCLUDED.name, updated_at = NOW()
+                    """,
+                    uid, body.name.strip(),
                 )
 
-            raw, _exp = await _create_session(conn, uid, body.remember, ua, ip)
+                # Reengagement opt-in. Если юзер снял галочку — выставляем
+                # FALSE сразу при регистрации, и тогда d3-кампания его пропустит.
+                if body.email_opted_in is False:
+                    await conn.execute(
+                        "UPDATE fredi_users SET email_opted_in = FALSE, "
+                        "email_opted_out_at = NOW() WHERE user_id = $1",
+                        uid
+                    )
+
+                raw, _exp = await _create_session(conn, uid, body.remember, ua, ip)
 
         _set_session_cookie(response, raw, body.remember)
         await _log_attempt(db, email, ip, ua, True, "register")
@@ -353,7 +361,12 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
     # -------------------- /login --------------------
 
     @router.post("/login")
-    @limiter.limit("3/minute")
+    # 10/minute вместо 3/min: 3 попытки часто = опечатка пин-кода + одна
+    # реальная попытка = блок. С NAT/корп-сетью особенно жёстко (общий IP).
+    # 10/мин даёт юзеру разумный люфт без потери защиты от brute-force
+    # (4-значный пин с 10/мин всё равно требует ~28 часов, а у нас pin
+    # хеширован argon2 — атакующий упрётся в CPU быстрее).
+    @limiter.limit("10/minute")
     async def login(request: Request, response: Response, body: LoginIn):
         ip = _client_ip(request)
         ua = _user_agent(request)
