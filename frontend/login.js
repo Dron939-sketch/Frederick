@@ -579,7 +579,11 @@
         wrap.innerHTML = html;
         document.body.appendChild(wrap.firstChild);
 
-        document.getElementById('faClose').addEventListener('click', _closeModal);
+        // В forgot-модалке кнопки #faClose нет (закрытие — через
+        // «Назад ко входу», клик по оверлею или Escape). Защищаемся
+        // от null на случай, если в будущем шаблон поменяется.
+        var faClose = document.getElementById('faClose');
+        if (faClose) faClose.addEventListener('click', _closeModal);
         document.getElementById('faForgotBack').addEventListener('click', function () { _open('login'); });
         document.getElementById('faAuthModal').addEventListener('click', function (e) {
             if (e.target.id === 'faAuthModal') _closeModal();
