@@ -1191,6 +1191,70 @@ def register_vk_routes(app, db):
         }
 
     # =========================================================
+    # TTS для админа — озвучить любой текст в MP3.
+    # Используется в UI «👥 Клиенты» для генерации голосового
+    # варианта черновика VK-сообщения: оператор может приложить
+    # mp3 к сообщению в VK для большего отклика.
+    #
+    # Защита: X-Admin-Token (ADMIN_TOKEN env). Rate-limit мягкий
+    # (через slowapi), т.к. реальный потолок — кошелёк Fish Audio.
+    # =========================================================
+    @app.post("/api/admin/tts/synthesize")
+    async def admin_tts_synthesize(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        from fastapi.responses import Response as _FastResponse
+
+        _check_admin(x_admin_token)
+        text = (body.get("text") or "").strip()
+        mode = (body.get("mode") or "psychologist").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail={
+                "error": "empty_text",
+                "message": "text обязателен и не может быть пустым",
+            })
+        # Жёсткий потолок — против случайного фуллстейт-дампа в TTS.
+        # 4000 символов ≈ 4 минуты речи, дороже не пускаем.
+        if len(text) > 4000:
+            raise HTTPException(status_code=400, detail={
+                "error": "text_too_long",
+                "message": f"Максимум 4000 символов (сейчас {len(text)})",
+            })
+
+        try:
+            from services.fish_audio_service import synthesize_fish_audio
+        except Exception as e:
+            logger.error(f"fish_audio import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "tts_unavailable",
+                "message": "Fish Audio модуль недоступен",
+            })
+
+        audio = await synthesize_fish_audio(text, mode=mode)
+        if not audio or len(audio) < 100:
+            raise HTTPException(status_code=502, detail={
+                "error": "tts_failed",
+                "message": (
+                    "Fish Audio вернул пустой ответ. Проверь FISH_AUDIO_API_KEY / "
+                    "FISH_AUDIO_VOICE_ID и баланс на fish.audio."
+                ),
+            })
+
+        logger.info(f"🔊 admin TTS ok: {len(text)} chars → {len(audio)} bytes mp3")
+        # Возвращаем сырой MP3 — фронт сделает blob → audio/download/share.
+        return _FastResponse(
+            content=audio,
+            media_type="audio/mpeg",
+            headers={
+                "Cache-Control": "no-store",
+                # Подсказка фронту — длина в байтах, имя для скачивания
+                # выбирает сам клиент через JS.
+                "X-Audio-Bytes": str(len(audio)),
+            },
+        )
+
+    # =========================================================
     # ПОИСК ПО ПРОБЛЕМЕ — альтернативный вход в воронку.
     # Не требует source-юзера Фреди: оператор выбирает категорию,
     # бэк тащит участников из тематических сообществ + фильтрует
@@ -2129,11 +2193,7 @@ def register_vk_routes(app, db):
                         vk_id_int,
                     )
                 if cached and "КАК С ТОБОЙ МОЖНО ЗАЙТИ" in (cached["message"] or ""):
-                    cached = None  # stale (старая B2C-версия), regenerate
-                # Инвалидация v1-tail (без подбора модулей под профиль).
-                # v2-tail помечен маркером [fredi_pitch_v2] в самом тексте.
-                if cached and "[fredi_pitch_v2]" not in (cached["message"] or ""):
-                    cached = None  # stale (v1-tail), regenerate
+                    cached = None  # stale, regenerate
                 if cached:
                     return {
                         "success": True,

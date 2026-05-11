@@ -439,11 +439,15 @@
       altsBlock +
       '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">' +
         '<button id="vkDraftCopy" style="flex:1;min-width:120px;padding:10px 14px;border-radius:10px;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer">📋 Скопировать</button>' +
+        '<button id="vkDraftTts" style="flex:1;min-width:120px;padding:10px 14px;border-radius:10px;border:1px solid rgba(168,85,247,0.5);background:transparent;color:#a855f7;font:inherit;font-weight:600;cursor:pointer" title="Сгенерировать mp3 (Fish Audio) — для отправки голосом в VK">🔊 Озвучить</button>' +
         '<a id="vkDraftOpenVk" href="'+esc(r.vk_chat_url||('https://vk.com/im?sel='+candVkId))+'" target="_blank" rel="noopener" '+
           'style="flex:1;min-width:120px;padding:10px 14px;border-radius:10px;border:1px solid rgba(0,136,204,0.5);background:transparent;color:#0088cc;font:inherit;font-weight:600;cursor:pointer;text-align:center;text-decoration:none">💬 Открыть VK-чат</a>' +
         '<button id="vkDraftSent" style="flex:1;min-width:120px;padding:10px 14px;border-radius:10px;border:1px solid rgba(52,211,153,0.5);background:transparent;color:var(--success);font:inherit;font-weight:600;cursor:pointer">✓ Отправил</button>' +
         '<button id="vkDraftRegen" style="padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font:inherit;cursor:pointer" title="Перегенерировать">🔄</button>' +
       '</div>' +
+      // Зона для аудио-плеера и кнопок скачивания/Share — заполняется
+      // после успешной генерации mp3. Прячется до первого нажатия «Озвучить».
+      '<div id="vkDraftAudioBox" style="margin-top:12px;display:none;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px"></div>' +
       '<div id="vkDraftStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;text-align:center;min-height:14px"></div>';
     document.getElementById('vkDraftBody').innerHTML = html;
 
@@ -479,6 +483,89 @@
       } catch(e){
         btn.disabled = false; btn.textContent = '✓ Отправил';
         document.getElementById('vkDraftStatus').textContent = '⚠ Ошибка обновления: '+esc(e.message);
+      }
+    });
+
+    // 🔊 Озвучить: текст из textarea → POST /admin/tts/synthesize → audio/mpeg blob.
+    // В UI показываем плеер для preview + кнопку «⬇ Скачать mp3» + Web Share API
+    // (на мобиле даёт быстро прикрепить файл к сообщению в VK / Telegram / ...).
+    document.getElementById('vkDraftTts').addEventListener('click', async function(){
+      var btn = this;
+      var statusEl = document.getElementById('vkDraftStatus');
+      var box = document.getElementById('vkDraftAudioBox');
+      var txt = (ta.value || '').trim();
+      if (!txt){
+        statusEl.textContent = '⚠ Сначала введи или сгенерируй текст черновика.';
+        return;
+      }
+      if (txt.length > 4000){
+        statusEl.textContent = '⚠ Слишком длинно: '+txt.length+' / 4000 символов.';
+        return;
+      }
+      btn.disabled = true;
+      var origLabel = btn.textContent;
+      btn.textContent = '⏳ Озвучиваю…';
+      statusEl.textContent = 'Генерирую mp3 через Fish Audio (5-15 секунд)…';
+      try {
+        // api() в этом файле возвращает JSON. Здесь нужен raw response, поэтому
+        // делаем fetch вручную — с тем же admin-токеном.
+        var resp = await fetch(API + '/api/admin/tts/synthesize', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Token': tok(),
+            'Content-Type': 'application/json',
+            'Accept': 'audio/mpeg',
+          },
+          body: JSON.stringify({ text: txt, mode: 'psychologist' }),
+        });
+        if (!resp.ok){
+          var msg = 'HTTP ' + resp.status;
+          try {
+            var j = await resp.json();
+            msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg;
+          } catch(_) {}
+          throw new Error(msg);
+        }
+        var blob = await resp.blob();
+        var url = URL.createObjectURL(blob);
+        var fname = 'fredi-' + candVkId + '-' + new Date().toISOString().slice(0,10) + '.mp3';
+        // Web Share Files API — на мобиле это самый прямой путь
+        // прикрепить mp3 к сообщению в VK / любом мессенджере.
+        var file = null;
+        try { file = new File([blob], fname, { type: 'audio/mpeg' }); } catch(_) {}
+        var canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+        var sizeKb = Math.round(blob.size / 1024);
+        box.innerHTML =
+          '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">🔊 Голос готов · '+sizeKb+' КБ</div>' +
+          '<audio controls preload="metadata" style="width:100%;margin-bottom:8px" src="'+esc(url)+'"></audio>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+            '<a href="'+esc(url)+'" download="'+esc(fname)+'" '+
+              'style="flex:1;min-width:120px;padding:8px 12px;border-radius:8px;border:1px solid rgba(168,85,247,0.4);background:transparent;color:#a855f7;font:inherit;font-weight:600;cursor:pointer;text-align:center;text-decoration:none">⬇ Скачать mp3</a>' +
+            (canShare
+              ? '<button id="vkDraftShare" style="flex:1;min-width:120px;padding:8px 12px;border-radius:8px;border:1px solid rgba(168,85,247,0.4);background:rgba(168,85,247,0.15);color:#a855f7;font:inherit;font-weight:600;cursor:pointer">📤 Поделиться</button>'
+              : '') +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text-dim);margin-top:6px;line-height:1.4">' +
+            'Прикрепи mp3 к сообщению в VK как голос. На мобиле — «Поделиться» → выбери VK.' +
+          '</div>';
+        box.style.display = 'block';
+        if (canShare){
+          document.getElementById('vkDraftShare').addEventListener('click', async function(){
+            try {
+              await navigator.share({ files: [file], title: 'Голос Фреди', text: 'Голосовое сообщение' });
+            } catch(e){
+              if (e && e.name !== 'AbortError'){
+                statusEl.textContent = '⚠ Не удалось поделиться: ' + (e.message || e);
+              }
+            }
+          });
+        }
+        statusEl.textContent = '✓ MP3 готов, '+sizeKb+' КБ. Скачай или поделись в VK.';
+      } catch(e){
+        statusEl.textContent = '⚠ Ошибка озвучки: ' + esc(e.message || e);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origLabel;
       }
     });
 
