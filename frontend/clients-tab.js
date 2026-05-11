@@ -2203,6 +2203,9 @@
 
   function renderMirrorPitch(r, cand){
     var msg = r.message || '';
+    // Голосовой скрипт — отдельный текст для TTS, дополняет письмо.
+    // Backend генерит без эмодзи/ссылок и до 60 сек звучания.
+    var voice = (r.voice_script || '').trim();
     var fullName = r.full_name || cand.full_name || ('id' + cand.vk_id);
     var vkUrl = r.vk_url || cand.vk_url || '';
     var chatUrl = r.vk_chat_url || ('https://vk.com/im?sel=' + (cand.vk_id || ''));
@@ -2218,11 +2221,22 @@
       '</div>';
 
     var msgBlock =
+      '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">📝 Текст для VK · скопировать и отправить</div>' +
       '<div class="vk-mirror-msg" style="white-space:pre-wrap;line-height:1.6;font-size:13px;' +
                   'background:rgba(167,139,250,0.05);border-left:3px solid var(--accent);' +
                   'border-radius:6px;padding:14px 16px;margin-bottom:14px">' +
         esc(msg) +
-      '</div>';
+      '</div>' +
+      // Голосовой скрипт — параллельный текст для TTS. Дополняет письмо,
+      // не дублирует. Без эмодзи и URL (бэк-санитизация).
+      (voice
+        ? '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🎙️ Скрипт для голоса · ~60 сек · дополняет письмо</div>' +
+          '<div class="vk-mirror-voice" style="white-space:pre-wrap;line-height:1.55;font-size:12.5px;' +
+                      'background:rgba(168,85,247,0.06);border-left:3px solid #a855f7;' +
+                      'border-radius:6px;padding:12px 14px;margin-bottom:14px;color:#cfcfd6">' +
+            esc(voice) +
+          '</div>'
+        : '');
 
     var alreadyMarked = !!cand.marked;
     var markBtnHtml = alreadyMarked
@@ -2252,15 +2266,28 @@
       });
     }
 
-    // 🔊 Озвучить mirror-pitch: текст → mp3 (Fish Audio) → плеер + скачать + share.
-    // Логика идентична кнопке в драфт-модалке VK-кандидатов, но текст здесь
-    // не в textarea, а внутри .vk-mirror-msg (read-only DOM-блок).
+    // 🔊 Озвучить mirror-pitch: используем СПЕЦИАЛЬНО подготовленный
+    // voice_script (без эмодзи, без URL, ≤60 сек). Если по какой-то
+    // причине бэк не вернул voice_script (старый кеш / LLM-фейл) —
+    // мягкий fallback на текст письма, но прогоняем через ту же
+    // санитизацию что и бэк (убираем эмодзи и ссылки).
     var ttsBtn = document.getElementById('vkMirrorTts');
     if (ttsBtn){
       ttsBtn.addEventListener('click', async function(){
         var statusEl = document.getElementById('vkMirrorStatus');
         var box = document.getElementById('vkMirrorAudioBox');
-        var txt = ((document.querySelector('.vk-mirror-msg') || {}).innerText || '').trim();
+        var txt = '';
+        if (voice && voice.length > 20){
+          txt = voice;
+        } else {
+          // Fallback: чистим письмо от эмодзи/URL прямо на фронте.
+          var raw = ((document.querySelector('.vk-mirror-msg') || {}).innerText || '').trim();
+          txt = raw
+            .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F900}-\u{1F9FF}]/gu, '')
+            .replace(/https?:\/\/\S+|www\.\S+/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        }
         if (!txt){
           statusEl.textContent = '⚠ Пустой текст для озвучки.';
           return;
