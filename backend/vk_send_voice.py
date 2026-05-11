@@ -9,11 +9,15 @@ Pipeline:
        → messages.send (attachment=doc{owner_id}_{id})
        → [optional] messages.send (message=text_followup)
 
-Требования к токену в env VK_SERVICE_TOKEN:
+Требования к токену в env VK_USER_TOKEN (НЕ VK_SERVICE_TOKEN!):
   - user-токен (Standalone/Implicit Flow), скоупы messages,docs,offline
   - либо group-токен с правом messages
 
-Service-токены НЕ умеют messages.send и docs.* — будет 5/User authorization failed
+VK_SERVICE_TOKEN — отдельная переменная для парсера/поиска кандидатов
+(там нужен именно service-токен, у него выше квоты на публичные endpoint'ы).
+Не путать: парсер ↔ service, отправка ↔ user.
+
+Если в VK_USER_TOKEN положить service-токен — будет 5/User authorization failed
 или 15/Access denied.
 
 VK API строго требует:
@@ -86,10 +90,18 @@ def _ffmpeg_mp3_to_ogg_opus(mp3_bytes: bytes) -> bytes:
 
 
 async def _vk_method(method: str, params: dict) -> Any:
-    """Вызов VK API method. Бросает RuntimeError при error_code."""
-    token = (os.environ.get("VK_SERVICE_TOKEN") or "").strip()
+    """Вызов VK API method от ИМЕНИ ОТПРАВИТЕЛЯ (user-токен).
+    Используется только для messages.* и docs.*. Парсер живёт на отдельном
+    VK_SERVICE_TOKEN и сюда не заходит."""
+    token = (os.environ.get("VK_USER_TOKEN") or "").strip()
     if not token:
-        raise RuntimeError("VK_SERVICE_TOKEN не задан в env Render")
+        raise RuntimeError(
+            "VK_USER_TOKEN не задан в env Render. "
+            "Это user-токен с правами messages,docs,offline — отдельно от "
+            "VK_SERVICE_TOKEN (тот для парсера). Получить через Standalone "
+            "Implicit Flow: oauth.vk.com/authorize?client_id=APP_ID&"
+            "scope=messages,docs,offline&response_type=token&v=5.199"
+        )
     body = {**params, "access_token": token, "v": VK_API_VERSION}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         resp = await client.post(f"{VK_API_BASE}/{method}", data=body)
@@ -105,7 +117,11 @@ async def _vk_method(method: str, params: dict) -> Any:
         # 15 = Access denied, 100 = invalid params, 113 = invalid user_id
         hint = ""
         if code == 5:
-            hint = " — нужен user-токен с правами messages,docs,offline (Standalone Implicit Flow). Текущий VK_SERVICE_TOKEN, видимо, service-токен."
+            hint = (" — нужен user-токен с правами messages,docs,offline "
+                    "(Standalone Implicit Flow). Текущий VK_USER_TOKEN не "
+                    "подходит — может это service-токен, или скоупы не "
+                    "запрашивались. Пересоздай через oauth.vk.com/authorize "
+                    "со scope=messages,docs,offline.")
         elif code == 15:
             hint = " — токен не имеет нужных скоупов либо адресат закрыл личку."
         raise RuntimeError(f"VK {method}: {code}/{msg}{hint}")
@@ -113,31 +129,56 @@ async def _vk_method(method: str, params: dict) -> Any:
 
 
 async def _vk_token_info() -> dict:
-    """Возвращает тип токена и user_id (если user-token).
-    Полезно для admin-диагностики «есть ли у нас права на messages»."""
+    """Диагностика VK_USER_TOKEN: user / group / service / не задан.
+    Делает users.get без user_ids — user-token вернёт самого себя,
+    service-token ошибку 100, group-token — пустой массив или ошибку 27."""
+    base = {"env_var": "VK_USER_TOKEN"}
+    token = (os.environ.get("VK_USER_TOKEN") or "").strip()
+    if not token:
+        return {
+            **base,
+            "token_type": "missing",
+            "can_send_messages": False,
+            "hint": (
+                "Не задан. Получи user-токен через "
+                "oauth.vk.com/authorize?client_id=APP_ID&"
+                "scope=messages,docs,offline&response_type=token&v=5.199, "
+                "положи в Render env как VK_USER_TOKEN, перезапусти сервис."
+            ),
+        }
     try:
-        # users.get без user_ids → возвращает текущего юзера (user-token)
-        # или ошибку (service-token, который требует user_ids).
         resp = await _vk_method("users.get", {})
         if isinstance(resp, list) and resp and resp[0].get("id"):
             u = resp[0]
             return {
+                **base,
                 "token_type": "user",
                 "user_id": u.get("id"),
                 "name": f"{u.get('first_name','')} {u.get('last_name','')}".strip(),
                 "can_send_messages": True,
             }
+        # Пустой массив часто значит group-token (тот не имеет «себя» как юзера).
+        return {
+            **base,
+            "token_type": "group_or_unknown",
+            "can_send_messages": True,  # group-token тоже умеет messages.send
+            "hint": "users.get вернул пусто — вероятно group-token. Для рассылки от group подходит, но рыбак увидит группу, а не личный профиль.",
+        }
     except RuntimeError as e:
         msg = str(e)
         if "100" in msg or "user_ids" in msg.lower():
-            # service-token: вернёт «one of the parameters specified was missing or invalid: user_ids is undefined»
             return {
+                **base,
                 "token_type": "service",
-                "user_id": None,
                 "can_send_messages": False,
-                "hint": "Это service-токен. Для messages.send / docs.* нужен user-токен через Standalone Implicit Flow.",
+                "hint": "Service-токен. messages.send и docs.* недоступны. Нужен user-токен.",
             }
-    return {"token_type": "unknown", "user_id": None, "can_send_messages": False}
+        return {
+            **base,
+            "token_type": "error",
+            "can_send_messages": False,
+            "error": msg,
+        }
 
 
 async def send_voice_message_to_vk(
