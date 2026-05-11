@@ -2232,9 +2232,13 @@
     var actions =
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
         '<button id="vkMirrorCopy" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-weight:600;cursor:pointer">📋 Скопировать</button>' +
+        '<button id="vkMirrorTts" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(168,85,247,0.5);background:transparent;color:#a855f7;font:inherit;font-weight:600;cursor:pointer" title="Сгенерировать mp3 — голос Фреди для отправки рыбаку">🔊 Озвучить</button>' +
         '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:9px 14px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;text-decoration:none">💬 Открыть чат</a>' +
         markBtnHtml +
-      '</div>';
+      '</div>' +
+      // Зона для плеера mp3 + скачать/поделиться. Скрыта до первой генерации.
+      '<div id="vkMirrorAudioBox" style="margin-top:12px;display:none;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px"></div>' +
+      '<div id="vkMirrorStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;text-align:center;min-height:14px"></div>';
 
     document.getElementById('vkFishPitchBody').innerHTML = head + msgBlock + actions;
 
@@ -2245,6 +2249,88 @@
         try { await navigator.clipboard.writeText(txt); copyBtn.textContent = '✓ Скопировано'; }
         catch(e){ copyBtn.textContent = '⚠️ не вышло'; }
         setTimeout(function(){ copyBtn.textContent = '📋 Скопировать'; }, 1500);
+      });
+    }
+
+    // 🔊 Озвучить mirror-pitch: текст → mp3 (Fish Audio) → плеер + скачать + share.
+    // Логика идентична кнопке в драфт-модалке VK-кандидатов, но текст здесь
+    // не в textarea, а внутри .vk-mirror-msg (read-only DOM-блок).
+    var ttsBtn = document.getElementById('vkMirrorTts');
+    if (ttsBtn){
+      ttsBtn.addEventListener('click', async function(){
+        var statusEl = document.getElementById('vkMirrorStatus');
+        var box = document.getElementById('vkMirrorAudioBox');
+        var txt = ((document.querySelector('.vk-mirror-msg') || {}).innerText || '').trim();
+        if (!txt){
+          statusEl.textContent = '⚠ Пустой текст для озвучки.';
+          return;
+        }
+        if (txt.length > 4000){
+          statusEl.textContent = '⚠ Слишком длинно: '+txt.length+' / 4000 символов.';
+          return;
+        }
+        ttsBtn.disabled = true;
+        var origLabel = ttsBtn.textContent;
+        ttsBtn.textContent = '⏳ Озвучиваю…';
+        statusEl.textContent = 'Генерирую mp3 через Fish Audio (5-15 секунд)…';
+        try {
+          var resp = await fetch(API + '/api/admin/tts/synthesize', {
+            method: 'POST',
+            headers: {
+              'X-Admin-Token': tok(),
+              'Content-Type': 'application/json',
+              'Accept': 'audio/mpeg',
+            },
+            body: JSON.stringify({ text: txt, mode: 'psychologist' }),
+          });
+          if (!resp.ok){
+            var msg = 'HTTP ' + resp.status;
+            try {
+              var j = await resp.json();
+              msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg;
+            } catch(_) {}
+            throw new Error(msg);
+          }
+          var blob = await resp.blob();
+          var url = URL.createObjectURL(blob);
+          var vkId = (cand && cand.vk_id) || 'unknown';
+          var fname = 'fredi-' + vkId + '-' + new Date().toISOString().slice(0,10) + '.mp3';
+          var file = null;
+          try { file = new File([blob], fname, { type: 'audio/mpeg' }); } catch(_) {}
+          var canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+          var sizeKb = Math.round(blob.size / 1024);
+          box.innerHTML =
+            '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">🔊 Голос готов · '+sizeKb+' КБ</div>' +
+            '<audio controls preload="metadata" style="width:100%;margin-bottom:8px" src="'+esc(url)+'"></audio>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+              '<a href="'+esc(url)+'" download="'+esc(fname)+'" '+
+                'style="flex:1;min-width:120px;padding:8px 12px;border-radius:8px;border:1px solid rgba(168,85,247,0.4);background:transparent;color:#a855f7;font:inherit;font-weight:600;cursor:pointer;text-align:center;text-decoration:none">⬇ Скачать mp3</a>' +
+              (canShare
+                ? '<button id="vkMirrorShare" style="flex:1;min-width:120px;padding:8px 12px;border-radius:8px;border:1px solid rgba(168,85,247,0.4);background:rgba(168,85,247,0.15);color:#a855f7;font:inherit;font-weight:600;cursor:pointer">📤 Поделиться</button>'
+                : '') +
+            '</div>' +
+            '<div style="font-size:10px;color:var(--text-dim);margin-top:6px;line-height:1.4">' +
+              'Прикрепи mp3 к VK-сообщению как голос. На мобиле — «Поделиться» → выбери VK.' +
+            '</div>';
+          box.style.display = 'block';
+          if (canShare){
+            document.getElementById('vkMirrorShare').addEventListener('click', async function(){
+              try {
+                await navigator.share({ files: [file], title: 'Голос Фреди', text: 'Голосовое сообщение' });
+              } catch(e){
+                if (e && e.name !== 'AbortError'){
+                  statusEl.textContent = '⚠ Не удалось поделиться: ' + (e.message || e);
+                }
+              }
+            });
+          }
+          statusEl.textContent = '✓ MP3 готов, '+sizeKb+' КБ. Скачай или поделись в VK.';
+        } catch(e){
+          statusEl.textContent = '⚠ Ошибка озвучки: ' + esc(e.message || e);
+        } finally {
+          ttsBtn.disabled = false;
+          ttsBtn.textContent = origLabel;
+        }
       });
     }
 
