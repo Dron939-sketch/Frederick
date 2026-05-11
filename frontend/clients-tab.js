@@ -1804,6 +1804,8 @@
           '<input id="vkB2Url" type="text" placeholder="vk.com/durov или durov или id1" ' +
             'style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit">' +
           '<button id="vkB2AnalyzeBtn" style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer">🔬 Проанализировать</button>' +
+          '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:var(--text-dim)" title="После анализа сразу сгенерить цепляющее обращение и голосовой скрипт (~5 сек +)">' +
+            '<input id="vkB2WithPitch" type="checkbox" style="margin:0" checked>+ pitch и голос</label>' +
           '<span id="vkB2AnalyzeStatus" style="font-size:12px;color:var(--text-dim)"></span>' +
         '</div>' +
         '<div id="vkB2AnalyzeBody" style="margin-top:14px"></div>' +
@@ -1828,8 +1830,8 @@
               '<option value="1">🏙️ Москва</option>' +
               '<option value="2">🏙️ Санкт-Петербург</option>' +
             '</select></label>' +
-          '<label style="display:flex;align-items:center;gap:4px" title="Минимум подписчиков+друзей у рыбака">Мин. аудитория:' +
-            '<input id="vkFishMinAud" type="number" min="0" max="100000" step="100" value="100" style="width:80px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
+          '<label style="display:flex;align-items:center;gap:4px" title="Минимум подписчиков+друзей у рыбака. Для маленьких городов ставь 0.">Мин. аудитория:' +
+            '<input id="vkFishMinAud" type="number" min="0" max="100000" step="10" value="0" style="width:80px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
           '<label style="display:flex;align-items:center;gap:4px">Лимит:' +
             '<input id="vkFishMax" type="number" min="5" max="100" step="5" value="20" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
           '<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Не показывать тех, кому уже отправляли">' +
@@ -1900,11 +1902,17 @@
     if (!url){ alert('Вставь ссылку или username'); return; }
     var status = document.getElementById('vkB2AnalyzeStatus');
     var body = document.getElementById('vkB2AnalyzeBody');
-    status.textContent = '⏳ парсинг VK + DeepSeek (3 прохода)…';
+    // По дефолту запрашиваем pitch вместе с анализом — это +5 сек, но
+    // даёт сразу готовое цепляющее обращение + voice_script для отправки.
+    var withPitchEl = document.getElementById('vkB2WithPitch');
+    var withPitch = withPitchEl ? !!withPitchEl.checked : true;
+    status.textContent = withPitch
+      ? '⏳ парсинг VK + DeepSeek (3 анализа + pitch + voice)…'
+      : '⏳ парсинг VK + DeepSeek (3 прохода)…';
     body.innerHTML = '';
     try {
       var r = await api('/api/admin/vk/profile-analysis', {
-        method: 'POST', body: { url: url },
+        method: 'POST', body: { url: url, with_pitch: withPitch },
       });
       status.textContent = '✓ готово';
       renderB2C(r);
@@ -1980,7 +1988,158 @@
         (chatUrl ? '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="margin-left:auto;padding:5px 10px;border-radius:6px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-size:11px;font-weight:700;text-decoration:none">💬 Открыть чат</a>' : '') +
       '</div>';
 
-    document.getElementById('vkB2AnalyzeBody').innerHTML = head + profileHtml + painHtml + hooksHtml;
+    // Pitch-блок (если запрошен в runB2C): текст для VK + voice_script
+    // + кнопки «🔊 Озвучить» / «📨 Отправить в VK». Логика идентична
+    // Mirror-pitch модалке.
+    var pitchHtml = '';
+    var pitch = r.pitch || null;
+    if (pitch && pitch.message){
+      pitchHtml =
+        '<div style="background:rgba(0,136,204,0.06);border:1px solid rgba(0,136,204,0.25);border-radius:10px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:10px;color:#0088cc;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">📨 Готовое цепляющее обращение</div>' +
+          '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">📝 Текст для VK</div>' +
+          '<div class="vk-b2c-pitch-msg" style="white-space:pre-wrap;line-height:1.55;font-size:12.5px;background:rgba(255,255,255,0.03);border-left:3px solid #0088cc;border-radius:6px;padding:10px 12px;margin-bottom:10px">' +
+            esc(pitch.message) +
+          '</div>' +
+          (pitch.voice_script
+            ? '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">🎙️ Скрипт для голоса · ~60 сек</div>' +
+              '<div class="vk-b2c-pitch-voice" style="white-space:pre-wrap;line-height:1.55;font-size:12px;background:rgba(168,85,247,0.06);border-left:3px solid #a855f7;border-radius:6px;padding:10px 12px;margin-bottom:10px;color:#cfcfd6">' +
+                esc(pitch.voice_script) +
+              '</div>'
+            : '') +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+            '<button id="vkB2PitchCopy" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-weight:600;cursor:pointer">📋 Скопировать текст</button>' +
+            (pitch.voice_script
+              ? '<button id="vkB2PitchTts" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(168,85,247,0.5);background:transparent;color:#a855f7;font:inherit;font-weight:600;cursor:pointer">🔊 Озвучить</button>'
+              : '') +
+            (pitch.vk_id
+              ? '<button id="vkB2PitchSendVk" style="padding:8px 14px;border-radius:8px;border:none;background:linear-gradient(135deg,#0088cc,#5b9fd6);color:#fff;font:inherit;font-weight:700;cursor:pointer" title="Голосовое + текст в личку рыбака">📨 Отправить в VK</button>'
+              : '') +
+            (pitch.vk_chat_url
+              ? '<a href="' + esc(pitch.vk_chat_url) + '" target="_blank" rel="noopener" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(0,136,204,0.4);background:transparent;color:#0088cc;font:inherit;font-weight:600;cursor:pointer;text-decoration:none">💬 Открыть VK-чат</a>'
+              : '') +
+          '</div>' +
+          '<div id="vkB2PitchAudioBox" style="margin-top:12px;display:none;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px"></div>' +
+          '<div id="vkB2PitchStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;text-align:center;min-height:14px"></div>' +
+        '</div>';
+    } else if (r.pitch_error){
+      pitchHtml = '<div style="color:var(--warning);font-size:12px;padding:6px 10px;margin-bottom:10px;border:1px solid var(--warning);border-radius:6px">⚠ Pitch не сгенерирован: ' + esc(r.pitch_error) + '</div>';
+    }
+
+    document.getElementById('vkB2AnalyzeBody').innerHTML = head + pitchHtml + profileHtml + painHtml + hooksHtml;
+
+    // Обработчики pitch-кнопок (если pitch присутствует)
+    var pCopy = document.getElementById('vkB2PitchCopy');
+    if (pCopy){
+      pCopy.addEventListener('click', async function(){
+        var txt = ((document.querySelector('.vk-b2c-pitch-msg') || {}).innerText || '').trim();
+        try { await navigator.clipboard.writeText(txt); pCopy.textContent = '✓ Скопировано'; }
+        catch(e){ pCopy.textContent = '⚠️ не вышло'; }
+        setTimeout(function(){ pCopy.textContent = '📋 Скопировать текст'; }, 1500);
+      });
+    }
+    var pTts = document.getElementById('vkB2PitchTts');
+    if (pTts && pitch && pitch.voice_script){
+      pTts.addEventListener('click', async function(){
+        var statusEl = document.getElementById('vkB2PitchStatus');
+        var box = document.getElementById('vkB2PitchAudioBox');
+        var txt = (pitch.voice_script || '').trim();
+        if (!txt){ statusEl.textContent = '⚠ Нет текста для озвучки.'; return; }
+        pTts.disabled = true;
+        var orig = pTts.textContent;
+        pTts.textContent = '⏳ Озвучиваю…';
+        statusEl.textContent = 'Генерирую mp3 (5-15 сек)…';
+        try {
+          var resp = await fetch(API + '/api/admin/tts/synthesize', {
+            method: 'POST',
+            headers: {
+              'X-Admin-Token': tok(),
+              'Content-Type': 'application/json',
+              'Accept': 'audio/mpeg',
+            },
+            body: JSON.stringify({ text: txt, mode: 'psychologist' }),
+          });
+          if (!resp.ok){
+            var msg = 'HTTP ' + resp.status;
+            try { var j = await resp.json(); msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg; } catch(_){}
+            throw new Error(msg);
+          }
+          var blob = await resp.blob();
+          var url = URL.createObjectURL(blob);
+          var fname = 'fredi-' + (pitch.vk_id || 'profile') + '-' + new Date().toISOString().slice(0,10) + '.mp3';
+          var file = null;
+          try { file = new File([blob], fname, { type: 'audio/mpeg' }); } catch(_){}
+          var canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+          var sizeKb = Math.round(blob.size / 1024);
+          box.innerHTML =
+            '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">🔊 Голос готов · '+sizeKb+' КБ</div>' +
+            '<audio controls preload="metadata" style="width:100%;margin-bottom:8px" src="'+esc(url)+'"></audio>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+              '<a href="'+esc(url)+'" download="'+esc(fname)+'" style="flex:1;min-width:120px;padding:8px 12px;border-radius:8px;border:1px solid rgba(168,85,247,0.4);background:transparent;color:#a855f7;font:inherit;font-weight:600;cursor:pointer;text-align:center;text-decoration:none">⬇ Скачать mp3</a>' +
+              (canShare ? '<button id="vkB2PitchShare" style="flex:1;min-width:120px;padding:8px 12px;border-radius:8px;border:1px solid rgba(168,85,247,0.4);background:rgba(168,85,247,0.15);color:#a855f7;font:inherit;font-weight:600;cursor:pointer">📤 Поделиться</button>' : '') +
+            '</div>';
+          box.style.display = 'block';
+          if (canShare){
+            document.getElementById('vkB2PitchShare').addEventListener('click', async function(){
+              try { await navigator.share({ files: [file], title: 'Голос Фреди', text: 'Голосовое' }); }
+              catch(e){ if (e && e.name !== 'AbortError') statusEl.textContent = '⚠ ' + (e.message || e); }
+            });
+          }
+          statusEl.textContent = '✓ MP3 готов, '+sizeKb+' КБ';
+        } catch(e){
+          statusEl.textContent = '⚠ Ошибка озвучки: ' + esc(e.message || e);
+        } finally {
+          pTts.disabled = false;
+          pTts.textContent = orig;
+        }
+      });
+    }
+    var pSend = document.getElementById('vkB2PitchSendVk');
+    if (pSend && pitch && pitch.vk_id){
+      pSend.addEventListener('click', async function(){
+        var statusEl = document.getElementById('vkB2PitchStatus');
+        var voiceTxt = (pitch.voice_script || '').trim();
+        var textTxt = (pitch.message || '').trim();
+        if (!voiceTxt){ statusEl.textContent = '⚠ Нет voice_script.'; return; }
+        if (!confirm(
+            'Отправить «' + (pitch.full_name || ('id'+pitch.vk_id)) + '»:\n' +
+            '1) Голосовое (~' + Math.round(voiceTxt.length/15) + ' сек)\n' +
+            '2) Сразу текст (' + textTxt.length + ' символов)\n\nДействие необратимо.'
+        )) return;
+        pSend.disabled = true;
+        var orig = pSend.textContent;
+        pSend.textContent = '⏳ Отправляю…';
+        statusEl.textContent = 'mp3 → ogg → upload → send (15-40 сек)…';
+        try {
+          var resp = await fetch(API + '/api/admin/vk/send-voice', {
+            method: 'POST',
+            headers: {
+              'X-Admin-Token': tok(),
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              voice_text: voiceTxt,
+              text_followup: textTxt,
+              vk_peer_id: pitch.vk_id,
+            }),
+          });
+          var data = await resp.json().catch(function(){ return {}; });
+          if (!resp.ok || !data.success){
+            var emsg = (data && data.detail && (data.detail.message || data.detail.error))
+              || data.error || ('HTTP ' + resp.status);
+            throw new Error(emsg);
+          }
+          statusEl.innerHTML = '✓ Отправлено · voice_msg_id=' + (data.voice_message_id || '?') +
+            (data.text_message_id ? ', text_msg_id=' + data.text_message_id : '');
+          pSend.textContent = '✓ Отправлено';
+        } catch(e){
+          statusEl.textContent = '⚠ Ошибка отправки: ' + esc(e.message || e);
+          pSend.disabled = false;
+          pSend.textContent = orig;
+        }
+      });
+    }
 
     document.querySelectorAll('.vk-b2c-copy').forEach(function(b){
       b.addEventListener('click', async function(){

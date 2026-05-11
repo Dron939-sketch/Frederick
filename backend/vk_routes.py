@@ -1605,6 +1605,7 @@ def register_vk_routes(app, db):
     ):
         _check_admin(x_admin_token)
         url = (body or {}).get("url") or (body or {}).get("screen_name")
+        with_pitch = bool((body or {}).get("with_pitch") or False)
         if not url:
             raise HTTPException(status_code=400, detail={
                 "error": "bad_request",
@@ -1627,6 +1628,57 @@ def register_vk_routes(app, db):
         if result.get("error"):
             raise HTTPException(status_code=400 if result["error"] in ("invalid_url", "no_user")
                                 else 502, detail=result)
+
+        # B2C режим с pitch: после анализа сразу генерим текст-обращение
+        # (как в Mirror-pitch, но БЕЗ привязки к категории — универсальный
+        # pitch с тремя плоскостями психологии) + голосовой скрипт.
+        # Это 2 дополнительных LLM-вызова (~$0.01) — параллельно.
+        if with_pitch:
+            try:
+                from vk_mirror_pitch import (
+                    _compose_body, _llm_tail, _llm_voice_script,
+                )
+                import asyncio as _asyncio
+
+                ub = (result.get("vk_data") or {}).get("user_basic") or {}
+                first_name = (ub.get("first_name") or "").strip()
+                last_name = (ub.get("last_name") or "").strip()
+                full_name = " ".join(filter(None, [first_name, last_name])).strip()
+
+                body_text = _compose_body(
+                    result.get("profile") or {},
+                    result.get("pain") or {},
+                    result.get("hooks") or {},
+                    full_name,
+                    first_name=first_name,
+                )
+                # category_meta=пустой словарь → промпты используют общий
+                # тон для «универсального» практика (без указания ниши).
+                empty_cat: Dict[str, Any] = {}
+                tail, voice_script = await _asyncio.gather(
+                    _llm_tail(empty_cat, first_name or "коллега"),
+                    _llm_voice_script(
+                        result.get("profile") or {},
+                        result.get("pain") or {},
+                        empty_cat,
+                        first_name,
+                    ),
+                )
+
+                vk_id = ub.get("id")
+                result["pitch"] = {
+                    "message": body_text + "\n\n—\n\n" + tail,
+                    "voice_script": voice_script,
+                    "full_name": full_name,
+                    "vk_id": vk_id,
+                    "vk_chat_url": f"https://vk.com/im?sel={vk_id}" if vk_id else "",
+                }
+            except Exception as e:
+                logger.warning(f"B2C with_pitch generation failed: {e}")
+                # Не валим весь analysis — pitch это опциональный bonus.
+                result["pitch"] = None
+                result["pitch_error"] = str(e)[:200]
+
         return {"success": True, **result}
 
     # =========================================================
