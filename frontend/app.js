@@ -1560,6 +1560,10 @@ function setupVoiceButton(buttonElement) {
     voiceManager.onStatusChange = (status) => {
         const icon = getIcon();
         const text = getText();
+        // Запоминаем последний статус — чтобы onTranscript/onAIResponse
+        // могли в нужный момент переключить кнопку на следующую фазу,
+        // не перебивая 'speaking' / 'recording'.
+        buttonElement._voiceStatus = status;
         switch (status) {
             case 'recording':
                 buttonElement.classList.add('recording');
@@ -1570,18 +1574,31 @@ function setupVoiceButton(buttonElement) {
                 _recording = false;
                 buttonElement.classList.remove('recording');
                 if (icon) icon.textContent = '🔄';
-                if (text) text.textContent = 'Распознаю речь...';
+                if (text) text.textContent = 'Распознаю голос…';
+                break;
+            case 'thinking':
+                // Переходное состояние: транскрипт получен, AI пишет ответ.
+                // Триггерится из onTranscript ниже (а также из WS thinking-события).
+                if (icon) icon.textContent = '💭';
+                if (text) text.textContent = 'Фреди думает…';
+                break;
+            case 'tts_loading':
+                // AI-текст готов, ждём аудио TTS. Обычно <1с — короткая фаза,
+                // но без неё юзеру кажется что приложение зависло между
+                // «думает» и «отвечает».
+                if (icon) icon.textContent = '🎙️';
+                if (text) text.textContent = 'Готовлю голос…';
                 break;
             case 'speaking':
                 if (icon) icon.textContent = '🔊';
-                if (text) text.textContent = 'Фреди отвечает...';
+                if (text) text.textContent = 'Фреди отвечает…';
                 break;
             default:
                 _recording = false;
                 buttonElement.classList.remove('recording');
                 buttonElement.style.boxShadow = '';
                 if (icon) icon.textContent = '🎤';
-                if (text) text.textContent = MODES[currentMode]?.voicePrompt || 'Говорите...';
+                if (text) text.textContent = MODES[currentMode]?.voicePrompt || 'Говорите…';
         }
     };
 
@@ -1604,16 +1621,28 @@ async function initVoice() {
         apiBaseUrl:   CONFIG.API_BASE_URL
     });
 
-    // Транскрипт — что распознал
+    // Транскрипт — что распознал. Переключаем кнопку с «Распознаю голос»
+    // на «Фреди думает», т.к. STT-фаза завершена, дальше AI генерирует ответ.
     voiceManager.onTranscript = (text) => {
         console.log('📝 Transcript received:', text);
         addMessage('🎤 ' + text, 'system');
+        const btn = document.getElementById('mainVoiceBtn');
+        if (btn && btn._voiceStatus === 'processing' && voiceManager.onStatusChange) {
+            voiceManager.onStatusChange('thinking');
+        }
     };
 
-    // Текстовый ответ AI
+    // Текстовый ответ AI. Между «Фреди думает» и фактическим воспроизведением
+    // (onStatusChange('speaking')) есть короткое окно загрузки TTS — кнопку
+    // переключаем на «Готовлю голос…», чтобы не выглядело как зависание.
     voiceManager.onAIResponse = (answer) => {
         console.log('🧠 AI answer received, length:', answer?.length);
         addMessage(answer, 'bot');
+        const btn = document.getElementById('mainVoiceBtn');
+        if (btn && (btn._voiceStatus === 'thinking' || btn._voiceStatus === 'processing')
+            && voiceManager.onStatusChange) {
+            voiceManager.onStatusChange('tts_loading');
+        }
     };
 
     // Ошибки
