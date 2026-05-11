@@ -3,25 +3,6 @@
 """
 backend/vk_fisherman_search.py
 Поиск практиков (рыбаков) — наша B2B-аудитория.
-
-Алгоритм:
-  1. Для каждого service_term категории зовём users.search?q=<term>.
-     VK ищет в полях first/last name + статус + интересы. Получаем потенциальных
-     рыбаков с учётом доп.фильтров (страна, has_photo).
-  2. Для каждого topic_phrase зовём groups.search?q=<phrase> — находим
-     тематические сообщества; их администраторы — тоже рыбаки.
-     (упрощение: пока берём только групп-метаданные, админов оставляем
-      на следующую итерацию).
-  3. Уникальные user_ids → users.get с расширенными полями.
-  4. Фильтр «реальный практик»: bio содержит маркеры категории + минимум
-     followers / friends — отсекает фейков и мёртвых.
-  5. Возвращаем список с метриками аудитории и стилем работы.
-
-Stats для UI:
-  • search_attempts / search_success (users.search calls)
-  • candidates_total — найдено уникальных
-  • after_marker_filter — прошли проверку bio_markers
-  • after_audience_filter — прошли минимум подписчиков
 """
 
 from __future__ import annotations
@@ -46,17 +27,11 @@ _VK_USER_FIELDS = (
 
 
 def _audience_size(user: Dict[str, Any]) -> int:
-    """Размер аудитории: followers + friends (грубая оценка). 0 если данных нет."""
     counters = user.get("counters") or {}
     return int(counters.get("followers") or 0) + int(counters.get("friends") or 0)
 
 
 def _audience_known(user: Dict[str, Any]) -> bool:
-    """True если у нас есть какие-то данные о counters от VK.
-
-    users.search часто отдаёт юзеров без поля counters вообще — для таких
-    нельзя сказать «маленькая аудитория», только «неизвестно».
-    """
     counters = user.get("counters")
     if not isinstance(counters, dict) or not counters:
         return False
@@ -66,11 +41,6 @@ def _audience_known(user: Dict[str, Any]) -> bool:
 
 
 def _bio_text(user: Dict[str, Any]) -> str:
-    """Склейка всех bio-полей + имя/фамилия для regex-проверки маркеров.
-
-    Имя и фамилия включены сознательно: эзотерики/тарологи часто пишут
-    профессию прямо в display-name («Алёна-Таролог», «Astro Анна»).
-    """
     parts = [
         (user.get("first_name") or ""),
         (user.get("last_name") or ""),
@@ -87,11 +57,6 @@ def _bio_text(user: Dict[str, Any]) -> str:
 
 
 def _is_closed_no_data(user: Dict[str, Any]) -> bool:
-    """Закрытый профиль, к которому у нас нет доступа.
-
-    Для таких VK возвращает только id/first_name/last_name/photo — bio пустой.
-    Раз VK сматчил их на наш service_term, считаем рыбаком на доверии.
-    """
     is_closed = bool(user.get("is_closed"))
     can_access = user.get("can_access_closed")
     if not is_closed:
@@ -99,7 +64,6 @@ def _is_closed_no_data(user: Dict[str, Any]) -> bool:
     if can_access is False or can_access == 0:
         return True
     if can_access is None:
-        # VK не вернул поле — вероятнее закрытый.
         about = (user.get("about") or "").strip()
         status = (user.get("status") or "").strip()
         if not about and not status:
@@ -107,11 +71,29 @@ def _is_closed_no_data(user: Dict[str, Any]) -> bool:
     return False
 
 
+def _stem_ru(word: str) -> str:
+    """Грубый русский стем для маркер-матчера: режем хвостовой гласный.
+    «йога» → «йог» (ловит йогу/йогой/йоге/йоги/йогам/йогах).
+    «стрижка» → «стрижк» (ловит стрижку/стрижки/стрижке).
+    Слова на согласную («массаж», «маникюр») и короче 4 символов
+    — не трогаем."""
+    if not word or len(word) < 4:
+        return word
+    if word[-1] in "аяоеёуюыий":
+        return word[:-1]
+    return word
+
+
 def _matches_markers(user: Dict[str, Any], markers: List[str]) -> bool:
-    """True если bio юзера содержит маркер ИЛИ это закрытый профиль.
+    """True если bio юзера содержит маркер (с учётом падежных форм через
+    стем для однословных) ИЛИ это закрытый профиль.
 
     Закрытые профили проходят на доверии: VK уже сматчил их на
     service_term, иначе их бы не было в выдаче users.search.
+
+    Падежи: маркер «йога» → стем «йог» → substring ловит «йогу/йоге/йоги».
+    Многословные («руководитель студии», «йога-инструктор», «студия йоги»)
+    — substring без стема.
     """
     if _is_closed_no_data(user):
         return True
@@ -119,10 +101,17 @@ def _matches_markers(user: Dict[str, Any], markers: List[str]) -> bool:
         return False
     text = _bio_text(user)
     if not text:
-        # Не закрытый, но VK не вернул bio — тоже доверяем VK-индексу.
         return True
     for m in markers:
-        if (m or "").lower() in text:
+        m_lower = (m or "").lower().strip()
+        if not m_lower:
+            continue
+        if " " in m_lower or "-" in m_lower:
+            if m_lower in text:
+                return True
+            continue
+        stem = _stem_ru(m_lower)
+        if stem in text:
             return True
     return False
 
@@ -157,15 +146,10 @@ def _candidate_dict(u: Dict[str, Any], cat_code: str, source: str = "users_searc
     }
 
 
-# In-memory кэш для VK database.getCities. Резолв стоит 1 API-вызов
-# за город, кэшируем навсегда (city_id у VK стабилен).
 _CITY_RESOLVE_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 async def resolve_city(name: str) -> Optional[Dict[str, Any]]:
-    """Резолв названия города в VK city_id через database.getCities.
-    Возвращает {id, title, region} или None если не найдено.
-    Кэширует результат в памяти процесса."""
     if not name or not name.strip():
         return None
     key = name.strip().lower()
@@ -174,14 +158,10 @@ async def resolve_city(name: str) -> Optional[Dict[str, Any]]:
     try:
         async with httpx.AsyncClient() as client:
             resp = await _call(client, "database.getCities", {
-                "country_id": 1,  # Россия
-                "q": name.strip(),
-                "count": 5,
-                "need_all": 0,  # сначала города-миллионники
+                "country_id": 1, "q": name.strip(), "count": 5, "need_all": 0,
             })
         items = (resp or {}).get("items") or []
         if not items:
-            # На вторую попытку с need_all=1 — расширенный список (>1000 человек).
             async with httpx.AsyncClient() as client:
                 resp2 = await _call(client, "database.getCities", {
                     "country_id": 1, "q": name.strip(), "count": 5, "need_all": 1,
@@ -190,7 +170,6 @@ async def resolve_city(name: str) -> Optional[Dict[str, Any]]:
         if not items:
             _CITY_RESOLVE_CACHE[key] = None
             return None
-        # Берём первый — VK ранкингует по релевантности.
         c = items[0]
         result = {
             "id": int(c.get("id")),
@@ -206,9 +185,6 @@ async def resolve_city(name: str) -> Optional[Dict[str, Any]]:
 
 
 def _city_matches(cand: Dict[str, Any], target_id: int, target_name: str) -> bool:
-    """Пост-фильтр: кандидат подходит, если у него явно указан город
-    с этим city_id ИЛИ title содержит target_name. Без указанного города
-    — НЕ проходит (оператор хочет именно этот город)."""
     cand_city_id = cand.get("city_id")
     cand_city_title = (cand.get("city") or "").lower()
     if cand_city_id and target_id and int(cand_city_id) == int(target_id):
@@ -230,21 +206,6 @@ async def search_fishermen(
     city_id: Optional[int] = None,
     city_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Возвращает {category, candidates, stats}.
-
-    include_newsfeed: добавить второй источник — newsfeed.search по
-    topic_phrases категории. Берём авторов постов на тему ниши за
-    последний ~месяц — это рыбаки, которые **активны прямо сейчас**.
-    Старая идея «ловить рыбаков, ловящих страдальцев» (раньше мы их
-    отсеивали как ложноположительные в проблем-поиске).
-
-    city_id: VK ID города. Если задан — users.search фильтрует только
-    жителей этого города. Известные ID:
-      71 — Коломна (Московская область)
-      1  — Москва
-      2  — Санкт-Петербург
-    Если None — поиск по всей России (country=1).
-    """
     cat = get_fisherman(category_code)
     if not cat:
         return {
@@ -257,7 +218,6 @@ async def search_fishermen(
     bio_markers: List[str] = cat.get("bio_markers") or []
     topic_phrases: List[str] = cat.get("topic_phrases") or []
 
-    # uid → (user_dict, source). source: "users_search" | "newsfeed"
     seen: Dict[int, Dict[str, Any]] = {}
     source_by_uid: Dict[int, str] = {}
     search_attempts = 0
@@ -266,7 +226,6 @@ async def search_fishermen(
     newsfeed_stats = {"phrases_used": 0, "posts_seen": 0, "users_fetched": 0, "error": None}
 
     async with httpx.AsyncClient() as client:
-        # === Источник 1: users.search по service_terms ===
         for term in service_terms:
             search_attempts += 1
             try:
@@ -274,11 +233,9 @@ async def search_fishermen(
                     "q": term,
                     "count": min(max_per_term, 1000),
                     "fields": _VK_USER_FIELDS,
-                    "country": 1,  # Россия (для VK Россия = 1)
+                    "country": 1,
                     "has_photo": 1,
                 }
-                # Сузить по городу, если задан. VK users.search принимает
-                # параметр city (числовой ID). Без него — вся страна.
                 if city_id and int(city_id) > 0:
                     _us_params["city"] = int(city_id)
                 resp = await _call(client, "users.search", _us_params)
@@ -298,8 +255,6 @@ async def search_fishermen(
                 seen[uid] = u
                 source_by_uid[uid] = "users_search"
 
-        # === Источник 2 (опц.): newsfeed.search по topic_phrases ===
-        # Авторы постов на тему ниши за ~месяц = активные рыбаки.
         if include_newsfeed and topic_phrases:
             try:
                 from_newsfeed_uids: List[int] = []
@@ -307,13 +262,9 @@ async def search_fishermen(
                 for phrase in topic_phrases:
                     try:
                         nf_resp = await _call(client, "newsfeed.search", {
-                            "q": phrase,
-                            "count": 200,
-                            "extended": 0,
+                            "q": phrase, "count": 200, "extended": 0,
                         })
                     except RuntimeError as e:
-                        # Если только service-токен в env — newsfeed.search
-                        # вернёт ошибку 27 (нужен user-токен). Не падаем.
                         msg = str(e)
                         if not newsfeed_stats["error"]:
                             newsfeed_stats["error"] = msg[:120]
@@ -328,9 +279,7 @@ async def search_fishermen(
                 newsfeed_stats["phrases_used"] = len(topic_phrases)
                 newsfeed_stats["posts_seen"] = posts_seen
 
-                # Резолвим карточки чанками по 500 (через users.get с полным fields).
                 CHUNK = 500
-                # Дедуп пред-резолва (один автор может постить несколько раз).
                 from_newsfeed_uids = list(dict.fromkeys(from_newsfeed_uids))
                 fetched = 0
                 for i in range(0, len(from_newsfeed_uids), CHUNK):
@@ -364,24 +313,14 @@ async def search_fishermen(
                 if not newsfeed_stats["error"]:
                     newsfeed_stats["error"] = str(e)[:120]
 
-        # === Источник 3 (опц.): groups.search → groups.getMembers ===
-        # Ищем тематические сообщества по service_terms в указанном городе
-        # (или по всей РФ если city_id не задан). Берём их участников —
-        # это люди с явным интересом к нише, даже если у них «йога» нет
-        # в имени. Особенно ценно для малых городов, где users.search
-        # даёт 1-2 результата.
         groups_stats = {"groups_seen": 0, "members_fetched": 0, "error": None}
         if include_groups:
             try:
                 from_groups_uids: List[int] = []
-                # Ограничиваем число групп: 3 термина × 5 групп = 15 групп макс.
                 terms_for_groups = (service_terms or [])[:3]
                 for term in terms_for_groups:
                     gs_params = {
-                        "q": term,
-                        "type": "group",
-                        "count": 5,
-                        "sort": 6,  # 6 = по числу подписчиков (релевантные)
+                        "q": term, "type": "group", "count": 5, "sort": 6,
                     }
                     if city_id and int(city_id) > 0:
                         gs_params["city_id"] = int(city_id)
@@ -404,7 +343,7 @@ async def search_fishermen(
                                 "group_id": int(gid),
                                 "count": 200,
                                 "fields": _VK_USER_FIELDS,
-                                "sort": "time_desc",  # самые новые участники
+                                "sort": "time_desc",
                             })
                         except RuntimeError as e:
                             logger.warning(f"groups.getMembers(gid={gid}) failed: {e}")
@@ -418,7 +357,6 @@ async def search_fishermen(
                                 continue
                             if uid in seen:
                                 continue
-                            # Бот / сообщество в выдаче members — пропускаем.
                             if u.get("deactivated"):
                                 continue
                             from_groups_uids.append(uid)
@@ -438,7 +376,6 @@ async def search_fishermen(
 
         candidates_total = len(seen)
 
-        # Фильтрация: bio_markers (или закрытый профиль) + реальность.
         after_markers: Dict[int, Dict[str, Any]] = {}
         rejected_reasons: Dict[str, int] = {}
         for uid, u in seen.items():
@@ -451,9 +388,6 @@ async def search_fishermen(
                 continue
             after_markers[uid] = u
 
-        # users.search часто отдаёт юзеров без поля counters. Дотягиваем
-        # реальные числа подписчиков/друзей через users.get для тех,
-        # у кого counters пустой. До 1000 id в одном вызове.
         unknown_uids = [uid for uid, u in after_markers.items() if not _audience_known(u)]
         if unknown_uids:
             CHUNK = 500
@@ -481,9 +415,6 @@ async def search_fishermen(
                 f"for {enriched}/{len(unknown_uids)} candidates"
             )
 
-        # Аудиторный фильтр: отсекаем только тех, у кого audience ИЗВЕСТНА
-        # и < min. С неизвестной (counters не вернулся от VK) — пускаем,
-        # иначе режем закрытые/слим-ответы users.search.
         after_audience: List[Dict[str, Any]] = []
         audience_unknown = 0
         rejected_audience = 0
@@ -494,15 +425,12 @@ async def search_fishermen(
                 else:
                     rejected_audience += 1
             else:
-                # Неизвестная аудитория — оставляем.
                 after_audience.append(u)
                 audience_unknown += 1
 
         if rejected_audience > 0:
             rejected_reasons[f"audience<{min_audience}"] = rejected_audience
 
-        # Сортируем по размеру аудитории — крупные «рыбаки» наверху,
-        # неизвестные (audience=0) — внизу.
         after_audience.sort(key=_audience_size, reverse=True)
         after_audience = after_audience[:max_results]
 
@@ -520,11 +448,6 @@ async def search_fishermen(
         for u in after_audience
     ]
 
-    # Строгий пост-фильтр по городу. VK users.search с параметром city
-    # не всегда строго фильтрует (включает «соседей» и тех, у кого
-    # city не указан в профиле). Дополнительно: newsfeed.search вообще
-    # не знает про city. Поэтому здесь финально оставляем только тех,
-    # у кого явно указан совпадающий city_id или title.
     city_filtered_out = 0
     if city_id and int(city_id) > 0:
         target_id = int(city_id)
@@ -537,7 +460,6 @@ async def search_fishermen(
             f"kept {len(candidates)}/{before} (filtered out {city_filtered_out})"
         )
 
-    # Подсчёт распределения источников среди финальных кандидатов.
     source_counts = {"users_search": 0, "newsfeed": 0, "group_member": 0}
     for c in candidates:
         s = c.get("source") or "users_search"
@@ -566,7 +488,6 @@ async def search_fishermen(
             "newsfeed": newsfeed_stats if include_newsfeed else None,
             "groups": groups_stats if include_groups else None,
             "source_counts": source_counts,
-            # Гео-фильтр: сколько отрезал пост-фильтр (≥ 0 если фильтр был задан).
             "city_id_used": city_id if city_id else None,
             "city_name_used": city_name if city_name else None,
             "city_filtered_out": city_filtered_out if (city_id and int(city_id) > 0) else 0,
