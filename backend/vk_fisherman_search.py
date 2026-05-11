@@ -226,6 +226,7 @@ async def search_fishermen(
     min_audience: int = 100,
     max_results: int = 30,
     include_newsfeed: bool = False,
+    include_groups: bool = False,
     city_id: Optional[int] = None,
     city_name: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -363,6 +364,78 @@ async def search_fishermen(
                 if not newsfeed_stats["error"]:
                     newsfeed_stats["error"] = str(e)[:120]
 
+        # === Источник 3 (опц.): groups.search → groups.getMembers ===
+        # Ищем тематические сообщества по service_terms в указанном городе
+        # (или по всей РФ если city_id не задан). Берём их участников —
+        # это люди с явным интересом к нише, даже если у них «йога» нет
+        # в имени. Особенно ценно для малых городов, где users.search
+        # даёт 1-2 результата.
+        groups_stats = {"groups_seen": 0, "members_fetched": 0, "error": None}
+        if include_groups:
+            try:
+                from_groups_uids: List[int] = []
+                # Ограничиваем число групп: 3 термина × 5 групп = 15 групп макс.
+                terms_for_groups = (service_terms or [])[:3]
+                for term in terms_for_groups:
+                    gs_params = {
+                        "q": term,
+                        "type": "group",
+                        "count": 5,
+                        "sort": 6,  # 6 = по числу подписчиков (релевантные)
+                    }
+                    if city_id and int(city_id) > 0:
+                        gs_params["city_id"] = int(city_id)
+                        gs_params["country_id"] = 1
+                    try:
+                        gs_resp = await _call(client, "groups.search", gs_params)
+                    except RuntimeError as e:
+                        logger.warning(f"groups.search('{term}') failed: {e}")
+                        if not groups_stats["error"]:
+                            groups_stats["error"] = str(e)[:120]
+                        continue
+                    grps = (gs_resp or {}).get("items") or []
+                    groups_stats["groups_seen"] += len(grps)
+                    for g in grps[:5]:
+                        gid = g.get("id")
+                        if not gid:
+                            continue
+                        try:
+                            gm_resp = await _call(client, "groups.getMembers", {
+                                "group_id": int(gid),
+                                "count": 200,
+                                "fields": _VK_USER_FIELDS,
+                                "sort": "time_desc",  # самые новые участники
+                            })
+                        except RuntimeError as e:
+                            logger.warning(f"groups.getMembers(gid={gid}) failed: {e}")
+                            continue
+                        members = (gm_resp or {}).get("items") or []
+                        for u in members:
+                            if not isinstance(u, dict):
+                                continue
+                            uid = u.get("id")
+                            if not isinstance(uid, int) or uid <= 0:
+                                continue
+                            if uid in seen:
+                                continue
+                            # Бот / сообщество в выдаче members — пропускаем.
+                            if u.get("deactivated"):
+                                continue
+                            from_groups_uids.append(uid)
+                            seen[uid] = u
+                            source_by_uid[uid] = "group_member"
+                groups_stats["members_fetched"] = len(from_groups_uids)
+                logger.info(
+                    f"fisherman_search({category_code}): groups source "
+                    f"+{len(from_groups_uids)} candidates "
+                    f"(from {groups_stats['groups_seen']} groups, "
+                    f"city_id={city_id or 'any'})"
+                )
+            except Exception as e:
+                logger.warning(f"groups source failed: {e}")
+                if not groups_stats["error"]:
+                    groups_stats["error"] = str(e)[:120]
+
         candidates_total = len(seen)
 
         # Фильтрация: bio_markers (или закрытый профиль) + реальность.
@@ -465,7 +538,7 @@ async def search_fishermen(
         )
 
     # Подсчёт распределения источников среди финальных кандидатов.
-    source_counts = {"users_search": 0, "newsfeed": 0}
+    source_counts = {"users_search": 0, "newsfeed": 0, "group_member": 0}
     for c in candidates:
         s = c.get("source") or "users_search"
         source_counts[s] = source_counts.get(s, 0) + 1
@@ -491,6 +564,7 @@ async def search_fishermen(
             "min_audience": min_audience,
             "rejected_reasons": rejected_reasons,
             "newsfeed": newsfeed_stats if include_newsfeed else None,
+            "groups": groups_stats if include_groups else None,
             "source_counts": source_counts,
             # Гео-фильтр: сколько отрезал пост-фильтр (≥ 0 если фильтр был задан).
             "city_id_used": city_id if city_id else None,
