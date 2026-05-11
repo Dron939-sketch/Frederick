@@ -1817,12 +1817,14 @@
         '</div>' +
         '<div id="vkFishCats" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">— загружаю категории —</div>' +
         '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">' +
-          // Город — пресеты VK city_id. 0 = вся РФ. Расширяем словарём
-          // VK_CITY_PRESETS ниже в этом IIFE.
-          '<label style="display:flex;align-items:center;gap:4px" title="Сузить поиск по городу. VK users.search фильтрует по city_id.">🌍 Гео:' +
+          // Город — пресеты. Для Москвы/СПб VK city_id стабилен (1/2),
+          // используем напрямую. Для прочих городов передаём data-name,
+          // бэк сам резолвит ID через VK database.getCities (надёжнее
+          // чем хардкод — VK ID у малых городов разный).
+          '<label style="display:flex;align-items:center;gap:4px" title="Сузить поиск по городу. Москва/СПб — точные city_id, прочие — резолв через VK API.">🌍 Гео:' +
             '<select id="vkFishCity" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit">' +
               '<option value="0">🇷🇺 Вся Россия</option>' +
-              '<option value="71">🏙️ Коломна, МО</option>' +
+              '<option value="0" data-name="Коломна">🏙️ Коломна, МО</option>' +
               '<option value="1">🏙️ Москва</option>' +
               '<option value="2">🏙️ Санкт-Петербург</option>' +
             '</select></label>' +
@@ -1871,15 +1873,13 @@
     });
     var ld = document.getElementById('loading'); if (ld) ld.style.display = 'none';
     document.getElementById('vkB2Tab').style.display = 'block';
-    // Восстанавливаем последний выбор города (оператор обычно гоняет
-    // несколько категорий по одной локации).
+    // Восстанавливаем последний выбор города по индексу опции
+    // (надёжнее чем value — несколько опций имеют value=0).
     try {
-      var saved = localStorage.getItem('fredi_fish_city_id') || '';
+      var savedIdx = parseInt(localStorage.getItem('fredi_fish_city_idx') || '0', 10);
       var sel = document.getElementById('vkFishCity');
-      if (sel && saved){
-        for (var i = 0; i < sel.options.length; i++){
-          if (sel.options[i].value === saved){ sel.selectedIndex = i; break; }
-        }
+      if (sel && savedIdx >= 0 && savedIdx < sel.options.length){
+        sel.selectedIndex = savedIdx;
       }
     } catch(_){}
     if (!fishCats) loadFishCats();
@@ -2036,29 +2036,40 @@
     var maxRes = parseInt(document.getElementById('vkFishMax').value || '20', 10);
     var cityEl = document.getElementById('vkFishCity');
     var cityId = parseInt((cityEl && cityEl.value) || '0', 10) || 0;
-    // Запоминаем выбор города — оператор обычно прогоняет несколько
-    // категорий по одной локации, не хочет каждый раз перевыбирать.
-    try { localStorage.setItem('fredi_fish_city_id', String(cityId)); } catch(_){}
+    // Если у выбранной опции есть data-name (для городов которые
+    // не хардкодим по id) — бэк резолвит ID через VK API.
+    var cityNameAttr = '';
+    if (cityEl){
+      var selOpt = cityEl.options[cityEl.selectedIndex];
+      if (selOpt) cityNameAttr = selOpt.getAttribute('data-name') || '';
+    }
+    // Запоминаем выбор — индекс опции (стабильнее чем value, т.к. у
+    // нескольких опций value=0 — Вся РФ и города с резолвом).
+    try {
+      localStorage.setItem('fredi_fish_city_idx', String((cityEl && cityEl.selectedIndex) || 0));
+    } catch(_){}
     var status = document.getElementById('vkFishStatus');
     var results = document.getElementById('vkFishResults');
     var cityLabel = cityEl ? (cityEl.options[cityEl.selectedIndex] || {}).text : '';
-    status.textContent = '⏳ ищу рыбаков' + (cityId ? ' · ' + cityLabel : '') + '…';
+    var hasGeoFilter = (cityId > 0) || !!cityNameAttr;
+    status.textContent = '⏳ ищу рыбаков' + (hasGeoFilter ? ' · ' + cityLabel : '') + '…';
     results.innerHTML = '';
     try {
       var useNF = !!(document.getElementById('vkFishUseNewsfeed') && document.getElementById('vkFishUseNewsfeed').checked);
       var qs = '?category=' + encodeURIComponent(fishSelectedCode) +
         '&min_audience=' + minAud + '&max_results=' + maxRes +
         '&include_newsfeed=' + (useNF ? 'true' : 'false');
+      // Передача гео в API:
+      //  - city_id > 0 (Москва=1, СПб=2) → стабильный VK ID
+      //  - city_id == 0 + cityNameAttr (Коломна) → бэк резолвит через VK API
+      //  - оба пустые → вся Россия, фильтр выключен
       if (cityId > 0){
         qs += '&city_id=' + cityId;
-        // city_name полезен для пост-фильтра по title — если у кандидата
-        // city.id null, но city.title есть, мы всё равно его не выкинем.
-        // Берём «чистое» название из лейбла («🏙️ Коломна, МО» → «Коломна»).
-        var cleanName = (cityLabel || '').replace(/^[^\wЀ-ӿ]+/, '')
-          .split(',')[0].trim();
-        if (cleanName){
-          qs += '&city_name=' + encodeURIComponent(cleanName);
+        if (cityNameAttr){
+          qs += '&city_name=' + encodeURIComponent(cityNameAttr);
         }
+      } else if (cityNameAttr){
+        qs += '&city_name=' + encodeURIComponent(cityNameAttr);
       }
       var r = await api('/api/admin/vk/fisherman-search' + qs, { method: 'POST' });
       lastFishermenSearch = {
@@ -2070,11 +2081,16 @@
       };
       var nFound = (r.candidates||[]).length;
       var filteredOut = (r.stats && r.stats.city_filtered_out) || 0;
+      var resolvedId = (r.stats && r.stats.city_id_used) || null;
+      var resolvedName = (r.stats && r.stats.city_name_used) || '';
       var geoNote = '';
-      if (cityId){
+      if (hasGeoFilter){
         geoNote = ' · ' + cityLabel;
+        if (resolvedId && resolvedName){
+          geoNote += ' (VK id=' + resolvedId + ')';
+        }
         if (filteredOut > 0){
-          geoNote += ' (отбросили ' + filteredOut + ' не из этого города)';
+          geoNote += ' · отбросили ' + filteredOut + ' не из этого города';
         }
         if (nFound === 0){
           geoNote += ' — в этом городе никого не нашли. Попробуй расширить категории, снизить «мин. аудитория» или другой город.';
