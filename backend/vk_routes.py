@@ -2070,6 +2070,7 @@ def register_vk_routes(app, db):
         min_audience: int = 100,
         max_results: int = 30,
         include_newsfeed: bool = False,
+        city_id: int = 0,  # 0 = вся Россия; >0 = конкретный VK city_id
         x_admin_token: Optional[str] = Header(default=None),
     ):
         _check_admin(x_admin_token)
@@ -2087,6 +2088,7 @@ def register_vk_routes(app, db):
                 min_audience=max(0, int(min_audience)),
                 max_results=max(5, min(int(max_results), 100)),
                 include_newsfeed=bool(include_newsfeed),
+                city_id=(int(city_id) if city_id and int(city_id) > 0 else None),
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={
