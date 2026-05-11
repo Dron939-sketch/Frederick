@@ -1260,6 +1260,94 @@ def register_vk_routes(app, db):
         )
 
     # =========================================================
+    # VK SEND VOICE — отправка нативного голосового сообщения
+    # рыбаку прямо из админ-панели. Сначала голосовое (audio_message),
+    # потом текст вдогонку. См. backend/vk_send_voice.py для деталей
+    # pipeline (TTS → ffmpeg OGG/Opus → docs.* → messages.send).
+    # =========================================================
+    @app.get("/api/admin/vk/token-info")
+    async def vk_token_info(
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Диагностика VK_SERVICE_TOKEN: user-token или service-token.
+        Нужен user-token для отправки голосовых (messages.send + docs.*)."""
+        _check_admin(x_admin_token)
+        try:
+            from vk_send_voice import _vk_token_info
+            info = await _vk_token_info()
+            return {"success": True, **info}
+        except Exception as e:
+            logger.error(f"vk_token_info failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @app.post("/api/admin/vk/send-voice")
+    async def vk_send_voice(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Отправить рыбаку голосовое + текст в личку.
+
+        Body: {
+          voice_text: str,    # текст для озвучки (без эмодзи/URL — желат.)
+          vk_peer_id: int,    # vk_id рыбака (для лички = его user_id)
+          text_followup: str?,# текст вдогонку (письмо целиком, опц.)
+        }
+        """
+        _check_admin(x_admin_token)
+        voice_text = (body.get("voice_text") or "").strip()
+        text_followup = (body.get("text_followup") or "").strip()
+        peer_raw = body.get("vk_peer_id") or body.get("peer_id") or 0
+        try:
+            peer_id = int(peer_raw)
+        except (TypeError, ValueError):
+            peer_id = 0
+        if not voice_text:
+            raise HTTPException(status_code=400, detail={
+                "error": "empty_voice_text",
+                "message": "voice_text обязателен",
+            })
+        if peer_id <= 0:
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_peer_id",
+                "message": "vk_peer_id должен быть положительным int",
+            })
+        # Жёсткий потолок длины — TTS дороже, голосовое >2 минут редко слушают.
+        if len(voice_text) > 4000:
+            raise HTTPException(status_code=400, detail={
+                "error": "voice_text_too_long",
+                "message": f"max 4000 символов (сейчас {len(voice_text)})",
+            })
+
+        try:
+            from vk_send_voice import send_voice_message_to_vk
+        except Exception as e:
+            logger.error(f"vk_send_voice import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "module_unavailable", "message": str(e),
+            })
+
+        try:
+            result = await send_voice_message_to_vk(
+                voice_text=voice_text,
+                vk_peer_id=peer_id,
+                text_followup=text_followup or None,
+            )
+        except RuntimeError as e:
+            # Понятные ошибки из pipeline (нет токена / TTS / ffmpeg / VK API).
+            raise HTTPException(status_code=502, detail={
+                "error": "send_failed",
+                "message": str(e),
+            })
+        except Exception as e:
+            logger.error(f"vk_send_voice unexpected: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "internal",
+                "message": str(e),
+            })
+
+        return {"success": True, **result}
+
+    # =========================================================
     # ПОИСК ПО ПРОБЛЕМЕ — альтернативный вход в воронку.
     # Не требует source-юзера Фреди: оператор выбирает категорию,
     # бэк тащит участников из тематических сообществ + фильтрует

@@ -2247,7 +2247,8 @@
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
         '<button id="vkMirrorCopy" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-weight:600;cursor:pointer">📋 Скопировать</button>' +
         '<button id="vkMirrorTts" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(168,85,247,0.5);background:transparent;color:#a855f7;font:inherit;font-weight:600;cursor:pointer" title="Сгенерировать mp3 — голос Фреди для отправки рыбаку">🔊 Озвучить</button>' +
-        '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:9px 14px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;text-decoration:none">💬 Открыть чат</a>' +
+        '<button id="vkMirrorSendVk" style="padding:9px 14px;border-radius:8px;border:none;background:linear-gradient(135deg,#0088cc,#5b9fd6);color:#fff;font:inherit;font-weight:700;cursor:pointer" title="Отправить голосовое + текст рыбаку в VK прямо сейчас">📨 Отправить в VK</button>' +
+        '<a href="' + esc(chatUrl) + '" target="_blank" rel="noopener" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(0,136,204,0.4);background:transparent;color:#0088cc;font:inherit;font-weight:600;cursor:pointer;text-decoration:none">💬 Открыть чат</a>' +
         markBtnHtml +
       '</div>' +
       // Зона для плеера mp3 + скачать/поделиться. Скрыта до первой генерации.
@@ -2357,6 +2358,85 @@
         } finally {
           ttsBtn.disabled = false;
           ttsBtn.textContent = origLabel;
+        }
+      });
+    }
+
+    // 📨 Отправить в VK: сначала нативное голосовое сообщение (OGG/Opus
+    // через docs.* + messages.send), потом текст письма вдогонку.
+    // Рыбак получит сначала voice-bubble с плеером, через секунду — текст.
+    var sendVkBtn = document.getElementById('vkMirrorSendVk');
+    if (sendVkBtn){
+      sendVkBtn.addEventListener('click', async function(){
+        var statusEl = document.getElementById('vkMirrorStatus');
+        var peerId = (cand && cand.vk_id) ? Number(cand.vk_id) : 0;
+        if (!peerId){
+          statusEl.textContent = '⚠ Нет vk_id у кандидата — не могу отправить.';
+          return;
+        }
+        // Текст для голоса — voice_script, для письма — msg.
+        var voiceTxt = (voice && voice.length > 20) ? voice :
+          (((document.querySelector('.vk-mirror-msg') || {}).innerText || '')
+            .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F900}-\u{1F9FF}]/gu, '')
+            .replace(/https?:\/\/\S+|www\.\S+/g, '').replace(/\s+/g, ' ').trim());
+        var textTxt = ((document.querySelector('.vk-mirror-msg') || {}).innerText || '').trim();
+        if (!voiceTxt){
+          statusEl.textContent = '⚠ Нет текста для озвучки.';
+          return;
+        }
+        if (!confirm(
+            'Отправить рыбаку «' + fullName + '» (vk.com/id' + peerId + ')?\n' +
+            '\n1) Голосовое сообщение (' + Math.round(voiceTxt.length/15) + ' сек примерно)' +
+            '\n2) Сразу следом — текст письма (' + textTxt.length + ' символов)' +
+            '\n\nДействие необратимо.')){
+          return;
+        }
+        sendVkBtn.disabled = true;
+        var origLabel = sendVkBtn.textContent;
+        sendVkBtn.textContent = '⏳ Отправляю…';
+        statusEl.textContent = 'Синтез mp3 → конверт в OGG/Opus → загрузка в VK → отправка (15-40 сек)…';
+        try {
+          var resp = await fetch(API + '/api/admin/vk/send-voice', {
+            method: 'POST',
+            headers: {
+              'X-Admin-Token': tok(),
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              voice_text: voiceTxt,
+              text_followup: textTxt,
+              vk_peer_id: peerId,
+            }),
+          });
+          var data = await resp.json().catch(function(){ return {}; });
+          if (!resp.ok || !data.success){
+            var emsg = (data && data.detail && (data.detail.message || data.detail.error))
+              || data.error || ('HTTP ' + resp.status);
+            throw new Error(emsg);
+          }
+          statusEl.innerHTML = '✓ Отправлено · voice_msg_id=' + (data.voice_message_id || '?') +
+            (data.text_message_id ? ', text_msg_id=' + data.text_message_id : '') +
+            ' · mp3=' + Math.round((data.mp3_size||0)/1024) + 'КБ · ogg=' +
+            Math.round((data.ogg_size||0)/1024) + 'КБ';
+          sendVkBtn.textContent = '✓ Отправлено';
+          // Авто-mark as 'sent', чтобы карточка получила бейдж.
+          try {
+            await api('/api/admin/vk/outreach-mark', {
+              method: 'POST',
+              body: {
+                vk_id: peerId,
+                status: 'sent',
+                category: (lastFishermenSearch && lastFishermenSearch.category) || '',
+              },
+            });
+            cand.marked = true; cand.marked_status = 'sent';
+            cand.marked_at = new Date().toISOString();
+          } catch (_){}
+        } catch(e){
+          statusEl.textContent = '⚠ Ошибка отправки: ' + esc(e.message || e);
+          sendVkBtn.disabled = false;
+          sendVkBtn.textContent = origLabel;
         }
       });
     }
