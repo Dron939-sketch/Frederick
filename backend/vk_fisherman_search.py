@@ -162,6 +162,7 @@ async def search_fishermen(
     min_audience: int = 100,
     max_results: int = 30,
     include_newsfeed: bool = False,
+    city_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Возвращает {category, candidates, stats}.
 
@@ -170,6 +171,13 @@ async def search_fishermen(
     последний ~месяц — это рыбаки, которые **активны прямо сейчас**.
     Старая идея «ловить рыбаков, ловящих страдальцев» (раньше мы их
     отсеивали как ложноположительные в проблем-поиске).
+
+    city_id: VK ID города. Если задан — users.search фильтрует только
+    жителей этого города. Известные ID:
+      71 — Коломна (Московская область)
+      1  — Москва
+      2  — Санкт-Петербург
+    Если None — поиск по всей России (country=1).
     """
     cat = get_fisherman(category_code)
     if not cat:
@@ -196,13 +204,18 @@ async def search_fishermen(
         for term in service_terms:
             search_attempts += 1
             try:
-                resp = await _call(client, "users.search", {
+                _us_params = {
                     "q": term,
                     "count": min(max_per_term, 1000),
                     "fields": _VK_USER_FIELDS,
                     "country": 1,  # Россия (для VK Россия = 1)
                     "has_photo": 1,
-                })
+                }
+                # Сузить по городу, если задан. VK users.search принимает
+                # параметр city (числовой ID). Без него — вся страна.
+                if city_id and int(city_id) > 0:
+                    _us_params["city"] = int(city_id)
+                resp = await _call(client, "users.search", _us_params)
                 search_success += 1
             except RuntimeError as e:
                 key = str(e).split(":")[0][:60]

@@ -1817,6 +1817,15 @@
         '</div>' +
         '<div id="vkFishCats" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">— загружаю категории —</div>' +
         '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">' +
+          // Город — пресеты VK city_id. 0 = вся РФ. Расширяем словарём
+          // VK_CITY_PRESETS ниже в этом IIFE.
+          '<label style="display:flex;align-items:center;gap:4px" title="Сузить поиск по городу. VK users.search фильтрует по city_id.">🌍 Гео:' +
+            '<select id="vkFishCity" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit">' +
+              '<option value="0">🇷🇺 Вся Россия</option>' +
+              '<option value="71">🏙️ Коломна, МО</option>' +
+              '<option value="1">🏙️ Москва</option>' +
+              '<option value="2">🏙️ Санкт-Петербург</option>' +
+            '</select></label>' +
           '<label style="display:flex;align-items:center;gap:4px" title="Минимум подписчиков+друзей у рыбака">Мин. аудитория:' +
             '<input id="vkFishMinAud" type="number" min="0" max="100000" step="100" value="100" style="width:80px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text);font:inherit"></label>' +
           '<label style="display:flex;align-items:center;gap:4px">Лимит:' +
@@ -1862,6 +1871,17 @@
     });
     var ld = document.getElementById('loading'); if (ld) ld.style.display = 'none';
     document.getElementById('vkB2Tab').style.display = 'block';
+    // Восстанавливаем последний выбор города (оператор обычно гоняет
+    // несколько категорий по одной локации).
+    try {
+      var saved = localStorage.getItem('fredi_fish_city_id') || '';
+      var sel = document.getElementById('vkFishCity');
+      if (sel && saved){
+        for (var i = 0; i < sel.options.length; i++){
+          if (sel.options[i].value === saved){ sel.selectedIndex = i; break; }
+        }
+      }
+    } catch(_){}
     if (!fishCats) loadFishCats();
   }
   function deactivate(){
@@ -2014,17 +2034,32 @@
     if (!fishSelectedCode){ return; }
     var minAud = parseInt(document.getElementById('vkFishMinAud').value || '100', 10);
     var maxRes = parseInt(document.getElementById('vkFishMax').value || '20', 10);
+    var cityEl = document.getElementById('vkFishCity');
+    var cityId = parseInt((cityEl && cityEl.value) || '0', 10) || 0;
+    // Запоминаем выбор города — оператор обычно прогоняет несколько
+    // категорий по одной локации, не хочет каждый раз перевыбирать.
+    try { localStorage.setItem('fredi_fish_city_id', String(cityId)); } catch(_){}
     var status = document.getElementById('vkFishStatus');
     var results = document.getElementById('vkFishResults');
-    status.textContent = '⏳ ищу рыбаков…';
+    var cityLabel = cityEl ? (cityEl.options[cityEl.selectedIndex] || {}).text : '';
+    status.textContent = '⏳ ищу рыбаков' + (cityId ? ' · ' + cityLabel : '') + '…';
     results.innerHTML = '';
     try {
       var useNF = !!(document.getElementById('vkFishUseNewsfeed') && document.getElementById('vkFishUseNewsfeed').checked);
-      var r = await api('/api/admin/vk/fisherman-search?category=' + encodeURIComponent(fishSelectedCode) +
+      var qs = '?category=' + encodeURIComponent(fishSelectedCode) +
         '&min_audience=' + minAud + '&max_results=' + maxRes +
-        '&include_newsfeed=' + (useNF ? 'true' : 'false'), { method: 'POST' });
-      lastFishermenSearch = { category: fishSelectedCode, candidates: r.candidates || [], stats: r.stats || {} };
-      status.textContent = '✓ найдено ' + (r.candidates||[]).length;
+        '&include_newsfeed=' + (useNF ? 'true' : 'false');
+      if (cityId > 0) qs += '&city_id=' + cityId;
+      var r = await api('/api/admin/vk/fisherman-search' + qs, { method: 'POST' });
+      lastFishermenSearch = {
+        category: fishSelectedCode,
+        candidates: r.candidates || [],
+        stats: r.stats || {},
+        city_id: cityId,
+        city_label: cityLabel,
+      };
+      status.textContent = '✓ найдено ' + (r.candidates||[]).length +
+        (cityId ? ' · ' + cityLabel : '');
       renderFish(r);
     } catch (e){
       status.textContent = '';
