@@ -13,11 +13,15 @@ backend/vk_mirror_pitch.py
     тревога → 7 техник, отношения → транзактный анализ Берна,
     сон → толкование+самогипноз, выгорание → дневник эмоций и т.д.
 
-Структура сообщения:
+Режим определяется автоматически: если category_meta пустой/без name_ru
+→ B2C; если есть категория (психолог/йог/...) → B2B. Можно
+override-нуть через b2c_mode=True/False.
+
+Структура сообщения одинаковая для обоих:
   1. Привет, [Имя]
   2. 🧠 ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ
   3. 🔥 АКТИВНАЯ БОЛЬ (с цитатой)
-  4. LLM-tail (B2B или B2C — зависит от режима)
+  4. LLM-tail (B2B или B2C)
   + параллельно voice_script
 
 5 LLM-вызовов: 3 в b2c_analyzer + 1 tail + 1 voice. ~$0.055.
@@ -52,8 +56,19 @@ _ARCHETYPE_RU = {
 }
 
 
+def _is_b2c_context(category_meta: Optional[Dict[str, Any]]) -> bool:
+    """Auto-detect B2C режима: пустой / без name_ru → это анализ конкретного
+    человека (не практика). Используется когда b2c_mode явно не передан."""
+    if not category_meta:
+        return True
+    if not isinstance(category_meta, dict):
+        return True
+    if not category_meta.get("name_ru") and not category_meta.get("code"):
+        return True
+    return False
+
+
 # === B2B (Mirror-pitch для практиков) ===
-# Концепция «психология вокруг твоего бизнеса с трёх сторон»
 _TAIL_SYSTEM = (
     "Ты — копирайтер. На вход — категория практика (психолог/коуч/йог/"
     "парикмахер/таролог/...) + его имя.\n\n"
@@ -196,7 +211,11 @@ _B2C_VOICE_SYSTEM = (
 
 
 async def _llm_tail(category_meta: Dict[str, Any], name: str,
-                    b2c_mode: bool = False) -> str:
+                    b2c_mode: Optional[bool] = None) -> str:
+    # Auto-detect: пустой category_meta → B2C
+    if b2c_mode is None:
+        b2c_mode = _is_b2c_context(category_meta)
+
     api_key = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
     if not api_key:
         return _fallback_tail(category_meta, b2c_mode=b2c_mode)
@@ -266,8 +285,12 @@ async def _llm_voice_script(
     pain: Dict[str, Any],
     category_meta: Dict[str, Any],
     first_name: str,
-    b2c_mode: bool = False,
+    b2c_mode: Optional[bool] = None,
 ) -> str:
+    # Auto-detect: пустой category_meta → B2C
+    if b2c_mode is None:
+        b2c_mode = _is_b2c_context(category_meta)
+
     api_key = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
     if not api_key:
         return _fallback_voice(category_meta, first_name, b2c_mode=b2c_mode)
@@ -527,13 +550,16 @@ async def generate_mirror_pitch(
         first_name=first_name,
     )
     import asyncio as _asyncio
+    # Mirror-pitch ВСЕГДА B2B (рыбак-практик с категорией) — явно передаём False
+    # чтобы исключить случайный auto-detect если category_meta вдруг пустой.
     tail, voice_script = await _asyncio.gather(
-        _llm_tail(category_meta, first_name or "коллега"),
+        _llm_tail(category_meta, first_name or "коллега", b2c_mode=False),
         _llm_voice_script(
             analysis.get("profile") or {},
             analysis.get("pain") or {},
             category_meta,
             first_name,
+            b2c_mode=False,
         ),
     )
 
