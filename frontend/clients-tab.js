@@ -2049,7 +2049,17 @@
       var qs = '?category=' + encodeURIComponent(fishSelectedCode) +
         '&min_audience=' + minAud + '&max_results=' + maxRes +
         '&include_newsfeed=' + (useNF ? 'true' : 'false');
-      if (cityId > 0) qs += '&city_id=' + cityId;
+      if (cityId > 0){
+        qs += '&city_id=' + cityId;
+        // city_name полезен для пост-фильтра по title — если у кандидата
+        // city.id null, но city.title есть, мы всё равно его не выкинем.
+        // Берём «чистое» название из лейбла («🏙️ Коломна, МО» → «Коломна»).
+        var cleanName = (cityLabel || '').replace(/^[^\wЀ-ӿ]+/, '')
+          .split(',')[0].trim();
+        if (cleanName){
+          qs += '&city_name=' + encodeURIComponent(cleanName);
+        }
+      }
       var r = await api('/api/admin/vk/fisherman-search' + qs, { method: 'POST' });
       lastFishermenSearch = {
         category: fishSelectedCode,
@@ -2058,8 +2068,19 @@
         city_id: cityId,
         city_label: cityLabel,
       };
-      status.textContent = '✓ найдено ' + (r.candidates||[]).length +
-        (cityId ? ' · ' + cityLabel : '');
+      var nFound = (r.candidates||[]).length;
+      var filteredOut = (r.stats && r.stats.city_filtered_out) || 0;
+      var geoNote = '';
+      if (cityId){
+        geoNote = ' · ' + cityLabel;
+        if (filteredOut > 0){
+          geoNote += ' (отбросили ' + filteredOut + ' не из этого города)';
+        }
+        if (nFound === 0){
+          geoNote += ' — в этом городе никого не нашли. Попробуй расширить категории, снизить «мин. аудитория» или другой город.';
+        }
+      }
+      status.textContent = '✓ найдено ' + nFound + geoNote;
       renderFish(r);
     } catch (e){
       status.textContent = '';

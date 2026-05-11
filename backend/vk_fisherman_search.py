@@ -131,6 +131,7 @@ def _candidate_dict(u: Dict[str, Any], cat_code: str, source: str = "users_searc
     name = " ".join(filter(None, [u.get("first_name"), u.get("last_name")])).strip()
     counters = u.get("counters") or {}
     occupation = u.get("occupation") or {}
+    city_obj = u.get("city") if isinstance(u.get("city"), dict) else {}
     return {
         "vk_id": u.get("id"),
         "first_name": u.get("first_name") or "",
@@ -138,7 +139,8 @@ def _candidate_dict(u: Dict[str, Any], cat_code: str, source: str = "users_searc
         "full_name": name,
         "sex": u.get("sex"),
         "bdate": u.get("bdate") or "",
-        "city": (u.get("city") or {}).get("title") if isinstance(u.get("city"), dict) else None,
+        "city": city_obj.get("title") if city_obj else None,
+        "city_id": city_obj.get("id") if city_obj else None,
         "status": (u.get("status") or "")[:200],
         "about": (u.get("about") or "")[:500],
         "occupation": occupation.get("name") if isinstance(occupation, dict) else None,
@@ -155,6 +157,68 @@ def _candidate_dict(u: Dict[str, Any], cat_code: str, source: str = "users_searc
     }
 
 
+# In-memory кэш для VK database.getCities. Резолв стоит 1 API-вызов
+# за город, кэшируем навсегда (city_id у VK стабилен).
+_CITY_RESOLVE_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+async def resolve_city(name: str) -> Optional[Dict[str, Any]]:
+    """Резолв названия города в VK city_id через database.getCities.
+    Возвращает {id, title, region} или None если не найдено.
+    Кэширует результат в памяти процесса."""
+    if not name or not name.strip():
+        return None
+    key = name.strip().lower()
+    if key in _CITY_RESOLVE_CACHE:
+        return _CITY_RESOLVE_CACHE[key]
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await _call(client, "database.getCities", {
+                "country_id": 1,  # Россия
+                "q": name.strip(),
+                "count": 5,
+                "need_all": 0,  # сначала города-миллионники
+            })
+        items = (resp or {}).get("items") or []
+        if not items:
+            # На вторую попытку с need_all=1 — расширенный список (>1000 человек).
+            async with httpx.AsyncClient() as client:
+                resp2 = await _call(client, "database.getCities", {
+                    "country_id": 1, "q": name.strip(), "count": 5, "need_all": 1,
+                })
+            items = (resp2 or {}).get("items") or []
+        if not items:
+            _CITY_RESOLVE_CACHE[key] = None
+            return None
+        # Берём первый — VK ранкингует по релевантности.
+        c = items[0]
+        result = {
+            "id": int(c.get("id")),
+            "title": c.get("title") or "",
+            "region": c.get("region") or "",
+        }
+        _CITY_RESOLVE_CACHE[key] = result
+        logger.info(f"🏙️ resolved city '{name}' → id={result['id']} ({result['title']}, {result['region']})")
+        return result
+    except Exception as e:
+        logger.warning(f"resolve_city('{name}') failed: {e}")
+        return None
+
+
+def _city_matches(cand: Dict[str, Any], target_id: int, target_name: str) -> bool:
+    """Пост-фильтр: кандидат подходит, если у него явно указан город
+    с этим city_id ИЛИ title содержит target_name. Без указанного города
+    — НЕ проходит (оператор хочет именно этот город)."""
+    cand_city_id = cand.get("city_id")
+    cand_city_title = (cand.get("city") or "").lower()
+    if cand_city_id and target_id and int(cand_city_id) == int(target_id):
+        return True
+    if target_name and cand_city_title:
+        if target_name.lower() in cand_city_title or cand_city_title in target_name.lower():
+            return True
+    return False
+
+
 async def search_fishermen(
     category_code: str,
     *,
@@ -163,6 +227,7 @@ async def search_fishermen(
     max_results: int = 30,
     include_newsfeed: bool = False,
     city_id: Optional[int] = None,
+    city_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Возвращает {category, candidates, stats}.
 
@@ -382,6 +447,23 @@ async def search_fishermen(
         for u in after_audience
     ]
 
+    # Строгий пост-фильтр по городу. VK users.search с параметром city
+    # не всегда строго фильтрует (включает «соседей» и тех, у кого
+    # city не указан в профиле). Дополнительно: newsfeed.search вообще
+    # не знает про city. Поэтому здесь финально оставляем только тех,
+    # у кого явно указан совпадающий city_id или title.
+    city_filtered_out = 0
+    if city_id and int(city_id) > 0:
+        target_id = int(city_id)
+        target_name = (city_name or "").strip()
+        before = len(candidates)
+        candidates = [c for c in candidates if _city_matches(c, target_id, target_name)]
+        city_filtered_out = before - len(candidates)
+        logger.info(
+            f"🏙️ city post-filter: target_id={target_id} ({target_name or '-'}) "
+            f"kept {len(candidates)}/{before} (filtered out {city_filtered_out})"
+        )
+
     # Подсчёт распределения источников среди финальных кандидатов.
     source_counts = {"users_search": 0, "newsfeed": 0}
     for c in candidates:
@@ -410,5 +492,9 @@ async def search_fishermen(
             "rejected_reasons": rejected_reasons,
             "newsfeed": newsfeed_stats if include_newsfeed else None,
             "source_counts": source_counts,
+            # Гео-фильтр: сколько отрезал пост-фильтр (≥ 0 если фильтр был задан).
+            "city_id_used": city_id if city_id else None,
+            "city_name_used": city_name if city_name else None,
+            "city_filtered_out": city_filtered_out if (city_id and int(city_id) > 0) else 0,
         },
     }

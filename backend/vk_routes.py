@@ -2071,16 +2071,31 @@ def register_vk_routes(app, db):
         max_results: int = 30,
         include_newsfeed: bool = False,
         city_id: int = 0,  # 0 = вся Россия; >0 = конкретный VK city_id
+        city_name: str = "",  # альтернатива city_id — название, резолвится через database.getCities
         x_admin_token: Optional[str] = Header(default=None),
     ):
         _check_admin(x_admin_token)
         try:
-            from vk_fisherman_search import search_fishermen
+            from vk_fisherman_search import search_fishermen, resolve_city
         except Exception as e:
             logger.error(f"vk_fisherman_search import failed: {e}")
             raise HTTPException(status_code=500, detail={
                 "error": "fisherman_search_unavailable", "message": str(e),
             })
+
+        # Если передали имя без ID — резолвим через VK database.getCities.
+        # Это надёжнее хардкода city_id на фронте (VK может менять ID
+        # или дополнять списком новых городов).
+        resolved_name = (city_name or "").strip()
+        if (not city_id or int(city_id) <= 0) and resolved_name:
+            try:
+                rc = await resolve_city(resolved_name)
+                if rc:
+                    city_id = rc["id"]
+                    resolved_name = rc["title"]
+            except Exception as e:
+                logger.warning(f"resolve_city({city_name}) failed: {e}")
+
         try:
             result = await search_fishermen(
                 category_code=str(category),
@@ -2089,6 +2104,7 @@ def register_vk_routes(app, db):
                 max_results=max(5, min(int(max_results), 100)),
                 include_newsfeed=bool(include_newsfeed),
                 city_id=(int(city_id) if city_id and int(city_id) > 0 else None),
+                city_name=resolved_name or None,
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={
