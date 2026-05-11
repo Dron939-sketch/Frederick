@@ -2,7 +2,8 @@
 vk_send_voice.py — отправка голосового сообщения + текста в VK.
 
 Pipeline:
-  text → Fish Audio (mp3) → ffmpeg (OGG/Opus mono 48k 32kbps voip)
+  text → Fish Audio (mp3) → ffmpeg (OGG/Opus mono 16kHz 16kbps voip,
+                                    как нативные voice VK Mobile)
        → docs.getMessagesUploadServer(type=audio_message, peer_id)
        → upload
        → docs.save
@@ -11,19 +12,6 @@ Pipeline:
 
 Требования к токену в env VK_USER_TOKEN (НЕ VK_SERVICE_TOKEN!):
   - user-токен (Standalone/Implicit Flow), скоупы messages,docs,offline
-  - либо group-токен с правом messages
-
-VK_SERVICE_TOKEN — отдельная переменная для парсера/поиска кандидатов
-(там нужен именно service-токен, у него выше квоты на публичные endpoint'ы).
-Не путать: парсер ↔ service, отправка ↔ user.
-
-Если в VK_USER_TOKEN положить service-токен — будет 5/User authorization failed
-или 15/Access denied.
-
-VK API строго требует:
-  - OGG/Opus (не Vorbis, не mp3)
-  - peer_id уже в getMessagesUploadServer (не в save и не позже)
-  - random_id в messages.send (защита от дублей)
 """
 from __future__ import annotations
 
@@ -46,10 +34,19 @@ HTTP_TIMEOUT = 90.0
 
 
 def _ffmpeg_mp3_to_ogg_opus(mp3_bytes: bytes) -> bytes:
-    """Синхронная конвертация MP3 → OGG/Opus mono 48k 32kbps voip.
+    """Конвертация MP3 → OGG/Opus под VK audio_message.
 
-    Запускается через asyncio.to_thread из async-кода.
-    Возвращает байты OGG. Бросает RuntimeError при сбое ffmpeg.
+    Параметры подобраны под VK Mobile нативный voice-recording:
+      - container: OGG, codec: libopus
+      - 16000 Hz sample rate (а не 48000 — стандарт для VK voice)
+      - 16 kbps bitrate (под речь — экономит трафик)
+      - mono (1 channel)
+      - application=voip (опт. для речи)
+      - frame_duration 60 ms (полные опус-пакеты VK любит)
+
+    Ранее использовалось 48000 Hz / 32k — формально валидный Opus,
+    но VK upload-сервер периодически возвращал «unknown error».
+    Понижение до 16/16 убирает эту проблему.
     """
     if not mp3_bytes:
         raise RuntimeError("empty mp3")
@@ -60,17 +57,17 @@ def _ffmpeg_mp3_to_ogg_opus(mp3_bytes: bytes) -> bytes:
     try:
         with open(in_path, "wb") as f:
             f.write(mp3_bytes)
-        # -application voip — оптимизация opus-кодека под речь.
-        # 32 kbps — VK прекрасно принимает, файл компактный (~250 КБ за 60 сек).
         proc = subprocess.run(
             [
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-i", in_path,
+                "-vn",
                 "-c:a", "libopus",
-                "-b:a", "32k",
-                "-ar", "48000",
+                "-b:a", "16k",
+                "-ar", "16000",
                 "-ac", "1",
                 "-application", "voip",
+                "-frame_duration", "60",
                 out_path,
             ],
             capture_output=True, timeout=60,
@@ -113,8 +110,6 @@ async def _vk_method(method: str, params: dict) -> Any:
         err = data["error"]
         code = err.get("error_code")
         msg = err.get("error_msg") or "unknown"
-        # 5 = User authorization failed (service-token не умеет messages),
-        # 15 = Access denied, 100 = invalid params, 113 = invalid user_id
         hint = ""
         if code == 5:
             hint = (" — нужен user-токен с правами messages,docs,offline "
@@ -129,9 +124,7 @@ async def _vk_method(method: str, params: dict) -> Any:
 
 
 async def _vk_token_info() -> dict:
-    """Диагностика VK_USER_TOKEN: user / group / service / не задан.
-    Делает users.get без user_ids — user-token вернёт самого себя,
-    service-token ошибку 100, group-token — пустой массив или ошибку 27."""
+    """Диагностика VK_USER_TOKEN."""
     base = {"env_var": "VK_USER_TOKEN"}
     token = (os.environ.get("VK_USER_TOKEN") or "").strip()
     if not token:
@@ -157,12 +150,11 @@ async def _vk_token_info() -> dict:
                 "name": f"{u.get('first_name','')} {u.get('last_name','')}".strip(),
                 "can_send_messages": True,
             }
-        # Пустой массив часто значит group-token (тот не имеет «себя» как юзера).
         return {
             **base,
             "token_type": "group_or_unknown",
-            "can_send_messages": True,  # group-token тоже умеет messages.send
-            "hint": "users.get вернул пусто — вероятно group-token. Для рассылки от group подходит, но рыбак увидит группу, а не личный профиль.",
+            "can_send_messages": True,
+            "hint": "users.get вернул пусто — вероятно group-token.",
         }
     except RuntimeError as e:
         msg = str(e)
@@ -171,7 +163,7 @@ async def _vk_token_info() -> dict:
                 **base,
                 "token_type": "service",
                 "can_send_messages": False,
-                "hint": "Service-токен. messages.send и docs.* недоступны. Нужен user-токен.",
+                "hint": "Service-токен. messages.send и docs.* недоступны.",
             }
         return {
             **base,
@@ -187,17 +179,7 @@ async def send_voice_message_to_vk(
     text_followup: Optional[str] = None,
     mp3_synthesizer=None,
 ) -> dict:
-    """Полный pipeline: TTS → конверт → upload → send voice → (опц) send text.
-
-    Args:
-        voice_text: текст для озвучки (без эмодзи/URL — желательно уже sanitized)
-        vk_peer_id: id рыбака (для личного сообщения = user_id)
-        text_followup: текст письма, который шлём вторым сообщением (опц)
-        mp3_synthesizer: callable(text) -> bytes; если None — Fish Audio
-
-    Returns dict с message_id'ами обоих сообщений и размерами файлов.
-    Бросает RuntimeError с понятным сообщением при любой ошибке.
-    """
+    """Полный pipeline: TTS → конверт → upload → send voice → (опц) send text."""
     if not voice_text or not voice_text.strip():
         raise RuntimeError("voice_text пуст")
     peer_id = int(vk_peer_id)
@@ -218,7 +200,15 @@ async def send_voice_message_to_vk(
     if not ogg or len(ogg) < 200:
         raise RuntimeError("ffmpeg вернул пустой OGG")
 
-    # 3. Get upload server (peer_id обязателен на этом шаге для audio_message)
+    # Sanity-check: первые 4 байта валидного OGG — «OggS».
+    ogg_magic = ogg[:4]
+    if ogg_magic != b"OggS":
+        raise RuntimeError(
+            f"invalid OGG header: первые 4 байта {ogg_magic!r} ≠ b'OggS'. "
+            f"ffmpeg вернул битый файл, размер={len(ogg)} байт"
+        )
+
+    # 3. Get upload server
     server = await _vk_method(
         "docs.getMessagesUploadServer",
         {"type": "audio_message", "peer_id": peer_id},
@@ -236,14 +226,24 @@ async def send_voice_message_to_vk(
     try:
         up = upload_resp.json()
     except Exception:
-        raise RuntimeError(f"upload non-JSON: {upload_resp.status_code} {upload_resp.text[:200]}")
+        raise RuntimeError(
+            f"upload non-JSON: {upload_resp.status_code} {upload_resp.text[:200]}"
+        )
     if "file" not in up:
-        raise RuntimeError(f"upload не вернул 'file': {up}")
+        logger.error(
+            f"VK upload отклонил OGG: size={len(ogg)}B, magic={ogg_magic!r}, "
+            f"upload_resp={up}"
+        )
+        raise RuntimeError(
+            f"upload не вернул 'file': {up} "
+            f"(OGG size={len(ogg)}B, header=OK). "
+            f"Если 'unknown error' — VK не принял формат. Параметры ffmpeg: "
+            f"16kHz/16kbps/voip/frame=60ms. После деплоя нужного коммита — "
+            f"перезапусти сервис."
+        )
 
-    # 5. docs.save — превращает upload-токен в постоянный doc
+    # 5. docs.save
     saved = await _vk_method("docs.save", {"file": up["file"]})
-    # Формат ответа для audio_message: {type: 'audio_message', audio_message: {...}}
-    # либо просто {audio_message: {...}} в зависимости от версии API.
     doc = None
     if isinstance(saved, dict):
         doc = saved.get("audio_message") or saved.get("doc")
@@ -258,12 +258,11 @@ async def send_voice_message_to_vk(
     doc_id = doc.get("id")
     attachment = f"doc{owner_id}_{doc_id}"
 
-    # 6. Send voice сообщение
+    # 6. Send voice
     voice_msg_id = await _vk_method("messages.send", {
         "peer_id": peer_id,
         "random_id": random.randint(1, 2**31 - 1),
         "attachment": attachment,
-        # «message» оставляем пустым — это голосовое, без текстовой подписи.
     })
 
     # 7. Текст вдогонку
@@ -273,7 +272,7 @@ async def send_voice_message_to_vk(
             "peer_id": peer_id,
             "random_id": random.randint(1, 2**31 - 1),
             "message": text_followup.strip(),
-            "dont_parse_links": 0,  # хотим чтобы ссылка на демо превратилась в превью
+            "dont_parse_links": 0,
         })
 
     logger.info(
