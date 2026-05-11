@@ -259,6 +259,11 @@ def register_vk_routes(app, db):
                     created_at   TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            # Миграция: голосовой скрипт (отдельный текст для TTS, дополняет message).
+            await conn.execute(
+                "ALTER TABLE fredi_vk_mirror_pitches "
+                "ADD COLUMN IF NOT EXISTS voice_script TEXT"
+            )
 
             # Phase 12: пометки «кому отправляли» — защита от повторной
             # рассылки. Оператор сам жмёт «отметить отправленным» в UI
@@ -2188,18 +2193,23 @@ def register_vk_routes(app, db):
             try:
                 async with db.get_connection() as conn:
                     cached = await conn.fetchrow(
-                        "SELECT message, vk_url, vk_chat_url, full_name, category "
+                        "SELECT message, voice_script, vk_url, vk_chat_url, full_name, category "
                         "FROM fredi_vk_mirror_pitches WHERE vk_id = $1",
                         vk_id_int,
                     )
                 if cached and "КАК С ТОБОЙ МОЖНО ЗАЙТИ" in (cached["message"] or ""):
                     cached = None  # stale, regenerate
+                # Старые записи без voice_script — пересоздаём, чтобы у юзера
+                # появился голосовой вариант (5-й LLM-вызов, ~$0.005).
+                if cached and not (cached["voice_script"] or "").strip():
+                    cached = None
                 if cached:
                     return {
                         "success": True,
                         "cached": True,
                         "vk_id": vk_id_int,
                         "message": cached["message"],
+                        "voice_script": cached["voice_script"] or "",
                         "vk_url": cached["vk_url"] or "",
                         "vk_chat_url": cached["vk_chat_url"] or f"https://vk.com/im?sel={vk_id_int}",
                         "full_name": cached["full_name"] or "",
@@ -2248,18 +2258,20 @@ def register_vk_routes(app, db):
                     await conn.execute(
                         """
                         INSERT INTO fredi_vk_mirror_pitches
-                            (vk_id, message, vk_url, vk_chat_url, full_name, category)
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                            (vk_id, message, voice_script, vk_url, vk_chat_url, full_name, category)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
                         ON CONFLICT (vk_id) DO UPDATE SET
-                            message     = EXCLUDED.message,
-                            vk_url      = EXCLUDED.vk_url,
-                            vk_chat_url = EXCLUDED.vk_chat_url,
-                            full_name   = EXCLUDED.full_name,
-                            category    = EXCLUDED.category,
-                            created_at  = NOW()
+                            message      = EXCLUDED.message,
+                            voice_script = EXCLUDED.voice_script,
+                            vk_url       = EXCLUDED.vk_url,
+                            vk_chat_url  = EXCLUDED.vk_chat_url,
+                            full_name    = EXCLUDED.full_name,
+                            category     = EXCLUDED.category,
+                            created_at   = NOW()
                         """,
                         int(new_vk_id),
                         result["message"],
+                        result.get("voice_script") or "",
                         (result.get("vk_url") or "")[:500],
                         (result.get("vk_chat_url") or "")[:500],
                         (result.get("full_name") or "")[:200],
