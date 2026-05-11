@@ -1836,6 +1836,12 @@
             '<input id="vkFishHideSent" type="checkbox" style="margin:0">скрыть отправленных</label>' +
           '<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Дополнительно искать по постам в ленте за последний месяц — авторов на тему ниши. Активные рыбаки. Медленнее на 10-30 сек.">' +
             '<input id="vkFishUseNewsfeed" type="checkbox" style="margin:0">📡 + посты из ленты</label>' +
+          // Новый источник: тематические группы в выбранном городе.
+          // Особенно полезно для малых городов где users.search даёт 1-2
+          // результата — добавляет десятки реальных участников йога-студий
+          // и т.д. независимо от того, что у них в имени VK.
+          '<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Найти тематические группы (йога-студии, школы коучинга и т.п.) в выбранном городе → взять их участников. +десятки кандидатов в малых городах. Медленнее на 20-40 сек.">' +
+            '<input id="vkFishUseGroups" type="checkbox" style="margin:0">🏘 + участники групп</label>' +
           '<button id="vkFishSearchBtn" disabled style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent-grad);color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.6">🎣 Найти рыбаков</button>' +
           '<span id="vkFishStatus" style="color:var(--text-dim)"></span>' +
         '</div>' +
@@ -2056,9 +2062,11 @@
     results.innerHTML = '';
     try {
       var useNF = !!(document.getElementById('vkFishUseNewsfeed') && document.getElementById('vkFishUseNewsfeed').checked);
+      var useGroups = !!(document.getElementById('vkFishUseGroups') && document.getElementById('vkFishUseGroups').checked);
       var qs = '?category=' + encodeURIComponent(fishSelectedCode) +
         '&min_audience=' + minAud + '&max_results=' + maxRes +
-        '&include_newsfeed=' + (useNF ? 'true' : 'false');
+        '&include_newsfeed=' + (useNF ? 'true' : 'false') +
+        '&include_groups=' + (useGroups ? 'true' : 'false');
       // Передача гео в API:
       //  - city_id > 0 (Москва=1, СПб=2) → стабильный VK ID
       //  - city_id == 0 + cityNameAttr (Коломна) → бэк резолвит через VK API
@@ -2093,7 +2101,9 @@
           geoNote += ' · отбросили ' + filteredOut + ' не из этого города';
         }
         if (nFound === 0){
-          geoNote += ' — в этом городе никого не нашли. Попробуй расширить категории, снизить «мин. аудитория» или другой город.';
+          geoNote += ' — в этом городе никого не нашли. Попробуй: 🏘 + участники групп, 📡 + посты из ленты, или снизить «мин. аудитория».';
+        } else if (nFound < 5 && !useGroups){
+          geoNote += ' · 💡 включи «🏘 + участники групп» — обычно даёт +десятки кандидатов';
         }
       }
       status.textContent = '✓ найдено ' + nFound + geoNote;
