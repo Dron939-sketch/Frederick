@@ -9,11 +9,17 @@ backend/vk_b2c_analyzer.py
 несколько проходов LLM.
 
   Pass 1 (psychological_profile): анкета + посты → DeepSeek → портрет.
+    Включает COGNITIVE_STYLE (rational/irrational) — определяет, какие
+    модули Фреди мы будем предлагать (рациональным — тест/Берн/
+    зеркало, иррациональным — таро/гороскоп/толкование снов/сказки).
   Pass 2 (active_pain): профиль + посты → DeepSeek →
     конкретная активная боль ИЛИ baseline-потребность через факт
     ведения публичной страницы (внимание/одобрение/признание/
     отражение/идентичность).
   Pass 3 (hooks): профиль + боль + цитаты → 3 крючка с self-score.
+
+Возвращаем также gender (f/m/n) из VK user.sex — pitch использует
+для правильных окончаний глаголов прошедшего времени.
 """
 
 from __future__ import annotations
@@ -48,13 +54,27 @@ _PROFILE_SYSTEM = (
     "  • архетип по Марк-Пирсон (один из 12: INNOCENT/SAGE/EXPLORER/HERO/"
     "    OUTLAW/MAGICIAN/LOVER/JESTER/EVERYMAN/CREATOR/RULER/CAREGIVER)\n"
     "  • уровень публичной открытости (закрыт/средне/открыт)\n"
+    "  • cognitive_style (rational|irrational) — ВАЖНО, определяется по "
+    "контенту страницы:\n"
+    "    RATIONAL — опирается на факты, логику, метрики, «по данным», "
+    "ссылки на исследования, бизнес-литературу, критическое мышление, "
+    "профессиональные термины, систему, процессы, цели и KPI. Цитирует "
+    "учёных, авторов методологий. Пишет аналитически.\n"
+    "    IRRATIONAL — опирается на интуицию, эмоции, метафоры, эзотерику, "
+    "астрологию («ретроградный меркурий», «лунный календарь»), знаки "
+    "вселенной, «ангелы-хранители», карты Таро, нумерология, цитаты-"
+    "афоризмы без источников, мистицизм, «энергия», «вибрации», поэзия, "
+    "сны и предчувствия. Пишет образно, метафорично.\n"
+    "    Если смешанно — выбери преобладающий стиль. Если строго не "
+    "определяется — RATIONAL по умолчанию.\n"
     "Возвращай СТРОГО JSON:\n"
     "{\n"
     "  \"profile\": \"3-5 предложений психологический портрет\",\n"
     "  \"defenses\": [\"защита1\", \"защита2\"],\n"
     "  \"patterns\": [\"паттерн1\", \"паттерн2\"],\n"
     "  \"archetype\": \"CODE\",\n"
-    "  \"openness\": \"закрыт|средне|открыт\"\n"
+    "  \"openness\": \"закрыт|средне|открыт\",\n"
+    "  \"cognitive_style\": \"rational|irrational\"\n"
     "}\n"
     "Без markdown, только JSON."
 )
@@ -92,8 +112,10 @@ _PAIN_SYSTEM = (
     "  \"pain_active\": \"что болит ИЛИ какая потребность за ведением "
     "страницы, 1-2 предложения\",\n"
     "  \"pain_intensity\": \"низкая|средняя|высокая\",\n"
-    "  \"pain_type\": \"acute|baseline_attention|baseline_recognition|"
-    "baseline_approval|baseline_reflection|baseline_identity\",\n"
+    "  \"pain_type\": \"acute_anxiety|acute_sleep|acute_relationships|"
+    "acute_burnout|acute_identity|acute_meaning|acute_habits|acute_grief|"
+    "baseline_attention|baseline_recognition|baseline_approval|"
+    "baseline_reflection|baseline_identity\",\n"
     "  \"evidence_quotes\": [\"его реальные цитаты\"],\n"
     "  \"desired_outcome\": \"чего он хочет (например: быть услышанным; "
     "разобраться с тревогой; перестать спорить с собой)\",\n"
@@ -169,6 +191,25 @@ def _resolve_screen_name(url_or_name: str) -> str:
         s = s.split("/", 1)[0]
     s = s.strip().rstrip("/")
     return s
+
+
+def _vk_sex_to_gender(sex: Any) -> str:
+    """VK user.sex → 'f' | 'm' | 'n'.
+
+    VK: 1 = женский, 2 = мужской, 0/missing = не указан.
+    'n' = нейтральные обращения (дефолт у Фреди — женские, т.к. ЦА
+    преимущественно женская, но если VK явно вернул 'не указан' —
+    остаёмся нейтральными).
+    """
+    try:
+        s = int(sex)
+    except (TypeError, ValueError):
+        return "n"
+    if s == 1:
+        return "f"
+    if s == 2:
+        return "m"
+    return "n"
 
 
 async def _deepseek(
@@ -321,10 +362,13 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         logger.warning(f"analyze_profile: pass3 failed: {e}")
         hooks = {"error": str(e)}
 
+    user_obj = vk_data.get("user") if isinstance(vk_data.get("user"), dict) else {}
+    gender = _vk_sex_to_gender(user_obj.get("sex"))
+
     return {
         "vk_data": {
             "user_basic": {
-                k: (vk_data["user"].get(k) if isinstance(vk_data.get("user"), dict) else None)
+                k: user_obj.get(k)
                 for k in (
                     "id", "first_name", "last_name", "sex", "bdate",
                     "status", "about", "is_closed", "photo_max",
@@ -336,5 +380,6 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         "profile": profile,
         "pain": pain,
         "hooks": hooks,
+        "gender": gender,
         "vk_url": f"https://vk.com/{sn}",
     }
