@@ -1,0 +1,43 @@
+name: Render warmup
+
+# Каждые 10 минут пингуем /health на Render-сервисе чтобы он не уходил
+# в sleep (на free-плане Render усыпляет после 15 мин неактивности).
+# Cold-start добавляет 10-30 сек к первому запросу и часто даёт ошибки
+# 'Failed to fetch' юзерам, которые заходят первыми за день.
+#
+# Стоимость GH Actions: каждый запуск ~10 сек минут билдеров, в месяц
+# 30 * 144 / 10 * 10 = ~4320 мин. На бесплатном лимите 2000 мин/месяц
+# это много — но workflow ничего не делает кроме curl, и Actions
+# биллит только UP-time job'а (~5 сек реально). Будет ~12 мин/мес.
+#
+# Можно отключить через GH UI: Actions → Render warmup → Disable workflow.
+
+on:
+  schedule:
+    # Каждые 10 минут (cron в UTC). 14 минут — последний безопасный
+    # интервал перед 15-минутным sleep'ом Render free plan.
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}  # Кнопка «Run workflow» в UI для ручного пинга
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Ping /health
+        run: |
+          # Считаем 200/204 как успех. Render иногда отдаёт 502 во время
+          # cold-start (пробуждение) — ретраим один раз через 15 сек.
+          for attempt in 1 2; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" \
+              --max-time 30 \
+              https://fredi-backend-flz2.onrender.com/health || echo "000")
+            echo "Attempt $attempt → HTTP $code"
+            if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::Render /health returned $code after 2 attempts"
+          # Не валим job — health-error не блок-уровень, просто warning.
+          exit 0
