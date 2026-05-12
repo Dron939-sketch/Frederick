@@ -806,6 +806,62 @@ def register_analytics_routes(app, db):
             })
 
     # ============================================================
+    # 📨 Messenger broadcast — массовая отправка на собранные chat_id
+    # ============================================================
+    @app.post("/api/analytics/messenger-broadcast")
+    async def messenger_broadcast(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        try:
+            from services.messenger_broadcast import broadcast, init_broadcast_table
+            await init_broadcast_table(db)
+        except Exception as e:
+            logger.error(f"messenger_broadcast import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "module_unavailable", "message": str(e),
+            })
+
+        text = (body or {}).get("text", "")
+        platform = (body or {}).get("platform", "max")
+        target = (body or {}).get("target", "all")
+        user_ids = (body or {}).get("user_ids") or None
+        test_chat_id = (body or {}).get("test_chat_id") or None
+        broadcast_kind = (body or {}).get("kind", "manual")
+        cooldown_hours = int((body or {}).get("cooldown_hours", 24))
+        dry_run = bool((body or {}).get("dry_run", False))
+
+        try:
+            if isinstance(user_ids, list):
+                user_ids = [int(u) for u in user_ids if str(u).isdigit()]
+                if not user_ids:
+                    user_ids = None
+        except Exception:
+            user_ids = None
+
+        try:
+            result = await broadcast(
+                db,
+                text=text,
+                platform=platform,
+                target=target,
+                user_ids=user_ids,
+                test_chat_id=test_chat_id,
+                broadcast_kind=str(broadcast_kind)[:64],
+                cooldown_hours=cooldown_hours,
+                dry_run=dry_run,
+            )
+        except Exception as e:
+            logger.error(f"broadcast failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "broadcast_failed", "message": str(e),
+            })
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result)
+        return {"success": True, **result}
+
+    # ============================================================
     # VK auto-outreach routes — регистрируем здесь, в той же chain'е,
     try:
         from vk_routes import register_vk_routes as _register_vk_routes
