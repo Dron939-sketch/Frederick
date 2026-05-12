@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+backend/services/messenger_broadcast.py
+Массовая рассылка по собранным MAX/Telegram chat_id.
+
+Цель: использовать собранные точки контакта (fredi_messenger_links)
+как канал реактивации — слать дайджесты, апселл подписки, релизы.
+
+Защита от спама:
+  • rate-limit: 1 сек между отправками одной платформы
+  • cooldown 24ч на chat_id для одного и того же broadcast_kind
+    (через fredi_broadcast_log)
+  • опциональный test_chat_id — отправить только в один чат
+    (для админа сначала проверить)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from typing import Any, Dict, List, Optional, Tuple
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip()
+MAX_TOKEN = (os.environ.get("MAX_TOKEN") or "").strip()
+
+# 1 сек между отправками одной платформы — VK/TG/MAX rate-limit safe.
+DEFAULT_DELAY_SEC = 1.0
+MAX_BROADCAST_SIZE = 5000  # защита от случайного «отправить миллиону»
+
+
+BROADCAST_LOG_SQL = """
+CREATE TABLE IF NOT EXISTS fredi_broadcast_log (
+    id BIGSERIAL PRIMARY KEY,
+    broadcast_kind TEXT NOT NULL DEFAULT 'manual',
+    platform TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    user_id BIGINT,
+    text TEXT,
+    status TEXT NOT NULL DEFAULT 'sent',
+    error_message TEXT,
+    sent_at TIMESTAMPTZ DEFAULT NOW()
+)
+"""
+BROADCAST_LOG_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_fredi_broadcast_log_kind_chat "
+    "ON fredi_broadcast_log(broadcast_kind, chat_id, sent_at DESC)"
+)
+
+
+async def init_broadcast_table(db) -> None:
+    async with db.get_connection() as conn:
+        await conn.execute(BROADCAST_LOG_SQL)
+        await conn.execute(BROADCAST_LOG_INDEX)
+
+
+async def _tg_send_text(client: httpx.AsyncClient, chat_id: str, text: str) -> Tuple[bool, str]:
+    if not TELEGRAM_TOKEN:
+        return False, "TELEGRAM_TOKEN not set"
+    try:
+        r = await client.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=15.0,
+        )
+        if r.status_code == 200:
+            return True, ""
+        return False, f"HTTP {r.status_code}: {r.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
+async def _max_send_text(client: httpx.AsyncClient, chat_id: str, text: str) -> Tuple[bool, str]:
+    if not MAX_TOKEN:
+        return False, "MAX_TOKEN not set"
+    try:
+        r = await client.post(
+            "https://platform-api.max.ru/messages",
+            params={"chat_id": int(chat_id), "access_token": MAX_TOKEN},
+            json={"text": text},
+            headers={"Authorization": MAX_TOKEN, "Content-Type": "application/json"},
+            timeout=15.0,
+        )
+        if r.status_code == 200:
+            return True, ""
+        return False, f"HTTP {r.status_code}: {r.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
+async def _fetch_recipients(
+    db, platform: str, target: str, user_ids: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    """Возвращает список получателей по фильтру.
+
+    platform: 'max' | 'telegram'
+    target:   'all' | 'last_7d' | 'last_30d' | 'specific'
+    user_ids: используется когда target='specific'
+    """
+    args: List[Any] = [platform]
+    sql = (
+        "SELECT user_id, chat_id, username "
+        "FROM fredi_messenger_links "
+        "WHERE platform = $1 AND is_active = TRUE "
+    )
+    if target == "last_7d":
+        sql += "AND linked_at > NOW() - INTERVAL '7 days' "
+    elif target == "last_30d":
+        sql += "AND linked_at > NOW() - INTERVAL '30 days' "
+    elif target == "specific" and user_ids:
+        args.append(user_ids)
+        sql += f"AND user_id = ANY(${len(args)}::bigint[]) "
+    sql += "ORDER BY linked_at DESC"
+
+    async with db.get_connection() as conn:
+        rows = await conn.fetch(sql, *args)
+    return [
+        {"user_id": int(r["user_id"]), "chat_id": r["chat_id"], "username": r["username"] or ""}
+        for r in rows
+    ]
+
+
+async def broadcast(
+    db,
+    *,
+    text: str,
+    platform: str,                       # 'max' | 'telegram'
+    target: str = "all",                 # 'all' | 'last_7d' | 'last_30d' | 'specific'
+    user_ids: Optional[List[int]] = None,
+    test_chat_id: Optional[str] = None,  # отправить ТОЛЬКО на этот chat_id (для проверки)
+    broadcast_kind: str = "manual",
+    cooldown_hours: int = 24,            # 0 = не проверять
+    delay_sec: float = DEFAULT_DELAY_SEC,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Рассылка по mensenger-привязкам.
+
+    Возвращает {sent, failed, skipped_cooldown, total, errors: [...]}.
+    """
+    if not text or not text.strip():
+        return {"error": "empty_text", "message": "Текст пустой"}
+    text = text.strip()
+    if len(text) > 4000:
+        return {"error": "text_too_long", "message": f"max 4000 символов (сейчас {len(text)})"}
+
+    platform = (platform or "").strip().lower()
+    if platform not in ("max", "telegram"):
+        return {"error": "bad_platform", "message": "platform = max | telegram"}
+
+    # --- Test mode: 1 chat_id, без БД ---
+    if test_chat_id:
+        if dry_run:
+            return {
+                "test_chat_id": test_chat_id, "dry_run": True,
+                "would_send_to": 1, "text_preview": text[:200],
+            }
+        async with httpx.AsyncClient() as client:
+            if platform == "telegram":
+                ok, err = await _tg_send_text(client, str(test_chat_id), text)
+            else:
+                ok, err = await _max_send_text(client, str(test_chat_id), text)
+        return {
+            "test_chat_id": test_chat_id, "sent": 1 if ok else 0,
+            "failed": 0 if ok else 1, "error": err if not ok else None,
+        }
+
+    # --- Получатели ---
+    recipients = await _fetch_recipients(db, platform, target, user_ids=user_ids)
+    if not recipients:
+        return {
+            "sent": 0, "failed": 0, "skipped_cooldown": 0,
+            "total": 0, "message": "Нет получателей под фильтр",
+        }
+    if len(recipients) > MAX_BROADCAST_SIZE:
+        return {
+            "error": "too_many_recipients",
+            "message": f"max {MAX_BROADCAST_SIZE} получателей, найдено {len(recipients)}",
+        }
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "would_send_to": len(recipients),
+            "platform": platform,
+            "target": target,
+            "preview_recipients": recipients[:10],
+            "text_preview": text[:200],
+        }
+
+    # --- Реальная отправка ---
+    sent_count = 0
+    failed = 0
+    skipped_cooldown = 0
+    errors: List[Dict[str, Any]] = []
+
+    async with httpx.AsyncClient() as client:
+        for rec in recipients:
+            chat_id = rec["chat_id"]
+            user_id = rec["user_id"]
+
+            # Cooldown: не слать на тот же chat_id в том же broadcast_kind
+            # последние cooldown_hours
+            if cooldown_hours > 0:
+                async with db.get_connection() as conn:
+                    recent = await conn.fetchval(
+                        "SELECT 1 FROM fredi_broadcast_log "
+                        "WHERE broadcast_kind = $1 AND chat_id = $2 "
+                        f"AND sent_at > NOW() - INTERVAL '{int(cooldown_hours)} hours' "
+                        "AND status = 'sent' LIMIT 1",
+                        broadcast_kind, str(chat_id),
+                    )
+                if recent:
+                    skipped_cooldown += 1
+                    continue
+
+            # Send
+            if platform == "telegram":
+                ok, err = await _tg_send_text(client, str(chat_id), text)
+            else:
+                ok, err = await _max_send_text(client, str(chat_id), text)
+
+            # Log
+            try:
+                async with db.get_connection() as conn:
+                    await conn.execute(
+                        "INSERT INTO fredi_broadcast_log "
+                        "(broadcast_kind, platform, chat_id, user_id, text, status, error_message) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                        broadcast_kind, platform, str(chat_id), user_id,
+                        text[:4000], "sent" if ok else "error",
+                        None if ok else err[:500],
+                    )
+            except Exception as _le:
+                logger.warning(f"broadcast log write failed: {_le}")
+
+            if ok:
+                sent_count += 1
+            else:
+                failed += 1
+                if len(errors) < 20:
+                    errors.append({"user_id": user_id, "chat_id": chat_id, "error": err[:200]})
+
+            # Rate-limit
+            await asyncio.sleep(delay_sec)
+
+    return {
+        "platform": platform,
+        "target": target,
+        "total": len(recipients),
+        "sent": sent_count,
+        "failed": failed,
+        "skipped_cooldown": skipped_cooldown,
+        "errors": errors,
+    }
