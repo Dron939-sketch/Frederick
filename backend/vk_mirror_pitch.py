@@ -918,6 +918,42 @@ def _clean_quote(raw: str) -> str:
     return s + "…"
 
 
+def _pick_short_quote(quotes: Optional[List[Any]],
+                      min_chars: int = 30,
+                      max_chars: int = 140) -> str:
+    """Из evidence_quotes выбирает ОДНУ короткую цитату для hook'а
+    в B2C-тексте.
+
+    Условия: 30-140 символов, кончается на пунктуацию (или обрезается
+    по последнему предложению). Если ни одна не подходит — "".
+
+    Защита от creepy line: длинная цитата = «нас взломали»; короткая
+    цитата = «он реально читал». См. Twilio Segment: 42% находят
+    hyper-personalization неприятной (research для PR #415).
+    """
+    if not quotes:
+        return ""
+    for raw in quotes:
+        if not raw:
+            continue
+        s = str(raw).strip().strip("«»\"' \t\n")
+        if not s:
+            continue
+        if len(s) < min_chars:
+            continue
+        if len(s) <= max_chars and s[-1] in _TERMINAL_PUNCT:
+            return s
+        # Длинная — обрежем по последнему знаку препинания в окне.
+        cut = s[:max_chars]
+        for punct in (".", "!", "?", "…"):
+            idx = cut.rfind(punct)
+            if idx >= min_chars:
+                return cut[: idx + 1]
+        # Не нашли красивую границу — пропускаем (риск creepy).
+        continue
+    return ""
+
+
 def _compose_body(
     profile: Dict[str, Any],
     pain: Dict[str, Any],
