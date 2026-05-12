@@ -4,11 +4,33 @@ meter_routes.py — Subscription meter + UserMemory init.
 
 import asyncio
 import logging
-from fastapi import Request
+import os
+from typing import Optional
+from fastapi import Request, Header, HTTPException
 from subscription_meter import SubscriptionMeter
 from services.user_memory import get_user_memory
 
 logger = logging.getLogger(__name__)
+
+
+def _require_admin(token: Optional[str]) -> None:
+    """X-Admin-Token gate для debug-эндпоинтов meter.
+
+    Раньше /api/debug/reset-* были открытыми — любой curl мог обнулять
+    daily_usage_seconds любого user_id. Это бэкдор от старой разработки
+    + один из главных каналов утечки monetization. Закрываем тем же
+    токеном, что vk_routes._check_admin.
+    """
+    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "admin_disabled",
+                    "message": "ADMIN_TOKEN не задан в env"},
+        )
+    if not token or token != expected:
+        raise HTTPException(status_code=401, detail={"error": "unauthorized"})
+
 
 subscription_meter = None
 
@@ -131,22 +153,37 @@ def register_meter_routes(app, db, limiter):
             return {"success": True, "can_send": True}
 
     @app.post("/api/debug/reset-cooldown/{user_id}")
-    async def debug_reset_cooldown(request: Request, user_id: int):
+    async def debug_reset_cooldown(
+        request: Request, user_id: int,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        # Закрыто X-Admin-Token: раньше любой curl мог обнулять
+        # cooldown_ends_at любого юзера (audit Phase 1 fix).
+        _require_admin(x_admin_token)
         async with db.get_connection() as conn:
             await conn.execute(
                 "UPDATE fredi_users SET cooldown_ends_at = NULL, "
                 "last_cooldown_started_at = NULL WHERE user_id = $1", user_id
             )
+        logger.warning(f"debug_reset_cooldown by admin for user_id={user_id}")
         return {"success": True}
 
     @app.post("/api/debug/reset-sessions/{user_id}")
-    async def debug_reset_sessions(request: Request, user_id: int):
+    async def debug_reset_sessions(
+        request: Request, user_id: int,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        # Закрыто X-Admin-Token: раньше любой curl мог обнулять
+        # daily_usage_seconds + free_session_count любого юзера —
+        # бэкдор для бесплатного использования (audit Phase 1 fix).
+        _require_admin(x_admin_token)
         async with db.get_connection() as conn:
             await conn.execute(
                 "UPDATE fredi_users SET free_session_count = 0, daily_usage_seconds = 0, "
                 "cooldown_ends_at = NULL, last_cooldown_started_at = NULL WHERE user_id = $1",
                 user_id
             )
+        logger.warning(f"debug_reset_sessions by admin for user_id={user_id}")
         return {"success": True}
 
     async def cooldown_checker():
