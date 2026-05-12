@@ -727,10 +727,86 @@ def register_analytics_routes(app, db):
 
     # === VK targeting (phase 1) chain-bootstrap ===
     # Цепляем регистрацию vk_routes сюда, чтобы не править main.py из этой
-    # ветки (signing-сервер харнесса временно недоступен — нет возможности
-    # запушить 350 КБ main.py в один tool-call).
-    # TODO: когда signing починят — перенести в main.py рядом с register_analytics_routes.
-    _vk_init = None
+    # ============================================================
+    # 📱 Messenger-link статистика (TG / MAX)
+    # ============================================================
+    # Сколько собрано MAX/TG user_id через флоу «PDF в MAX» после теста.
+    # Это сильный sales-сигнал: каждый chat_id — потенциальная точка
+    # реактивации (можно слать через бота).
+    @app.get("/api/analytics/messenger-links")
+    async def messenger_links_stats(
+        platform: str = "",
+        limit: int = 50,
+        offset: int = 0,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        lim = max(1, min(int(limit), 500))
+        off = max(0, int(offset))
+        plat = (platform or "").strip().lower()
+        args: List[Any] = []
+
+        try:
+            async with db.get_connection() as conn:
+                # Сводка по платформам
+                summary_rows = await conn.fetch(
+                    "SELECT platform, "
+                    "       COUNT(*) FILTER (WHERE is_active) AS active, "
+                    "       COUNT(*) FILTER (WHERE is_active AND linked_at > NOW() - INTERVAL '24 hours') AS last_24h, "
+                    "       COUNT(*) FILTER (WHERE is_active AND linked_at > NOW() - INTERVAL '7 days') AS last_7d, "
+                    "       COUNT(*) FILTER (WHERE is_active AND linked_at > NOW() - INTERVAL '30 days') AS last_30d "
+                    "FROM fredi_messenger_links "
+                    "GROUP BY platform"
+                )
+                summary: Dict[str, Dict[str, int]] = {}
+                for r in summary_rows:
+                    summary[r["platform"]] = {
+                        "active": int(r["active"] or 0),
+                        "last_24h": int(r["last_24h"] or 0),
+                        "last_7d": int(r["last_7d"] or 0),
+                        "last_30d": int(r["last_30d"] or 0),
+                    }
+
+                # Список последних с именами из user_contexts
+                sql = (
+                    "SELECT ml.user_id, ml.platform, ml.chat_id, ml.username, "
+                    "       ml.linked_at, ml.is_active, "
+                    "       COALESCE(c.name, u.first_name, u.username, '') AS display_name "
+                    "FROM fredi_messenger_links ml "
+                    "LEFT JOIN fredi_users u ON u.user_id = ml.user_id "
+                    "LEFT JOIN fredi_user_contexts c ON c.user_id = ml.user_id "
+                    "WHERE ml.is_active = TRUE "
+                )
+                if plat in ("max", "telegram"):
+                    args.append(plat)
+                    sql += f"AND ml.platform = ${len(args)} "
+                args.extend([lim, off])
+                sql += f"ORDER BY ml.linked_at DESC LIMIT ${len(args)-1} OFFSET ${len(args)}"
+                rows = await conn.fetch(sql, *args)
+
+            items = [{
+                "user_id": int(r["user_id"]),
+                "platform": r["platform"],
+                "chat_id": r["chat_id"],
+                "username": r["username"] or "",
+                "display_name": r["display_name"] or "",
+                "linked_at": r["linked_at"].isoformat() if r["linked_at"] else None,
+            } for r in rows]
+            return {
+                "success": True,
+                "summary": summary,
+                "items": items,
+                "limit": lim,
+                "offset": off,
+            }
+        except Exception as e:
+            logger.error(f"messenger-links stats failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "internal", "message": str(e),
+            })
+
+    # ============================================================
+    # VK auto-outreach routes — регистрируем здесь, в той же chain'е,
     try:
         from vk_routes import register_vk_routes as _register_vk_routes
         _vk_init = _register_vk_routes(app, db)
