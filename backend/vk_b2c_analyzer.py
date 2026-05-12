@@ -12,10 +12,12 @@ backend/vk_b2c_analyzer.py
     Включает COGNITIVE_STYLE (rational/irrational) — определяет, какие
     модули Фреди мы будем предлагать (рациональным — тест/Берн/
     зеркало, иррациональным — таро/гороскоп/толкование снов/сказки).
-  Pass 2 (active_pain): профиль + посты → DeepSeek →
+  Pass 2 (active_pain): профиль + посты с ДАТАМИ → DeepSeek →
     конкретная активная боль ИЛИ baseline-потребность через факт
     ведения публичной страницы (внимание/одобрение/признание/
     отражение/идентичность).
+    + pain_recency: current/recent/historical/baseline — чтобы не
+    писать «недавно пережила утрату», когда событие было год назад.
   Pass 3 (hooks): профиль + боль + цитаты → 3 крючка с self-score.
 
 Возвращаем также gender (f/m/n) из VK user.sex — pitch использует
@@ -28,6 +30,8 @@ import json
 import logging
 import os
 import re
+import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -82,15 +86,27 @@ _PROFILE_SYSTEM = (
 
 _PAIN_SYSTEM = (
     "Ты — клинический психолог. На вход — психологический портрет + "
-    "последние 30 постов человека. Цель: найти ЗАЦЕПКУ — на чём можно "
-    "опереться при предложении услуг AI-психолога Фреди.\n\n"
+    "последние 30 постов человека С ДАТАМИ (каждый пост помечен "
+    "относительной давностью: «вчера», «3 дня назад», «5 мес. назад», "
+    "«год назад» и т.п.). Цель: найти ЗАЦЕПКУ — на чём можно опереться "
+    "при предложении услуг AI-психолога Фреди.\n\n"
+    "🚨 КРИТИЧНО — УЧИТЫВАЙ ВОЗРАСТ СОБЫТИЙ:\n"
+    "  • Каждый пост помечен временем: «[3 дня назад]», «[5 мес. назад]»,\n"
+    "    «[год назад]», «[2 г. назад]».\n"
+    "  • НЕ пиши «недавно пережила утрату», если пост о ней был год назад.\n"
+    "  • Если событие старое (>3 мес) — это уже ИСТОРИЯ, а не текущее.\n"
+    "  • В pain_active отражай реальный возраст («год назад прошла "
+    "через...», «полгода назад писала о...»).\n"
+    "  • Поле pain_recency обязательно — оно потом модулирует тон pitch'а.\n\n"
     "СНАЧАЛА ищи КОНКРЕТНУЮ АКТИВНУЮ БОЛЬ — то что у человека болит "
-    "ПРЯМО СЕЙЧАС (событие/состояние из последних постов):\n"
+    "или болело (событие/состояние из постов):\n"
     "  • цитата из его реальных слов — самый сильный сигнал\n"
     "  • цитаты ЗАВЕРШЁННЫЕ — кончаются на знаке препинания или "
     "многоточии. НЕ обрывай посреди слова. Длина 60-200 символов.\n"
     "  • конкретность: не «одиночество», а «недавно расстался, по "
-    "вечерам тяжело»\n\n"
+    "вечерам тяжело»\n"
+    "  • PRIORITY свежим постам (<2 нед). Старые — только если других "
+    "сигналов нет.\n\n"
     "ЕСЛИ ЯВНОЙ АКТИВНОЙ БОЛИ НЕТ (всё спокойно, посты бытовые или "
     "позитивные) — НЕ говори «всё ок». Вместо этого опиши БАЗОВУЮ "
     "ПОТРЕБНОСТЬ через сам факт ведения публичной страницы. Любой "
@@ -109,18 +125,27 @@ _PAIN_SYSTEM = (
     "  • просто красивые места и моменты → внимание\n\n"
     "Возвращай JSON (без полей со значением «нет» / null):\n"
     "{\n"
-    "  \"pain_active\": \"что болит ИЛИ какая потребность за ведением "
-    "страницы, 1-2 предложения\",\n"
+    "  \"pain_active\": \"что болит/болело + ВОЗРАСТ события (если есть), "
+    "1-2 предложения\",\n"
     "  \"pain_intensity\": \"низкая|средняя|высокая\",\n"
     "  \"pain_type\": \"acute_anxiety|acute_sleep|acute_relationships|"
     "acute_burnout|acute_identity|acute_meaning|acute_habits|acute_grief|"
     "baseline_attention|baseline_recognition|baseline_approval|"
     "baseline_reflection|baseline_identity\",\n"
+    "  \"pain_recency\": \"current|recent|historical|baseline\",\n"
+    "  \"pain_event_age\": \"человекочитаемая давность события "
+    "(например «3 дня назад», «5 мес назад», «год назад») или пусто "
+    "если baseline\",\n"
     "  \"evidence_quotes\": [\"его реальные цитаты\"],\n"
     "  \"desired_outcome\": \"чего он хочет (например: быть услышанным; "
     "разобраться с тревогой; перестать спорить с собой)\",\n"
     "  \"vulnerability_window\": \"когда он наиболее открыт к диалогу\"\n"
-    "}\n"
+    "}\n\n"
+    "СПРАВОЧНИК pain_recency:\n"
+    "  • current — событие в последние 2 недели (свежая боль)\n"
+    "  • recent — 2 нед — 3 мес назад (ещё актуально)\n"
+    "  • historical — старше 3 месяцев (уже история, но может болеть)\n"
+    "  • baseline — нет конкретного события, общая потребность\n\n"
     "Без markdown."
 )
 
@@ -194,13 +219,7 @@ def _resolve_screen_name(url_or_name: str) -> str:
 
 
 def _vk_sex_to_gender(sex: Any) -> str:
-    """VK user.sex → 'f' | 'm' | 'n'.
-
-    VK: 1 = женский, 2 = мужской, 0/missing = не указан.
-    'n' = нейтральные обращения (дефолт у Фреди — женские, т.к. ЦА
-    преимущественно женская, но если VK явно вернул 'не указан' —
-    остаёмся нейтральными).
-    """
+    """VK user.sex → 'f' | 'm' | 'n'."""
     try:
         s = int(sex)
     except (TypeError, ValueError):
@@ -210,6 +229,54 @@ def _vk_sex_to_gender(sex: Any) -> str:
     if s == 2:
         return "m"
     return "n"
+
+
+def _ago(ts: Any) -> str:
+    """Unix timestamp → человекочитаемая давность.
+
+    Возвращает «вчера» / «3 дня назад» / «5 мес. назад» / «год назад» /
+    «2 г. назад». Используется в _summarize_user_for_llm для каждого
+    поста, чтобы LLM не написал «недавно пережила X», когда событие
+    было год назад.
+    """
+    if ts is None:
+        return ""
+    try:
+        ts = int(ts)
+    except (TypeError, ValueError):
+        return ""
+    if ts <= 0:
+        return ""
+    now = int(time.time())
+    diff = now - ts
+    if diff < 0:
+        return "в будущем"
+    days = diff // 86400
+    if days < 1:
+        hours = diff // 3600
+        if hours < 1:
+            return "только что"
+        if hours == 1:
+            return "час назад"
+        return f"{hours} ч. назад"
+    if days == 1:
+        return "вчера"
+    if days < 7:
+        return f"{days} дн. назад"
+    if days < 30:
+        weeks = days // 7
+        if weeks == 1:
+            return "неделю назад"
+        return f"{weeks} нед. назад"
+    if days < 365:
+        months = days // 30
+        if months == 1:
+            return "месяц назад"
+        return f"{months} мес. назад"
+    years = days // 365
+    if years == 1:
+        return "год назад"
+    return f"{years} г. назад"
 
 
 async def _deepseek(
@@ -257,6 +324,9 @@ def _summarize_user_for_llm(vk_data: Dict[str, Any]) -> str:
     groups = vk_data.get("groups") or {}
 
     blocks: List[str] = []
+    blocks.append(f"СЕГОДНЯ: {datetime.now().strftime('%d.%m.%Y')} "
+                  f"(используй для оценки возраста постов)")
+    blocks.append("")
     blocks.append(
         f"Имя: {user.get('first_name','')} {user.get('last_name','')}".strip()
     )
@@ -290,11 +360,14 @@ def _summarize_user_for_llm(vk_data: Dict[str, Any]) -> str:
 
     items = (wall or {}).get("items") or []
     if items:
-        blocks.append(f"\n=== Последние {min(len(items),30)} постов ===")
+        blocks.append(f"\n=== Последние {min(len(items),30)} постов "
+                      f"(с относительными датами) ===")
         for p in items[:30]:
             t = (p.get("text") or "").strip()
             if t:
-                blocks.append(f"- {t[:280]}")
+                age = _ago(p.get("date"))
+                prefix = f"[{age}] " if age else ""
+                blocks.append(f"- {prefix}{t[:280]}")
 
     g_items = (groups or {}).get("items") or []
     if g_items:
