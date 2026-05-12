@@ -852,8 +852,12 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
     # передачей управления voice_manager.
     try:
         _uid_for_meter = int(user_id) if str(user_id).isdigit() else 0
-        if _uid_for_meter > 0 and subscription_meter is not None:
-            can_send, st = await subscription_meter.can_send_message(_uid_for_meter)
+        try:
+            from meter_routes import subscription_meter as _ws_meter
+        except Exception:
+            _ws_meter = None
+        if _uid_for_meter > 0 and _ws_meter is not None:
+            can_send, st = await _ws_meter.can_send_message(_uid_for_meter)
             if not can_send:
                 logger.info(
                     f"🚫 WS voice meter-blocked uid={_uid_for_meter} "
