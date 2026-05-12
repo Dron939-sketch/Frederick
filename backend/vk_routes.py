@@ -2705,6 +2705,62 @@ def register_vk_routes(app, db):
             })
         return {"success": True, **res}
 
+    @app.post("/api/admin/vk/outreach-queue/parse-group")
+    async def vk_outreach_parse_group(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Парсит подписчиков указанной VK-группы с теми же фильтрами.
+        body: {group, max_members, age_min, age_max, sex, city_id/city_name,
+               active_only, active_inactivity_days}"""
+        _check_admin(x_admin_token)
+        group_raw = ((body or {}).get("group") or "").strip()
+        if not group_raw:
+            raise HTTPException(status_code=400, detail={
+                "error": "group_required",
+                "message": "Укажи группу (id / screen_name / vk.com/...)",
+            })
+        try:
+            from services.vk_group_members import parse_group_members
+            from vk_fisherman_search import resolve_city
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "module_unavailable", "message": str(e),
+            })
+
+        # Резолвим город если только name
+        city_id = int((body or {}).get("city_id") or 0)
+        city_name = ((body or {}).get("city_name") or "").strip()
+        if (city_id <= 0) and city_name:
+            try:
+                rc = await resolve_city(city_name)
+                if rc:
+                    city_id = rc["id"]
+            except Exception as e:
+                logger.warning(f"resolve_city({city_name}) failed: {e}")
+
+        try:
+            res = await parse_group_members(
+                group_raw=group_raw,
+                max_members=int((body or {}).get("max_members") or 1000),
+                age_min=int((body or {}).get("age_min") or 0) or None,
+                age_max=int((body or {}).get("age_max") or 0) or None,
+                sex=int((body or {}).get("sex") or 0) if (body or {}).get("sex") in (1, 2) else None,
+                city_id=(int(city_id) if city_id > 0 else None),
+                active_only=bool((body or {}).get("active_only", True)),
+                active_inactivity_days=int((body or {}).get("active_inactivity_days") or 90),
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "vk_api_error", "message": str(e),
+            })
+        if not res.get("group"):
+            raise HTTPException(status_code=400, detail={
+                "error": "group_not_found",
+                "message": f"Группа не найдена: {group_raw}",
+            })
+        return {"success": True, **res}
+
     @app.post("/api/admin/vk/outreach-queue/add")
     async def vk_outreach_add(
         body: Dict[str, Any] = Body(...),
