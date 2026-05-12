@@ -59,6 +59,22 @@ async def init_broadcast_table(db) -> None:
         await conn.execute(BROADCAST_LOG_INDEX)
 
 
+def _extract_max_chat_id(raw: str) -> str:
+    """MAX chat_id в БД часто хранится как '<число>@<имя>' (формат из
+    webhook). MAX API ожидает ТОЛЬКО числовую часть до '@'.
+
+    Примеры:
+      '256175731@Дмитрий' → '256175731'
+      '266808266'         → '266808266'
+    """
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    if "@" in s:
+        s = s.split("@", 1)[0].strip()
+    return s
+
+
 async def _tg_send_text(client: httpx.AsyncClient, chat_id: str, text: str) -> Tuple[bool, str]:
     if not TELEGRAM_TOKEN:
         return False, "TELEGRAM_TOKEN not set"
@@ -78,10 +94,17 @@ async def _tg_send_text(client: httpx.AsyncClient, chat_id: str, text: str) -> T
 async def _max_send_text(client: httpx.AsyncClient, chat_id: str, text: str) -> Tuple[bool, str]:
     if not MAX_TOKEN:
         return False, "MAX_TOKEN not set"
+    numeric_id = _extract_max_chat_id(chat_id)
+    if not numeric_id:
+        return False, f"bad chat_id (empty after split): {chat_id!r}"
+    try:
+        cid_int = int(numeric_id)
+    except ValueError:
+        return False, f"bad chat_id (not int): {numeric_id!r}"
     try:
         r = await client.post(
             "https://platform-api.max.ru/messages",
-            params={"chat_id": int(chat_id), "access_token": MAX_TOKEN},
+            params={"chat_id": cid_int, "access_token": MAX_TOKEN},
             json={"text": text},
             headers={"Authorization": MAX_TOKEN, "Content-Type": "application/json"},
             timeout=15.0,
