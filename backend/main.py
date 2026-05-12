@@ -643,7 +643,7 @@ async def _enforce_premium_mode(user_id, requested_mode: str) -> str:
 _METER_AI_REGEX = _re_meter.compile(
     r"^/api/(?:"
     r"chat"
-    r"|voice/process"
+    r"|voice/(?:process|stt|tts)"   # ← +stt/tts тоже LLM/TTS-биллинг
     r"|ai/generate"
     r"|deep-analysis"
     r"|hypno/support"
@@ -653,29 +653,71 @@ _METER_AI_REGEX = _re_meter.compile(
     r"|brand/transformation"
     r"|mirrors/(?:complete|[^/]+/complete)"
     r"|morning/send-now"
+    # Эзотерика — все три LLM-эндпоинты (audit Phase 1 fix):
+    # натальная карта, расклад Таро, гороскоп. До этого фикса
+    # шли мимо meter — бесплатное использование.
+    r"|natal/interpret"
+    r"|tarot/interpret"
+    r"|horoscope(?:/.+)?"
     r")(?:/.*)?$"
 )
 
 
 def _extract_user_id_from_body(body_bytes: bytes):
-    """Парсит user_id из JSON-тела (не поглощая его для downstream handler'а)."""
+    """Парсит user_id из тела запроса: JSON, multipart/form-data, urlencoded.
+
+    Multipart-fallback закрывает аудит-дыру #4 (Phase 1): голосовые
+    endpoints /api/voice/process, /voice/stt, /voice/tts шлют
+    multipart/form-data — json.loads на нём падал, middleware
+    получал user_id=None и пропускал запрос мимо meter.
+    """
     if not body_bytes:
         return None
+    # 1. JSON
     try:
         data = json.loads(body_bytes.decode("utf-8"))
+        if isinstance(data, dict):
+            for key in ("user_id", "uid", "userId"):
+                val = data.get(key)
+                if val is not None:
+                    try:
+                        n = int(val)
+                        if n > 0:
+                            return n
+                    except (TypeError, ValueError):
+                        pass
     except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    for key in ("user_id", "uid", "userId"):
-        val = data.get(key)
-        if val is not None:
-            try:
-                n = int(val)
+        pass
+
+    # 2. Multipart/form-data — простой regex по полю user_id
+    # (content-type содержит boundary, нам он не нужен — ищем
+    # «name="user_id"» с числом следом).
+    try:
+        import re as _re_mp
+        m = _re_mp.search(
+            br'name="(?:user_id|uid|userId)"\r?\n\r?\n(\d+)',
+            body_bytes,
+            _re_mp.IGNORECASE,
+        )
+        if m:
+            n = int(m.group(1))
+            if n > 0:
+                return n
+    except Exception:
+        pass
+
+    # 3. urlencoded (application/x-www-form-urlencoded)
+    try:
+        import urllib.parse as _up
+        parsed = _up.parse_qs(body_bytes.decode("utf-8", errors="ignore"))
+        for key in ("user_id", "uid", "userId"):
+            vs = parsed.get(key) or []
+            if vs:
+                n = int(vs[0])
                 if n > 0:
                     return n
-            except (TypeError, ValueError):
-                pass
+    except Exception:
+        pass
     return None
 
 
@@ -802,6 +844,52 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         except Exception:
             pass
         return
+
+    # ─── METER GATE для WebSocket (audit Phase 1 fix #2) ────────────
+    # До этого фикса WS полностью игнорировал meter. Юзер мог болтать
+    # голосом неограниченно — самый дорогой стек (Deepgram+DeepSeek+
+    # Fish Audio) шёл бесплатно. Теперь проверяем can_send перед
+    # передачей управления voice_manager.
+    try:
+        _uid_for_meter = int(user_id) if str(user_id).isdigit() else 0
+        if _uid_for_meter > 0 and subscription_meter is not None:
+            can_send, st = await subscription_meter.can_send_message(_uid_for_meter)
+            if not can_send:
+                logger.info(
+                    f"🚫 WS voice meter-blocked uid={_uid_for_meter} "
+                    f"premium={st.get('is_premium')} reason={st.get('reason')}"
+                )
+                # Шлём JSON юзеру, потом закрываем с custom-кодом 4002
+                try:
+                    await websocket.send_json({
+                        "type": "meter_blocked",
+                        "reason": st.get("reason") or "limit_reached",
+                        "is_premium": bool(st.get("is_premium")),
+                        "free_days_used": st.get("free_days_used", 0),
+                        "remaining_minutes": st.get("remaining_minutes", 0),
+                        "message": (
+                            "Дневной лимит исчерпан — оформи подписку "
+                            "чтобы продолжить голосовое общение."
+                        ),
+                    })
+                except Exception:
+                    pass
+                try:
+                    await websocket.close(code=4002, reason="meter_blocked")
+                except Exception:
+                    pass
+                # Server-side событие в analytics — frontend-side
+                # meter_blocked_shown не пишется на WS-разрыве.
+                try:
+                    await log_event(_uid_for_meter, "meter_blocked_server", {
+                        "endpoint": "/ws/voice",
+                        "reason": st.get("reason"),
+                    })
+                except Exception:
+                    pass
+                return
+    except Exception as _e:
+        logger.warning(f"WS meter gate skipped: {_e}")
 
     try:
         user_id_int = int(user_id)
