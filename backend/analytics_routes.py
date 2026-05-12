@@ -831,6 +831,8 @@ def register_analytics_routes(app, db):
         broadcast_kind = (body or {}).get("kind", "manual")
         cooldown_hours = int((body or {}).get("cooldown_hours", 24))
         dry_run = bool((body or {}).get("dry_run", False))
+        voice_text = (body or {}).get("voice_text") or None
+        voice_mode = (body or {}).get("voice_mode") or "psychologist"
 
         try:
             if isinstance(user_ids, list):
@@ -851,6 +853,8 @@ def register_analytics_routes(app, db):
                 broadcast_kind=str(broadcast_kind)[:64],
                 cooldown_hours=cooldown_hours,
                 dry_run=dry_run,
+                voice_text=voice_text,
+                voice_mode=str(voice_mode)[:32],
             )
         except Exception as e:
             logger.error(f"broadcast failed: {e}")
