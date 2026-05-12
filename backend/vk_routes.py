@@ -1666,8 +1666,17 @@ def register_vk_routes(app, db):
                 )
 
                 vk_id = ub.get("id")
+                # ВАЖНО: разделяем сообщение для отправки и превью для админа.
+                # message — короткое (3-5 строк), уходит в VK адресату.
+                # preview_full — анализ + сообщение, показывается админу для
+                # контроля. Без этого предприниматели 30+ получали в VK всю
+                # психологическую диагностику вплоть до защит и архетипов
+                # — это разрушает доверие моментально.
+                greet = (first_name or full_name or "").strip()
+                greet_line = f"Привет, {greet}!\n\n" if greet else ""
                 result["pitch"] = {
-                    "message": body_text + "\n\n—\n\n" + tail,
+                    "message": greet_line + tail,
+                    "preview_full": body_text + "\n\n—\n\n" + tail,
                     "voice_script": voice_script,
                     "full_name": full_name,
                     "vk_id": vk_id,
@@ -1732,7 +1741,7 @@ def register_vk_routes(app, db):
             "has_subscription": has_sub,
             "used": used,
             "limit": FREE_ANALYSIS_LIMIT,
-            "remaining": None if has_sub else max(0, FREE_ANALYSIS_LIMIT - used),
+            "remaining": None if has_sub else max(0, FREE_ANALSIS_LIMIT - used),
         }
 
     @app.post("/api/mirrors/vk-analyze")
