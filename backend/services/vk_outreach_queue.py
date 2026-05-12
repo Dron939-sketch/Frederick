@@ -231,14 +231,71 @@ async def list_queue(
     return {"items": items, "stats": stats, "limit": lim, "offset": off}
 
 
+# Anti-ban лимиты (см. https://dev.vk.com — лимит ~20 DM/day для не-друзей).
+# Берём с запасом + ночные часы.
+_DAILY_LIMIT = 15            # ≤15 sent за 24 часа
+_MIN_COOLDOWN_SEC = 30 * 60  # ≥30 мин между sent
+_OPEN_HOUR_MSK = 10          # рабочее окно: 10:00..21:59 МСК
+_CLOSE_HOUR_MSK = 22
+
+
+def _msk_hour_now() -> int:
+    """Текущий час по МСК (UTC+3) без зависимости от tz-конфига сервера."""
+    import datetime as _dt
+    now_utc = _dt.datetime.utcnow()
+    return (now_utc.hour + 3) % 24
+
+
 async def process_one(db) -> Dict[str, Any]:
     """Берёт следующий queued, делает B2C profile-analysis + send-voice.
+
+    Защита от блокировки VK (ДО взятия записи в обработку):
+      • Time-window: только 10:00–21:59 МСК
+      • Daily limit: ≤15 sent за последние 24 часа
+      • Cooldown: ≥30 минут после последнего sent
 
     Анти-дубль: ДО отправки проверяем fredi_vk_b2b_outreach +
     fredi_vk_contacted_log (30 дней). Если совпадение — status=skipped.
 
-    Возвращает {status: 'sent'|'skipped'|'error'|'empty', vk_id?, ...}.
+    Возвращает {status: 'sent'|'skipped'|'error'|'empty'
+                       |'closed_hours'|'daily_limit'|'cooldown', ...}.
     """
+    # --- Rate-control защиты от VK-блокировки ---
+    msk_hour = _msk_hour_now()
+    if not (_OPEN_HOUR_MSK <= msk_hour < _CLOSE_HOUR_MSK):
+        return {
+            "status": "closed_hours",
+            "msk_hour": msk_hour,
+            "message": f"Рассылка только {_OPEN_HOUR_MSK}-{_CLOSE_HOUR_MSK} МСК (сейчас {msk_hour})",
+        }
+
+    async with db.get_connection() as conn:
+        sent_24h = await conn.fetchval(
+            "SELECT COUNT(*) FROM fredi_vk_outreach_queue "
+            "WHERE status='sent' AND processed_at > NOW() - INTERVAL '24 hours'"
+        ) or 0
+        if sent_24h >= _DAILY_LIMIT:
+            return {
+                "status": "daily_limit",
+                "sent_24h": int(sent_24h),
+                "limit": _DAILY_LIMIT,
+                "message": f"Достигнут дневной лимит {_DAILY_LIMIT} (защита от VK-бана)",
+            }
+        last_sent_age_sec = await conn.fetchval(
+            "SELECT EXTRACT(EPOCH FROM (NOW() - processed_at))::int "
+            "FROM fredi_vk_outreach_queue "
+            "WHERE status='sent' "
+            "ORDER BY processed_at DESC LIMIT 1"
+        )
+        if last_sent_age_sec is not None and int(last_sent_age_sec) < _MIN_COOLDOWN_SEC:
+            wait = _MIN_COOLDOWN_SEC - int(last_sent_age_sec)
+            return {
+                "status": "cooldown",
+                "seconds_since_last": int(last_sent_age_sec),
+                "wait_seconds": wait,
+                "message": f"Cooldown {_MIN_COOLDOWN_SEC // 60} мин — подожди ещё {wait // 60} мин",
+            }
+
     async with db.get_connection() as conn:
         # Атомарно берём один queued и помечаем processing
         row = await conn.fetchrow(

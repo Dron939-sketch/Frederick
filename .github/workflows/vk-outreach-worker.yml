@@ -1,0 +1,48 @@
+name: VK outreach worker
+
+# Каждые 30 минут в 07:00–18:59 UTC (10:00–21:59 МСК — рабочее окно).
+# Backend сам ещё раз проверяет окно по МСК (защита если cron сработает
+# близко к границе), плюс daily-limit ≤15 и cooldown 30 мин между sent.
+on:
+  schedule:
+    - cron: '*/30 7-18 * * *'
+  workflow_dispatch:   # ручной запуск из Actions UI для теста
+
+concurrency:
+  group: vk-outreach-worker
+  cancel-in-progress: false
+
+jobs:
+  process-one:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call /api/admin/vk/outreach-queue/process-one
+        env:
+          ADMIN_TOKEN: ${{ secrets.FREDI_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$ADMIN_TOKEN" ]; then
+            echo "::error::secret FREDI_ADMIN_TOKEN не задан в Settings → Secrets"
+            exit 1
+          fi
+          set -o pipefail
+          http_code=$(curl -sS -w "\n%{http_code}" -X POST \
+            "https://fredi-backend-flz2.onrender.com/api/admin/vk/outreach-queue/process-one" \
+            -H "X-Admin-Token: $ADMIN_TOKEN" \
+            -H "Accept: application/json" \
+            --max-time 120 \
+            -o /tmp/resp.json)
+          status=$(tail -n1 <<< "$http_code")
+          echo "HTTP $status"
+          echo "---"
+          if command -v jq >/dev/null 2>&1; then
+            jq '.' /tmp/resp.json || cat /tmp/resp.json
+          else
+            cat /tmp/resp.json
+          fi
+          # Считаем 200 OK успехом независимо от внутреннего status —
+          # closed_hours/daily_limit/cooldown это нормальные no-op.
+          if [ "$status" != "200" ]; then
+            echo "::error::backend returned HTTP $status"
+            exit 1
+          fi
