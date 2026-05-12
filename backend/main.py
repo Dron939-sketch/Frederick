@@ -2548,6 +2548,56 @@ async def verify_user(request: Request, user_id: int):
         return {"success": False, "exists": False, "error": str(e)}
 
 
+# ---------- MESSENGER WARNINGS ----------
+# Юзер выбрал получать утренние skill-уведомления в Telegram/MAX,
+# но бот не запущен (нет записи в fredi_messenger_links).
+# Frontend по этому endpoint'у решает, показывать ли «⚠️ Подключи
+# бота» toast при первом заходе. См. fredi/app.js обработчик
+# fredi_warnings_dismissed-флаг хранит закрытие в localStorage.
+@app.get("/api/user/messenger-warnings")
+@limiter.limit("30/minute")
+async def user_messenger_warnings(request: Request, user_id: int):
+    warnings: list = []
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT channel FROM fredi_skill_plans "
+                "WHERE user_id = $1 ORDER BY updated_at DESC NULLS LAST LIMIT 1",
+                int(user_id),
+            )
+            plan_channel = (row["channel"] if row else "") or ""
+
+            checks = []
+            if plan_channel == "telegram":
+                checks.append(("telegram", "TELEGRAM_BOT_LINK", "Telegram"))
+            elif plan_channel == "max":
+                checks.append(("max", "MAX_BOT_LINK", "MAX"))
+
+            for platform, env_var, label in checks:
+                linked = await conn.fetchval(
+                    "SELECT 1 FROM fredi_messenger_links "
+                    "WHERE user_id = $1 AND platform = $2 AND is_active = TRUE",
+                    int(user_id), platform,
+                )
+                if linked:
+                    continue
+                bot_link = (os.environ.get(env_var) or "").strip()
+                warnings.append({
+                    "type": f"{platform}_not_linked",
+                    "title": f"⚠️ Подключи {label}",
+                    "text": (
+                        f"Ты выбрал получать утренние задания в {label}-бот, "
+                        f"но он ещё не запущен. Открой бота и нажми «/start» — "
+                        f"задания пойдут по плану."
+                    ),
+                    "action_url": bot_link,
+                    "action_label": "🚀 Открыть бота" if bot_link else "",
+                })
+    except Exception as e:
+        logger.warning(f"messenger-warnings({user_id}) failed: {e}")
+    return {"success": True, "warnings": warnings}
+
+
 # ---------- КОНТЕКСТ ----------
 @app.post("/api/save-context")
 @limiter.limit("30/minute")
