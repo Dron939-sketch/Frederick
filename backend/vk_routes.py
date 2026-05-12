@@ -8,7 +8,7 @@ import os
 import re
 from typing import Optional, Dict, Any, List
 
-from fastapi import HTTPException, Header, Body
+from fastapi import HTTPException, Header, Body, UploadFile, File, Form
 
 logger = logging.getLogger(__name__)
 
@@ -1346,6 +1346,107 @@ def register_vk_routes(app, db):
             })
 
         return {"success": True, **result}
+
+    # =========================================================
+    # MAX SEND AUDIO — отправка MP3 в MAX-чат через Platform API.
+    # Используется из admin-analytics.html (вкладка «🔊 Озвучка»):
+    # после генерации TTS админ может одним кликом отправить голос
+    # в конкретный MAX-чат (свой тестовый или юзера). Под капотом —
+    # 3-этапный pipeline uploads → upload-file → messages.send с
+    # attachment, см. backend/services/max_send_audio.py.
+    # =========================================================
+    @app.post("/api/admin/max/send-audio")
+    async def admin_max_send_audio(
+        audio: UploadFile = File(...),
+        chat_id: int = Form(...),
+        caption: str = Form(""),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        try:
+            from services.max_send_audio import send_audio_to_max
+        except Exception as e:
+            logger.error(f"max_send_audio import failed: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "max_module_unavailable", "message": str(e),
+            })
+
+        audio_bytes = await audio.read()
+        if not audio_bytes or len(audio_bytes) < 100:
+            raise HTTPException(status_code=400, detail={
+                "error": "empty_audio",
+                "message": "audio пуст или меньше 100 байт",
+            })
+        # Жёсткий потолок 10 МБ — MAX и так не примет больше,
+        # лучше отсечь сразу с понятной ошибкой.
+        if len(audio_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail={
+                "error": "audio_too_large",
+                "message": f"max 10 MB (сейчас {len(audio_bytes)//1024} KB)",
+            })
+
+        try:
+            result = await send_audio_to_max(
+                chat_id=int(chat_id),
+                audio_bytes=audio_bytes,
+                audio_filename=audio.filename or "fredi-voice.mp3",
+                caption=(caption or "").strip() or None,
+            )
+        except RuntimeError as e:
+            # Понятные ошибки MAX API (нет токена / upload / messages.send)
+            raise HTTPException(status_code=502, detail={
+                "error": "max_send_failed", "message": str(e),
+            })
+        except Exception as e:
+            logger.error(f"admin_max_send_audio unexpected: {e}")
+            raise HTTPException(status_code=500, detail={
+                "error": "internal", "message": str(e),
+            })
+
+        return result
+
+    @app.get("/api/admin/max/recent-chats")
+    async def admin_max_recent_chats(
+        limit: int = 20,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Список последних MAX-юзеров для удобного выбора получателя
+        в TTS-вкладке. Берём из fredi_users тех, у кого есть привязка
+        к MAX-каналу (platform или max_chat_id)."""
+        _check_admin(x_admin_token)
+        lim = max(1, min(int(limit), 100))
+        items: List[Dict[str, Any]] = []
+        try:
+            async with db.get_connection() as conn:
+                # Пробуем по полю max_chat_id если оно есть
+                try:
+                    rows = await conn.fetch(
+                        "SELECT u.user_id, u.first_name, u.last_name, "
+                        "       u.max_chat_id, u.created_at "
+                        "FROM fredi_users u "
+                        "WHERE u.max_chat_id IS NOT NULL "
+                        "ORDER BY u.user_id DESC LIMIT $1",
+                        lim,
+                    )
+                    for r in rows:
+                        name = (r["first_name"] or "").strip()
+                        if r["last_name"]:
+                            name = (name + " " + r["last_name"]).strip()
+                        items.append({
+                            "user_id": r["user_id"],
+                            "max_chat_id": int(r["max_chat_id"]),
+                            "name": name or f"id{r['user_id']}",
+                            "created_at": (
+                                r["created_at"].isoformat() if r["created_at"] else None
+                            ),
+                        })
+                except Exception:
+                    # max_chat_id колонки нет — отдадим пустой список,
+                    # UI всё равно даст ввести chat_id вручную.
+                    pass
+        except Exception as e:
+            logger.warning(f"max recent-chats fetch skipped: {e}")
+        return {"success": True, "items": items}
 
     # =========================================================
     # ПОИСК ПО ПРОБЛЕМЕ — альтернативный вход в воронку.
