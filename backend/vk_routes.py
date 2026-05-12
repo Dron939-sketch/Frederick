@@ -283,7 +283,16 @@ def register_vk_routes(app, db):
                 "ON fredi_vk_b2b_outreach(marked_at DESC)"
             )
 
-        logger.info("VK profiles + candidates + phrase tables ready (phase 12)")
+        # Phase 13: очередь авто-аутрича (parse-all → queue → process-one).
+        # Таблица fredi_vk_outreach_queue с UNIQUE(vk_id) для защиты
+        # от повторов и индексом по (status, added_at) для воркера.
+        try:
+            from services.vk_outreach_queue import init_outreach_queue_table
+            await init_outreach_queue_table(db)
+        except Exception as e:
+            logger.warning(f"outreach_queue table init skipped: {e}")
+
+        logger.info("VK profiles + candidates + phrase + outreach-queue tables ready (phase 13)")
 
     @app.get("/api/admin/vk/links")
     async def vk_list_links(
@@ -2247,6 +2256,9 @@ def register_vk_routes(app, db):
         include_groups: bool = False,
         city_id: int = 0,  # 0 = вся Россия; >0 = конкретный VK city_id
         city_name: str = "",  # альтернатива city_id — название, резолвится через database.getCities
+        age_min: int = 0,    # 0 = без фильтра
+        age_max: int = 0,    # 0 = без фильтра
+        sex: int = 0,        # 0=любой, 1=жен, 2=муж (VK API)
         x_admin_token: Optional[str] = Header(default=None),
     ):
         _check_admin(x_admin_token)
@@ -2281,6 +2293,9 @@ def register_vk_routes(app, db):
                 include_groups=bool(include_groups),
                 city_id=(int(city_id) if city_id and int(city_id) > 0 else None),
                 city_name=resolved_name or None,
+                age_min=(int(age_min) if age_min and int(age_min) > 0 else None),
+                age_max=(int(age_max) if age_max and int(age_max) > 0 else None),
+                sex=(int(sex) if sex in (1, 2) else None),
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={
@@ -2653,5 +2668,128 @@ def register_vk_routes(app, db):
                 "responded_total": responded,
                 "response_rate_pct": round(100 * responded / contacted, 1) if contacted else 0,
             }
+
+    # =========================================================
+    # OUTREACH QUEUE — авто-аутрич по очереди (B2C массовая).
+    # Endpoints для UI и для cron-воркера.
+    # =========================================================
+    @app.post("/api/admin/vk/outreach-queue/parse-all")
+    async def vk_outreach_parse_all(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Парсит ВСЕ fisherman-категории под фильтром (город/возраст/пол/активные),
+        возвращает дедуплицированный список. Не записывает в очередь."""
+        _check_admin(x_admin_token)
+        try:
+            from services.vk_outreach_queue import parse_all_categories
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_module_unavailable", "message": str(e),
+            })
+        try:
+            res = await parse_all_categories(
+                city_id=int((body or {}).get("city_id") or 0) or None,
+                city_name=((body or {}).get("city_name") or "").strip() or None,
+                age_min=int((body or {}).get("age_min") or 0) or None,
+                age_max=int((body or {}).get("age_max") or 0) or None,
+                sex=int((body or {}).get("sex") or 0) if (body or {}).get("sex") in (1, 2) else None,
+                active_only=bool((body or {}).get("active_only", True)),
+                active_inactivity_days=int((body or {}).get("active_inactivity_days") or 90),
+                max_per_term=int((body or {}).get("max_per_term") or 100),
+                max_per_category=int((body or {}).get("max_per_category") or 100),
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={
+                "error": "vk_api_error", "message": str(e),
+            })
+        return {"success": True, **res}
+
+    @app.post("/api/admin/vk/outreach-queue/add")
+    async def vk_outreach_add(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Добавляет батч кандидатов в очередь. body: {candidates: [{vk_id, first_name, ...}]}"""
+        _check_admin(x_admin_token)
+        try:
+            from services.vk_outreach_queue import add_batch_to_queue
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_module_unavailable", "message": str(e),
+            })
+        candidates = (body or {}).get("candidates") or []
+        if not isinstance(candidates, list):
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_candidates", "message": "candidates должен быть list",
+            })
+        result = await add_batch_to_queue(db, candidates)
+        return {"success": True, **result, "total_received": len(candidates)}
+
+    @app.get("/api/admin/vk/outreach-queue/list")
+    async def vk_outreach_list(
+        status: str = "",
+        limit: int = 100,
+        offset: int = 0,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        try:
+            from services.vk_outreach_queue import list_queue
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_module_unavailable", "message": str(e),
+            })
+        result = await list_queue(
+            db, status=(status or "").strip() or None,
+            limit=limit, offset=offset,
+        )
+        return {"success": True, **result}
+
+    @app.post("/api/admin/vk/outreach-queue/process-one")
+    async def vk_outreach_process_one(
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Worker: берёт следующий queued, делает B2C-pitch + send-voice,
+        помечает sent/skipped/error. Один шаг — для UI и для cron'а."""
+        _check_admin(x_admin_token)
+        try:
+            from services.vk_outreach_queue import process_one
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_module_unavailable", "message": str(e),
+            })
+        result = await process_one(db)
+        return {"success": True, **result}
+
+    @app.delete("/api/admin/vk/outreach-queue/{queue_id}")
+    async def vk_outreach_delete(
+        queue_id: int,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        try:
+            from services.vk_outreach_queue import delete_item
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_module_unavailable", "message": str(e),
+            })
+        ok = await delete_item(db, int(queue_id))
+        return {"success": True, "deleted": bool(ok), "id": int(queue_id)}
+
+    @app.post("/api/admin/vk/outreach-queue/reset-errors")
+    async def vk_outreach_reset_errors(
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Переводит status='error' → 'queued' для повторной попытки."""
+        _check_admin(x_admin_token)
+        try:
+            from services.vk_outreach_queue import reset_status
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "outreach_module_unavailable", "message": str(e),
+            })
+        n = await reset_status(db, from_status="error", to_status="queued")
+        return {"success": True, "reset_count": n}
 
     return init_vk_table
