@@ -1741,7 +1741,7 @@ def register_vk_routes(app, db):
             "has_subscription": has_sub,
             "used": used,
             "limit": FREE_ANALYSIS_LIMIT,
-            "remaining": None if has_sub else max(0, FREE_ANALSIS_LIMIT - used),
+            "remaining": None if has_sub else max(0, FREE_ANALYSIS_LIMIT - used),
         }
 
     @app.post("/api/mirrors/vk-analyze")
