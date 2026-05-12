@@ -257,7 +257,16 @@ async def search_fishermen(
     newsfeed_stats = {"phrases_used": 0, "posts_seen": 0, "users_fetched": 0, "error": None}
 
     async with httpx.AsyncClient() as client:
-        for term in service_terms:
+        # Rate-limit для users.search: 0.4 сек между запросами (≈2.5/сек,
+        # ниже VK-лимита 3/сек на user-token). При первой ошибке 9
+        # «Flood control» — пауза до 5 сек на остаток.
+        _sleep_between = 0.4
+        _flood_seen = False
+        import asyncio as _asyncio_rl
+
+        for idx, term in enumerate(service_terms):
+            if idx > 0:
+                await _asyncio_rl.sleep(_sleep_between)
             search_attempts += 1
             try:
                 _us_params = {
@@ -281,6 +290,15 @@ async def search_fishermen(
                 key = str(e).split(":")[0][:60]
                 search_failed_reasons[key] = search_failed_reasons.get(key, 0) + 1
                 logger.warning(f"users.search('{term}') failed: {e}")
+                # Flood control: error 9 — увеличиваем паузу
+                if "9" in str(e) and ("flood" in str(e).lower() or "Too many" in str(e)):
+                    if not _flood_seen:
+                        _flood_seen = True
+                        _sleep_between = 5.0
+                        logger.warning(
+                            f"VK flood-control hit on '{term}' — увеличиваю "
+                            f"паузу между запросами до {_sleep_between}s"
+                        )
                 continue
             items = (resp or {}).get("items") or []
             for u in items:
