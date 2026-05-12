@@ -116,6 +116,32 @@ def _matches_markers(user: Dict[str, Any], markers: List[str]) -> bool:
     return False
 
 
+def is_alive_profile(u: Dict[str, Any], max_inactivity_days: int = 90) -> bool:
+    """Признак «живой» VK-страницы.
+
+    Критерии (все одновременно):
+      • не deactivated (юзер не удалён / не забанен)
+      • если закрытый — отсеиваем (мы не сможем ни увидеть, ни написать)
+      • last_seen не старше max_inactivity_days (по умолчанию 90 дней)
+
+    Используется в search_fishermen с active_only=True и в worker'е
+    очереди — нет смысла слать голос «мёртвой» страницы.
+    """
+    if u.get("deactivated"):
+        return False
+    if u.get("is_closed") and not u.get("can_access_closed"):
+        return False
+    ls = (u.get("last_seen") or {}).get("time") or 0
+    if ls:
+        try:
+            import time as _t
+            if (_t.time() - int(ls)) > max_inactivity_days * 86400:
+                return False
+        except (TypeError, ValueError):
+            pass
+    return True
+
+
 def _candidate_dict(u: Dict[str, Any], cat_code: str, source: str = "users_search") -> Dict[str, Any]:
     name = " ".join(filter(None, [u.get("first_name"), u.get("last_name")])).strip()
     counters = u.get("counters") or {}
@@ -205,6 +231,11 @@ async def search_fishermen(
     include_groups: bool = False,
     city_id: Optional[int] = None,
     city_name: Optional[str] = None,
+    age_min: Optional[int] = None,
+    age_max: Optional[int] = None,
+    sex: Optional[int] = None,  # 1=female, 2=male, None=any
+    active_only: bool = False,
+    active_inactivity_days: int = 90,
 ) -> Dict[str, Any]:
     cat = get_fisherman(category_code)
     if not cat:
@@ -238,6 +269,12 @@ async def search_fishermen(
                 }
                 if city_id and int(city_id) > 0:
                     _us_params["city"] = int(city_id)
+                if age_min and int(age_min) > 0:
+                    _us_params["age_from"] = int(age_min)
+                if age_max and int(age_max) > 0:
+                    _us_params["age_to"] = int(age_max)
+                if sex in (1, 2):
+                    _us_params["sex"] = int(sex)
                 resp = await _call(client, "users.search", _us_params)
                 search_success += 1
             except RuntimeError as e:
@@ -442,6 +479,18 @@ async def search_fishermen(
             f"returned={min(len(after_audience), max_results)} "
             f"(rejects: {rejected_reasons})"
         )
+
+    # Фильтр «живых» страниц — отсев deactivated / closed / неактивных
+    # дольше N дней. Делаем ДО _candidate_dict (на сырых VK-объектах,
+    # где доступны last_seen, deactivated и т.п.).
+    alive_filtered_out = 0
+    if active_only:
+        _before = len(after_audience)
+        after_audience = [
+            u for u in after_audience
+            if is_alive_profile(u, max_inactivity_days=active_inactivity_days)
+        ]
+        alive_filtered_out = _before - len(after_audience)
 
     candidates = [
         _candidate_dict(u, category_code, source_by_uid.get(u.get("id"), "users_search"))
