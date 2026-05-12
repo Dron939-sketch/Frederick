@@ -37,8 +37,16 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from vk_parser import _call, parse_user
+from services.b2c_compensatory_patterns import (
+    llm_classifier_hint as _b2c_classifier_hint,
+    is_target_audience_hint as _b2c_target_hint,
+)
 
 logger = logging.getLogger(__name__)
+
+# Composed hint для подключения в _PAIN_SYSTEM — описывает ЦА-гейт
+# и три компенсаторных паттерна (peace/intimacy/body).
+_COMPENSATORY_HINT = _b2c_target_hint() + "\n\n" + _b2c_classifier_hint()
 
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
@@ -139,13 +147,16 @@ _PAIN_SYSTEM = (
     "  \"evidence_quotes\": [\"его реальные цитаты\"],\n"
     "  \"desired_outcome\": \"чего он хочет (например: быть услышанным; "
     "разобраться с тревогой; перестать спорить с собой)\",\n"
-    "  \"vulnerability_window\": \"когда он наиболее открыт к диалогу\"\n"
+    "  \"vulnerability_window\": \"когда он наиболее открыт к диалогу\",\n"
+    "  \"is_target_audience\": true|false,\n"
+    "  \"compensatory_pattern\": \"peace_deficit|intimacy_deficit|body_deficit|none\"\n"
     "}\n\n"
     "СПРАВОЧНИК pain_recency:\n"
     "  • current — событие в последние 2 недели (свежая боль)\n"
     "  • recent — 2 нед — 3 мес назад (ещё актуально)\n"
     "  • historical — старше 3 месяцев (уже история, но может болеть)\n"
     "  • baseline — нет конкретного события, общая потребность\n\n"
+    + _COMPENSATORY_HINT + "\n\n"
     "Без markdown."
 )
 

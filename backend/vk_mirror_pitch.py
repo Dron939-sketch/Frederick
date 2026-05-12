@@ -596,6 +596,34 @@ async def _llm_tail(category_meta: Dict[str, Any], name: str,
                               gender=gender)
 
     if b2c_mode:
+        # ========================================================
+        # COMPENSATORY-PATTERN FAST PATH
+        # Если анализатор определил один из 3 паттернов
+        # (peace_deficit / intimacy_deficit / body_deficit) — берём
+        # ГОТОВЫЙ hook-template из базы знаний и собираем текст
+        # детерминированно, БЕЗ LLM. Это даёт точный попадающий
+        # крючок (слово-в-слово авторский текст) и экономит токены.
+        # ========================================================
+        compensatory_pattern = ""
+        if pain_summary:
+            compensatory_pattern = (pain_summary.get("compensatory_pattern") or "").strip().lower()
+        if compensatory_pattern and compensatory_pattern != "none":
+            try:
+                from services.b2c_compensatory_patterns import render_hook as _b2c_render_hook
+                from services.b2c_compensatory_patterns import get_artifact as _b2c_get_artifact
+                hook_body = _b2c_render_hook(compensatory_pattern, name or "", voice=False)
+                pat_artifact = _b2c_get_artifact(compensatory_pattern, cognitive_style)
+                if hook_body and pat_artifact:
+                    nav = (
+                        f"Открой {FREDI_LANDING} — слева в меню, в "
+                        f"{pat_artifact['section']}, кнопка "
+                        f"{pat_artifact['icon_emoji']} «{pat_artifact['name']}». "
+                        f"~{pat_artifact.get('time_minutes', 5)} минут на старте."
+                    )
+                    return hook_body + "\n\n" + nav + "\n\n— Фреди"
+            except Exception as _e:
+                logger.warning(f"compensatory tail render failed: {_e} — fallback to LLM")
+
         system = _B2C_TAIL_SYSTEM
         artifact = _select_artifact(pain_type, cognitive_style)
         pa = ""
@@ -719,6 +747,18 @@ async def _llm_voice_script(
                                gender=gender)
 
     if b2c_mode:
+        # COMPENSATORY-PATTERN FAST PATH для voice — тот же ход что в tail.
+        compensatory_pattern = (pain.get("compensatory_pattern") or "").strip().lower()
+        if compensatory_pattern and compensatory_pattern != "none":
+            try:
+                from services.b2c_compensatory_patterns import render_hook as _b2c_render_hook
+                voice_text = _b2c_render_hook(compensatory_pattern, first_name or "", voice=True)
+                voice_text = _sanitize_voice(voice_text)
+                if voice_text and 100 <= len(voice_text) <= 1100:
+                    return voice_text
+            except Exception as _e:
+                logger.warning(f"compensatory voice render failed: {_e} — fallback to LLM")
+
         system = _B2C_VOICE_SYSTEM
         artifact = _select_artifact(pain_type, cognitive_style)
         recency_hint = _recency_hint(pain_recency, pain_event_age)
@@ -1010,6 +1050,27 @@ def _compose_body(
                 blocks.append(f"«{q}»")
         if pain.get("desired_outcome"):
             blocks.append(f"Хочет: {pain['desired_outcome']}")
+
+    # Compensatory pattern (если определён) — отдельный блок для глаз
+    # админа, в реальное сообщение он не уходит (это превью).
+    cp_code = (pain.get("compensatory_pattern") or "").strip().lower()
+    is_ta = bool(pain.get("is_target_audience"))
+    if cp_code and cp_code != "none":
+        try:
+            from services.b2c_compensatory_patterns import get_pattern as _b2c_get_pattern
+            cp = _b2c_get_pattern(cp_code)
+            if cp:
+                blocks.append("")
+                blocks.append(f"🧠 КОМПЕНСАТОРНЫЙ ПАТТЕРН: {cp['letter']}. {cp['name_ru']}")
+                blocks.append(f"({cp_code}) {cp['core_deformation']}")
+                blocks.append(f"Боль: {cp['pain_one_liner']}")
+                if is_ta:
+                    blocks.append("[✓ ЦА — бьюти-предпринимательница 30+]")
+        except Exception:
+            pass
+    elif is_ta:
+        blocks.append("")
+        blocks.append("🧠 ЦА-метка: бьюти-предпринимательница 30+ (паттерн не определён)")
 
     return "\n".join(blocks)
 
