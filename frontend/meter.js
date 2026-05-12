@@ -58,7 +58,8 @@
 
     var _lastCheck = null;
     var _lastCheckTime = 0;
-    var _warningShown = false;       // legacy: «осталось 2 мин»
+    var _warningShown = false;       // флаг «soft» предупреждения (≤5 мин)
+    var _criticalShown = false;      // флаг «critical» предупреждения (≤2 мин)
     var CHECK_CACHE_MS = 5000;
 
     async function checkCanSend() {
@@ -77,13 +78,46 @@
         }
     }
 
-    // Лёгкий warning, когда осталось ≤ 2 мин на сегодня.
+    // Двухступенчатое предупреждение об исчерпании дневного лимита.
+    // Цель — подготовить юзера к paywall ДО самой блокировки, чтобы
+    // он успел задуматься о ценности (по аналитике: paywall показывается
+    // внезапно → conversion = 0).
+    //
+    // 5 мин ≤ rem  → пока тишина
+    // 2 мин < rem ≤ 5 мин → soft: «осталось N мин» (info-toast)
+    // rem ≤ 2 мин → critical: «осталось 1-2 мин» (warn-toast)
+    //
+    // Каждый уровень показывается 1 раз за окно 2 мин (защита от спама).
+    // Оба трекаются как `meter_warning` в аналитике с полем `level`.
+    function _trackWarning(level, rem) {
+        try {
+            if (window.FrediTracker && window.FrediTracker.track) {
+                window.FrediTracker.track('meter_warning', {
+                    level: level,            // 'soft' | 'critical'
+                    remaining_minutes: rem,
+                });
+            }
+        } catch (e) {}
+    }
+
     function _showWarningToast(check) {
         if (!check || check.is_premium) return;
         var rem = check.remaining_minutes;
-        if (rem != null && rem <= 2 && !_warningShown) {
+        if (rem == null) return;
+
+        // Critical: осталось < 2 мин — последний шанс предложить Premium.
+        if (rem <= 2 && !_criticalShown) {
+            _criticalShown = true;
+            _toast('⏱ Осталось ' + Math.max(1, Math.round(rem)) + ' мин на сегодня. С Premium — без лимитов.', 'warn');
+            _trackWarning('critical', rem);
+            setTimeout(function() { _criticalShown = false; }, 120000);
+            return;
+        }
+        // Soft: 2 < rem ≤ 5 — мягкая подготовка.
+        if (rem <= 5 && !_warningShown) {
             _warningShown = true;
-            _toast('⏱ Осталось ' + Math.round(rem) + ' мин на сегодня. Завтра — новый день.', 'info');
+            _toast('⏱ Осталось ' + Math.round(rem) + ' мин на сегодня', 'info');
+            _trackWarning('soft', rem);
             setTimeout(function() { _warningShown = false; }, 120000);
         }
     }
