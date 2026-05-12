@@ -116,6 +116,109 @@ async def _max_send_text(client: httpx.AsyncClient, chat_id: str, text: str) -> 
         return False, str(e)
 
 
+async def _max_upload_audio_once(audio_bytes: bytes) -> Tuple[str, str]:
+    """Загружает MP3 в MAX uploads ОДИН раз → возвращает media_token.
+
+    Этот token можно потом использовать в N attachments — один файл
+    хостится у MAX, мы только ссылаемся при отправке N получателям.
+
+    Returns: (media_token, error). error != '' если упало.
+    """
+    if not MAX_TOKEN:
+        return "", "MAX_TOKEN not set"
+    if not audio_bytes:
+        return "", "empty audio_bytes"
+
+    def _safe_json(r):
+        try:
+            return r.json()
+        except Exception:
+            return {}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            r1 = await client.get(
+                "https://platform-api.max.ru/uploads",
+                params={"type": "audio", "access_token": MAX_TOKEN},
+            )
+        except Exception as e:
+            return "", f"uploads request: {e}"
+        if r1.status_code != 200:
+            return "", f"uploads HTTP {r1.status_code}: {r1.text[:200]}"
+        upload_url = _safe_json(r1).get("url")
+        if not upload_url:
+            return "", f"no upload url: {r1.text[:200]!r}"
+
+        try:
+            r2 = await client.post(
+                upload_url,
+                files={"data": ("fredi-voice.mp3", audio_bytes, "audio/mpeg")},
+            )
+        except Exception as e:
+            return "", f"upload request: {e}"
+        if r2.status_code not in (200, 201):
+            return "", f"upload HTTP {r2.status_code}: {r2.text[:200]}"
+        resp = _safe_json(r2)
+        media_token = (
+            resp.get("token")
+            or (resp.get("audio") or {}).get("token")
+            or (resp.get("file") or {}).get("token")
+        )
+        if not media_token:
+            return "", f"no media token: {r2.text[:200]!r}"
+
+    logger.info(f"MAX uploaded audio: {len(audio_bytes)}b → token={str(media_token)[:16]}…")
+    return str(media_token), ""
+
+
+async def _max_send_audio_with_token(
+    client: httpx.AsyncClient, chat_id: str, media_token: str, text: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """Отправляет уже загруженный media_token в один MAX-чат."""
+    if not MAX_TOKEN:
+        return False, "MAX_TOKEN not set"
+    numeric_id = _extract_max_chat_id(chat_id)
+    try:
+        cid_int = int(numeric_id)
+    except (ValueError, TypeError):
+        return False, f"bad chat_id: {chat_id!r}"
+    payload: Dict[str, Any] = {
+        "attachments": [{"type": "audio", "payload": {"token": media_token}}],
+    }
+    if text and text.strip():
+        payload["text"] = text.strip()[:1000]
+    try:
+        r = await client.post(
+            "https://platform-api.max.ru/messages",
+            params={"chat_id": cid_int, "access_token": MAX_TOKEN},
+            json=payload,
+            headers={"Authorization": MAX_TOKEN, "Content-Type": "application/json"},
+            timeout=15.0,
+        )
+        if r.status_code == 200:
+            return True, ""
+        return False, f"HTTP {r.status_code}: {r.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
+async def _synthesize_voice(voice_text: str, mode: str = "psychologist") -> Tuple[bytes, str]:
+    """TTS через Fish Audio. Returns (audio_bytes, error)."""
+    if not voice_text or not voice_text.strip():
+        return b"", "empty voice_text"
+    try:
+        from services.fish_audio_service import synthesize_fish_audio
+    except Exception as e:
+        return b"", f"fish_audio import: {e}"
+    try:
+        audio = await synthesize_fish_audio(voice_text.strip(), mode=mode)
+        if not audio or len(audio) < 100:
+            return b"", "TTS returned empty/short audio"
+        return audio, ""
+    except Exception as e:
+        return b"", f"TTS failed: {e}"
+
+
 async def _fetch_recipients(
     db, platform: str, target: str, user_ids: Optional[List[int]] = None,
 ) -> List[Dict[str, Any]]:
@@ -160,6 +263,8 @@ async def broadcast(
     cooldown_hours: int = 24,            # 0 = не проверять
     delay_sec: float = DEFAULT_DELAY_SEC,
     dry_run: bool = False,
+    voice_text: Optional[str] = None,    # если задан и platform=='max' → TTS + аудио-аттач
+    voice_mode: str = "psychologist",
 ) -> Dict[str, Any]:
     """Рассылка по mensenger-привязкам.
 
@@ -181,15 +286,36 @@ async def broadcast(
             return {
                 "test_chat_id": test_chat_id, "dry_run": True,
                 "would_send_to": 1, "text_preview": text[:200],
+                "voice_planned": bool(voice_text and platform == "max"),
             }
+        # Voice (MAX only): TTS + upload → token, отправка с аттачем
+        media_token = ""
+        audio_size = 0
+        voice_err = ""
+        if voice_text and platform == "max":
+            audio, terr = await _synthesize_voice(voice_text, mode=voice_mode)
+            if terr:
+                voice_err = f"tts: {terr}"
+            else:
+                audio_size = len(audio)
+                media_token, uerr = await _max_upload_audio_once(audio)
+                if uerr:
+                    voice_err = f"upload: {uerr}"
         async with httpx.AsyncClient() as client:
             if platform == "telegram":
                 ok, err = await _tg_send_text(client, str(test_chat_id), text)
+            elif media_token:
+                ok, err = await _max_send_audio_with_token(
+                    client, str(test_chat_id), media_token, text=text,
+                )
             else:
                 ok, err = await _max_send_text(client, str(test_chat_id), text)
         return {
             "test_chat_id": test_chat_id, "sent": 1 if ok else 0,
             "failed": 0 if ok else 1, "error": err if not ok else None,
+            "voice_used": bool(media_token),
+            "audio_size_bytes": audio_size,
+            "voice_error": voice_err or None,
         }
 
     # --- Получатели ---
@@ -221,6 +347,27 @@ async def broadcast(
     skipped_cooldown = 0
     errors: List[Dict[str, Any]] = []
 
+    # Voice (MAX only): TTS + upload ОДИН раз — потом N attachments с одним token
+    media_token = ""
+    audio_size = 0
+    voice_err = ""
+    if voice_text and platform == "max":
+        audio, terr = await _synthesize_voice(voice_text, mode=voice_mode)
+        if terr:
+            voice_err = f"tts: {terr}"
+            logger.warning(f"broadcast voice TTS failed: {terr}")
+        else:
+            audio_size = len(audio)
+            media_token, uerr = await _max_upload_audio_once(audio)
+            if uerr:
+                voice_err = f"upload: {uerr}"
+                logger.warning(f"broadcast voice upload failed: {uerr}")
+            else:
+                logger.info(
+                    f"broadcast voice ready: {audio_size}b, token={media_token[:16]}…, "
+                    f"для {len(recipients)} получателей"
+                )
+
     async with httpx.AsyncClient() as client:
         for rec in recipients:
             chat_id = rec["chat_id"]
@@ -244,6 +391,10 @@ async def broadcast(
             # Send
             if platform == "telegram":
                 ok, err = await _tg_send_text(client, str(chat_id), text)
+            elif media_token:
+                ok, err = await _max_send_audio_with_token(
+                    client, str(chat_id), media_token, text=text,
+                )
             else:
                 ok, err = await _max_send_text(client, str(chat_id), text)
 
@@ -279,4 +430,7 @@ async def broadcast(
         "failed": failed,
         "skipped_cooldown": skipped_cooldown,
         "errors": errors,
+        "voice_used": bool(media_token),
+        "audio_size_bytes": audio_size,
+        "voice_error": voice_err or None,
     }
