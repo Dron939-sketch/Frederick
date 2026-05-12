@@ -1655,8 +1655,20 @@ def register_vk_routes(app, db):
                 # category_meta=пустой словарь → промпты используют общий
                 # тон для «универсального» практика (без указания ниши).
                 empty_cat: Dict[str, Any] = {}
+                # ВАЖНО: tail должен получать pain_summary и
+                # profile_summary, иначе он генерируется без знания
+                # cognitive_style/pain_type/pain_recency и обещает
+                # ДРУГОЙ артефакт чем голос → рефлекс узнавания
+                # ломается. Голос всегда получал profile/pain как
+                # позиционные аргументы — это работало правильно;
+                # tail же выбирал rational-артефакт по умолчанию.
                 tail, voice_script = await _asyncio.gather(
-                    _llm_tail(empty_cat, first_name or "коллега"),
+                    _llm_tail(
+                        empty_cat,
+                        first_name or "коллега",
+                        pain_summary=result.get("pain") or {},
+                        profile_summary=result.get("profile") or {},
+                    ),
                     _llm_voice_script(
                         result.get("profile") or {},
                         result.get("pain") or {},
