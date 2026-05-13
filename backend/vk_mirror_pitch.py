@@ -1334,27 +1334,47 @@ def compose_outbound_message(
     journey = analysis.get("journey")
     actionable = analysis.get("problem_signals_actionable") or []
     name = (first_name or "").strip()
+    profile = analysis.get("profile") or {}
+    gender = (analysis.get("gender") or "").strip().lower()
+    cognitive_style = (profile.get("cognitive_style") or "rational").strip().lower()
+    is_target = bool(pain.get("is_target_audience"))
+    cp_code = (pain.get("compensatory_pattern") or "").strip().lower()
 
     # ============================================================
     # TIER 1 — journey narrative_hook (САМЫЙ СИЛЬНЫЙ)
     # А→Б→С с персонализированными point_a/point_c от LLM +
-    # упорядоченной цепочкой 5-6 инструментов + мягкое закрытие.
+    # упорядоченной цепочкой инструментов + мягкое закрытие + URL.
+    #
+    # 🚨 ГЕЙТЫ (защита от LLM-дрейфа — даже если LLM вернул journey
+    # для не-ЦА мужчины, мы его игнорируем; шаблоны journey все
+    # написаны под женщину 30+ с feminine окончаниями):
+    #   - gender = "f" (по VK user.sex; "" = неизвестно → пропускаем)
+    #   - is_target_audience = true
+    #   - compensatory_pattern != "none" (journey — детализация cp)
     # ============================================================
-    if journey and isinstance(journey, dict) and journey.get("code"):
+    if (journey and isinstance(journey, dict) and journey.get("code")
+            and journey.get("code") != "none"
+            and is_target
+            and cp_code and cp_code != "none"
+            and gender == "f"):
         try:
-            from services.b2c_journeys import render_journey_hook as _jhook
             jweight = float(journey.get("weight") or 0.0)
             if jweight >= 0.5:
-                text = _jhook(journey["code"], name, voice=voice)
+                text = _render_journey_message(
+                    journey,
+                    name=name,
+                    cognitive_style=cognitive_style,
+                    voice=voice,
+                )
                 if text:
-                    chain = journey.get("tool_chain") or []
-                    first_tool = (chain[0] or {}).get("tool") if chain else None
+                    chain_used = _ordered_chain(journey, cognitive_style)
+                    first_tool = (chain_used[0] or {}).get("tool") if chain_used else None
                     return {
                         "message": text,
                         "tier": "journey",
                         "tier_reason": (
                             f"journey={journey.get('code')} "
-                            f"(weight={jweight:.2f})"
+                            f"(weight={jweight:.2f}, cog={cognitive_style})"
                         ),
                         "tool_recommended": first_tool,
                         "fallback_used": False,
@@ -1445,3 +1465,137 @@ def compose_outbound_message(
         "fallback_used": True,
         "skip": True,
     }
+
+
+# ============================================================
+# Сборка journey-сообщения из ЖИВЫХ данных (LLM-filled point_a/c)
+# ------------------------------------------------------------
+# Раньше render_journey_hook() возвращал статичный шаблон из каталога
+# (например, «За тебя выбрали будешь врачом / юристом»). LLM при
+# этом ВОЗВРАЩАЛ персонализированные point_a / point_c, но они
+# просто выбрасывались.
+#
+# Новая функция собирает сообщение из:
+#   • LLM-заполненных journey.point_a и journey.point_c
+#   • цепочки инструментов (отсортированной под cognitive_style)
+#   • явной ссылки на https://meysternlp.ru/fredi/
+#   • мягкого закрытия «или просто захочешь поговорить»
+# ============================================================
+
+# Инструменты-эзо/символические — для rational откладываем в конец,
+# для irrational — оставляем в начале цепочки.
+_ESOTERIC_TOOLS = {
+    "esoteric", "tarot", "horoscope", "dreams_book", "tales", "dreams",
+}
+# Инструменты-аналитические — для rational подтягиваем к началу.
+_RATIONAL_TOOLS = {
+    "test", "diary", "strategy", "goals", "berne", "skill_plan",
+    "habits", "interests", "brand", "vk_audit", "skill_diagnosis",
+}
+
+
+def _ordered_chain(
+    journey: Dict[str, Any],
+    cognitive_style: str = "rational",
+) -> List[Dict[str, Any]]:
+    """Возвращает tool_chain, отсортированный под cognitive_style.
+
+    Логика:
+      rational  → аналитические инструменты ВПЕРЁД, эзотерика В КОНЕЦ
+      irrational → исходный порядок (часто уже эзо-first)
+
+    Внутри групп сохраняем относительный порядок исходной цепочки.
+    """
+    chain = list(journey.get("tool_chain") or [])
+    if not chain:
+        return []
+    if (cognitive_style or "").strip().lower() != "rational":
+        return chain
+    # rational: stable-sort с приоритетом группы
+    def _key(step):
+        tc = (step.get("tool_code") or "").lower()
+        if tc in _RATIONAL_TOOLS:
+            return 0
+        if tc in _ESOTERIC_TOOLS:
+            return 2
+        return 1
+    indexed = list(enumerate(chain))
+    indexed.sort(key=lambda iv: (_key(iv[1]), iv[0]))
+    out = []
+    for step_idx, (orig_i, step) in enumerate(indexed, start=1):
+        s2 = dict(step)
+        s2["step"] = step_idx  # перенумеровываем после сортировки
+        out.append(s2)
+    return out
+
+
+def _render_journey_message(
+    journey: Dict[str, Any],
+    name: str = "",
+    cognitive_style: str = "rational",
+    voice: bool = False,
+) -> str:
+    """Собирает journey-сообщение из LLM-filled данных + каркас.
+
+    Использует ТОЛЬКО реальные point_a и point_c от LLM. Если они
+    пустые — возвращает "" (caller сделает fallback на TIER 2).
+    """
+    point_a = (journey.get("point_a") or "").strip()
+    point_c = (journey.get("point_c") or "").strip()
+    if not point_a or not point_c:
+        return ""
+
+    chain = _ordered_chain(journey, cognitive_style)
+    if not chain:
+        return ""
+
+    nm = name.strip() or "друг"
+
+    # ---------- VOICE: компактно, без списка шагов ----------
+    if voice:
+        # Достаём 3-5 имён инструментов для перечисления голосом
+        tool_names: List[str] = []
+        for s in chain[:5]:
+            tn = (s.get("tool") or {}).get("name") or s.get("tool_code", "")
+            if tn:
+                tool_names.append(tn.lower())
+        tools_inline = ", ".join(tool_names) if tool_names else "несколько шагов"
+        first_step = ""
+        if chain:
+            first_t = (chain[0].get("tool") or {}).get("name") or ""
+            if first_t:
+                first_step = f" Начни с раздела «{first_t.lower()}»."
+        # Голосовая версия — короче, без формальных переходов
+        return (
+            f"{nm}, здравствуй. Я Фреди. Я прочитал твою страницу. "
+            f"{point_a} "
+            f"А тянешься ты к другому. {point_c} "
+            f"У меня для тебя есть путь: {tools_inline}.{first_step} "
+            f"Открой meysternlp.ru/fredi и веди меня. "
+            f"Или просто захочешь поговорить — теперь знаешь, где меня найти."
+        )
+
+    # ---------- TEXT: полный, со списком шагов и ссылкой ----------
+    chain_lines = []
+    for s in chain:
+        tool = s.get("tool") or {}
+        emoji = tool.get("icon_emoji", "•")
+        nm_tool = tool.get("name", s.get("tool_code", "—"))
+        step_name = s.get("step_name", "")
+        time_min = s.get("time_min") or tool.get("time_minutes") or 5
+        chain_lines.append(
+            f"{s['step']}. {emoji} {nm_tool} — {step_name} (~{time_min} мин)"
+        )
+    chain_block = "\n".join(chain_lines)
+
+    return (
+        f"{nm}, я прочитал твою страницу. Вот что я вижу.\n\n"
+        f"📍 ОТКУДА это у тебя:\n{point_a}\n\n"
+        f"🎯 КУДА ты тянешься:\n{point_c}\n\n"
+        f"У меня для тебя есть путь — {len(chain)} шагов:\n"
+        f"{chain_block}\n\n"
+        f"Все эти разделы — в левом меню {FREDI_LANDING}\n"
+        f"Начни с шага 1. Я веду.\n\n"
+        f"Или просто захочешь поговорить — ты теперь знаешь, "
+        f"где меня искать."
+    )
