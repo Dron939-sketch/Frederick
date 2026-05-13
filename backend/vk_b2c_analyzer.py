@@ -45,17 +45,24 @@ from services.b2c_problem_signals import (
     llm_problem_detector_hint as _b2c_problem_hint,
     filter_actionable as _b2c_filter_problems,
 )
+from services.b2c_journeys import (
+    llm_journey_detector_hint as _b2c_journey_hint,
+    get_journey as _b2c_get_journey,
+    get_tool_chain as _b2c_get_tool_chain,
+)
 
 logger = logging.getLogger(__name__)
 
 # Composed hint для подключения в _PAIN_SYSTEM:
 #   1) ЦА-гейт (бьюти-предпринимательница 30+)
-#   2) Compensatory pattern (peace/intimacy/body) — стратегический слой
-#   3) Problem signals (12 проблем) — тактический слой
+#   2) Compensatory pattern — стратегический слой
+#   3) Problem signals (12) — тактический слой
+#   4) Journey (А→Б→С, 10 траекторий) — нарративный слой
 _COMPENSATORY_HINT = (
     _b2c_target_hint()
     + "\n\n" + _b2c_classifier_hint()
     + "\n\n" + _b2c_problem_hint()
+    + "\n\n" + _b2c_journey_hint()
 )
 
 
@@ -167,7 +174,19 @@ _PAIN_SYSTEM = (
     "recurring_dreams|existential_void\",\n"
     "     \"weight\": 0.0-1.0,\n"
     "     \"evidence\": \"конкретная цитата или наблюдение\"}\n"
-    "  ]\n"
+    "  ],\n"
+    "  \"journey\": {\n"
+    "    \"code\": \"invisible_to_seen|good_girl_to_self|strong_to_soft|"
+    "alone_to_tribe|control_to_let_go|wounded_to_healed|lost_to_path|"
+    "body_as_tool_to_body_as_home|frozen_to_feeling|daughter_to_self|none\",\n"
+    "    \"point_a\": \"описание ТОЧКИ А этого человека (2-3 предложения, "
+    "    не шаблонный — на основе его реальных постов/анкеты)\",\n"
+    "    \"point_c\": \"описание ТОЧКИ С — куда тянется (2-3 предложения, "
+    "    на основе его лайков/репостов/намёков в постах)\",\n"
+    "    \"weight\": 0.0-1.0,\n"
+    "    \"evidence_a\": \"конкретная цитата подтверждающая А\",\n"
+    "    \"evidence_c\": \"конкретная цитата подтверждающая С\"\n"
+    "  }\n"
     "}\n\n"
     "СПРАВОЧНИК pain_recency:\n"
     "  • current — событие в последние 2 недели (свежая боль)\n"
@@ -475,6 +494,33 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         raw_signals = pain.get("problem_signals") or []
     actionable_problems = _b2c_filter_problems(raw_signals)
 
+    # Нарративный слой: journey А→Б→С + цепочка инструментов.
+    # LLM возвращает journey.code; мы достаём его карточку из каталога
+    # и подгружаем актуальную цепочку инструментов с их UI-описанием.
+    journey_resolved = None
+    try:
+        if isinstance(pain, dict):
+            jraw = pain.get("journey") or {}
+            jcode = (jraw.get("code") or "").strip().lower()
+            jweight = float(jraw.get("weight") or 0.0)
+            if jcode and jcode != "none" and jweight >= 0.4:
+                jmeta = _b2c_get_journey(jcode)
+                if jmeta:
+                    journey_resolved = {
+                        "code": jcode,
+                        "name_ru": jmeta.get("name_ru", ""),
+                        "compass": jmeta.get("compass", ""),
+                        "point_a": jraw.get("point_a", "") or jmeta.get("point_a_archetype", ""),
+                        "point_c": jraw.get("point_c", "") or jmeta.get("point_c_archetype", ""),
+                        "weight": jweight,
+                        "evidence_a": jraw.get("evidence_a", ""),
+                        "evidence_c": jraw.get("evidence_c", ""),
+                        "tool_chain": _b2c_get_tool_chain(jcode),
+                        "compensatory_link": jmeta.get("compensatory_link", ""),
+                    }
+    except Exception as _je:
+        logger.warning(f"journey resolve failed: {_je}")
+
     return {
         "vk_data": {
             "user_basic": {
@@ -497,4 +543,8 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         # best_send_time_msk}. Используется на фронте для отображения и
         # в vk_mirror_pitch для second-touch.
         "problem_signals_actionable": actionable_problems,
+        # Нарративный слой: А→Б→С с цепочкой инструментов. None если
+        # LLM не нашёл траекторию с weight >= 0.4. Используется в
+        # глубоких касаниях (mirror_pitch.render_journey_pitch).
+        "journey": journey_resolved,
     }
