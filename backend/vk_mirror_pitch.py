@@ -1138,6 +1138,11 @@ async def generate_mirror_pitch(
     second_touch = render_second_touch_pitch(analysis, first_name, voice=False)
     second_touch_voice = render_second_touch_pitch(analysis, first_name, voice=True)
 
+    # Глубокий нарративный pitch А→Б→С (4-7 касание). None если
+    # journey не определён LLM.
+    journey_pitch = render_journey_pitch(analysis, first_name, voice=False)
+    journey_pitch_voice = render_journey_pitch(analysis, first_name, voice=True)
+
     vk_id = ub.get("id") or fisherman.get("vk_id")
     return {
         "message": message,
@@ -1153,9 +1158,12 @@ async def generate_mirror_pitch(
             "hooks": analysis.get("hooks"),
             "problem_signals_actionable":
                 analysis.get("problem_signals_actionable") or [],
+            "journey": analysis.get("journey"),
         },
         "second_touch": second_touch,
         "second_touch_voice": second_touch_voice,
+        "journey_pitch": journey_pitch,
+        "journey_pitch_voice": journey_pitch_voice,
     }
 
 
@@ -1217,4 +1225,69 @@ def render_second_touch_pitch(
         "best_send_time_msk": top.get("best_send_time_msk") or "",
         "weight": float(top.get("weight") or 0.0),
         "evidence": top.get("evidence") or "",
+    }
+
+
+# ============================================================
+# Глубокое касание: НАРРАТИВНЫЙ pitch А → Б → С
+# ------------------------------------------------------------
+# Берёт analysis['journey'] (резолвленный анализатором) и собирает:
+#   - narrative_hook текстом (или voice)
+#   - персонализированные А и С от LLM (вместо архетипических)
+#   - цепочку инструментов с UI-описанием
+#
+# Используется для 4-7 касания (когда юзер уже зашёл и нужно
+# удержать через картину пути).
+# ============================================================
+def render_journey_pitch(
+    analysis: Dict[str, Any],
+    first_name: str = "",
+    voice: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Собирает нарративный pitch А→Б→С.
+
+    Returns:
+        {
+          "text":   "narrative hook",
+          "code":   "invisible_to_seen",
+          "name_ru":"Из невидимой — в увиденную",
+          "compass":"признание",
+          "point_a":"... (персонализирован LLM)",
+          "point_c":"... (персонализирован LLM)",
+          "tool_chain":[{step, tool_code, tool, step_name, why, time_min},...],
+          "weight": 0.7,
+        }
+        Либо None если journey не определён.
+    """
+    try:
+        from services.b2c_journeys import render_journey_hook as _render
+    except Exception as e:
+        logger.warning(f"render_journey_pitch: import failed: {e}")
+        return None
+
+    if not isinstance(analysis, dict):
+        return None
+    j = analysis.get("journey")
+    if not j or not isinstance(j, dict):
+        return None
+    code = (j.get("code") or "").strip().lower()
+    if not code or code == "none":
+        return None
+
+    text = _render(code, first_name or "", voice=bool(voice))
+    if not text:
+        return None
+
+    return {
+        "text": text,
+        "code": code,
+        "name_ru": j.get("name_ru", ""),
+        "compass": j.get("compass", ""),
+        "point_a": j.get("point_a", ""),
+        "point_c": j.get("point_c", ""),
+        "evidence_a": j.get("evidence_a", ""),
+        "evidence_c": j.get("evidence_c", ""),
+        "tool_chain": j.get("tool_chain", []),
+        "weight": float(j.get("weight") or 0.0),
+        "compensatory_link": j.get("compensatory_link", ""),
     }

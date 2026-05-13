@@ -38,18 +38,58 @@ from typing import Any, Dict, List, Optional
 # где он, как выглядит, сколько занимает времени.
 # ============================================================
 TOOLS_UI: Dict[str, Dict[str, Any]] = {
-    "chat":      {"name": "Фреди",            "icon_emoji": "💬", "icon_word": "пузырь чата",          "section": "сверху меню",          "time_minutes": 15},
-    "diary":     {"name": "Дневник",          "icon_emoji": "📓", "icon_word": "раскрытый блокнот",    "section": "блоке «Инструменты»",  "time_minutes": 5},
-    "test":      {"name": "Психологический тест", "icon_emoji": "🧠", "icon_word": "силуэт головы",  "section": "блоке «Инструменты»",  "time_minutes": 7},
-    "mirror":    {"name": "Зеркало",          "icon_emoji": "🪞", "icon_word": "зеркало",              "section": "блоке «Инструменты»",  "time_minutes": 5},
-    "messages":  {"name": "Сообщения",        "icon_emoji": "💌", "icon_word": "конверт с сердцем",    "section": "сверху меню",          "time_minutes": 3},
-    "berne":     {"name": "Роли и игры",      "icon_emoji": "🎭", "icon_word": "театральная маска",    "section": "блоке «Инструменты»",  "time_minutes": 10},
-    "tales":     {"name": "Сказки-катарсис",  "icon_emoji": "📖", "icon_word": "раскрытая книга",      "section": "блоке «Инструменты»",  "time_minutes": 12},
-    "practices": {"name": "Практики",         "icon_emoji": "🌿", "icon_word": "лист и солнце",        "section": "блоке «Практики»",     "time_minutes": 7},
-    "hypnosis":  {"name": "Гипноз",           "icon_emoji": "🌀", "icon_word": "воронка-спираль",      "section": "блоке «Практики»",     "time_minutes": 10},
-    "anchors":   {"name": "Якоря",            "icon_emoji": "⚓", "icon_word": "якорь",                "section": "блоке «Практики»",     "time_minutes": 5},
-    "dreams":    {"name": "Толкование снов",  "icon_emoji": "🌙", "icon_word": "луна",                 "section": "нижней части меню",    "time_minutes": 5},
-    "esoteric":  {"name": "Эзотерика",        "icon_emoji": "🔮", "icon_word": "магический шар",       "section": "нижней части меню",    "time_minutes": 5},
+    # ----- AI-консультация / диагностика -----
+    "chat":         {"name": "Фреди",            "icon_emoji": "💬", "icon_word": "пузырь чата",        "section": "сверху меню",         "time_minutes": 15},
+    "test":         {"name": "Психологический тест", "icon_emoji": "🧠", "icon_word": "силуэт головы","section": "блоке «Инструменты»",  "time_minutes": 7},
+    "mirror":       {"name": "Зеркало",          "icon_emoji": "🪞", "icon_word": "зеркало",            "section": "блоке «Инструменты»",  "time_minutes": 5},
+    "doubles":      {"name": "Двойники",         "icon_emoji": "👯", "icon_word": "две силуэтки",       "section": "блоке «Инструменты»",  "time_minutes": 5},
+
+    # ----- Базовые терапевтические инструменты -----
+    "diary":        {"name": "Дневник",          "icon_emoji": "📓", "icon_word": "раскрытый блокнот",  "section": "блоке «Инструменты»",  "time_minutes": 5},
+    "berne":        {"name": "Роли и игры",      "icon_emoji": "🎭", "icon_word": "театральная маска",  "section": "блоке «Инструменты»",  "time_minutes": 10},
+    "tales":        {"name": "Сказки-катарсис",  "icon_emoji": "📖", "icon_word": "раскрытая книга",    "section": "блоке «Инструменты»",  "time_minutes": 12},
+    "messages":     {"name": "Сообщения",        "icon_emoji": "💌", "icon_word": "конверт с сердцем",  "section": "сверху меню",          "time_minutes": 3},
+
+    # ----- Практики самопомощи -----
+    "practices":    {"name": "Практики",         "icon_emoji": "🌿", "icon_word": "лист и солнце",      "section": "блоке «Практики»",     "time_minutes": 7},
+    "hypnosis":     {"name": "Гипноз",           "icon_emoji": "🌀", "icon_word": "воронка-спираль",    "section": "блоке «Практики»",     "time_minutes": 10},
+    "anchors":      {"name": "Якоря",            "icon_emoji": "⚓", "icon_word": "якорь",              "section": "блоке «Практики»",     "time_minutes": 5},
+
+    # ----- Эзотерика / символическое -----
+    "dreams":       {"name": "Толкование снов",  "icon_emoji": "🌙", "icon_word": "луна",               "section": "нижней части меню",    "time_minutes": 5},
+    "dreams_book":  {"name": "Сонник",           "icon_emoji": "💤", "icon_word": "облачко сна",        "section": "нижней части меню",    "time_minutes": 3},
+    "tarot":        {"name": "Таро",             "icon_emoji": "🃏", "icon_word": "карты Таро",         "section": "нижней части меню",    "time_minutes": 5},
+    "horoscope":    {"name": "Гороскоп",         "icon_emoji": "♈", "icon_word": "знак зодиака",       "section": "нижней части меню",    "time_minutes": 3},
+    "esoteric":     {"name": "Эзотерика",        "icon_emoji": "🔮", "icon_word": "магический шар",     "section": "нижней части меню",    "time_minutes": 5},
+
+    # ----- Коуч-блок: цели / развитие -----
+    "goals":        {"name": "Цели",             "icon_emoji": "🎯", "icon_word": "мишень",             "section": "блоке «Развитие»",     "time_minutes": 10},
+    "habits":       {"name": "Привычки",         "icon_emoji": "🌱", "icon_word": "росток",             "section": "блоке «Развитие»",     "time_minutes": 5},
+    "motivation":   {"name": "Мотивация",        "icon_emoji": "🔥", "icon_word": "пламя",              "section": "блоке «Развитие»",     "time_minutes": 7},
+    "interests":    {"name": "Интересы",         "icon_emoji": "🧭", "icon_word": "компас",             "section": "блоке «Развитие»",     "time_minutes": 5},
+    "strategy":     {"name": "Стратегия",        "icon_emoji": "🗺️", "icon_word": "карта-маршрут",      "section": "блоке «Развитие»",     "time_minutes": 10},
+
+    # ----- Тренер-блок: навыки -----
+    "skill_choice":     {"name": "Выбор навыка",     "icon_emoji": "🎓", "icon_word": "шапочка выпускника", "section": "блоке «Навыки»",   "time_minutes": 5},
+    "skill_plan":       {"name": "План навыка",      "icon_emoji": "📋", "icon_word": "лист с галочками",  "section": "блоке «Навыки»",   "time_minutes": 10},
+    "daily_training":   {"name": "Тренировка дня",   "icon_emoji": "🏋️", "icon_word": "гантеля",          "section": "блоке «Навыки»",   "time_minutes": 10},
+    "skill_diagnosis":  {"name": "Диагностика навыка","icon_emoji": "🔬", "icon_word": "микроскоп",         "section": "блоке «Навыки»",   "time_minutes": 7},
+    "progress_tracker": {"name": "Прогресс",          "icon_emoji": "📈", "icon_word": "восходящий график", "section": "блоке «Навыки»",   "time_minutes": 3},
+    "morning_message":  {"name": "Утреннее сообщение","icon_emoji": "🌅", "icon_word": "солнце над морем",  "section": "сверху меню",      "time_minutes": 2},
+
+    # ----- Здоровье / тело / эмоции -----
+    "emotions":     {"name": "Эмоции",           "icon_emoji": "💗", "icon_word": "розовое сердце",     "section": "блоке «Здоровье»",     "time_minutes": 5},
+    "hormones":     {"name": "Гормоны / цикл",   "icon_emoji": "🩸", "icon_word": "капля",              "section": "блоке «Здоровье»",     "time_minutes": 5},
+    "healing":      {"name": "Исцеление",        "icon_emoji": "🩹", "icon_word": "пластырь",           "section": "блоке «Здоровье»",     "time_minutes": 10},
+    "relationships":{"name": "Отношения",        "icon_emoji": "💞", "icon_word": "два сердца",         "section": "блоке «Здоровье»",     "time_minutes": 10},
+
+    # ----- VK / личный бренд -----
+    "brand":        {"name": "Личный бренд",     "icon_emoji": "✨", "icon_word": "звезда-блик",        "section": "блоке «VK»",           "time_minutes": 10},
+    "vk_audit":     {"name": "Аудит VK-страницы","icon_emoji": "🔍", "icon_word": "лупа",               "section": "блоке «VK»",           "time_minutes": 7},
+
+    # ----- Прочее -----
+    "freshthought": {"name": "Свежая мысль",     "icon_emoji": "💡", "icon_word": "лампочка",           "section": "сверху меню",          "time_minutes": 1},
+    "weekend":      {"name": "Идеи на выходные", "icon_emoji": "🌸", "icon_word": "цветок",             "section": "сверху меню",          "time_minutes": 2},
 }
 
 
