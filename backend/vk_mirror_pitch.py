@@ -1132,6 +1132,12 @@ async def generate_mirror_pitch(
 
     message = body + "\n\n—\n\n" + tail
 
+    # Second-touch — короткое сообщение «у меня для вас есть {tool}»
+    # на основе топ-1 actionable problem signal. Может быть None
+    # (если ни одного сигнала с достаточным весом не найдено).
+    second_touch = render_second_touch_pitch(analysis, first_name, voice=False)
+    second_touch_voice = render_second_touch_pitch(analysis, first_name, voice=True)
+
     vk_id = ub.get("id") or fisherman.get("vk_id")
     return {
         "message": message,
@@ -1145,5 +1151,70 @@ async def generate_mirror_pitch(
             "profile": analysis.get("profile"),
             "pain": analysis.get("pain"),
             "hooks": analysis.get("hooks"),
+            "problem_signals_actionable":
+                analysis.get("problem_signals_actionable") or [],
         },
+        "second_touch": second_touch,
+        "second_touch_voice": second_touch_voice,
+    }
+
+
+# ============================================================
+# Второе/третье касание: рекомендация конкретного инструмента
+# ------------------------------------------------------------
+# Берёт analysis['problem_signals_actionable'] (топ-3 после
+# filter_actionable) и собирает короткое сообщение
+# «У меня для вас есть {tool}». Используется ПОСЛЕ того, как hook
+# (compensatory_pattern) уже сработал и пользователь откликнулся.
+#
+# Возвращает None, если actionable пуст или name не передан.
+# ============================================================
+def render_second_touch_pitch(
+    analysis: Dict[str, Any],
+    first_name: str = "",
+    voice: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Собирает текст второго касания по топ-1 actionable problem.
+
+    Returns:
+        {
+          "text": "...",                    # готовое сообщение
+          "tool_code": "diary",             # код инструмента
+          "tool_name": "Дневник",           # имя для UI
+          "problem_code": "mental_clutter", # код проблемы
+          "problem_name_ru": "Каша в голове",
+          "best_send_time_msk": "21:00-23:00",
+          "weight": 0.78,
+        }
+        Либо None, если нет actionable сигналов.
+    """
+    try:
+        from services.b2c_problem_signals import (
+            render_second_touch as _render,
+        )
+    except Exception as e:
+        logger.warning(f"render_second_touch_pitch: import failed: {e}")
+        return None
+
+    if not isinstance(analysis, dict):
+        return None
+    actionable = analysis.get("problem_signals_actionable") or []
+    if not actionable:
+        return None
+
+    top = actionable[0]
+    code = top.get("code") or ""
+    text = _render(code, first_name or "", voice=bool(voice))
+    if not text:
+        return None
+
+    return {
+        "text": text,
+        "tool_code": top.get("tool_code") or "",
+        "tool_name": (top.get("tool") or {}).get("name") or "",
+        "problem_code": code,
+        "problem_name_ru": top.get("name_ru") or "",
+        "best_send_time_msk": top.get("best_send_time_msk") or "",
+        "weight": float(top.get("weight") or 0.0),
+        "evidence": top.get("evidence") or "",
     }
