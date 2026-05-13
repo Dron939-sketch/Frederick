@@ -41,12 +41,22 @@ from services.b2c_compensatory_patterns import (
     llm_classifier_hint as _b2c_classifier_hint,
     is_target_audience_hint as _b2c_target_hint,
 )
+from services.b2c_problem_signals import (
+    llm_problem_detector_hint as _b2c_problem_hint,
+    filter_actionable as _b2c_filter_problems,
+)
 
 logger = logging.getLogger(__name__)
 
-# Composed hint для подключения в _PAIN_SYSTEM — описывает ЦА-гейт
-# и три компенсаторных паттерна (peace/intimacy/body).
-_COMPENSATORY_HINT = _b2c_target_hint() + "\n\n" + _b2c_classifier_hint()
+# Composed hint для подключения в _PAIN_SYSTEM:
+#   1) ЦА-гейт (бьюти-предпринимательница 30+)
+#   2) Compensatory pattern (peace/intimacy/body) — стратегический слой
+#   3) Problem signals (12 проблем) — тактический слой
+_COMPENSATORY_HINT = (
+    _b2c_target_hint()
+    + "\n\n" + _b2c_classifier_hint()
+    + "\n\n" + _b2c_problem_hint()
+)
 
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
@@ -149,7 +159,15 @@ _PAIN_SYSTEM = (
     "разобраться с тревогой; перестать спорить с собой)\",\n"
     "  \"vulnerability_window\": \"когда он наиболее открыт к диалогу\",\n"
     "  \"is_target_audience\": true|false,\n"
-    "  \"compensatory_pattern\": \"peace_deficit|intimacy_deficit|body_deficit|none\"\n"
+    "  \"compensatory_pattern\": \"peace_deficit|intimacy_deficit|body_deficit|none\",\n"
+    "  \"problem_signals\": [\n"
+    "    {\"code\": \"loneliness_chat|mental_clutter|identity_search|"
+    "blind_spots|social_isolation|relational_scripts|unspeakable_grief|"
+    "insomnia_anxiety|nervous_dysregulation|emotional_reactivity|"
+    "recurring_dreams|existential_void\",\n"
+    "     \"weight\": 0.0-1.0,\n"
+    "     \"evidence\": \"конкретная цитата или наблюдение\"}\n"
+    "  ]\n"
     "}\n\n"
     "СПРАВОЧНИК pain_recency:\n"
     "  • current — событие в последние 2 недели (свежая боль)\n"
@@ -449,6 +467,14 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
     user_obj = vk_data.get("user") if isinstance(vk_data.get("user"), dict) else {}
     gender = _vk_sex_to_gender(user_obj.get("sex"))
 
+    # Тактический слой: отфильтровать сигналы по weight_floor каждой
+    # проблемы, дополнить инфо об инструменте, отсортировать desc.
+    # Topology: max 3 actionable. Используется фронтом и mirror_pitch.
+    raw_signals = []
+    if isinstance(pain, dict):
+        raw_signals = pain.get("problem_signals") or []
+    actionable_problems = _b2c_filter_problems(raw_signals)
+
     return {
         "vk_data": {
             "user_basic": {
@@ -466,4 +492,9 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         "hooks": hooks,
         "gender": gender,
         "vk_url": f"https://vk.com/{sn}",
+        # Actionable проблемы (отфильтрованы по weight_floor, max 3).
+        # Каждая запись: {code, weight, evidence, tool_code, tool, name_ru,
+        # best_send_time_msk}. Используется на фронте для отображения и
+        # в vk_mirror_pitch для second-touch.
+        "problem_signals_actionable": actionable_problems,
     }
