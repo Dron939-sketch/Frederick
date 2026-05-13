@@ -1797,7 +1797,14 @@ def register_vk_routes(app, db):
                 )
 
                 vk_id = ub.get("id")
-                greet = (first_name or full_name or "").strip()
+                # SMART NAME для fallback-приветствия: VK даёт «Маникюр»
+                # как first_name, реальное имя в last_name. Не пишем
+                # «Привет, Маникюр!» — это business-страница, не имя.
+                try:
+                    from vk_mirror_pitch import _smart_first_name
+                    greet = _smart_first_name(first_name, last_name).strip()
+                except Exception:
+                    greet = (first_name or "").strip()
 
                 # Если outbound определил tier=journey/compensatory — берём
                 # его готовый text (без greet_line, т.к. шаблон уже включает имя).
