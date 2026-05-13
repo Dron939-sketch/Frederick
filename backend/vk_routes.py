@@ -1747,6 +1747,7 @@ def register_vk_routes(app, db):
             try:
                 from vk_mirror_pitch import (
                     _compose_body, _llm_tail, _llm_voice_script,
+                    compose_outbound_message,
                 )
                 import asyncio as _asyncio
 
@@ -1762,16 +1763,24 @@ def register_vk_routes(app, db):
                     full_name,
                     first_name=first_name,
                 )
-                # category_meta=пустой словарь → промпты используют общий
-                # тон для «универсального» практика (без указания ниши).
+
+                # ===========================================================
+                # ВЫБОР ИСХОДЯЩЕГО ТЕКСТА: используем САМЫЙ СИЛЬНЫЙ tier
+                # из 4 слоёв собранной базы (compose_outbound_message).
+                #
+                #   tier=journey       — narrative_hook А→Б→С (сильнейший)
+                #   tier=compensatory  — render_hook + точечный tool
+                #   tier=skip          — НЕ отправляем (не-ЦА, нет signals)
+                #
+                # Это решает проблему «база богатая — сообщения слабые»:
+                # раньше уходил LLM-копирайт игнорируя journey/signals.
+                # ===========================================================
+                outbound = compose_outbound_message(result, first_name, voice=False)
+                outbound_voice = compose_outbound_message(result, first_name, voice=True)
+
+                # voice_script через LLM остаётся как запасной вариант
+                # (когда compose_outbound_message не дал voice — для skip).
                 empty_cat: Dict[str, Any] = {}
-                # ВАЖНО: tail должен получать pain_summary и
-                # profile_summary, иначе он генерируется без знания
-                # cognitive_style/pain_type/pain_recency и обещает
-                # ДРУГОЙ артефакт чем голос → рефлекс узнавания
-                # ломается. Голос всегда получал profile/pain как
-                # позиционные аргументы — это работало правильно;
-                # tail же выбирал rational-артефакт по умолчанию.
                 tail, voice_script = await _asyncio.gather(
                     _llm_tail(
                         empty_cat,
@@ -1788,21 +1797,42 @@ def register_vk_routes(app, db):
                 )
 
                 vk_id = ub.get("id")
-                # ВАЖНО: разделяем сообщение для отправки и превью для админа.
-                # message — короткое (3-5 строк), уходит в VK адресату.
-                # preview_full — анализ + сообщение, показывается админу для
-                # контроля. Без этого предприниматели 30+ получали в VK всю
-                # психологическую диагностику вплоть до защит и архетипов
-                # — это разрушает доверие моментально.
                 greet = (first_name or full_name or "").strip()
-                greet_line = f"Привет, {greet}!\n\n" if greet else ""
+
+                # Если outbound определил tier=journey/compensatory — берём
+                # его готовый text (без greet_line, т.к. шаблон уже включает имя).
+                # Если skip — fallback на старый «Привет + LLM tail» (хотя бы
+                # что-то отправить, если оператор всё-таки решит).
+                if outbound and outbound.get("tier") in ("journey", "compensatory"):
+                    final_message = outbound.get("message", "")
+                    final_voice = (
+                        (outbound_voice or {}).get("message")
+                        if outbound_voice and outbound_voice.get("tier") in ("journey", "compensatory")
+                        else voice_script
+                    )
+                    pitch_tier = outbound.get("tier")
+                    pitch_reason = outbound.get("tier_reason", "")
+                    pitch_skip = False
+                else:
+                    # SKIP / fallback
+                    greet_line = f"Привет, {greet}!\n\n" if greet else ""
+                    final_message = greet_line + tail
+                    final_voice = voice_script
+                    pitch_tier = (outbound or {}).get("tier", "fallback")
+                    pitch_reason = (outbound or {}).get("tier_reason", "no_outbound")
+                    pitch_skip = bool((outbound or {}).get("skip"))
+
                 result["pitch"] = {
-                    "message": greet_line + tail,
-                    "preview_full": body_text + "\n\n—\n\n" + tail,
-                    "voice_script": voice_script,
+                    "message": final_message,
+                    "preview_full": body_text + "\n\n—\n\n" + (final_message or tail),
+                    "voice_script": final_voice,
                     "full_name": full_name,
                     "vk_id": vk_id,
                     "vk_chat_url": f"https://vk.com/im?sel={vk_id}" if vk_id else "",
+                    "tier": pitch_tier,
+                    "tier_reason": pitch_reason,
+                    "skip_recommended": pitch_skip,
+                    "tool_recommended": (outbound or {}).get("tool_recommended"),
                 }
             except Exception as e:
                 logger.warning(f"B2C with_pitch generation failed: {e}")

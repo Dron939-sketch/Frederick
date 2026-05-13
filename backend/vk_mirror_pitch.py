@@ -1291,3 +1291,157 @@ def render_journey_pitch(
         "weight": float(j.get("weight") or 0.0),
         "compensatory_link": j.get("compensatory_link", ""),
     }
+
+
+# ============================================================
+# СБОРКА ИСХОДЯЩЕГО СООБЩЕНИЯ — выбираем САМЫЙ СИЛЬНЫЙ tier
+# ------------------------------------------------------------
+# Эта функция — единая точка генерации текста, который реально
+# уйдёт получателю. Использует ВСЮ собранную базу:
+#
+#   tier 1 (journey)      — narrative_hook из b2c_journeys
+#                            (А→Б→С + персонализация LLM + цепочка)
+#   tier 2 (compensatory) — render_hook из b2c_compensatory_patterns
+#                            (peace/intimacy/body) + рекомендуемый tool
+#                            из problem_signals_actionable[0]
+#   tier 3 (skip)         — для не-ЦА не отправляем слабый generic
+#
+# Возвращает None если решено пропустить (none-target, low intensity)
+# или dict с готовым сообщением + метаданными.
+# ============================================================
+def compose_outbound_message(
+    analysis: Dict[str, Any],
+    first_name: str = "",
+    voice: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Собирает финальный outbound text. Выбирает САМЫЙ СИЛЬНЫЙ tier
+    из имеющейся базы (4 слоя анализа).
+
+    Returns:
+        {
+          "message": "готовый текст для отправки",
+          "tier":    "journey|compensatory|skip",
+          "tier_reason": "почему именно этот tier",
+          "tool_recommended": {tool_code, name, ...} | None,
+          "fallback_used": bool,
+        }
+        либо None если ничего отправлять не стоит (не-ЦА + нет signals).
+    """
+    if not isinstance(analysis, dict):
+        return None
+
+    pain = analysis.get("pain") or {}
+    journey = analysis.get("journey")
+    actionable = analysis.get("problem_signals_actionable") or []
+    name = (first_name or "").strip()
+
+    # ============================================================
+    # TIER 1 — journey narrative_hook (САМЫЙ СИЛЬНЫЙ)
+    # А→Б→С с персонализированными point_a/point_c от LLM +
+    # упорядоченной цепочкой 5-6 инструментов + мягкое закрытие.
+    # ============================================================
+    if journey and isinstance(journey, dict) and journey.get("code"):
+        try:
+            from services.b2c_journeys import render_journey_hook as _jhook
+            jweight = float(journey.get("weight") or 0.0)
+            if jweight >= 0.5:
+                text = _jhook(journey["code"], name, voice=voice)
+                if text:
+                    chain = journey.get("tool_chain") or []
+                    first_tool = (chain[0] or {}).get("tool") if chain else None
+                    return {
+                        "message": text,
+                        "tier": "journey",
+                        "tier_reason": (
+                            f"journey={journey.get('code')} "
+                            f"(weight={jweight:.2f})"
+                        ),
+                        "tool_recommended": first_tool,
+                        "fallback_used": False,
+                        "journey_code": journey.get("code"),
+                        "journey_name_ru": journey.get("name_ru", ""),
+                        "compensatory_link": journey.get("compensatory_link", ""),
+                    }
+        except Exception as e:
+            logger.warning(f"compose_outbound_message: journey tier failed: {e}")
+
+    # ============================================================
+    # TIER 2 — compensatory hook + точечный tool из problem_signals
+    # ============================================================
+    cp_code = (pain.get("compensatory_pattern") or "").strip().lower()
+    if cp_code and cp_code != "none":
+        try:
+            from services.b2c_compensatory_patterns import (
+                render_hook as _b2c_render_hook,
+                get_artifact as _b2c_get_artifact,
+            )
+            from services.b2c_problem_signals import (
+                render_second_touch as _problem_render,
+            )
+            profile = analysis.get("profile") or {}
+            cog = (profile.get("cognitive_style") or "rational").strip().lower()
+
+            hook = _b2c_render_hook(cp_code, name, voice=voice)
+            if hook:
+                # tool: top-1 из problem_signals_actionable, иначе
+                # дефолтный artifact из compensatory pattern
+                tool_card = None
+                tool_nav = ""
+                if actionable:
+                    top = actionable[0]
+                    tool_card = top.get("tool")
+                    if tool_card:
+                        tool_nav = (
+                            f"Открой {FREDI_LANDING} — слева в меню, в "
+                            f"{tool_card.get('section', '—')}, кнопка "
+                            f"{tool_card.get('icon_emoji', '')} "
+                            f"«{tool_card.get('name', '—')}». "
+                            f"~{tool_card.get('time_minutes', 5)} минут."
+                        )
+                if not tool_nav:
+                    art = _b2c_get_artifact(cp_code, cog)
+                    if art:
+                        tool_card = art
+                        tool_nav = (
+                            f"Открой {FREDI_LANDING} — слева в меню, в "
+                            f"{art.get('section', '—')}, кнопка "
+                            f"{art.get('icon_emoji', '')} "
+                            f"«{art.get('name', '—')}». "
+                            f"~{art.get('time_minutes', 5)} минут."
+                        )
+
+                soft_tail = (
+                    "\n\nИли просто захочешь поговорить — "
+                    "ты теперь знаешь, где меня искать."
+                )
+                message = hook + ("\n\n" + tool_nav if tool_nav else "") + soft_tail + "\n\n— Фреди"
+                return {
+                    "message": message,
+                    "tier": "compensatory",
+                    "tier_reason": f"compensatory_pattern={cp_code}",
+                    "tool_recommended": tool_card,
+                    "fallback_used": False,
+                    "compensatory_pattern": cp_code,
+                }
+        except Exception as e:
+            logger.warning(f"compose_outbound_message: compensatory tier failed: {e}")
+
+    # ============================================================
+    # TIER 3 — SKIP. Не-ЦА + нет journey + нет actionable signals.
+    # Лучше не отправить ничего, чем слабый generic-копирайт.
+    # Это спасает от спам-репутации и экономит outreach-окно.
+    # ============================================================
+    is_target = bool((pain or {}).get("is_target_audience"))
+    pain_intensity = (pain or {}).get("pain_intensity") or ""
+    return {
+        "message": "",
+        "tier": "skip",
+        "tier_reason": (
+            f"no_journey + no_compensatory + is_target={is_target} "
+            f"+ pain_intensity={pain_intensity!r} — слабая база, "
+            f"не отправляем (защита от спам-репутации)"
+        ),
+        "tool_recommended": None,
+        "fallback_used": True,
+        "skip": True,
+    }
