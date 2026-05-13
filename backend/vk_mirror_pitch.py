@@ -1333,12 +1333,21 @@ def compose_outbound_message(
     pain = analysis.get("pain") or {}
     journey = analysis.get("journey")
     actionable = analysis.get("problem_signals_actionable") or []
-    name = (first_name or "").strip()
     profile = analysis.get("profile") or {}
     gender = (analysis.get("gender") or "").strip().lower()
     cognitive_style = (profile.get("cognitive_style") or "rational").strip().lower()
     is_target = bool(pain.get("is_target_audience"))
     cp_code = (pain.get("compensatory_pattern") or "").strip().lower()
+
+    # SMART NAME: для бизнес-страниц («Маникюр Коломна-Ангелина»)
+    # VK кладёт first_name=«Маникюр». Берём настоящее имя из last_name.
+    ub = (analysis.get("vk_data") or {}).get("user_basic") or {}
+    raw_last = (ub.get("last_name") or "").strip()
+    name_passed = (first_name or "").strip()
+    if name_passed.lower() in _BUSINESS_FIRST_NAMES:
+        real = _smart_first_name(name_passed, raw_last)
+        name_passed = real  # может быть "" — тогда без приветствия
+    name = name_passed
 
     # ============================================================
     # TIER 1 — journey narrative_hook (САМЫЙ СИЛЬНЫЙ)
@@ -1494,6 +1503,64 @@ _RATIONAL_TOOLS = {
 }
 
 
+# ============================================================
+# Бизнес-имена VK-страниц: «Маникюр Коломна-Ангелина»,
+# «Студия красоты Beauty Anna». VK кладёт первую часть как
+# user.first_name. Если first_name явно профессия/услуга/тип
+# бизнеса — настоящее имя ищем в last_name (после дефиса/пробела).
+# ============================================================
+_BUSINESS_FIRST_NAMES = {
+    "маникюр", "педикюр", "космет", "косметология", "косметолог",
+    "студия", "салон", "школа", "мастерская", "академия", "центр",
+    "клиника", "мастер", "эстет", "визаж", "парикмахер", "стилист",
+    "массаж", "эпиляция", "шугаринг", "lpg", "аппаратная",
+    "lash", "beauty", "love", "nail", "brows", "spa", "spa-салон",
+    "бровист", "лешмейкер", "колорист", "тренинг",
+    "ip", "ип", "самозанятая", "ооо", "оао",
+    # Города (часто между бизнес-словом и именем; не надо их брать
+    # как «имя»):
+    "москва", "питер", "спб", "санкт-петербург", "коломна", "рязань",
+    "тула", "калуга", "ярославль", "владимир", "тверь", "иваново",
+    "брянск", "смоленск", "орёл", "курск", "белгород", "воронеж",
+    "ростов", "краснодар", "сочи", "анапа", "новороссийск",
+    "екатеринбург", "новосибирск", "омск", "челябинск", "уфа",
+    "пермь", "самара", "саратов", "волгоград", "казань",
+    "нижний", "новгород", "тюмень", "иркутск", "красноярск",
+    "владивосток", "хабаровск", "сургут", "томск", "барнаул",
+    "минск", "киев", "одесса", "харьков",
+}
+
+
+def _smart_first_name(first_name: str, last_name: str = "") -> str:
+    """Возвращает «адресат-имя» с учётом бизнес-страниц.
+
+    Если first_name = «Маникюр» / «Студия» / «Салон» и т.д. —
+    ищет настоящее имя в last_name (после дефиса/пробела).
+    Например: ("Маникюр", "Коломна-Ангелина") → "Ангелина".
+
+    Если найти не удалось — возвращает "" (caller использует
+    нейтральное «друг» или вообще опускает приветствие).
+    """
+    fn = (first_name or "").strip()
+    ln = (last_name or "").strip()
+    if not fn:
+        return ""
+    if fn.lower() not in _BUSINESS_FIRST_NAMES:
+        return fn
+    # first_name — бизнес-маркер. Ищем настоящее имя в last_name.
+    parts = _re.split(r"[\s\-\.]+", ln)
+    for part in reversed(parts):  # настоящее имя обычно В КОНЦЕ
+        p = part.strip()
+        if not p:
+            continue
+        if p.lower() in _BUSINESS_FIRST_NAMES:
+            continue
+        # имя начинается с заглавной + длина ≥ 3 + только буквы
+        if p[0].isupper() and len(p) >= 3 and p.isalpha():
+            return p
+    return ""
+
+
 def _ordered_chain(
     journey: Dict[str, Any],
     cognitive_style: str = "rational",
@@ -1549,7 +1616,9 @@ def _render_journey_message(
     if not chain:
         return ""
 
-    nm = name.strip() or "друг"
+    nm = name.strip()  # может быть "" — тогда обращение без имени
+    if not nm:
+        nm = ""
 
     # ---------- VOICE: компактно, без списка шагов ----------
     if voice:
@@ -1565,14 +1634,18 @@ def _render_journey_message(
             first_t = (chain[0].get("tool") or {}).get("name") or ""
             if first_t:
                 first_step = f" Начни с раздела «{first_t.lower()}»."
-        # Голосовая версия — короче, без формальных переходов
+        # Голосовая версия — короче, на «ты», БЕЗ ссылок (голос не
+        # читается, URL произносить нельзя). Все навигационные
+        # подсказки уходят только в текст.
+        greet = f"{nm}, " if nm else ""
         return (
-            f"{nm}, здравствуй. Я Фреди. Я прочитал твою страницу. "
+            f"{greet}здравствуй. Я Фреди. Я прочитал твою страницу. "
             f"{point_a} "
             f"А тянешься ты к другому. {point_c} "
             f"У меня для тебя есть путь: {tools_inline}.{first_step} "
-            f"Открой meysternlp.ru/fredi и веди меня. "
-            f"Или просто захочешь поговорить — теперь знаешь, где меня найти."
+            f"Я веду. "
+            f"Или просто захочешь поговорить — ты теперь знаешь, "
+            f"где меня найти."
         )
 
     # ---------- TEXT: полный, со списком шагов и ссылкой ----------
@@ -1588,8 +1661,9 @@ def _render_journey_message(
         )
     chain_block = "\n".join(chain_lines)
 
+    greet_t = f"{nm}, " if nm else ""
     return (
-        f"{nm}, я прочитал твою страницу. Вот что я вижу.\n\n"
+        f"{greet_t}я прочитал твою страницу. Вот что я вижу.\n\n"
         f"📍 ОТКУДА это у тебя:\n{point_a}\n\n"
         f"🎯 КУДА ты тянешься:\n{point_c}\n\n"
         f"У меня для тебя есть путь — {len(chain)} шагов:\n"
