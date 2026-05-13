@@ -50,6 +50,11 @@ from services.b2c_journeys import (
     get_journey as _b2c_get_journey,
     get_tool_chain as _b2c_get_tool_chain,
 )
+from services.b2c_existential import (
+    llm_existential_hint as _b2c_existential_hint,
+    get_existential as _b2c_get_existential,
+    get_locus as _b2c_get_locus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +63,13 @@ logger = logging.getLogger(__name__)
 #   2) Compensatory pattern — стратегический слой
 #   3) Problem signals (12) — тактический слой
 #   4) Journey (А→Б→С, 10 траекторий) — нарративный слой
+#   5) Existential × Locus — координатная сетка для УТОЧНЕНИЯ А и С
 _COMPENSATORY_HINT = (
     _b2c_target_hint()
     + "\n\n" + _b2c_classifier_hint()
     + "\n\n" + _b2c_problem_hint()
     + "\n\n" + _b2c_journey_hint()
+    + "\n\n" + _b2c_existential_hint()
 )
 
 
@@ -103,9 +110,14 @@ _PROFILE_SYSTEM = (
     "  \"patterns\": [\"паттерн1\", \"паттерн2\"],\n"
     "  \"archetype\": \"CODE\",\n"
     "  \"openness\": \"закрыт|средне|открыт\",\n"
-    "  \"cognitive_style\": \"rational|irrational\"\n"
+    "  \"cognitive_style\": \"rational|irrational\",\n"
+    "  \"existential_stance\": \"type1_special|type2_withdrawal|type3_legacy|none\",\n"
+    "  \"locus_of_control\": \"internal|external|mixed\",\n"
+    "  \"existential_evidence\": \"конкретная цитата/наблюдение по existential\",\n"
+    "  \"locus_evidence\": \"конкретная цитата/наблюдение по locus\"\n"
     "}\n"
-    "Без markdown, только JSON."
+    "Без markdown, только JSON.\n\n"
+    + _b2c_existential_hint()
 )
 
 
@@ -521,6 +533,30 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
     except Exception as _je:
         logger.warning(f"journey resolve failed: {_je}")
 
+    # Экзистенциальный слой: достаём из profile + резолвим карточки.
+    existential_resolved = None
+    try:
+        if isinstance(profile, dict):
+            es_code = (profile.get("existential_stance") or "").strip().lower()
+            lc_code = (profile.get("locus_of_control") or "").strip().lower()
+            es_card = _b2c_get_existential(es_code)
+            lc_card = _b2c_get_locus(lc_code)
+            if es_card or lc_card:
+                existential_resolved = {
+                    "existential_stance": es_code if es_card else "none",
+                    "existential_card": es_card,
+                    "existential_evidence": profile.get("existential_evidence", ""),
+                    "locus_of_control": lc_code if lc_card else "none",
+                    "locus_card": lc_card,
+                    "locus_evidence": profile.get("locus_evidence", ""),
+                    "compass": (
+                        f"{(es_card or {}).get('name_ru', '—')}  ×  "
+                        f"{(lc_card or {}).get('name_ru', '—')}"
+                    ),
+                }
+    except Exception as _ee:
+        logger.warning(f"existential resolve failed: {_ee}")
+
     return {
         "vk_data": {
             "user_basic": {
@@ -547,4 +583,8 @@ async def analyze_profile(url_or_name: str) -> Dict[str, Any]:
         # LLM не нашёл траекторию с weight >= 0.4. Используется в
         # глубоких касаниях (mirror_pitch.render_journey_pitch).
         "journey": journey_resolved,
+        # Экзистенциальный слой: existential_stance × locus_of_control.
+        # Это «координатная сетка» — множитель для уточнения А и С.
+        # None если оба не определены.
+        "existential": existential_resolved,
     }
