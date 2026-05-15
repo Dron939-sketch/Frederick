@@ -84,10 +84,6 @@
 
         _toast('Создаю платёж...', 'info');
         try {
-            // В return_url добавляем маркер subscription=success и сам
-            // payment_id (заполним после создания). Это нужно, чтобы при
-            // возврате с YooKassa фронт сразу подтвердил оплату, не
-            // дожидаясь webhook'а.
             const baseReturn = window.location.origin + window.location.pathname + '?subscription=success';
             const r = await fetch(`${_api()}/api/subscription/create-payment`, {
                 method: 'POST',
@@ -100,9 +96,6 @@
             });
             const data = await r.json();
             if (data.success && data.confirmation_url) {
-                // Сохраняем payment_id, чтобы при возврате точно знать,
-                // какой именно платёж проверять — даже если YooKassa
-                // не пробросит его в query.
                 try {
                     localStorage.setItem(_pendingKey(uid), JSON.stringify({
                         payment_id: data.payment_id,
@@ -131,14 +124,10 @@
     }
 
     function _readPendingPaymentId() {
-        // 1) Из query (?payment_id=… или ?subscription=success) — после
-        //    возврата с YooKassa. 2) Из localStorage — на случай если
-        //    YooKassa вернёт нас без параметров.
         let pid = null;
         try {
             const sp = new URLSearchParams(window.location.search);
             pid = sp.get('payment_id');
-            // Hash-router тоже учитываем: '#/settings?payment_id=...'
             if (!pid && window.location.hash.includes('?')) {
                 pid = new URLSearchParams(window.location.hash.split('?')[1]).get('payment_id');
             }
@@ -150,8 +139,6 @@
             const raw = uid ? localStorage.getItem(_pendingKey(uid)) : null;
             if (raw) {
                 const obj = JSON.parse(raw);
-                // Не пытаемся проверять платёж, которому больше 2 часов —
-                // он либо давно отработан, либо отменён.
                 if (obj && obj.payment_id && (Date.now() - (obj.created_at || 0)) < 2 * 3600 * 1000) {
                     return obj.payment_id;
                 }
@@ -165,8 +152,6 @@
             const uid = _uid();
             if (uid) localStorage.removeItem(_pendingKey(uid));
         } catch (e) {}
-        // Убираем payment_id/subscription из URL, чтобы перезагрузка
-        // страницы не дёргала verify повторно.
         try {
             const url = new URL(window.location.href);
             url.searchParams.delete('payment_id');
@@ -179,15 +164,11 @@
         const paymentId = _readPendingPaymentId();
         if (!paymentId) return false;
 
-        // Показываем юзеру, что не молчим, пока проверяем платёж.
         if (container) {
             container.innerHTML = '<div class="sub-loading"><div class="sub-loading-spinner">&#x2B50;</div><div>Проверяю оплату...</div></div>';
         }
         _toast('Проверяю оплату...', 'info');
 
-        // Поллим до 30 секунд: первый verify, потом, если ещё pending —
-        // повторяем каждые 3 секунды. Это спасает кейс, когда юзер
-        // вернулся быстрее, чем YooKassa успела перевести платёж в succeeded.
         const deadline = Date.now() + 30000;
         let lastResult = null;
         while (Date.now() < deadline) {
@@ -205,28 +186,11 @@
             await new Promise(res => setTimeout(res, 3000));
         }
 
-        // Не дождались — webhook/поллер бэкенда добьёт. Очистим
-        // localStorage только если возраст > 2ч (см. _readPendingPaymentId).
         if (lastResult && lastResult.status && lastResult.status !== 'pending' && lastResult.status !== 'waiting_for_capture') {
             _clearPendingPayment();
         }
         _toast('Платёж в обработке, статус обновится автоматически', 'info');
         return false;
-    }
-
-    async function _toggleAutoRenew(enabled) {
-        const uid = _uid();
-        if (!uid) return;
-        try {
-            const r = await fetch(`${_api()}/api/subscription/toggle-auto-renew`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: uid, enabled })
-            });
-            const data = await r.json();
-            if (data.success) { _toast(enabled ? 'Автопродление включено' : 'Автопродление отключено', 'info'); }
-            else { _toast('Не удалось изменить настройку', 'error'); }
-        } catch (e) { _toast('Ошибка сети', 'error'); }
     }
 
     async function _deleteCard() {
@@ -298,23 +262,12 @@
                 <div class="sub-desc">Полный доступ ко всем возможностям</div>
                 <div class="sub-info-row"><span class="sub-info-label">Следующее списание</span><span class="sub-info-value">${_formatDate(sub.expires_at)}</span></div>
                 <div class="sub-info-row"><span class="sub-info-label">Осталось дней</span><span class="sub-info-value">${days}</span></div>
-                <div class="sub-info-row"><span class="sub-info-label">Стоимость</span><span class="sub-info-value">690 &#8381;/мес</span></div>
-                <div class="sub-info-row" style="border-bottom:none"><span class="sub-info-label">Автопродление</span><span class="sub-info-value">${sub.auto_renew ? 'Включено' : 'Выключено'}</span></div>
-                <div class="sub-divider"></div>
-                <div class="sub-btn-group">
-                    ${sub.auto_renew
-                        ? '<button class="sub-btn sub-btn-danger" id="subToggleAutoRenew">Отключить автопродление</button>'
-                        : '<button class="sub-btn sub-btn-secondary" id="subToggleAutoRenew">Включить автопродление</button>'
-                    }
-                </div>
+                <div class="sub-info-row" style="border-bottom:none"><span class="sub-info-label">Стоимость</span><span class="sub-info-value">690 &#8381;/мес</span></div>
             </div>
             ${_renderSavedCardsSection(sub.card)}`;
     }
 
     function _renderPendingBanner() {
-        // Шапка-баннер для случая, когда юзер недавно оплатил, но статус
-        // ещё pending — чтобы он не паниковал «деньги списались, а пишет
-        // что нет подписки». Кнопка «Обновить» дёргает verify+refresh.
         return `
             <div class="sub-card" style="border:1px solid rgba(255,183,59,0.45);background:linear-gradient(135deg,rgba(255,183,59,0.12),rgba(255,107,59,0.06))">
                 <div class="sub-badge" style="background:rgba(255,183,59,0.18);color:rgba(255,183,59,0.95);border:1px solid rgba(255,183,59,0.35)">&#x23F3; Платёж в обработке</div>
@@ -359,26 +312,11 @@
     async function renderSubscriptionSection(container) {
         _injectSubscriptionStyles();
         container.innerHTML = '<div class="sub-loading"><div class="sub-loading-spinner">&#x2B50;</div><div>Загрузка...</div></div>';
-        // Если только что вернулись с YooKassa — проверим платёж и
-        // активируем подписку, не дожидаясь webhook.
         await _autoVerifyOnReturn(container);
         const sub = await _loadSubscriptionStatus();
         if (sub && sub.has_subscription) {
             container.innerHTML = _renderActiveSubscription(sub);
-            const toggleBtn = document.getElementById('subToggleAutoRenew');
-            if (toggleBtn) {
-                toggleBtn.addEventListener('click', async () => {
-                    const newState = !sub.auto_renew;
-                    if (!newState && !confirm('Отключить автопродление? Подписка останется активной до конца оплаченного периода.')) return;
-                    await _toggleAutoRenew(newState);
-                    await renderSubscriptionSection(container);
-                });
-            }
         } else {
-            // Если у юзера есть «свежий» pending-платёж (он только что
-            // вернулся с YooKassa, но активация ещё не отработала) —
-            // показываем баннер «в обработке» вместо «нет подписки»,
-            // чтобы не пугать.
             const pendingPid = _readPendingPaymentId();
             const pendingBanner = pendingPid ? _renderPendingBanner() : '';
             container.innerHTML = pendingBanner + _renderNoSubscription(sub);
@@ -395,8 +333,6 @@
                     await renderSubscriptionSection(container);
                 });
             }
-            // Авто-перепроверка раз в 15 секунд, пока pending не
-            // развоплотится. Останавливаем при размонтировании контейнера.
             if (pendingPid) {
                 clearInterval(window._fredSubPollTimer);
                 window._fredSubPollTimer = setInterval(async () => {
@@ -424,14 +360,7 @@
 
     window.renderSubscriptionSection = renderSubscriptionSection;
 
-    // Глобальный авто-verify при загрузке скрипта: если в URL есть
-    // ?subscription=success или ?payment_id=, дёргаем verify в фоне
-    // независимо от того, открыл ли юзер экран подписки. Это финальная
-    // страховка против пропавшего webhook.
     function _findSubContainer() {
-        // Ищем контейнер подписки в DOM: либо специальные id/data-атрибуты,
-        // либо первый блок, в котором уже отрисована наша секция (по
-        // .sub-card, что мы рисуем в _renderActive/NoSubscription).
         return document.querySelector('[data-subscription-container]')
             || document.getElementById('subscriptionSection')
             || (function () {
@@ -441,8 +370,6 @@
     }
 
     function _bootstrapAutoVerify() {
-        // Откладываем чуть-чуть, чтобы window.CONFIG.USER_ID успел
-        // проинициализироваться основным app.js.
         setTimeout(async () => {
             try {
                 if (!_uid()) return;
@@ -451,19 +378,13 @@
                 const hasPending = !!_readPendingPaymentId();
                 if (!hasMarker && !hasPending) return;
                 await _autoVerifyOnReturn(null);
-                // После активации перерисуем экран подписки, если он
-                // сейчас открыт.
                 const subContainer = _findSubContainer();
                 if (subContainer) {
                     try { await renderSubscriptionSection(subContainer); } catch (e) {}
                 }
-                // И уведомим settings.js / любой другой UI, что состояние
-                // подписки могло измениться, через CustomEvent.
                 try {
                     window.dispatchEvent(new CustomEvent('fredi:subscription-updated'));
                 } catch (e) {}
-                // Заодно обновим IS_PREMIUM, чтобы premium_pill сразу
-                // подхватил активацию без перезагрузки.
                 try {
                     if (typeof window.loadPremiumStatus === 'function') {
                         await window.loadPremiumStatus();
@@ -477,9 +398,6 @@
     }
     _bootstrapAutoVerify();
 
-    // Если другие модули (settings.js, дашборд) тоже захотят
-    // принудительно обновить premium-индикатор после активации — слушают
-    // тот же event и сами решают, что делать.
     window.addEventListener('fredi:subscription-updated', function () {
         var c = _findSubContainer();
         if (c) {
