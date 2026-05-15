@@ -311,6 +311,21 @@
             ${_renderSavedCardsSection(sub.card)}`;
     }
 
+    function _renderPendingBanner() {
+        // Шапка-баннер для случая, когда юзер недавно оплатил, но статус
+        // ещё pending — чтобы он не паниковал «деньги списались, а пишет
+        // что нет подписки». Кнопка «Обновить» дёргает verify+refresh.
+        return `
+            <div class="sub-card" style="border:1px solid rgba(255,183,59,0.45);background:linear-gradient(135deg,rgba(255,183,59,0.12),rgba(255,107,59,0.06))">
+                <div class="sub-badge" style="background:rgba(255,183,59,0.18);color:rgba(255,183,59,0.95);border:1px solid rgba(255,183,59,0.35)">&#x23F3; Платёж в обработке</div>
+                <div class="sub-title">Подтверждаем оплату…</div>
+                <div class="sub-desc">Ваш платёж только что прошёл через ЮKassa и обрабатывается. Обычно занимает 1–5 минут. Подписка активируется автоматически, ничего делать не нужно.</div>
+                <div class="sub-btn-group">
+                    <button class="sub-btn sub-btn-secondary" id="subRefreshPendingBtn">Обновить статус</button>
+                </div>
+            </div>`;
+    }
+
     function _renderNoSubscription(sub) {
         const isExpired = sub && sub.status === 'expired';
         const card = sub ? sub.card : null;
@@ -360,9 +375,42 @@
                 });
             }
         } else {
-            container.innerHTML = _renderNoSubscription(sub);
+            // Если у юзера есть «свежий» pending-платёж (он только что
+            // вернулся с YooKassa, но активация ещё не отработала) —
+            // показываем баннер «в обработке» вместо «нет подписки»,
+            // чтобы не пугать.
+            const pendingPid = _readPendingPaymentId();
+            const pendingBanner = pendingPid ? _renderPendingBanner() : '';
+            container.innerHTML = pendingBanner + _renderNoSubscription(sub);
             const payBtn = document.getElementById('subPayBtn');
             if (payBtn) { payBtn.addEventListener('click', _createPayment); }
+            const refreshBtn = document.getElementById('subRefreshPendingBtn');
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', async () => {
+                    refreshBtn.disabled = true;
+                    refreshBtn.textContent = 'Проверяю…';
+                    if (pendingPid) {
+                        await _verifyPayment(pendingPid);
+                    }
+                    await renderSubscriptionSection(container);
+                });
+            }
+            // Авто-перепроверка раз в 15 секунд, пока pending не
+            // развоплотится. Останавливаем при размонтировании контейнера.
+            if (pendingPid) {
+                clearInterval(window._fredSubPollTimer);
+                window._fredSubPollTimer = setInterval(async () => {
+                    if (!document.body.contains(container)) {
+                        clearInterval(window._fredSubPollTimer);
+                        return;
+                    }
+                    const r = await _verifyPayment(pendingPid);
+                    if (r && (r.activated || r.status === 'canceled')) {
+                        clearInterval(window._fredSubPollTimer);
+                        await renderSubscriptionSection(container);
+                    }
+                }, 15000);
+            }
         }
         const deleteBtn = document.getElementById('subDeleteCard');
         if (deleteBtn) {
@@ -380,6 +428,18 @@
     // ?subscription=success или ?payment_id=, дёргаем verify в фоне
     // независимо от того, открыл ли юзер экран подписки. Это финальная
     // страховка против пропавшего webhook.
+    function _findSubContainer() {
+        // Ищем контейнер подписки в DOM: либо специальные id/data-атрибуты,
+        // либо первый блок, в котором уже отрисована наша секция (по
+        // .sub-card, что мы рисуем в _renderActive/NoSubscription).
+        return document.querySelector('[data-subscription-container]')
+            || document.getElementById('subscriptionSection')
+            || (function () {
+                var anyCard = document.querySelector('.sub-card');
+                return anyCard ? anyCard.parentElement : null;
+            })();
+    }
+
     function _bootstrapAutoVerify() {
         // Откладываем чуть-чуть, чтобы window.CONFIG.USER_ID успел
         // проинициализироваться основным app.js.
@@ -392,17 +452,40 @@
                 if (!hasMarker && !hasPending) return;
                 await _autoVerifyOnReturn(null);
                 // После активации перерисуем экран подписки, если он
-                // сейчас открыт. Признак: на странице есть #subPayBtn
-                // или .sub-card.
-                const subContainer = document.querySelector('[data-subscription-container]')
-                    || document.getElementById('subscriptionSection');
+                // сейчас открыт.
+                const subContainer = _findSubContainer();
                 if (subContainer) {
                     try { await renderSubscriptionSection(subContainer); } catch (e) {}
                 }
+                // И уведомим settings.js / любой другой UI, что состояние
+                // подписки могло измениться, через CustomEvent.
+                try {
+                    window.dispatchEvent(new CustomEvent('fredi:subscription-updated'));
+                } catch (e) {}
+                // Заодно обновим IS_PREMIUM, чтобы premium_pill сразу
+                // подхватил активацию без перезагрузки.
+                try {
+                    if (typeof window.loadPremiumStatus === 'function') {
+                        await window.loadPremiumStatus();
+                    }
+                    if (typeof window.updatePremiumIndicators === 'function') {
+                        window.updatePremiumIndicators();
+                    }
+                } catch (e) {}
             } catch (e) { console.error('bootstrap auto-verify error:', e); }
         }, 1500);
     }
     _bootstrapAutoVerify();
+
+    // Если другие модули (settings.js, дашборд) тоже захотят
+    // принудительно обновить premium-индикатор после активации — слушают
+    // тот же event и сами решают, что делать.
+    window.addEventListener('fredi:subscription-updated', function () {
+        var c = _findSubContainer();
+        if (c) {
+            try { renderSubscriptionSection(c); } catch (e) {}
+        }
+    });
 
     console.log('subscription.js loaded');
 })();
