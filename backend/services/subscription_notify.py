@@ -32,7 +32,7 @@ def _format_date(dt: datetime) -> str:
 
 
 def _app_link() -> str:
-    return (os.environ.get("FREDI_APP_URL") or "https://fredi-frontend.onrender.com").rstrip("/")
+    return (os.environ.get("FREDI_APP_URL") or "https://meysternlp.ru/fredi/").rstrip("/")
 
 
 def _build_email(name_or_empty: str, expires_at: datetime, is_renewal: bool) -> tuple[str, str, str]:
