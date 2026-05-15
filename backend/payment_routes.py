@@ -371,4 +371,90 @@ def register_payment_routes(app, db, limiter):
             logger.error(f"admin_users_with_premium error: {e}")
             return {"success": False, "error": "internal error"}
 
+    @app.get("/api/admin/user-contacts/{user_id}")
+    @limiter.limit("30/minute")
+    async def admin_user_contacts(request: Request, user_id: int):
+        """Возвращает все каналы доставки уведомлений конкретного юзера:
+        email, привязки Telegram/MAX, наличие web-push подписки. Нужен,
+        чтобы понять, дойдёт ли до юзера автоматическое сообщение об
+        активации подписки (см. services/subscription_notify.py)."""
+        try:
+            uid = _validate_user_id(user_id)
+            if not uid:
+                return {"success": False, "error": "invalid user_id"}
+            email = None
+            phone = None
+            first_name = None
+            messenger_links = []
+            push_count = 0
+            sub_status = None
+            sub_expires = None
+            try:
+                async with db.get_connection() as conn:
+                    u = await conn.fetchrow(
+                        "SELECT email, phone, first_name FROM fredi_users WHERE user_id = $1",
+                        uid,
+                    )
+                    if u:
+                        email = (u.get("email") or "").strip() or None
+                        phone = (u.get("phone") or "").strip() or None
+                        first_name = (u.get("first_name") or "").strip() or None
+                    ml = await conn.fetch(
+                        "SELECT platform, chat_id, username, is_active, linked_at "
+                        "FROM fredi_messenger_links WHERE user_id = $1",
+                        uid,
+                    )
+                    for r in ml:
+                        messenger_links.append({
+                            "platform": r["platform"],
+                            "chat_id": str(r["chat_id"]) if r["chat_id"] is not None else None,
+                            "username": r["username"],
+                            "is_active": bool(r["is_active"]),
+                            "linked_at": r["linked_at"].isoformat() if r["linked_at"] else None,
+                        })
+                    try:
+                        push_count = await conn.fetchval(
+                            "SELECT COUNT(*) FROM fredi_push_subscriptions "
+                            "WHERE user_id = $1 AND is_active = TRUE",
+                            uid,
+                        ) or 0
+                    except Exception:
+                        push_count = 0
+                    s = await conn.fetchrow(
+                        "SELECT status, expires_at FROM fredi_subscriptions WHERE user_id = $1",
+                        uid,
+                    )
+                    if s:
+                        sub_status = s["status"]
+                        sub_expires = s["expires_at"].isoformat() if s["expires_at"] else None
+            except Exception as e:
+                logger.error(f"admin_user_contacts db error: {e}")
+                return {"success": False, "error": "db error"}
+
+            return {
+                "success": True,
+                "user_id": uid,
+                "first_name": first_name,
+                "email": email,
+                "phone": phone,
+                "messenger_links": messenger_links,
+                "active_telegram": any(
+                    l["platform"] == "telegram" and l["is_active"] for l in messenger_links
+                ),
+                "active_max": any(
+                    l["platform"] == "max" and l["is_active"] for l in messenger_links
+                ),
+                "push_subscriptions": int(push_count),
+                "subscription_status": sub_status,
+                "subscription_expires_at": sub_expires,
+                "can_notify": bool(
+                    email
+                    or any(l["is_active"] for l in messenger_links)
+                    or push_count
+                ),
+            }
+        except Exception as e:
+            logger.error(f"admin_user_contacts error: {e}")
+            return {"success": False, "error": "internal error"}
+
     return init_payment_tables, subscription_renewal_scheduler
