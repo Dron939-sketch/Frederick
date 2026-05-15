@@ -132,6 +132,20 @@
                 body: JSON.stringify({ user_id: uid, seconds: seconds || 30 })
             });
             _lastCheck = null;
+            // После каждой записи — синхронизируем статус и показываем
+            // warning если осталось ≤5 мин. Это покрывает голосовой
+            // чат через WebSocket, который не идёт через apiCall/fetch
+            // patch и иначе никогда не получает warning-toast.
+            try {
+                var check = await checkCanSend();
+                if (check && !check.is_premium) {
+                    _showWarningToast(check);
+                    // Если бэк вернул блок — показываем modal
+                    if (check.can_send === false) {
+                        showFatigueModal(check);
+                    }
+                }
+            } catch (e) {}
         } catch (e) {}
     }
 
