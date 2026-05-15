@@ -2742,6 +2742,65 @@ def register_vk_routes(app, db):
             })
         return {"success": True, **res}
 
+    @app.post("/api/admin/vk/send-voice-split")
+    async def vk_send_voice_split(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """То же что /send-voice, но текст разбит на «имя» и «тело».
+        Тело TTS-генерится ОДИН раз и кэшируется по hash — последующие
+        вызовы тратят TTS только на имя (короткий префикс), и склеивают
+        кэшированное тело через ffmpeg. Используется для рассылок где
+        тело сообщения одинаковое, имя разное.
+
+        Body:
+          voice_name_text: str   # текст до и включая имя ("Арина, ")
+          voice_body_text: str   # остальной текст (одинаков у всех)
+          vk_peer_id: int
+          text_followup: str?
+          pause_ms: int?         # пауза между именем и телом, по умолч. 350
+        """
+        _check_admin(x_admin_token)
+        voice_name_text = (body.get("voice_name_text") or "").strip()
+        voice_body_text = (body.get("voice_body_text") or "").strip()
+        text_followup = (body.get("text_followup") or "").strip()
+        try:
+            peer_id = int(body.get("vk_peer_id") or 0)
+        except (TypeError, ValueError):
+            peer_id = 0
+        if peer_id <= 0:
+            raise HTTPException(status_code=400, detail={"error": "bad_peer_id"})
+        if not voice_body_text and not voice_name_text:
+            raise HTTPException(status_code=400, detail={"error": "empty_text"})
+        if len(voice_name_text) + len(voice_body_text) > 4000:
+            raise HTTPException(status_code=400, detail={
+                "error": "voice_text_too_long",
+                "message": f"max 4000 символов в сумме (сейчас {len(voice_name_text)+len(voice_body_text)})",
+            })
+        try:
+            from vk_send_voice import send_voice_with_split
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={"error": "module_unavailable", "message": str(e)})
+        try:
+            pause_ms = int(body.get("pause_ms") or 350)
+        except (TypeError, ValueError):
+            pause_ms = 350
+        pause_ms = max(0, min(pause_ms, 2000))
+        try:
+            result = await send_voice_with_split(
+                voice_name_text=voice_name_text,
+                voice_body_text=voice_body_text,
+                vk_peer_id=peer_id,
+                text_followup=text_followup or None,
+                pause_ms=pause_ms,
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={"error": "send_failed", "message": str(e)})
+        except Exception as e:
+            logger.error(f"send_voice_with_split error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **result}
+
     @app.post("/api/admin/vk/resolve-users")
     async def vk_resolve_users(
         body: Dict[str, Any] = Body(...),
