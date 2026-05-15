@@ -409,10 +409,38 @@ async function renderUsers(c) {
     c.innerHTML = `<div style="text-align:center;padding:32px;color:rgba(255,255,255,0.3);font-size:13px;">⏳ Загружаю...</div>`;
     const API = window.API_BASE_URL||'https://fredi-backend-flz2.onrender.com';
     let users = [];
+    // Грузим параллельно: базовый список (для имён/profile_code) и
+    // premium-overlay из нового endpoint. Затем мерджим по user_id.
+    let baseUsers = [], premiumUsers = [];
     try {
-        const res = await fetch(`${API}/api/admin/recent-users`).then(r=>r.json());
-        if (res.success) users = res.users||[];
+        const [baseRes, premRes] = await Promise.allSettled([
+            fetch(`${API}/api/admin/recent-users`).then(r=>r.json()),
+            fetch(`${API}/api/admin/users-premium`).then(r=>r.json()),
+        ]);
+        if (baseRes.status === 'fulfilled' && baseRes.value && baseRes.value.success) {
+            baseUsers = baseRes.value.users || [];
+        }
+        if (premRes.status === 'fulfilled' && premRes.value && premRes.value.success) {
+            premiumUsers = premRes.value.users || [];
+        }
     } catch(e) {}
+    const premMap = {};
+    for (const p of premiumUsers) { premMap[p.user_id] = p; }
+    users = baseUsers.map(u => {
+        const pp = premMap[u.user_id];
+        return pp ? Object.assign({}, u, {
+            is_premium: pp.is_premium,
+            subscription_expires_at: pp.subscription_expires_at,
+            subscription_auto_renew: pp.subscription_auto_renew,
+        }) : u;
+    });
+    // Премиум-юзеров, не попавших в baseUsers (давно не заходили), тоже покажем.
+    const seen = new Set(users.map(u => u.user_id));
+    for (const p of premiumUsers) {
+        if (p.is_premium && !seen.has(p.user_id)) {
+            users.push(p);
+        }
+    }
 
     const s = adminState.stats;
     const premiumCount = users.filter(u => u.is_premium).length;
