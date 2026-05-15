@@ -193,20 +193,6 @@
         return false;
     }
 
-    async function _deleteCard() {
-        const uid = _uid();
-        if (!uid) return;
-        try {
-            const r = await fetch(`${_api()}/api/subscription/delete-card`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: uid })
-            });
-            const data = await r.json();
-            if (data.success) { _toast('Карта удалена. Автопродление отключено.', 'info'); }
-            else { _toast('Не удалось удалить карту', 'error'); }
-        } catch (e) { _toast('Ошибка сети', 'error'); }
-    }
 
     function _formatDate(dateStr) {
         if (!dateStr) return '—';
@@ -231,27 +217,6 @@
         return '&#x1F4B3;';
     }
 
-    function _renderSavedCardsSection(card) {
-        if (card) {
-            return `
-                <div class="sub-cards-section">
-                    <div class="sub-cards-title">Привязанные карты</div>
-                    <div class="sub-card-item">
-                        <div class="sub-card-item-check">&#x2713;</div>
-                        <div class="sub-card-item-info">
-                            <div class="sub-card-item-number">${_cardTypeIcon(card.type)} **** **** **** ${_escapeHtml(card.last4)}</div>
-                            <div class="sub-card-item-type">${_escapeHtml((card.type || 'Bank card').toUpperCase())} &middot; Сохранена для автоплатежей</div>
-                        </div>
-                        <button class="sub-btn sub-btn-danger sub-btn-small" id="subDeleteCard">Удалить</button>
-                    </div>
-                </div>`;
-        }
-        return `
-            <div class="sub-cards-section">
-                <div class="sub-cards-title">Привязанные карты</div>
-                <div class="sub-no-cards">Нет привязанных карт. Карта сохранится автоматически при оплате подписки.</div>
-            </div>`;
-    }
 
     function _renderActiveSubscription(sub) {
         const days = _daysLeft(sub.expires_at);
@@ -263,8 +228,7 @@
                 <div class="sub-info-row"><span class="sub-info-label">Следующее списание</span><span class="sub-info-value">${_formatDate(sub.expires_at)}</span></div>
                 <div class="sub-info-row"><span class="sub-info-label">Осталось дней</span><span class="sub-info-value">${days}</span></div>
                 <div class="sub-info-row" style="border-bottom:none"><span class="sub-info-label">Стоимость</span><span class="sub-info-value">690 &#8381;/мес</span></div>
-            </div>
-            ${_renderSavedCardsSection(sub.card)}`;
+            </div>`;
     }
 
     function _renderPendingBanner() {
@@ -305,8 +269,7 @@
                 </div>
                 <button class="sub-btn sub-btn-primary" id="subPayBtn">Оформить подписку — 690 &#8381;</button>
                 <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-secondary)">Безопасная оплата через ЮKassa. Чек будет отправлен на указанный email.</div>
-            </div>
-            ${_renderSavedCardsSection(card)}`;
+            </div>`;
     }
 
     async function renderSubscriptionSection(container) {
@@ -347,14 +310,6 @@
                     }
                 }, 15000);
             }
-        }
-        const deleteBtn = document.getElementById('subDeleteCard');
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', async () => {
-                if (!confirm('Удалить привязанную карту? Автопродление будет отключено.')) return;
-                await _deleteCard();
-                await renderSubscriptionSection(container);
-            });
         }
     }
 
