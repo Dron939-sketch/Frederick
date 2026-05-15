@@ -47,6 +47,13 @@
             .st-link-btn:hover{background:rgba(224,224,224,0.14);color:var(--text-primary)}
             .st-link-btn.danger{color:rgba(255,140,140,0.85)}
             .st-tasks-empty{font-size:12px;color:var(--text-secondary);font-style:italic;padding:8px 0}
+            .st-task-row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;background:rgba(224,224,224,0.04);border:1px solid rgba(224,224,224,0.1);margin-bottom:8px}
+            .st-task-row__icon{font-size:20px;flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:rgba(224,224,224,0.06);border-radius:10px}
+            .st-task-row__body{flex:1;min-width:0}
+            .st-task-row__title{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px}
+            .st-task-row__desc{font-size:11px;color:var(--text-secondary);line-height:1.4}
+            .st-task-row__cancel{padding:7px 12px;border-radius:18px;font-size:11px;font-weight:500;font-family:inherit;cursor:pointer;background:rgba(255,107,107,0.10);border:1px solid rgba(255,107,107,0.30);color:rgba(255,140,140,0.95);flex-shrink:0;touch-action:manipulation}
+            .st-task-row__cancel:hover{background:rgba(255,107,107,0.18)}
             .st-theme-grid{display:flex;gap:10px}
             .st-theme-card{flex:1;padding:16px;border-radius:14px;cursor:pointer;text-align:center;border:2px solid transparent;transition:border-color 0.18s;touch-action:manipulation}
             .st-theme-card.active{border-color:var(--chrome)}
@@ -210,6 +217,91 @@
         if (subH) subH.click();
     }
 
+    function _collectActiveTasks() {
+        // Собирает активные задачи юзера из тех мест, где их хранят
+        // другие модули: skill_choice → 'sc_plan_<uid>' и 'trainer_skill_<uid>',
+        // morning → активен пока канал уведомлений != 'none'.
+        // Привычки/цели — отдельные экраны, сюда не дублируем.
+        var tasks = [];
+        var uid = _uid() || '';
+
+        try {
+            var skillRaw = localStorage.getItem('sc_plan_' + uid)
+                || localStorage.getItem('trainer_skill_' + uid);
+            if (skillRaw) {
+                var sp = JSON.parse(skillRaw);
+                var sName = (sp && (sp.skill_name || sp.title || sp.name)) || 'выбранный навык';
+                tasks.push({
+                    id: 'skill',
+                    icon: '🎯',
+                    title: 'Формирование навыка',
+                    desc: sName,
+                });
+            }
+        } catch (e) {}
+
+        if (_state && _state.channel && _state.channel !== 'none') {
+            var chLabels = { push: 'Web Push', telegram: 'Telegram', max: 'Max' };
+            tasks.push({
+                id: 'morning',
+                icon: '🌅',
+                title: 'Утренние сообщения',
+                desc: 'Каждый день в 9:00 — ' + (chLabels[_state.channel] || _state.channel),
+            });
+        }
+
+        return tasks;
+    }
+
+    function _renderTasksSection(el) {
+        var tasks = _collectActiveTasks();
+        var html = '<div class="st-hint">Здесь отображаются задачи, которые Фреди выполняет для вас. Любую можно отменить кнопкой справа.</div>';
+
+        if (tasks.length === 0) {
+            html += '<div class="st-tasks-empty">Пока нет активных задач.</div>'
+                + '<div style="margin-top:12px;font-size:11px;color:var(--text-secondary)">'
+                + '<b>Примеры команд Фреди:</b><br>'
+                + '• "Хочу сформировать привычку медитации"<br>'
+                + '• "Моя цель — выучить английский"<br>'
+                + '• "Напомни завтра в 9 утра позвонить маме"</div>';
+        } else {
+            html += tasks.map(function (t) {
+                return '<div class="st-task-row">'
+                    + '<div class="st-task-row__icon">' + t.icon + '</div>'
+                    + '<div class="st-task-row__body">'
+                    +   '<div class="st-task-row__title">' + t.title + '</div>'
+                    +   '<div class="st-task-row__desc">' + t.desc + '</div>'
+                    + '</div>'
+                    + '<button class="st-task-row__cancel" data-task-id="' + t.id + '">Отменить</button>'
+                + '</div>';
+            }).join('');
+        }
+
+        el.innerHTML = html;
+
+        el.querySelectorAll('.st-task-row__cancel').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var tid = btn.dataset.taskId;
+                if (tid === 'skill') {
+                    if (!confirm('Прекратить формирование навыка? План будет удалён.')) return;
+                    try {
+                        var uid = _uid() || '';
+                        localStorage.removeItem('sc_plan_' + uid);
+                        localStorage.removeItem('trainer_skill_' + uid);
+                    } catch (e) {}
+                    _toast('Формирование навыка отменено', 'info');
+                    _renderTasksSection(el);
+                } else if (tid === 'morning') {
+                    if (!confirm('Отключить утренние сообщения? Их можно вернуть в разделе «Уведомления».')) return;
+                    _saveChannel('none').then(function () {
+                        _toast('Утренние сообщения отключены', 'info');
+                        _renderTasksSection(el);
+                    });
+                }
+            });
+        });
+    }
+
     function _renderSection(id) {
         var el = document.getElementById('stAcc_' + id);
         if (!el) return;
@@ -276,13 +368,7 @@
         }
 
         if (id === 'tasks') {
-            el.innerHTML = '<div class="st-hint">Здесь отображаются задачи, которые Фреди выполняет для вас: отслеживание привычек, контроль целей и напоминания. Скажите Фреди голосом или текстом, что хотите, и задача появится здесь.</div>' +
-                '<div class="st-tasks-empty">Пока нет активных задач.</div>' +
-                '<div style="margin-top:12px;font-size:11px;color:var(--text-secondary)">' +
-                '<b>Примеры команд:</b><br>' +
-                '\u2022 "Хочу сформировать привычку медитации"<br>' +
-                '\u2022 "Моя цель - выучить английский"<br>' +
-                '\u2022 "Напомни завтра в 9 утра позвонить маме"</div>';
+            _renderTasksSection(el);
         }
 
         if (id === 'notifications') {
