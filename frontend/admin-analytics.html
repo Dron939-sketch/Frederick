@@ -196,6 +196,7 @@
         <button data-tab="mirrors">🪞 Зеркала</button>
         <button data-tab="control">🎛️ Пульт</button>
         <button data-tab="reeng">📨 Возврат</button>
+        <button data-tab="wave">🌊 2-я волна</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
     </div>
 
@@ -347,6 +348,199 @@
             <div style="padding:14px;color:var(--text-dim);font-size:13px">Нажмите «Обновить», чтобы загрузить кандидатов.</div>
         </div>
     </section>
+
+    <!-- 🌊 2-я волна: голос + текст по списку VK ID -->
+    <section id="waveTab" style="display:none">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">
+            <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🌊 2-я волна: голос + текст по списку VK</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;line-height:1.5">
+                Для каждого VK ID из списка: озвучит текст через Fish Audio и отправит голосовое в личку, затем (если задан) — текст вдогонку.<br>
+                Между отправками — выбранная задержка. <b>Не закрывайте вкладку до окончания.</b>
+            </div>
+
+            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Текст для озвучки (макс. 4000 символов)</label>
+            <textarea id="waveVoiceText" rows="4" maxlength="4000"
+                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px"
+                placeholder="Привет, я Фреди. Хотел напомнить про…"></textarea>
+
+            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Текст вдогонку (опционально, отправится сразу после голоса)</label>
+            <textarea id="waveFollowupText" rows="4" maxlength="4000"
+                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px"
+                placeholder="Если интересно — напиши «давай» или просто ответь голосом."></textarea>
+
+            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">VK ID (через запятую или с новой строки)</label>
+            <textarea id="waveVkIds" rows="4"
+                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px"
+                placeholder="12345678&#10;87654321&#10;или: 12345678, 87654321, ..."></textarea>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+                <label style="font-size:11px;color:var(--text-dim)">Задержка между отправками:</label>
+                <select id="waveDelay" style="padding:8px 12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                    <option value="0">Без задержки</option>
+                    <option value="600" selected>10 минут</option>
+                    <option value="1800">30 минут</option>
+                    <option value="3600">60 минут</option>
+                </select>
+                <span id="waveIdsCount" style="font-size:11px;color:var(--text-dim);margin-left:auto">0 VK ID</span>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                <button id="waveSendBtn" style="padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:#fff;font:600 13px inherit;cursor:pointer">▶ Запустить рассылку</button>
+                <button id="waveStopBtn" disabled style="padding:10px 18px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;cursor:pointer;opacity:0.5">⏹ Остановить</button>
+            </div>
+
+            <div id="waveStatus" style="font-size:12px;color:var(--text-dim);padding:10px 12px;background:rgba(0,0,0,0.03);border-radius:8px;min-height:18px"></div>
+            <div id="waveLog" style="font-size:11px;color:var(--text-dim);max-height:240px;overflow-y:auto;margin-top:10px;padding:0 4px"></div>
+        </div>
+    </section>
+
+    <script>
+    (function () {
+        // 2-я волна: массовая отправка voice+text через POST /api/admin/vk/send-voice
+        var BTN_SEND, BTN_STOP, STATUS, LOG, ABORT_FLAG = false;
+
+        function _parseVkIds(raw) {
+            // Принимаем и переносы строк, и запятые, и пробелы, и точки с запятой.
+            return (raw || '')
+                .split(/[\s,;]+/)
+                .map(function (s) { return s.trim().replace(/^id/i, '').replace(/^https?:\/\/(?:m\.)?vk\.com\//, ''); })
+                .filter(function (s) { return /^\d+$/.test(s); })
+                .map(function (s) { return parseInt(s, 10); })
+                .filter(function (n, i, a) { return a.indexOf(n) === i; });
+        }
+
+        function _updateCount() {
+            var raw = document.getElementById('waveVkIds').value;
+            var ids = _parseVkIds(raw);
+            document.getElementById('waveIdsCount').textContent = ids.length + ' VK ID';
+        }
+
+        function _log(msg, color) {
+            if (!LOG) return;
+            var row = document.createElement('div');
+            row.style.padding = '4px 0';
+            row.style.borderBottom = '1px solid rgba(0,0,0,0.06)';
+            if (color) row.style.color = color;
+            var ts = new Date().toLocaleTimeString('ru-RU');
+            row.textContent = '[' + ts + '] ' + msg;
+            LOG.appendChild(row);
+            LOG.scrollTop = LOG.scrollHeight;
+        }
+
+        function _setStatus(msg) {
+            if (STATUS) STATUS.textContent = msg;
+        }
+
+        async function _sendOne(vkId, voiceText, followupText) {
+            var token = (typeof getToken === 'function') ? getToken() : (localStorage.getItem('fredi_admin_token') || '');
+            var apiBase = (window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com');
+            var r = await fetch(apiBase + '/api/admin/vk/send-voice', {
+                method: 'POST',
+                headers: {
+                    'X-Admin-Token': token,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    voice_text: voiceText,
+                    vk_peer_id: vkId,
+                    text_followup: followupText || ''
+                })
+            });
+            var data = await r.json().catch(function () { return {}; });
+            return { ok: r.ok, status: r.status, data: data };
+        }
+
+        async function _sleep(ms, onTick) {
+            var start = Date.now();
+            var end = start + ms;
+            while (Date.now() < end) {
+                if (ABORT_FLAG) return false;
+                var left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+                if (onTick) onTick(left);
+                await new Promise(function (res) { setTimeout(res, 1000); });
+            }
+            return true;
+        }
+
+        function _formatLeft(sec) {
+            var m = Math.floor(sec / 60);
+            var s = sec % 60;
+            return (m > 0 ? m + 'м ' : '') + s + 'с';
+        }
+
+        async function _run() {
+            var voiceText = document.getElementById('waveVoiceText').value.trim();
+            var followupText = document.getElementById('waveFollowupText').value.trim();
+            var ids = _parseVkIds(document.getElementById('waveVkIds').value);
+            var delaySec = parseInt(document.getElementById('waveDelay').value, 10) || 0;
+
+            if (!voiceText) { _setStatus('⚠ Введите текст для озвучки'); return; }
+            if (!ids.length) { _setStatus('⚠ Нет валидных VK ID'); return; }
+            if (voiceText.length > 4000) { _setStatus('⚠ Текст озвучки длиннее 4000 символов'); return; }
+
+            if (!confirm('Отправить голосовое + текст ' + ids.length + ' получателям?\nЗадержка между отправками: ' + (delaySec ? _formatLeft(delaySec) : 'нет') + '\nОбщее ориентир. время: ' + _formatLeft(delaySec * (ids.length - 1)))) return;
+
+            ABORT_FLAG = false;
+            BTN_SEND.disabled = true; BTN_SEND.style.opacity = '0.5';
+            BTN_STOP.disabled = false; BTN_STOP.style.opacity = '1';
+            LOG.innerHTML = '';
+            _log('🚀 Старт: ' + ids.length + ' получателей, задержка ' + (delaySec ? _formatLeft(delaySec) : 'нет'));
+
+            var ok = 0, fail = 0;
+            for (var i = 0; i < ids.length; i++) {
+                if (ABORT_FLAG) { _log('⏹ Остановлено пользователем', '#ef4444'); break; }
+                var vk = ids[i];
+                _setStatus('Отправка ' + (i + 1) + '/' + ids.length + ' → vk_id=' + vk + '…');
+                _log('→ ' + vk + ': отправляю…');
+                try {
+                    var res = await _sendOne(vk, voiceText, followupText);
+                    if (res.ok && res.data && res.data.success !== false) {
+                        ok++;
+                        _log('  ✓ ' + vk + ': отправлено', '#10b981');
+                    } else {
+                        fail++;
+                        var err = (res.data && res.data.detail && (res.data.detail.message || res.data.detail.error)) || res.data.error || ('HTTP ' + res.status);
+                        _log('  ✗ ' + vk + ': ' + err, '#ef4444');
+                    }
+                } catch (e) {
+                    fail++;
+                    _log('  ✗ ' + vk + ': сеть/ошибка — ' + (e && e.message || e), '#ef4444');
+                }
+
+                // Задержка перед следующим (не после последнего)
+                if (i < ids.length - 1 && delaySec > 0) {
+                    var done = await _sleep(delaySec * 1000, function (left) {
+                        _setStatus('Следующая через ' + _formatLeft(left) + ' (отправлено ' + (i + 1) + '/' + ids.length + ', ✓' + ok + ' ✗' + fail + ')');
+                    });
+                    if (!done) { _log('⏹ Остановлено во время паузы', '#ef4444'); break; }
+                }
+            }
+
+            BTN_SEND.disabled = false; BTN_SEND.style.opacity = '1';
+            BTN_STOP.disabled = true; BTN_STOP.style.opacity = '0.5';
+            _setStatus('🏁 Готово: ✓' + ok + ' ✗' + fail + ' из ' + ids.length);
+            _log('🏁 Финиш: успешно ' + ok + ', ошибок ' + fail);
+        }
+
+        function _init() {
+            BTN_SEND = document.getElementById('waveSendBtn');
+            BTN_STOP = document.getElementById('waveStopBtn');
+            STATUS = document.getElementById('waveStatus');
+            LOG = document.getElementById('waveLog');
+            if (!BTN_SEND) return;
+            BTN_SEND.addEventListener('click', _run);
+            BTN_STOP.addEventListener('click', function () { ABORT_FLAG = true; });
+            document.getElementById('waveVkIds').addEventListener('input', _updateCount);
+            _updateCount();
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', _init);
+        } else {
+            _init();
+        }
+    })();
+    </script>
 
     <!-- Dialog drawer -->
     <div id="dialogOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)">
