@@ -620,7 +620,7 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
             )
 
         # Формируем ссылку и отправляем письмо.
-        app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru").rstrip("/")
+        app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru/fredi").rstrip("/")
         reset_link = f"{app_url}/?reset_pin={raw_token}"
 
         # ВСЕГДА логируем reset-link (warning-уровень) — это failsafe для
@@ -787,7 +787,7 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                 f"admin-manual:{_user_agent(request)[:100]}",
             )
 
-        app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru").rstrip("/")
+        app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru/fredi").rstrip("/")
         reset_link = f"{app_url}/?reset_pin={raw_token}"
 
         await _track(uid, "auth_admin_manual_reset_issued", {"email": email})
