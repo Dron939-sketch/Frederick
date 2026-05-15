@@ -1,3 +1,24 @@
+// Стили для мигающего бутера-приглашения. Голубое свечение + плавная
+// пульсация. После первого клика класс убирается и кнопка возвращается
+// в обычный нейтральный вид.
+(function _injectMenuAttentionStyles() {
+    if (document.getElementById('fredi-menu-attention-styles')) return;
+    var s = document.createElement('style');
+    s.id = 'fredi-menu-attention-styles';
+    s.textContent = ''
+        + '@keyframes fredi-menu-pulse {'
+        + '  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6); color: #60a5fa; }'
+        + '  50%      { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); color: #93c5fd; }'
+        + '}'
+        + '.mobile-menu-btn--attention {'
+        + '  color: #60a5fa !important;'
+        + '  background: rgba(59, 130, 246, 0.15) !important;'
+        + '  border-radius: 8px;'
+        + '  animation: fredi-menu-pulse 1.4s ease-in-out infinite;'
+        + '}';
+    document.head.appendChild(s);
+})();
+
 // ============================================
 // КОНФИГУРАЦИЯ
 // ============================================
@@ -2032,10 +2053,29 @@ function initMobileMenu() {
     const chatsPanel = document.getElementById('chatsPanel');
     if (!mobileMenuBtn || !chatsPanel) return;
 
+    // Привлекаем внимание новых юзеров к бутеру (☰): на мобильном они
+    // часто не видят что навигация спрятана. Мигаем голубым пока юзер
+    // первый раз не нажмёт.
+    try {
+        if (!localStorage.getItem('fredi_menu_clicked')) {
+            mobileMenuBtn.classList.add('mobile-menu-btn--attention');
+        }
+    } catch (e) {}
+
     mobileMenuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
         chatsPanel.classList.toggle('open');
+        // После первого клика — снимаем мигание навсегда.
+        try {
+            if (!localStorage.getItem('fredi_menu_clicked')) {
+                localStorage.setItem('fredi_menu_clicked', '1');
+                mobileMenuBtn.classList.remove('mobile-menu-btn--attention');
+                if (window.FrediTracker && window.FrediTracker.track) {
+                    window.FrediTracker.track('mobile_menu_first_click', {});
+                }
+            }
+        } catch (e) {}
     });
 
     // touchstart быстрее click на мобиле (нет 300мс задержки)
