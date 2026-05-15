@@ -3,6 +3,7 @@ payment.py — YooKassa payment service for Fredi subscription.
 Recurring payments: first payment saves card, then autopay.
 """
 
+import asyncio
 import os
 import logging
 import uuid
@@ -377,6 +378,17 @@ class PaymentService:
                 })
             except Exception as e:
                 logger.debug(f"analytics track(subscription_activated) failed: {e}")
+
+            # Оповещение пользователя по email + Telegram/MAX. Делаем
+            # fire-and-forget через create_task: активация в БД уже
+            # сохранена, ждать доставки уведомления нет смысла.
+            try:
+                from services.subscription_notify import notify_subscription_activated
+                asyncio.create_task(notify_subscription_activated(
+                    self.db, user_id, new_expires, is_renewal=is_renewal,
+                ))
+            except Exception as e:
+                logger.warning(f"notify dispatch failed for user {user_id}: {e}")
 
         logger.info(f"Subscription activated for user {user_id} until {new_expires} (yookassa_id={yookassa_id})")
         return {"success": True, "user_id": user_id, "expires_at": str(new_expires)}
