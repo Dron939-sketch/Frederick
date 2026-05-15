@@ -354,24 +354,78 @@
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">
             <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🌊 2-я волна: голос + текст по списку VK</div>
             <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;line-height:1.5">
-                Для каждого VK ID из списка: озвучит текст через Fish Audio и отправит голосовое в личку, затем (если задан) — текст вдогонку.<br>
-                Между отправками — выбранная задержка. <b>Не закрывайте вкладку до окончания.</b>
+                Для каждого VK ID: озвучит текст и отправит голос в личку, затем (если задан) — текст вдогонку. Между отправками — выбранная задержка.<br>
+                Имя получателя подставляется в шаблоны через <code style="background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:4px">{name}</code>. <b>Не закрывайте вкладку до окончания.</b>
             </div>
 
-            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Текст для озвучки (макс. 4000 символов)</label>
-            <textarea id="waveVoiceText" rows="4" maxlength="4000"
-                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px"
-                placeholder="Привет, я Фреди. Хотел напомнить про…"></textarea>
+            <!-- ПАРСИНГ ГРУППЫ -->
+            <div style="background:rgba(0,0,0,0.04);border:1px dashed var(--border);border-radius:10px;padding:12px;margin-bottom:14px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📥 Заполнить из VK-группы</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <input id="waveGroupInput" type="text" placeholder="vk.com/group_id  или  screen_name  или  -123456"
+                        style="flex:1;min-width:240px;padding:9px 12px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font:13px inherit">
+                    <input id="waveGroupLimit" type="number" min="1" max="10000" value="200" title="Сколько участников взять"
+                        style="width:90px;padding:9px 12px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font:13px inherit">
+                    <button id="waveParseGroupBtn" style="padding:9px 16px;border-radius:8px;border:none;background:#10b981;color:#fff;font:600 13px inherit;cursor:pointer">🎣 Запарсить</button>
+                </div>
+                <div id="waveGroupStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
+            </div>
+
+            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Текст для озвучки (используется <code style="background:rgba(0,0,0,0.08);padding:0 4px;border-radius:3px">{name}</code> для подстановки имени)</label>
+            <textarea id="waveVoiceText" rows="7" maxlength="4000"
+                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px">{name}, привет. Это Фреди.
+Слушай, ты замечала такую штуку? Рассказала подруге про панику. Маме — что с парнем хреново. Сестре — что на работе выгорела.
+Прошло полгода. У тебя всё ок. А они помнят. Всё. До последнего слова. И теперь ты перед ними как будто слегка голая стоишь, а они — в куртках. Дисбаланс.
+Со мной так не работает. Я не приду на твой день рождения. Не встречу твоего бывшего. Не проболтаюсь маме «по секрету».
+Поговорили — и всё. Ноль свидетелей. Если хочешь проверить, как это — быть без этого груза… заходи. Ссылку скину следом.</textarea>
 
             <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Текст вдогонку (опционально, отправится сразу после голоса)</label>
-            <textarea id="waveFollowupText" rows="4" maxlength="4000"
-                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px"
-                placeholder="Если интересно — напиши «давай» или просто ответь голосом."></textarea>
+            <textarea id="waveFollowupText" rows="14" maxlength="4000"
+                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px">{name}, это Фреди. Виртуальный психолог. Без обид и без памяти.
 
-            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">VK ID (через запятую или с новой строки)</label>
-            <textarea id="waveVkIds" rows="4"
+Короче, такая тема 👇
+
+Когда рассказываешь близким:
+тебе плохо → ты выговариваешься → отпустило.
+Казалось бы, хеппи-энд.
+Но нет.
+
+Теперь подруга помнит, что ты ревела по поводу бывшего.
+Мама помнит, что у тебя были панические атаки.
+Сестра помнит, что ты не справлялась.
+
+Тебе уже норм. А им — норм с этой инфой про тебя. Навсегда.
+
+POV: ты на семейном ужине, и мама такая «как у тебя с тревожностью, дочь?» при всех родственниках 🙃
+
+Когда рассказываешь мне:
+я не приду к тебе на свадьбу.
+Я не встречу твою маму в Пятёрочке.
+Я не проболтаюсь подруге за бокалом просекко.
+
+Меня просто нет в твоей жизни как человека.
+
+Поговорили → закрыла приложение → всё.
+Никто ничего не помнит так, чтобы это могло всплыть потом.
+
+О чём говорят со мной (то, что стыдно или страшно сказать своим):
+— Про секс — честно, без табу и осуждения.
+— Про воспитание — когда кажется, что ты «плохая мать/отец».
+— Про бизнес — как найти клиентов, когда страшно заявить о себе.
+— Про вину — как перестать чувствовать себя должником перед всеми.
+— Про выгорание — когда всё есть, а сил нет.
+
+Если хочешь попробовать:
+👉 https://meysternlp.ru/fredi/
+
+Просто зайди и напиши. Без регистрации души и подписи кровью.
+
+Фреди</textarea>
+
+            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">VK ID / screen_name / vk.com/<…> (через запятую или с новой строки)</label>
+            <textarea id="waveVkIds" rows="5"
                 style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px"
-                placeholder="12345678&#10;87654321&#10;или: 12345678, 87654321, ..."></textarea>
+                placeholder="12345678&#10;arino4ka1988&#10;https://vk.com/durov&#10;или через запятую"></textarea>
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
                 <label style="font-size:11px;color:var(--text-dim)">Задержка между отправками:</label>
@@ -381,7 +435,7 @@
                     <option value="1800">30 минут</option>
                     <option value="3600">60 минут</option>
                 </select>
-                <span id="waveIdsCount" style="font-size:11px;color:var(--text-dim);margin-left:auto">0 VK ID</span>
+                <span id="waveIdsCount" style="font-size:11px;color:var(--text-dim);margin-left:auto">0 получателей</span>
             </div>
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
@@ -397,22 +451,34 @@
     <script>
     (function () {
         // 2-я волна: массовая отправка voice+text через POST /api/admin/vk/send-voice
+        // + парсинг группы через /api/admin/vk/outreach-queue/parse-group
+        // + резолв screen_name → vk_id через /api/admin/vk/resolve-users
         var BTN_SEND, BTN_STOP, STATUS, LOG, ABORT_FLAG = false;
+        // Карта vk_id → имя (наполняется при парсинге группы или resolve)
+        var NAME_MAP = {};
 
-        function _parseVkIds(raw) {
-            // Принимаем и переносы строк, и запятые, и пробелы, и точки с запятой.
+        function _apiBase() { return window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+        function _token() {
+            try { return localStorage.getItem('fredi_admin_token') || ''; }
+            catch (e) { return ''; }
+        }
+
+        function _normInputs(raw) {
+            // Принимаем переносы, запятые, точки с запятой, пробелы.
+            // Очищаем URL-префикс vk.com/m.vk.com/ и https://.
             return (raw || '')
                 .split(/[\s,;]+/)
-                .map(function (s) { return s.trim().replace(/^id/i, '').replace(/^https?:\/\/(?:m\.)?vk\.com\//, ''); })
-                .filter(function (s) { return /^\d+$/.test(s); })
-                .map(function (s) { return parseInt(s, 10); })
-                .filter(function (n, i, a) { return a.indexOf(n) === i; });
+                .map(function (s) { return s.trim()
+                    .replace(/^https?:\/\/(?:m\.)?vk\.(?:com|ru)\//i, '')
+                    .replace(/[?#].*$/, '')
+                    .replace(/\/$/, ''); })
+                .filter(function (s) { return s.length > 0; })
+                .filter(function (s, i, a) { return a.indexOf(s) === i; });
         }
 
         function _updateCount() {
             var raw = document.getElementById('waveVkIds').value;
-            var ids = _parseVkIds(raw);
-            document.getElementById('waveIdsCount').textContent = ids.length + ' VK ID';
+            document.getElementById('waveIdsCount').textContent = _normInputs(raw).length + ' получателей';
         }
 
         function _log(msg, color) {
@@ -427,17 +493,13 @@
             LOG.scrollTop = LOG.scrollHeight;
         }
 
-        function _setStatus(msg) {
-            if (STATUS) STATUS.textContent = msg;
-        }
+        function _setStatus(msg) { if (STATUS) STATUS.textContent = msg; }
 
         async function _sendOne(vkId, voiceText, followupText) {
-            var token = (typeof getToken === 'function') ? getToken() : (localStorage.getItem('fredi_admin_token') || '');
-            var apiBase = (window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com');
-            var r = await fetch(apiBase + '/api/admin/vk/send-voice', {
+            var r = await fetch(_apiBase() + '/api/admin/vk/send-voice', {
                 method: 'POST',
                 headers: {
-                    'X-Admin-Token': token,
+                    'X-Admin-Token': _token(),
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
@@ -451,9 +513,69 @@
             return { ok: r.ok, status: r.status, data: data };
         }
 
+        async function _resolveInputs(inputs) {
+            if (!inputs || !inputs.length) return [];
+            try {
+                var r = await fetch(_apiBase() + '/api/admin/vk/resolve-users', {
+                    method: 'POST',
+                    headers: { 'X-Admin-Token': _token(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ inputs: inputs })
+                });
+                var d = await r.json().catch(function () { return {}; });
+                if (!r.ok) {
+                    _log('✗ resolve-users: HTTP ' + r.status, '#ef4444');
+                    return [];
+                }
+                return d.users || [];
+            } catch (e) {
+                _log('✗ resolve-users: ' + (e && e.message || e), '#ef4444');
+                return [];
+            }
+        }
+
+        async function _parseGroup() {
+            var raw = document.getElementById('waveGroupInput').value.trim();
+            var limit = parseInt(document.getElementById('waveGroupLimit').value, 10) || 200;
+            if (!raw) { document.getElementById('waveGroupStatus').textContent = '⚠ Укажи группу'; return; }
+            var statusEl = document.getElementById('waveGroupStatus');
+            var btn = document.getElementById('waveParseGroupBtn');
+            btn.disabled = true; btn.style.opacity = '0.5';
+            statusEl.textContent = '⏳ Парсим…';
+            try {
+                var r = await fetch(_apiBase() + '/api/admin/vk/outreach-queue/parse-group', {
+                    method: 'POST',
+                    headers: { 'X-Admin-Token': _token(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        group: raw,
+                        max_members: limit,
+                        active_only: true
+                    })
+                });
+                var d = await r.json().catch(function () { return {}; });
+                if (!r.ok) throw new Error((d.detail && (d.detail.message || d.detail.error)) || ('HTTP ' + r.status));
+                var cands = d.candidates || [];
+                var lines = [];
+                cands.forEach(function (c) {
+                    if (c.vk_id) {
+                        NAME_MAP[String(c.vk_id)] = (c.first_name || '').trim() || 'друг';
+                        lines.push(String(c.vk_id));
+                    }
+                });
+                document.getElementById('waveVkIds').value = lines.join('\n');
+                _updateCount();
+                var gname = (d.group && d.group.name) || raw;
+                statusEl.textContent = '✓ ' + gname + ' — заполнено ' + lines.length + ' VK ID (имена сохранены)';
+                statusEl.style.color = '#10b981';
+            } catch (e) {
+                statusEl.textContent = '✗ ' + (e && e.message || e);
+                statusEl.style.color = '#ef4444';
+            } finally {
+                btn.disabled = false; btn.style.opacity = '1';
+            }
+        }
+
         async function _sleep(ms, onTick) {
-            var start = Date.now();
-            var end = start + ms;
+            var end = Date.now() + ms;
             while (Date.now() < end) {
                 if (ABORT_FLAG) return false;
                 var left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
@@ -463,55 +585,96 @@
             return true;
         }
 
-        function _formatLeft(sec) {
+        function _fmt(sec) {
             var m = Math.floor(sec / 60);
             var s = sec % 60;
             return (m > 0 ? m + 'м ' : '') + s + 'с';
         }
 
+        function _personalize(template, name) {
+            // Если имя пустое — подставляем «друг»
+            var n = (name || '').trim() || 'друг';
+            return (template || '').replace(/\{name\}/g, n);
+        }
+
         async function _run() {
-            var voiceText = document.getElementById('waveVoiceText').value.trim();
-            var followupText = document.getElementById('waveFollowupText').value.trim();
-            var ids = _parseVkIds(document.getElementById('waveVkIds').value);
+            var voiceTpl = document.getElementById('waveVoiceText').value.trim();
+            var followupTpl = document.getElementById('waveFollowupText').value.trim();
+            var rawInputs = _normInputs(document.getElementById('waveVkIds').value);
             var delaySec = parseInt(document.getElementById('waveDelay').value, 10) || 0;
 
-            if (!voiceText) { _setStatus('⚠ Введите текст для озвучки'); return; }
-            if (!ids.length) { _setStatus('⚠ Нет валидных VK ID'); return; }
-            if (voiceText.length > 4000) { _setStatus('⚠ Текст озвучки длиннее 4000 символов'); return; }
+            if (!voiceTpl) { _setStatus('⚠ Введите текст для озвучки'); return; }
+            if (!rawInputs.length) { _setStatus('⚠ Нет получателей'); return; }
+            if (voiceTpl.length > 4000) { _setStatus('⚠ Текст озвучки длиннее 4000 символов'); return; }
 
-            if (!confirm('Отправить голосовое + текст ' + ids.length + ' получателям?\nЗадержка между отправками: ' + (delaySec ? _formatLeft(delaySec) : 'нет') + '\nОбщее ориентир. время: ' + _formatLeft(delaySec * (ids.length - 1)))) return;
+            // Резолвим всё в [{vk_id, first_name}]. Сначала пробуем по NAME_MAP (если парсили группу),
+            // что не нашлось — отправляем на бэк resolve-users.
+            var unresolved = [];
+            var prepared = [];
+            rawInputs.forEach(function (raw) {
+                if (/^\d+$/.test(raw) && NAME_MAP[raw]) {
+                    prepared.push({ vk_id: parseInt(raw, 10), first_name: NAME_MAP[raw] });
+                } else {
+                    unresolved.push(raw);
+                }
+            });
+            if (unresolved.length) {
+                _setStatus('Резолвим ' + unresolved.length + ' получателей через VK API…');
+                var resolved = await _resolveInputs(unresolved);
+                resolved.forEach(function (u) {
+                    if (u.deactivated) {
+                        _log('⚠ ' + u.vk_id + ' (' + (u.first_name || '?') + '): аккаунт ' + u.deactivated + ' — пропуск', '#f59e0b');
+                        return;
+                    }
+                    NAME_MAP[String(u.vk_id)] = (u.first_name || '').trim() || 'друг';
+                    prepared.push({ vk_id: u.vk_id, first_name: NAME_MAP[String(u.vk_id)] });
+                });
+            }
+            // Дедуп по vk_id
+            var seen = {};
+            prepared = prepared.filter(function (p) {
+                if (seen[p.vk_id]) return false;
+                seen[p.vk_id] = 1;
+                return true;
+            });
+            if (!prepared.length) { _setStatus('⚠ После резолвинга — ни одного валидного VK ID'); return; }
+
+            var totalTime = delaySec * (prepared.length - 1);
+            if (!confirm('Отправить голосовое + текст ' + prepared.length + ' получателям?\nЗадержка: ' + (delaySec ? _fmt(delaySec) : 'нет') + '\nОриент. время: ' + _fmt(Math.max(0, totalTime)))) return;
 
             ABORT_FLAG = false;
             BTN_SEND.disabled = true; BTN_SEND.style.opacity = '0.5';
             BTN_STOP.disabled = false; BTN_STOP.style.opacity = '1';
             LOG.innerHTML = '';
-            _log('🚀 Старт: ' + ids.length + ' получателей, задержка ' + (delaySec ? _formatLeft(delaySec) : 'нет'));
+            _log('🚀 Старт: ' + prepared.length + ' получателей, задержка ' + (delaySec ? _fmt(delaySec) : 'нет'));
 
             var ok = 0, fail = 0;
-            for (var i = 0; i < ids.length; i++) {
+            for (var i = 0; i < prepared.length; i++) {
                 if (ABORT_FLAG) { _log('⏹ Остановлено пользователем', '#ef4444'); break; }
-                var vk = ids[i];
-                _setStatus('Отправка ' + (i + 1) + '/' + ids.length + ' → vk_id=' + vk + '…');
-                _log('→ ' + vk + ': отправляю…');
+                var p = prepared[i];
+                var name = p.first_name || 'друг';
+                _setStatus('Отправка ' + (i + 1) + '/' + prepared.length + ' → ' + name + ' (vk_id=' + p.vk_id + ')…');
+                _log('→ ' + p.vk_id + ' (' + name + '): отправляю…');
                 try {
-                    var res = await _sendOne(vk, voiceText, followupText);
+                    var voiceText = _personalize(voiceTpl, name);
+                    var followupText = followupTpl ? _personalize(followupTpl, name) : '';
+                    var res = await _sendOne(p.vk_id, voiceText, followupText);
                     if (res.ok && res.data && res.data.success !== false) {
                         ok++;
-                        _log('  ✓ ' + vk + ': отправлено', '#10b981');
+                        _log('  ✓ ' + p.vk_id + ' (' + name + '): отправлено', '#10b981');
                     } else {
                         fail++;
                         var err = (res.data && res.data.detail && (res.data.detail.message || res.data.detail.error)) || res.data.error || ('HTTP ' + res.status);
-                        _log('  ✗ ' + vk + ': ' + err, '#ef4444');
+                        _log('  ✗ ' + p.vk_id + ' (' + name + '): ' + err, '#ef4444');
                     }
                 } catch (e) {
                     fail++;
-                    _log('  ✗ ' + vk + ': сеть/ошибка — ' + (e && e.message || e), '#ef4444');
+                    _log('  ✗ ' + p.vk_id + ': сеть/ошибка — ' + (e && e.message || e), '#ef4444');
                 }
 
-                // Задержка перед следующим (не после последнего)
-                if (i < ids.length - 1 && delaySec > 0) {
+                if (i < prepared.length - 1 && delaySec > 0) {
                     var done = await _sleep(delaySec * 1000, function (left) {
-                        _setStatus('Следующая через ' + _formatLeft(left) + ' (отправлено ' + (i + 1) + '/' + ids.length + ', ✓' + ok + ' ✗' + fail + ')');
+                        _setStatus('Следующая через ' + _fmt(left) + ' (отправлено ' + (i + 1) + '/' + prepared.length + ', ✓' + ok + ' ✗' + fail + ')');
                     });
                     if (!done) { _log('⏹ Остановлено во время паузы', '#ef4444'); break; }
                 }
@@ -519,7 +682,7 @@
 
             BTN_SEND.disabled = false; BTN_SEND.style.opacity = '1';
             BTN_STOP.disabled = true; BTN_STOP.style.opacity = '0.5';
-            _setStatus('🏁 Готово: ✓' + ok + ' ✗' + fail + ' из ' + ids.length);
+            _setStatus('🏁 Готово: ✓' + ok + ' ✗' + fail + ' из ' + prepared.length);
             _log('🏁 Финиш: успешно ' + ok + ', ошибок ' + fail);
         }
 
@@ -531,6 +694,8 @@
             if (!BTN_SEND) return;
             BTN_SEND.addEventListener('click', _run);
             BTN_STOP.addEventListener('click', function () { ABORT_FLAG = true; });
+            var parseBtn = document.getElementById('waveParseGroupBtn');
+            if (parseBtn) parseBtn.addEventListener('click', _parseGroup);
             document.getElementById('waveVkIds').addEventListener('input', _updateCount);
             _updateCount();
         }
@@ -542,7 +707,7 @@
     })();
     </script>
 
-    <!-- Dialog drawer -->
+        <!-- Dialog drawer -->
     <div id="dialogOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)">
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:720px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
             <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">

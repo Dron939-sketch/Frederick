@@ -2742,6 +2742,90 @@ def register_vk_routes(app, db):
             })
         return {"success": True, **res}
 
+    @app.post("/api/admin/vk/resolve-users")
+    async def vk_resolve_users(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Резолвит произвольные VK-входы в массив {vk_id, first_name}.
+        Принимает любую смесь: численные id, screen_name, URL'ы vk.com/<…>.
+        Используется формой "2-я волна" в admin-analytics.html.
+
+        body: {inputs: [str, ...]}
+        return: {success: True, users: [{vk_id, first_name, last_name, deactivated?}, ...], failed: [str, ...]}
+        """
+        _check_admin(x_admin_token)
+        inputs = (body or {}).get("inputs") or []
+        if not isinstance(inputs, list):
+            raise HTTPException(status_code=400, detail={
+                "error": "inputs_required",
+                "message": "inputs must be a list of strings",
+            })
+        # Нормализация: убираем URL-префикс vk.com/, спецсимволы, дубли.
+        cleaned: List[str] = []
+        seen = set()
+        url_re = re.compile(r"^(?:https?://)?(?:[a-z0-9.-]*\.)?vk\.(?:com|ru)/", re.I)
+        for raw in inputs:
+            s = (str(raw) or "").strip()
+            if not s:
+                continue
+            s = url_re.sub("", s)
+            s = s.split("?")[0].split("#")[0].rstrip("/")
+            if not s:
+                continue
+            if s.lower() in seen:
+                continue
+            seen.add(s.lower())
+            cleaned.append(s)
+        if not cleaned:
+            return {"success": True, "users": [], "failed": []}
+        if len(cleaned) > 500:
+            raise HTTPException(status_code=400, detail={
+                "error": "too_many_inputs",
+                "message": "max 500 inputs per request",
+            })
+        # VK users.get принимает в user_ids смесь id и screen_name (CSV, до 1000)
+        try:
+            from vk_parser import _call
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await _call(client, "users.get", {
+                    "user_ids": ",".join(cleaned),
+                    "fields": "first_name,last_name,deactivated",
+                })
+        except Exception as e:
+            logger.error(f"vk_resolve_users: VK API failed: {e}")
+            raise HTTPException(status_code=502, detail={
+                "error": "vk_api_error", "message": str(e),
+            })
+        users = []
+        resolved_keys = set()
+        for u in (resp or []):
+            vk_id = u.get("id")
+            if not vk_id:
+                continue
+            fn = (u.get("first_name") or "").strip()
+            ln = (u.get("last_name") or "").strip()
+            users.append({
+                "vk_id": int(vk_id),
+                "first_name": fn,
+                "last_name": ln,
+                "deactivated": u.get("deactivated"),
+            })
+            resolved_keys.add(str(vk_id))
+            resolved_keys.add(fn.lower())
+        # Определяем что не зарезолвилось (грубо — по числовому ID если был)
+        failed = []
+        for raw in cleaned:
+            r_norm = raw.lower().lstrip("id")
+            if r_norm.isdigit():
+                if r_norm not in resolved_keys:
+                    failed.append(raw)
+            else:
+                # screen_name — сложно матчить однозначно, пропускаем
+                pass
+        return {"success": True, "users": users, "failed": failed}
+
     @app.post("/api/admin/vk/outreach-queue/parse-group")
     async def vk_outreach_parse_group(
         body: Dict[str, Any] = Body(...),
