@@ -86,6 +86,103 @@ def _ffmpeg_mp3_to_ogg_opus(mp3_bytes: bytes) -> bytes:
                 pass
 
 
+
+# In-memory кэш MP3-«тела» сообщения по hash. Используется в split-режиме:
+# тело генерится один раз, имя — каждый раз отдельно, потом склеивается.
+# TTL 1 час (после рассылки кэш ни к чему).
+import hashlib
+import time
+
+_BODY_CACHE: dict[str, tuple[float, bytes]] = {}
+_BODY_CACHE_TTL_SEC = 3600
+_BODY_CACHE_MAX = 50
+
+
+def _body_cache_key(text: str, mode: str) -> str:
+    h = hashlib.sha256((mode + "::" + (text or "")).encode("utf-8")).hexdigest()[:32]
+    return f"{mode}::{h}"
+
+
+def _body_cache_get(key: str) -> Optional[bytes]:
+    rec = _BODY_CACHE.get(key)
+    if not rec:
+        return None
+    ts, data = rec
+    if time.time() - ts > _BODY_CACHE_TTL_SEC:
+        _BODY_CACHE.pop(key, None)
+        return None
+    return data
+
+
+def _body_cache_put(key: str, data: bytes) -> None:
+    if not data:
+        return
+    # Лёгкая LRU: при переполнении выкидываем самый старый
+    if len(_BODY_CACHE) >= _BODY_CACHE_MAX:
+        oldest = min(_BODY_CACHE.items(), key=lambda kv: kv[1][0])[0]
+        _BODY_CACHE.pop(oldest, None)
+    _BODY_CACHE[key] = (time.time(), data)
+
+
+def _ffmpeg_concat_mp3(parts: list[bytes], pause_ms: int = 350) -> bytes:
+    """Склеивает несколько MP3 в один с тихой паузой между.
+    Используется чтобы «имя» (короткий TTS) и «тело» (кэшированный TTS)
+    звучали как единое сообщение.
+    """
+    if not parts:
+        raise RuntimeError("nothing to concat")
+    if len(parts) == 1:
+        return parts[0]
+    tmp_files: list[str] = []
+    list_path = None
+    out_path = None
+    try:
+        for i, b in enumerate(parts):
+            fd, p = tempfile.mkstemp(suffix=f"_part{i}.mp3")
+            os.close(fd)
+            with open(p, "wb") as f:
+                f.write(b)
+            tmp_files.append(p)
+        # silent gap
+        fd_silence, silence_path = tempfile.mkstemp(suffix="_silence.mp3")
+        os.close(fd_silence)
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=mono",
+             "-t", f"{pause_ms/1000:.3f}",
+             "-c:a", "libmp3lame", "-b:a", "128k",
+             silence_path],
+            check=True, capture_output=True, timeout=10,
+        )
+        # build concat list: part0 silence part1 silence part2 ...
+        list_fd, list_path = tempfile.mkstemp(suffix=".txt")
+        os.close(list_fd)
+        with open(list_path, "w", encoding="utf-8") as f:
+            for i, p in enumerate(tmp_files):
+                f.write(f"file '{p}'\n")
+                if i < len(tmp_files) - 1:
+                    f.write(f"file '{silence_path}'\n")
+        out_fd, out_path = tempfile.mkstemp(suffix="_concat.mp3")
+        os.close(out_fd)
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-f", "concat", "-safe", "0", "-i", list_path,
+             "-c:a", "libmp3lame", "-b:a", "128k",
+             out_path],
+            capture_output=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"concat ffmpeg failed: {proc.stderr.decode('utf-8','ignore')[:200]}")
+        with open(out_path, "rb") as f:
+            return f.read()
+    finally:
+        for p in tmp_files + ([list_path] if list_path else []) + ([out_path] if out_path else []):
+            try: os.unlink(p)
+            except Exception: pass
+        try: os.unlink(silence_path)
+        except Exception: pass
+
+
 async def _vk_method(method: str, params: dict) -> Any:
     """Вызов VK API method от ИМЕНИ ОТПРАВИТЕЛЯ (user-токен).
     Используется только для messages.* и docs.*. Парсер живёт на отдельном
@@ -287,3 +384,73 @@ async def send_voice_message_to_vk(
         "ogg_size": len(ogg),
         "peer_id": peer_id,
     }
+
+
+
+async def send_voice_with_split(
+    voice_name_text: str,
+    voice_body_text: str,
+    vk_peer_id: int,
+    text_followup: Optional[str] = None,
+    pause_ms: int = 350,
+    mode: str = "psychologist",
+) -> dict:
+    """Pipeline в «split» режиме:
+       - voice_body_text озвучивается ОДИН раз и кэшируется по hash;
+       - voice_name_text озвучивается каждый раз заново (он персональный);
+       - оба MP3 склеиваются ffmpeg-ом с короткой паузой и отправляются как один voice.
+
+    Полезно для рассылок: тело сообщения одинаковое у всех, имя — разное.
+    Экономит ~80% TTS-вызовов на основной текст и даёт стабильное качество
+    «эмоциональной» озвучки тела.
+    """
+    from services.fish_audio_service import synthesize_fish_audio
+
+    peer_id = int(vk_peer_id)
+    if peer_id <= 0:
+        raise RuntimeError("vk_peer_id должен быть положительным")
+    voice_name_text = (voice_name_text or "").strip()
+    voice_body_text = (voice_body_text or "").strip()
+    if not voice_body_text and not voice_name_text:
+        raise RuntimeError("оба текста пусты")
+
+    # 1) Тело — из кэша или генерим
+    body_mp3: Optional[bytes] = None
+    if voice_body_text:
+        key = _body_cache_key(voice_body_text, mode)
+        body_mp3 = _body_cache_get(key)
+        if not body_mp3:
+            body_mp3 = await synthesize_fish_audio(voice_body_text, mode=mode)
+            if not body_mp3 or len(body_mp3) < 200:
+                raise RuntimeError("TTS body пустой — проверь FISH_AUDIO_API_KEY/баланс")
+            _body_cache_put(key, body_mp3)
+            logger.info(f"split: body TTS сгенерировано и кэшировано ({len(body_mp3)}B)")
+        else:
+            logger.info(f"split: body MP3 из кэша ({len(body_mp3)}B)")
+
+    # 2) Имя — каждый раз новое
+    name_mp3: Optional[bytes] = None
+    if voice_name_text:
+        name_mp3 = await synthesize_fish_audio(voice_name_text, mode=mode)
+        if not name_mp3 or len(name_mp3) < 200:
+            raise RuntimeError("TTS name пустой")
+
+    # 3) Concat (если обе части)
+    parts = [p for p in (name_mp3, body_mp3) if p]
+    if not parts:
+        raise RuntimeError("обе части пустые")
+    full_mp3 = await asyncio.to_thread(_ffmpeg_concat_mp3, parts, pause_ms)
+    if not full_mp3 or len(full_mp3) < 200:
+        raise RuntimeError("concat вернул пустой MP3")
+
+    # 4) Дальше — обычный путь: MP3 → OGG → upload → send
+    return await send_voice_message_to_vk(
+        voice_text="<<split>>",  # не используется, передаём готовый mp3 через synthesizer
+        vk_peer_id=peer_id,
+        text_followup=text_followup,
+        mp3_synthesizer=(lambda _t: _identity_mp3(full_mp3)),
+    )
+
+
+async def _identity_mp3(mp3: bytes) -> bytes:
+    return mp3
