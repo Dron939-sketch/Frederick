@@ -9,7 +9,7 @@ import logging
 import uuid
 import base64
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -265,7 +265,7 @@ class PaymentService:
 
     async def _extend_subscription(self, user_id: int):
         async with self.db.get_connection() as conn:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             row = await conn.fetchrow("""
                 SELECT expires_at FROM fredi_subscriptions
                 WHERE user_id = $1 AND status = 'active'
@@ -342,7 +342,7 @@ class PaymentService:
                 logger.info(f"Saved payment_method_id {payment_method_id} for user {user_id}")
 
             # 3) Активация / продление подписки.
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             row = await conn.fetchrow("""
                 SELECT expires_at FROM fredi_subscriptions
                 WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
@@ -561,7 +561,7 @@ class PaymentService:
         is_active = (
             sub["status"] == "active"
             and sub["expires_at"]
-            and sub["expires_at"] > datetime.utcnow()
+            and sub["expires_at"] > datetime.now(timezone.utc)
         )
 
         return {
