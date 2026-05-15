@@ -234,6 +234,30 @@ def register_payment_routes(app, db, limiter):
             logger.error(f"delete_card error: {e}")
             return {"success": False, "error": "internal error"}
 
+    @app.post("/api/subscription/verify-payment")
+    @limiter.limit("20/minute")
+    async def verify_subscription_payment(request: Request):
+        """Fallback-проверка статуса платежа после возврата с YooKassa.
+        Фронт дёргает этот endpoint с payment_id, чтобы активировать
+        подписку, даже если webhook от YooKassa почему-то не пришёл —
+        в этом и был баг, из-за которого у клиентки списались деньги,
+        а план не активировался."""
+        try:
+            data = await request.json()
+            user_id = _validate_user_id(data.get("user_id"))
+            if not user_id:
+                return {"success": False, "error": "invalid user_id"}
+            payment_id = (data.get("payment_id") or "").strip()
+            if not payment_id or len(payment_id) > 100:
+                return {"success": False, "error": "invalid payment_id"}
+            result = await payment_service.verify_payment(payment_id, expected_user_id=user_id)
+            return result
+        except json.JSONDecodeError:
+            return {"success": False, "error": "invalid JSON"}
+        except Exception as e:
+            logger.error(f"verify_subscription_payment error: {e}")
+            return {"success": False, "error": "internal error"}
+
     @app.post("/api/yookassa-webhook")
     async def yookassa_webhook(request: Request):
         try:
@@ -274,4 +298,19 @@ def register_payment_routes(app, db, limiter):
                 logger.error(f"subscription_renewal_scheduler error: {e}")
             await asyncio.sleep(86400)
 
-    return init_payment_tables, subscription_renewal_scheduler
+    async def pending_payments_poller():
+        """Подбирает оплаченные платежи, для которых webhook не дошёл.
+        Каждые 5 минут проходит по pending-записям в fredi_payments и
+        тянет их статусы из YooKassa API. Если status=succeeded —
+        автоматически активирует подписку через ту же логику, что и
+        webhook. Это страховка, чтобы такие истории больше не повторялись."""
+        await asyncio.sleep(90)
+        while True:
+            try:
+                if payment_service:
+                    await payment_service.poll_pending_payments()
+            except Exception as e:
+                logger.error(f"pending_payments_poller error: {e}")
+            await asyncio.sleep(300)
+
+    return init_payment_tables, subscription_renewal_scheduler, pending_payments_poller
