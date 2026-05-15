@@ -51,5 +51,20 @@
         toggle: toggleTheme
     };
 
+    // Подгружаем premium_pill.js асинхронно, чтобы не править index.html
+    // (он крупный и неудобно деплоить через MCP push). premium_pill.js
+    // показывает ⭐ PREMIUM-pill у имени юзера на дашборде, когда подписка
+    // активна.
+    try {
+        if (!document.querySelector('script[data-fredi-premium-pill]')) {
+            var s = document.createElement('script');
+            s.src = 'premium_pill.js';
+            s.async = true;
+            s.defer = true;
+            s.setAttribute('data-fredi-premium-pill', '1');
+            (document.head || document.documentElement).appendChild(s);
+        }
+    } catch (e) { /* ignore — индикатор не критичен для работы */ }
+
     console.log('theme.js loaded');
 })();
