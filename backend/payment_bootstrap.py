@@ -9,5 +9,7 @@ from payment_routes import register_payment_routes
 
 
 def bootstrap_payments(app, db, limiter):
-    """Returns (init_tables_coroutine, renewal_scheduler_coroutine)."""
+    """Returns (init_tables_coroutine, renewal_scheduler_coroutine).
+    pending_payments_poller стартует автоматически внутри
+    init_payment_tables() — main.py трогать не нужно."""
     return register_payment_routes(app, db, limiter)

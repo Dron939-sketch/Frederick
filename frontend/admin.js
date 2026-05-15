@@ -409,19 +409,48 @@ async function renderUsers(c) {
     c.innerHTML = `<div style="text-align:center;padding:32px;color:rgba(255,255,255,0.3);font-size:13px;">⏳ Загружаю...</div>`;
     const API = window.API_BASE_URL||'https://fredi-backend-flz2.onrender.com';
     let users = [];
+    // Грузим параллельно: базовый список (для имён/profile_code) и
+    // premium-overlay из нового endpoint. Затем мерджим по user_id.
+    let baseUsers = [], premiumUsers = [];
     try {
-        const res = await fetch(`${API}/api/admin/recent-users`).then(r=>r.json());
-        if (res.success) users = res.users||[];
+        const [baseRes, premRes] = await Promise.allSettled([
+            fetch(`${API}/api/admin/recent-users`).then(r=>r.json()),
+            fetch(`${API}/api/admin/users-premium`).then(r=>r.json()),
+        ]);
+        if (baseRes.status === 'fulfilled' && baseRes.value && baseRes.value.success) {
+            baseUsers = baseRes.value.users || [];
+        }
+        if (premRes.status === 'fulfilled' && premRes.value && premRes.value.success) {
+            premiumUsers = premRes.value.users || [];
+        }
     } catch(e) {}
+    const premMap = {};
+    for (const p of premiumUsers) { premMap[p.user_id] = p; }
+    users = baseUsers.map(u => {
+        const pp = premMap[u.user_id];
+        return pp ? Object.assign({}, u, {
+            is_premium: pp.is_premium,
+            subscription_expires_at: pp.subscription_expires_at,
+            subscription_auto_renew: pp.subscription_auto_renew,
+        }) : u;
+    });
+    // Премиум-юзеров, не попавших в baseUsers (давно не заходили), тоже покажем.
+    const seen = new Set(users.map(u => u.user_id));
+    for (const p of premiumUsers) {
+        if (p.is_premium && !seen.has(p.user_id)) {
+            users.push(p);
+        }
+    }
 
     const s = adminState.stats;
+    const premiumCount = users.filter(u => u.is_premium).length;
     c.innerHTML = `
         <!-- СВОДКА -->
 <div class="adm-grid-2">
           ${[
             ['👥', s.total_users||0,  'Всего', '#e0e0e0'],
             ['🟢', s.active_today||0, 'Сегодня', '#27ae60'],
-            ['📊', s.total_tests||0,  'Тестов', '#00d4ff'],
+            ['⭐', premiumCount,      'Premium', '#f39c12'],
           ].map(([e,v,l,col])=>`
             <div class="adm-card" style="padding:14px;text-align:center;">
               <div style="font-size:18px;margin-bottom:4px;">${e}</div>
@@ -432,21 +461,31 @@ async function renderUsers(c) {
 
         <!-- СПИСОК -->
         <div class="adm-card">
-          <div class="adm-label">👤 Последние пользователи</div>
+          <div class="adm-label">👤 Последние пользователи${premiumCount ? ` · ⭐ ${premiumCount} premium` : ''}</div>
           ${users.length ? users.map(u=>`
             <div class="adm-row">
               <div style="width:32px;height:32px;border-radius:50%;flex-shrink:0;
-                          background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);
+                          background:${u.is_premium?'linear-gradient(135deg,#f39c12,#e67e22)':'rgba(255,255,255,0.08)'};
+                          border:1px solid ${u.is_premium?'rgba(243,156,18,0.6)':'rgba(255,255,255,0.1)'};
                           display:flex;align-items:center;justify-content:center;
-                          font-size:13px;font-weight:700;color:#fff;">
+                          font-size:13px;font-weight:700;color:#fff;
+                          ${u.is_premium?'box-shadow:0 0 10px rgba(243,156,18,0.35);':''}">
                 ${(u.username||u.first_name||'?').charAt(0).toUpperCase()}
               </div>
-              <div style="flex:1;">
-                <div style="font-size:13px;font-weight:600;color:#fff;">
-                  ${u.username ? '@'+u.username : u.first_name||'Пользователь'}
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;color:#fff;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                  <span>${u.username ? '@'+u.username : u.first_name||'Пользователь'}</span>
+                  ${u.is_premium ? `
+                    <span title="${u.subscription_expires_at?('Активна до '+u.subscription_expires_at.substring(0,10)):'Premium-подписка'}"
+                      style="display:inline-flex;align-items:center;gap:3px;background:linear-gradient(135deg,#f39c12,#e67e22);
+                             color:#fff;font-size:9px;font-weight:800;letter-spacing:0.5px;padding:2px 7px;
+                             border-radius:6px;text-transform:uppercase;">
+                      ⭐ PRO
+                    </span>` : ''}
                 </div>
                 <div style="font-size:10px;color:rgba(255,255,255,0.28);">
                   ID: ${u.user_id} · ${(u.last_activity||'').substring(0,10)}
+                  ${u.is_premium && u.subscription_expires_at ? ' · до '+u.subscription_expires_at.substring(0,10) : ''}
                 </div>
               </div>
               ${u.profile_code ? `

@@ -17,6 +17,7 @@ from payment import PaymentService
 logger = logging.getLogger(__name__)
 
 payment_service = None
+_pending_poller_task = None
 
 YOOKASSA_WEBHOOK_SECRET = os.environ.get("YOOKASSA_WEBHOOK_SECRET", "").strip()
 
@@ -119,6 +120,17 @@ def register_payment_routes(app, db, limiter):
             await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email TEXT")
             await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS phone TEXT")
         logger.info("Payment tables ready")
+
+        # Стартуем фоновый поллинг pending-платежей здесь, чтобы не
+        # требовать ручной правки lifespan в main.py. Один раз за время
+        # жизни приложения.
+        global _pending_poller_task
+        if _pending_poller_task is None or _pending_poller_task.done():
+            try:
+                _pending_poller_task = asyncio.create_task(pending_payments_poller())
+                logger.info("pending_payments_poller started")
+            except Exception as e:
+                logger.error(f"failed to start pending_payments_poller: {e}")
 
     @app.post("/api/subscription/create-payment")
     @limiter.limit("3/minute")
@@ -234,6 +246,30 @@ def register_payment_routes(app, db, limiter):
             logger.error(f"delete_card error: {e}")
             return {"success": False, "error": "internal error"}
 
+    @app.post("/api/subscription/verify-payment")
+    @limiter.limit("20/minute")
+    async def verify_subscription_payment(request: Request):
+        """Fallback-проверка статуса платежа после возврата с YooKassa.
+        Фронт дёргает этот endpoint с payment_id, чтобы активировать
+        подписку, даже если webhook от YooKassa почему-то не пришёл —
+        в этом и был баг, из-за которого у клиентки списались деньги,
+        а план не активировался."""
+        try:
+            data = await request.json()
+            user_id = _validate_user_id(data.get("user_id"))
+            if not user_id:
+                return {"success": False, "error": "invalid user_id"}
+            payment_id = (data.get("payment_id") or "").strip()
+            if not payment_id or len(payment_id) > 100:
+                return {"success": False, "error": "invalid payment_id"}
+            result = await payment_service.verify_payment(payment_id, expected_user_id=user_id)
+            return result
+        except json.JSONDecodeError:
+            return {"success": False, "error": "invalid JSON"}
+        except Exception as e:
+            logger.error(f"verify_subscription_payment error: {e}")
+            return {"success": False, "error": "internal error"}
+
     @app.post("/api/yookassa-webhook")
     async def yookassa_webhook(request: Request):
         try:
@@ -273,5 +309,66 @@ def register_payment_routes(app, db, limiter):
             except Exception as e:
                 logger.error(f"subscription_renewal_scheduler error: {e}")
             await asyncio.sleep(86400)
+
+    async def pending_payments_poller():
+        """Подбирает оплаченные платежи, для которых webhook не дошёл.
+        Каждые 5 минут проходит по pending-записям в fredi_payments и
+        тянет их статусы из YooKassa API. Если status=succeeded —
+        автоматически активирует подписку через ту же логику, что и
+        webhook. Это страховка, чтобы такие истории больше не повторялись."""
+        await asyncio.sleep(90)
+        while True:
+            try:
+                if payment_service:
+                    await payment_service.poll_pending_payments()
+            except Exception as e:
+                logger.error(f"pending_payments_poller error: {e}")
+            await asyncio.sleep(300)
+
+    @app.get("/api/admin/users-premium")
+    @limiter.limit("30/minute")
+    async def admin_users_with_premium(request: Request):
+        """Расширенный список последних пользователей с пометкой premium.
+        Фронт админки (admin.js) дёргает этот endpoint, чтобы показать
+        значок ⭐ PRO у тех, кто оплатил подписку. Делается через JOIN с
+        fredi_subscriptions, чтобы не править main.py."""
+        try:
+            async with db.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT u.user_id, u.username, u.first_name, u.email,
+                           u.last_activity, u.created_at,
+                           s.status AS sub_status,
+                           s.expires_at AS sub_expires_at,
+                           s.auto_renew AS sub_auto_renew
+                    FROM fredi_users u
+                    LEFT JOIN fredi_subscriptions s ON s.user_id = u.user_id
+                    ORDER BY u.last_activity DESC NULLS LAST
+                    LIMIT 30
+                """)
+            from datetime import datetime as _dt
+            users = []
+            now_utc = _dt.utcnow()
+            for r in rows:
+                sub_expires = r['sub_expires_at']
+                is_premium = bool(
+                    r['sub_status'] == 'active'
+                    and sub_expires is not None
+                    and sub_expires > now_utc
+                )
+                users.append({
+                    'user_id': r['user_id'],
+                    'username': r['username'],
+                    'first_name': r['first_name'],
+                    'email': r['email'],
+                    'last_activity': r['last_activity'].isoformat() if r['last_activity'] else '',
+                    'created_at': r['created_at'].isoformat() if r['created_at'] else '',
+                    'is_premium': is_premium,
+                    'subscription_expires_at': sub_expires.isoformat() if sub_expires else None,
+                    'subscription_auto_renew': bool(r['sub_auto_renew']) if r['sub_auto_renew'] is not None else None,
+                })
+            return {"success": True, "users": users}
+        except Exception as e:
+            logger.error(f"admin_users_with_premium error: {e}")
+            return {"success": False, "error": "internal error"}
 
     return init_payment_tables, subscription_renewal_scheduler

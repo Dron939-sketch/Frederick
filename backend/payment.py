@@ -299,6 +299,191 @@ class PaymentService:
         except Exception as e:
             logger.debug(f"analytics track(subscription_activated) failed: {e}")
 
+    async def _apply_succeeded_payment(self, user_id: int, payment_obj: Dict) -> Dict[str, Any]:
+        """Идемпотентная активация подписки на основании оплаченного
+        платежа YooKassa. Используется и из webhook, и из verify_payment,
+        и из фонового поллинга — чтобы любая ветка приводила БД в одно
+        и то же согласованное состояние.
+        """
+        yookassa_id = payment_obj.get("id", "")
+        metadata = payment_obj.get("metadata", {}) or {}
+        payment_type = metadata.get("type", "subscription_first")
+
+        async with self.db.get_connection() as conn:
+            # 1) Идемпотентность: если этот платёж уже отработан в подписку,
+            #    повторно не активируем — просто возвращаем актуальное состояние.
+            already = await conn.fetchval("""
+                SELECT status FROM fredi_payments WHERE yookassa_id = $1
+            """, yookassa_id)
+
+            await conn.execute("""
+                INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)
+                VALUES ($1, $2, $3, 'succeeded', $4, $5)
+                ON CONFLICT (yookassa_id) DO UPDATE SET
+                    status = 'succeeded', updated_at = NOW()
+            """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT), payment_type,
+                f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес")
+
+            # 2) Сохраняем способ оплаты, если он пришёл (нужен для автопродления).
+            payment_method = payment_obj.get("payment_method", {}) or {}
+            payment_method_id = payment_method.get("id")
+            if payment_method_id and payment_method.get("saved"):
+                card_info = payment_method.get("card", {}) or {}
+                card_last4 = card_info.get("last4", "****")
+                card_type = card_info.get("card_type", "Unknown")
+                await conn.execute("""
+                    INSERT INTO fredi_payment_methods (user_id, payment_method_id, card_last4, card_type, is_active)
+                    VALUES ($1, $2, $3, $4, TRUE)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        payment_method_id = $2, card_last4 = $3, card_type = $4,
+                        is_active = TRUE, updated_at = NOW()
+                """, user_id, payment_method_id, card_last4, card_type)
+                logger.info(f"Saved payment_method_id {payment_method_id} for user {user_id}")
+
+            # 3) Активация / продление подписки.
+            now = datetime.utcnow()
+            row = await conn.fetchrow("""
+                SELECT expires_at FROM fredi_subscriptions
+                WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
+            """, user_id)
+            if row:
+                new_expires = row["expires_at"] + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                is_renewal = True
+                await conn.execute("""
+                    UPDATE fredi_subscriptions SET expires_at = $1, updated_at = NOW()
+                    WHERE user_id = $2 AND status = 'active'
+                """, new_expires, user_id)
+            else:
+                new_expires = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                is_renewal = False
+                await conn.execute("""
+                    INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew)
+                    VALUES ($1, 'active', $2, $3, TRUE)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        status = 'active', started_at = $2, expires_at = $3,
+                        auto_renew = TRUE, updated_at = NOW()
+                """, user_id, now, new_expires)
+
+        # Аналитика только при первой обработке этого платежа, чтобы
+        # не дублировать subscription_activated при ретраях/поллинге.
+        if already != "succeeded":
+            try:
+                from analytics_routes import log_server_event
+                await log_server_event(user_id, "subscription_activated", {
+                    "is_renewal": bool(is_renewal),
+                    "expires_at": new_expires.isoformat(),
+                    "source": "webhook_or_verify",
+                    "yookassa_id": yookassa_id,
+                })
+            except Exception as e:
+                logger.debug(f"analytics track(subscription_activated) failed: {e}")
+
+        logger.info(f"Subscription activated for user {user_id} until {new_expires} (yookassa_id={yookassa_id})")
+        return {"success": True, "user_id": user_id, "expires_at": str(new_expires)}
+
+    async def _fetch_payment(self, yookassa_id: str) -> Optional[Dict[str, Any]]:
+        """GET /payments/{id} — нужен для fallback-сценариев: когда webhook
+        не дошёл, фронт или background-поллер дёргают этот метод чтобы
+        узнать реальный статус платежа в YooKassa."""
+        if not self.shop_id or not self.secret_key:
+            logger.error("YooKassa credentials missing for _fetch_payment")
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.get(
+                    f"{YOOKASSA_API_URL}/payments/{yookassa_id}",
+                    headers={"Authorization": self._get_auth_header()},
+                )
+                if resp.status_code != 200:
+                    logger.warning(f"YooKassa GET payment {yookassa_id}: {resp.status_code} {resp.text[:200]}")
+                    return None
+                return resp.json()
+        except Exception as e:
+            logger.error(f"_fetch_payment error for {yookassa_id}: {e}")
+            return None
+
+    async def verify_payment(self, yookassa_id: str, expected_user_id: Optional[int] = None) -> Dict[str, Any]:
+        """Fallback-проверка: фронт после возврата с YooKassa дёргает этот
+        метод, чтобы активировать подписку без ожидания webhook'а.
+        Это спасает кейсы, когда webhook не дошёл (сеть, не настроен URL).
+        """
+        if not yookassa_id or not isinstance(yookassa_id, str):
+            return {"success": False, "error": "invalid payment_id"}
+
+        payment_obj = await self._fetch_payment(yookassa_id)
+        if not payment_obj:
+            return {"success": False, "error": "Платёж не найден в YooKassa"}
+
+        status = payment_obj.get("status", "")
+        metadata = payment_obj.get("metadata", {}) or {}
+        meta_user_id = metadata.get("user_id")
+        try:
+            user_id = int(meta_user_id) if meta_user_id else None
+        except (ValueError, TypeError):
+            user_id = None
+
+        # Защита от чужих payment_id: если фронт передал свой uid, он
+        # должен совпасть с metadata. Иначе кто угодно мог бы активировать
+        # себе чужую подписку, зная случайный yookassa_id.
+        if expected_user_id and user_id and expected_user_id != user_id:
+            logger.warning(f"verify_payment uid mismatch: expected={expected_user_id}, meta={user_id}")
+            return {"success": False, "error": "Платёж принадлежит другому пользователю"}
+
+        if not user_id:
+            return {"success": False, "error": "В платеже нет user_id"}
+
+        if status == "succeeded":
+            await self._apply_succeeded_payment(user_id, payment_obj)
+            return {"success": True, "status": "succeeded", "activated": True}
+        elif status == "pending" or status == "waiting_for_capture":
+            return {"success": True, "status": status, "activated": False}
+        elif status == "canceled":
+            async with self.db.get_connection() as conn:
+                await conn.execute("""
+                    UPDATE fredi_payments SET status = 'canceled', updated_at = NOW()
+                    WHERE yookassa_id = $1
+                """, yookassa_id)
+            return {"success": True, "status": "canceled", "activated": False}
+        else:
+            return {"success": True, "status": status, "activated": False}
+
+    async def poll_pending_payments(self, max_age_hours: int = 48) -> Dict[str, int]:
+        """Фоновый поллинг pending-платежей в БД через YooKassa API.
+        Страховка на случай потерянного webhook: если YooKassa подтвердила
+        оплату, но webhook не пришёл, мы всё равно активируем подписку.
+        """
+        activated = 0
+        still_pending = 0
+        canceled = 0
+        errors = 0
+
+        async with self.db.get_connection() as conn:
+            rows = await conn.fetch(f"""
+                SELECT yookassa_id, user_id FROM fredi_payments
+                WHERE status = 'pending'
+                  AND created_at > NOW() - INTERVAL '{int(max_age_hours)} hours'
+                ORDER BY created_at DESC
+                LIMIT 100
+            """)
+
+        for r in rows:
+            try:
+                result = await self.verify_payment(r["yookassa_id"], expected_user_id=r["user_id"])
+                st = result.get("status")
+                if result.get("activated"):
+                    activated += 1
+                elif st == "canceled":
+                    canceled += 1
+                elif st in ("pending", "waiting_for_capture"):
+                    still_pending += 1
+            except Exception as e:
+                errors += 1
+                logger.error(f"poll_pending_payments item {r['yookassa_id']}: {e}")
+
+        if rows:
+            logger.info(f"Pending poll: total={len(rows)} activated={activated} canceled={canceled} still_pending={still_pending} errors={errors}")
+        return {"checked": len(rows), "activated": activated, "canceled": canceled, "pending": still_pending, "errors": errors}
+
     async def process_webhook(self, event: str, payment_obj: Dict) -> Dict[str, Any]:
         yookassa_id = payment_obj.get("id", "")
         status = payment_obj.get("status", "")
@@ -331,59 +516,9 @@ class PaymentService:
             if not user_id_str:
                 logger.warning(f"Webhook without user_id: {yookassa_id}")
                 return {"success": False, "error": "No user_id in metadata"}
-            
+
             user_id = int(user_id_str)
-            payment_type = metadata.get("type", "subscription_first")
-            
-            async with self.db.get_connection() as conn:
-                await conn.execute("""
-                    UPDATE fredi_payments SET status = $1, updated_at = NOW() 
-                    WHERE yookassa_id = $2
-                """, status, yookassa_id)
-                
-                if payment_type == "subscription_first":
-                    payment_method = payment_obj.get("payment_method", {})
-                    payment_method_id = payment_method.get("id")
-                    
-                    if payment_method_id:
-                        card_info = payment_method.get("card", {})
-                        card_last4 = card_info.get("last4", "****")
-                        card_type = card_info.get("card_type", "Unknown")
-                        
-                        await conn.execute("""
-                            INSERT INTO fredi_payment_methods (user_id, payment_method_id, card_last4, card_type, is_active)
-                            VALUES ($1, $2, $3, $4, TRUE)
-                            ON CONFLICT (user_id) DO UPDATE SET
-                                payment_method_id = $2, card_last4 = $3, card_type = $4,
-                                is_active = TRUE, updated_at = NOW()
-                        """, user_id, payment_method_id, card_last4, card_type)
-                        
-                        logger.info(f"Saved payment_method_id {payment_method_id} for user {user_id}")
-                
-                now = datetime.utcnow()
-                row = await conn.fetchrow("""
-                    SELECT expires_at FROM fredi_subscriptions
-                    WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
-                """, user_id)
-                
-                if row:
-                    new_expires = row["expires_at"] + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
-                    await conn.execute("""
-                        UPDATE fredi_subscriptions SET expires_at = $1, updated_at = NOW()
-                        WHERE user_id = $2 AND status = 'active'
-                    """, new_expires, user_id)
-                else:
-                    new_expires = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
-                    await conn.execute("""
-                        INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew)
-                        VALUES ($1, 'active', $2, $3, TRUE)
-                        ON CONFLICT (user_id) DO UPDATE SET
-                            status = 'active', started_at = $2, expires_at = $3,
-                            auto_renew = TRUE, updated_at = NOW()
-                    """, user_id, now, new_expires)
-                
-                logger.info(f"Subscription activated for user {user_id} until {new_expires}")
-                return {"success": True, "user_id": user_id, "expires_at": str(new_expires)}
+            return await self._apply_succeeded_payment(user_id, payment_obj)
         
         if event == "payment.canceled":
             logger.info(f"Payment canceled: {yookassa_id}")

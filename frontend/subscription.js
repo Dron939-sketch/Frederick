@@ -68,6 +68,8 @@
         } catch (e) { console.error('subscription status error:', e); return null; }
     }
 
+    function _pendingKey(uid) { return 'fredi_pending_payment_' + uid; }
+
     async function _createPayment() {
         const uid = _uid();
         if (!uid) return;
@@ -82,19 +84,134 @@
 
         _toast('Создаю платёж...', 'info');
         try {
+            // В return_url добавляем маркер subscription=success и сам
+            // payment_id (заполним после создания). Это нужно, чтобы при
+            // возврате с YooKassa фронт сразу подтвердил оплату, не
+            // дожидаясь webhook'а.
+            const baseReturn = window.location.origin + window.location.pathname + '?subscription=success';
             const r = await fetch(`${_api()}/api/subscription/create-payment`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     user_id: uid,
-                    return_url: window.location.origin + window.location.pathname,
+                    return_url: baseReturn,
                     email: email,
                 })
             });
             const data = await r.json();
-            if (data.success && data.confirmation_url) { window.location.href = data.confirmation_url; }
-            else { _toast(data.error || 'Не удалось создать платёж', 'error'); }
+            if (data.success && data.confirmation_url) {
+                // Сохраняем payment_id, чтобы при возврате точно знать,
+                // какой именно платёж проверять — даже если YooKassa
+                // не пробросит его в query.
+                try {
+                    localStorage.setItem(_pendingKey(uid), JSON.stringify({
+                        payment_id: data.payment_id,
+                        created_at: Date.now(),
+                    }));
+                } catch (e) {}
+                window.location.href = data.confirmation_url;
+            } else { _toast(data.error || 'Не удалось создать платёж', 'error'); }
         } catch (e) { _toast('Ошибка сети', 'error'); }
+    }
+
+    async function _verifyPayment(paymentId) {
+        const uid = _uid();
+        if (!uid || !paymentId) return null;
+        try {
+            const r = await fetch(`${_api()}/api/subscription/verify-payment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: uid, payment_id: paymentId })
+            });
+            return await r.json();
+        } catch (e) {
+            console.error('verify payment error:', e);
+            return null;
+        }
+    }
+
+    function _readPendingPaymentId() {
+        // 1) Из query (?payment_id=… или ?subscription=success) — после
+        //    возврата с YooKassa. 2) Из localStorage — на случай если
+        //    YooKassa вернёт нас без параметров.
+        let pid = null;
+        try {
+            const sp = new URLSearchParams(window.location.search);
+            pid = sp.get('payment_id');
+            // Hash-router тоже учитываем: '#/settings?payment_id=...'
+            if (!pid && window.location.hash.includes('?')) {
+                pid = new URLSearchParams(window.location.hash.split('?')[1]).get('payment_id');
+            }
+        } catch (e) {}
+        if (pid) return pid;
+
+        try {
+            const uid = _uid();
+            const raw = uid ? localStorage.getItem(_pendingKey(uid)) : null;
+            if (raw) {
+                const obj = JSON.parse(raw);
+                // Не пытаемся проверять платёж, которому больше 2 часов —
+                // он либо давно отработан, либо отменён.
+                if (obj && obj.payment_id && (Date.now() - (obj.created_at || 0)) < 2 * 3600 * 1000) {
+                    return obj.payment_id;
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function _clearPendingPayment() {
+        try {
+            const uid = _uid();
+            if (uid) localStorage.removeItem(_pendingKey(uid));
+        } catch (e) {}
+        // Убираем payment_id/subscription из URL, чтобы перезагрузка
+        // страницы не дёргала verify повторно.
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('payment_id');
+            url.searchParams.delete('subscription');
+            window.history.replaceState({}, '', url.toString());
+        } catch (e) {}
+    }
+
+    async function _autoVerifyOnReturn(container) {
+        const paymentId = _readPendingPaymentId();
+        if (!paymentId) return false;
+
+        // Показываем юзеру, что не молчим, пока проверяем платёж.
+        if (container) {
+            container.innerHTML = '<div class="sub-loading"><div class="sub-loading-spinner">&#x2B50;</div><div>Проверяю оплату...</div></div>';
+        }
+        _toast('Проверяю оплату...', 'info');
+
+        // Поллим до 30 секунд: первый verify, потом, если ещё pending —
+        // повторяем каждые 3 секунды. Это спасает кейс, когда юзер
+        // вернулся быстрее, чем YooKassa успела перевести платёж в succeeded.
+        const deadline = Date.now() + 30000;
+        let lastResult = null;
+        while (Date.now() < deadline) {
+            lastResult = await _verifyPayment(paymentId);
+            if (lastResult && lastResult.success && lastResult.activated) {
+                _clearPendingPayment();
+                _toast('Подписка активирована ✨', 'info');
+                return true;
+            }
+            if (lastResult && lastResult.status === 'canceled') {
+                _clearPendingPayment();
+                _toast('Оплата отменена', 'error');
+                return false;
+            }
+            await new Promise(res => setTimeout(res, 3000));
+        }
+
+        // Не дождались — webhook/поллер бэкенда добьёт. Очистим
+        // localStorage только если возраст > 2ч (см. _readPendingPaymentId).
+        if (lastResult && lastResult.status && lastResult.status !== 'pending' && lastResult.status !== 'waiting_for_capture') {
+            _clearPendingPayment();
+        }
+        _toast('Платёж в обработке, статус обновится автоматически', 'info');
+        return false;
     }
 
     async function _toggleAutoRenew(enabled) {
@@ -128,7 +245,7 @@
     }
 
     function _formatDate(dateStr) {
-        if (!dateStr) return '\u2014';
+        if (!dateStr) return '—';
         return new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     }
 
@@ -218,7 +335,7 @@
                         style="width:100%;padding:12px 14px;border:1px solid rgba(224,224,224,0.18);border-radius:12px;background:rgba(224,224,224,0.05);color:var(--text-primary);font-size:14px;font-family:inherit;box-sizing:border-box;outline:none"
                         onfocus="this.style.borderColor='rgba(59,130,255,0.5)'" onblur="this.style.borderColor='rgba(224,224,224,0.18)'" />
                 </div>
-                <button class="sub-btn sub-btn-primary" id="subPayBtn">Оформить подписку \u2014 690 &#8381;</button>
+                <button class="sub-btn sub-btn-primary" id="subPayBtn">Оформить подписку — 690 &#8381;</button>
                 <div style="text-align:center;margin-top:12px;font-size:11px;color:var(--text-secondary)">Безопасная оплата через ЮKassa. Чек будет отправлен на указанный email.</div>
             </div>
             ${_renderSavedCardsSection(card)}`;
@@ -227,6 +344,9 @@
     async function renderSubscriptionSection(container) {
         _injectSubscriptionStyles();
         container.innerHTML = '<div class="sub-loading"><div class="sub-loading-spinner">&#x2B50;</div><div>Загрузка...</div></div>';
+        // Если только что вернулись с YooKassa — проверим платёж и
+        // активируем подписку, не дожидаясь webhook.
+        await _autoVerifyOnReturn(container);
         const sub = await _loadSubscriptionStatus();
         if (sub && sub.has_subscription) {
             container.innerHTML = _renderActiveSubscription(sub);
@@ -255,5 +375,34 @@
     }
 
     window.renderSubscriptionSection = renderSubscriptionSection;
+
+    // Глобальный авто-verify при загрузке скрипта: если в URL есть
+    // ?subscription=success или ?payment_id=, дёргаем verify в фоне
+    // независимо от того, открыл ли юзер экран подписки. Это финальная
+    // страховка против пропавшего webhook.
+    function _bootstrapAutoVerify() {
+        // Откладываем чуть-чуть, чтобы window.CONFIG.USER_ID успел
+        // проинициализироваться основным app.js.
+        setTimeout(async () => {
+            try {
+                if (!_uid()) return;
+                const sp = new URLSearchParams(window.location.search);
+                const hasMarker = sp.get('subscription') === 'success' || sp.get('payment_id');
+                const hasPending = !!_readPendingPaymentId();
+                if (!hasMarker && !hasPending) return;
+                await _autoVerifyOnReturn(null);
+                // После активации перерисуем экран подписки, если он
+                // сейчас открыт. Признак: на странице есть #subPayBtn
+                // или .sub-card.
+                const subContainer = document.querySelector('[data-subscription-container]')
+                    || document.getElementById('subscriptionSection');
+                if (subContainer) {
+                    try { await renderSubscriptionSection(subContainer); } catch (e) {}
+                }
+            } catch (e) { console.error('bootstrap auto-verify error:', e); }
+        }, 1500);
+    }
+    _bootstrapAutoVerify();
+
     console.log('subscription.js loaded');
 })();
