@@ -65,12 +65,16 @@
         var s = document.createElement('style');
         s.id = MODE_STYLE_ID;
         s.textContent =
-            '.mode-selector { position: relative; gap: 6px !important; margin-top: 26px !important; }' +
+            '.mode-selector { position: relative; gap: 6px !important; margin-top: 44px !important; }' +
             '.mode-selector::before {' +
-            '  content: "🎭 Выбери стиль общения с Фреди:";' +
-            '  position: absolute; top: -22px; left: 16px;' +
-            '  font-size: 11px; font-weight: 600; letter-spacing: 0.3px;' +
-            '  color: var(--text-secondary); pointer-events: none;' +
+            '  content: "🎭 Выбери стиль общения с Фреди";' +
+            '  position: absolute; top: -32px; left: 50%; transform: translateX(-50%);' +
+            '  font-size: 12px; font-weight: 700; letter-spacing: 0.2px;' +
+            '  color: var(--text-primary);' +
+            '  background: rgba(99,102,241,0.14);' +
+            '  border: 1px solid rgba(99,102,241,0.32);' +
+            '  padding: 4px 12px; border-radius: 14px;' +
+            '  white-space: nowrap; pointer-events: none;' +
             '}' +
             '.mode-btn {' +
             '  background: rgba(255,255,255,0.06) !important;' +
@@ -105,7 +109,9 @@
             '  border-color: rgba(0,0,0,0.18) !important;' +
             '}' +
             '[data-theme="light"] .mode-selector::before {' +
-            '  color: rgba(0,0,0,0.55);' +
+            '  color: rgba(0,0,0,0.75);' +
+            '  background: rgba(99,102,241,0.10);' +
+            '  border-color: rgba(99,102,241,0.30);' +
             '}';
         document.head.appendChild(s);
     }
