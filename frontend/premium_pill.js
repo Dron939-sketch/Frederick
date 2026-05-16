@@ -1,10 +1,10 @@
 // ============================================
 // premium_pill.js — Premium-индикаторы на дашборде
-//   • PREMIUM pill рядом с именем (голубой, без анимации)
+//   • 👑 PREMIUM pill в шапке чата (рядом с «Фреди / Психолог»)
 //   • голубая обводка profile-badge
 //   • Affordance для .mode-btn (коуч/психолог/тренер) — контраст,
-//     активная подсветка, label сверху, пульс для новичков. Делается
-//     здесь чтобы не пушить большие styles.css/app.js.
+//     активная подсветка, label сверху, пульс для новичков.
+//   • Голубая кнопка-бургер ☰ (она была серой и сливалась с фоном).
 // ============================================
 (function () {
     if (window._premiumPillLoaded) return;
@@ -19,22 +19,22 @@
         if (document.getElementById(STYLE_ID)) return;
         var s = document.createElement('style');
         s.id = STYLE_ID;
-        // Голубой pill без glow-анимации — спокойнее для глаза,
-        // не отвлекает от чтения дашборда.
+        // Голубой pill в шапке, рядом с именем «Фреди». Без glow-анимации.
+        // Бургер ☰ — голубой, чтобы было видно что это кнопка.
         s.textContent =
             '.hero-premium-pill {' +
             '  display: inline-flex;' +
             '  align-items: center;' +
             '  gap: 4px;' +
-            '  font-size: 11px;' +
+            '  font-size: 10px;' +
             '  font-weight: 800;' +
             '  letter-spacing: 0.5px;' +
-            '  padding: 3px 9px;' +
-            '  margin-left: 10px;' +
-            '  border-radius: 10px;' +
+            '  padding: 2px 8px;' +
+            '  margin-left: 8px;' +
+            '  border-radius: 8px;' +
             '  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);' +
             '  color: #fff;' +
-            '  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.30);' +
+            '  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.30);' +
             '  vertical-align: middle;' +
             '  text-transform: uppercase;' +
             '  white-space: nowrap;' +
@@ -42,6 +42,12 @@
             '.profile-badge--premium {' +
             '  border: 1px solid rgba(59, 130, 246, 0.55) !important;' +
             '  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.18) !important;' +
+            '}' +
+            '.mobile-menu-btn {' +
+            '  color: #3b82f6 !important;' +
+            '}' +
+            '.mobile-menu-btn:hover, .mobile-menu-btn:focus {' +
+            '  color: #60a5fa !important;' +
             '}';
         document.head.appendChild(s);
     }
@@ -138,17 +144,22 @@
     }
 
     function ensurePill() {
+        // Pill живёт в шапке чата (.chat-header-left, после блока с именем
+        // «Фреди / Психолог»), а не на дашборде. Так его видно с любого
+        // экрана внутри приложения и он не толкается с приветствием.
         if (document.getElementById(PILL_ID)) return;
-        var heroName = document.querySelector('.hero-title .hero-name')
-            || document.querySelector('.hero-name');
-        if (!heroName) return;
+        var nameEl = document.querySelector('.chat-header-name');
+        if (!nameEl) return;
+        var nameBlock = nameEl.parentNode; // div с именем и статусом
+        if (!nameBlock || !nameBlock.parentNode) return;
         var pill = document.createElement('span');
         pill.id = PILL_ID;
         pill.className = 'hero-premium-pill';
         pill.title = 'Подписка Фреди Premium активна';
-        pill.textContent = 'PREMIUM';
+        pill.textContent = '👑 PREMIUM';
         pill.style.display = 'none';
-        heroName.parentNode.insertBefore(pill, heroName.nextSibling);
+        // Вставляем сразу после блока с именем, внутри chat-header-left.
+        nameBlock.parentNode.insertBefore(pill, nameBlock.nextSibling);
     }
 
     function applyState() {
