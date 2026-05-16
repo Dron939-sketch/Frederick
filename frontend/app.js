@@ -1764,6 +1764,19 @@ function renderDashboard() {
                 <div style="flex-shrink:0;background:linear-gradient(135deg,rgba(168,196,224,0.25),rgba(120,160,210,0.15));border:1px solid rgba(168,196,224,0.5);border-radius:30px;padding:9px 16px;font-size:12px;font-weight:700;color:rgba(168,196,224,0.95);white-space:nowrap">Начать →</div>
             </div>
 
+            <!-- Сначала голосовая кнопка (главное действие — говорить с Фреди),
+                 потом селектор стиля общения. Раньше было наоборот, и юзер
+                 уходил, не дойдя до микрофона. -->
+            <div class="voice-section">
+                <div class="voice-card">
+                    <button class="voice-record-btn-premium" id="mainVoiceBtn">
+                        <span class="voice-icon">🎤</span>
+                        <span class="voice-text">${modeConfig.voicePrompt}</span>
+                    </button>
+                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
+                </div>
+            </div>
+
             <div class="mode-selector">
                 <button class="mode-btn ${currentMode === 'coach' ? 'active' : ''}" data-mode="coach">🔮 КОУЧ</button>
                 <button class="mode-btn ${currentMode === 'psychologist' ? 'active' : ''}" data-mode="psychologist">🧠 ПСИХОЛОГ</button>
@@ -1774,20 +1787,6 @@ function renderDashboard() {
                 Сейчас работает базовый режим. Выбор роли —
                 <a href="#" id="modeUpgradeLink" style="color:#3b82ff;text-decoration:none;font-weight:600">с подпиской</a>.
             </div>` : ''}
-
-            <!-- В github.io кнопка записи стоит ВЫШЕ модулей (исторически, до Pass A).
-                 В Frederick она snap'ится к низу со sticky-стилями (.voice-section--bottom),
-                 которых на github.io нет в styles.css. Поэтому здесь возвращаем старую
-                 раскладку: кнопка сразу после селектора режима. -->
-            <div class="voice-section">
-                <div class="voice-card">
-                    <button class="voice-record-btn-premium" id="mainVoiceBtn">
-                        <span class="voice-icon">🎤</span>
-                        <span class="voice-text">${modeConfig.voicePrompt}</span>
-                    </button>
-                    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">🎙️ Нажмите и удерживайте для записи</div>
-                </div>
-            </div>
 
             <div class="modules-grid">
                 ${modules.map(m => `
