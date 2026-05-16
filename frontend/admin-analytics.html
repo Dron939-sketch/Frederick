@@ -358,6 +358,11 @@
                 Имя получателя подставляется в шаблоны через <code style="background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:4px">{name}</code>. <b>Не закрывайте вкладку до окончания.</b>
             </div>
 
+            <div style="margin-bottom:12px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📋 Шаблоны рассылки (клик — подставит голос и текст)</div>
+                <div id="waveTemplateButtons" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+            </div>
+
             <!-- ПАРСИНГ ГРУППЫ -->
             <div style="background:rgba(0,0,0,0.04);border:1px dashed var(--border);border-radius:10px;padding:12px;margin-bottom:14px">
                 <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📥 Заполнить из VK-группы</div>
@@ -369,11 +374,6 @@
                     <button id="waveParseGroupBtn" style="padding:9px 16px;border-radius:8px;border:none;background:#10b981;color:#fff;font:600 13px inherit;cursor:pointer">🎣 Запарсить</button>
                 </div>
                 <div id="waveGroupStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
-            </div>
-
-            <div style="margin-bottom:12px">
-                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📋 Шаблоны рассылки (клик — подставит голос и текст)</div>
-                <div id="waveTemplateButtons" style="display:flex;flex-wrap:wrap;gap:6px"></div>
             </div>
 
             <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Текст для озвучки (используется <code style="background:rgba(0,0,0,0.08);padding:0 4px;border-radius:3px">{name}</code> для подстановки имени)</label>
