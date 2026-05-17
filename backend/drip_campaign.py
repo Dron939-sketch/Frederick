@@ -169,7 +169,7 @@ _STATE = _DripState()
 
 # ===== БД =====
 async def init_drip_tables(db) -> None:
-    """Создаёт таблицу очереди (idempotent)."""
+    """Создаёт таблицу очереди + таблицу шаблонов (idempotent)."""
     async with db.get_connection() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS fredi_drip_queue (
@@ -191,7 +191,101 @@ async def init_drip_tables(db) -> None:
             CREATE INDEX IF NOT EXISTS idx_fredi_drip_queue_status
             ON fredi_drip_queue(day_status, last_sent_at)
         """)
-    logger.info("drip_campaign: table ready")
+        # Шаблоны хранятся как JSON в одной строке (singleton id=1).
+        # Если строки нет — drip берёт DRIP_TEMPLATES из кода.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_drip_templates (
+                id INT PRIMARY KEY,
+                templates_json TEXT NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                CONSTRAINT fredi_drip_templates_singleton CHECK (id = 1)
+            )
+        """)
+    logger.info("drip_campaign: tables ready")
+
+
+async def get_templates(db) -> Dict[str, Any]:
+    """Возвращает текущие шаблоны: из БД если сохранены, иначе дефолт.
+    Дефолты тоже отдаём всегда отдельно, чтобы фронт мог показать «вернуть как было»."""
+    import json
+    saved = None
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow("SELECT templates_json FROM fredi_drip_templates WHERE id = 1")
+        if row and row["templates_json"]:
+            saved = json.loads(row["templates_json"])
+    except Exception as e:
+        logger.warning(f"get_templates DB read failed: {e}")
+    current = saved if saved else DRIP_TEMPLATES
+    return {"current": current, "defaults": DRIP_TEMPLATES, "is_custom": saved is not None}
+
+
+async def save_templates(db, templates: Dict[str, Any]) -> None:
+    """UPSERT новых шаблонов. Минимальная валидация структуры."""
+    import json
+    # Валидация: ждём ключи 'female' и 'male', внутри 'd1' (voice_name, voice_body, text), 'd2'/'d3' (text)
+    for sex in ("female", "male"):
+        if sex not in templates:
+            raise ValueError(f"missing sex section: {sex}")
+        s = templates[sex]
+        for d in ("d1", "d2", "d3"):
+            if d not in s:
+                raise ValueError(f"missing day section: {sex}.{d}")
+        if not s["d1"].get("voice_body") or not s["d1"].get("text"):
+            raise ValueError(f"{sex}.d1: voice_body and text required")
+        if not s["d2"].get("text") or not s["d3"].get("text"):
+            raise ValueError(f"{sex}.d2/d3: text required")
+    js = json.dumps(templates, ensure_ascii=False)
+    async with db.get_connection() as conn:
+        await conn.execute("""
+            INSERT INTO fredi_drip_templates (id, templates_json, updated_at)
+            VALUES (1, $1, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                templates_json = EXCLUDED.templates_json,
+                updated_at = NOW()
+        """, js)
+
+
+async def reset_templates_to_default(db) -> None:
+    async with db.get_connection() as conn:
+        await conn.execute("DELETE FROM fredi_drip_templates WHERE id = 1")
+
+
+async def _load_templates_or_default(db) -> Dict[str, Any]:
+    """Используется при отправке — кэшируется на время одного тика."""
+    info = await get_templates(db)
+    return info["current"]
+
+
+async def get_recent_log(db, limit: int = 30) -> List[Dict[str, Any]]:
+    """Возвращает последние N изменений в очереди (отправки и ошибки)."""
+    limit = max(1, min(int(limit), 200))
+    async with db.get_connection() as conn:
+        rows = await conn.fetch("""
+            SELECT vk_id, first_name, last_name, day_status, last_sent_at,
+                   last_error, last_error_at
+            FROM fredi_drip_queue
+            WHERE last_sent_at IS NOT NULL OR last_error_at IS NOT NULL
+            ORDER BY GREATEST(
+                COALESCE(last_sent_at, '1970-01-01'::timestamptz),
+                COALESCE(last_error_at, '1970-01-01'::timestamptz)
+            ) DESC
+            LIMIT $1
+        """, limit)
+    out = []
+    for r in rows:
+        is_err = bool(r["last_error"])
+        ts = r["last_error_at"] if is_err and (not r["last_sent_at"] or r["last_error_at"] and r["last_error_at"] > r["last_sent_at"]) else r["last_sent_at"]
+        out.append({
+            "vk_id": int(r["vk_id"]),
+            "first_name": r["first_name"] or "",
+            "last_name": r["last_name"] or "",
+            "day_status": int(r["day_status"]),
+            "ts": ts.isoformat() if ts else None,
+            "is_error": is_err,
+            "error": r["last_error"] if is_err else None,
+        })
+    return out
 
 
 # ===== VK friends.get =====
@@ -377,11 +471,11 @@ def _gender_key(sex: int) -> str:
 
 
 # ===== Отправка =====
-async def _send_d1(row: Dict[str, Any]) -> Dict[str, Any]:
+async def _send_d1(row: Dict[str, Any], templates: Dict[str, Any]) -> Dict[str, Any]:
     """Voice + text followup. Использует существующий send_voice_with_split."""
     from vk_send_voice import send_voice_with_split
     g = _gender_key(int(row.get("sex") or 1))
-    tpl = DRIP_TEMPLATES[g]["d1"]
+    tpl = templates[g]["d1"]
     name = (row.get("first_name") or "").strip() or "Привет"
     return await send_voice_with_split(
         voice_name_text=_fmt(tpl["voice_name"], name),
@@ -405,10 +499,10 @@ async def _send_text_only(vk_peer_id: int, text: str) -> Dict[str, Any]:
     return {"message_id": out if isinstance(out, int) else None}
 
 
-async def _send_dN(row: Dict[str, Any], kind: str) -> Dict[str, Any]:
+async def _send_dN(row: Dict[str, Any], kind: str, templates: Dict[str, Any]) -> Dict[str, Any]:
     """kind='d2' | 'd3'."""
     g = _gender_key(int(row.get("sex") or 1))
-    tpl = DRIP_TEMPLATES[g][kind]
+    tpl = templates[g][kind]
     name = (row.get("first_name") or "").strip() or "Привет"
     return await _send_text_only(int(row["vk_id"]), _fmt(tpl["text"], name))
 
@@ -433,14 +527,14 @@ def _classify_error(exc: Exception) -> str:
     return "RETRY:unknown"
 
 
-async def _process_one(db, row: Dict[str, Any], kind: str) -> str:
+async def _process_one(db, row: Dict[str, Any], kind: str, templates: Dict[str, Any]) -> str:
     """Возвращает 'sent' / 'fatal' / 'retry' / 'flood'."""
     next_status = {"d1": 1, "d2": 2, "d3": 3}[kind]
     try:
         if kind == "d1":
-            await _send_d1(row)
+            await _send_d1(row, templates)
         else:
-            await _send_dN(row, kind)
+            await _send_dN(row, kind, templates)
     except Exception as e:
         cls = _classify_error(e)
         logger.warning(f"drip {kind} vk={row['vk_id']}: {e} [{cls}]")
@@ -505,6 +599,9 @@ async def _tick(db):
         summary["skipped_reason"] = "daily_cap_reached"
         return
 
+    # Один раз за тик грузим актуальные шаблоны (юзер мог их отредактировать).
+    templates = await _load_templates_or_default(db)
+
     # Распределение тика: приоритет тем, кто уже в воронке (Д3 > Д2 > Д1),
     # чтобы быстрее доводить юзеров до конца кампании.
     quotas = [
@@ -525,7 +622,7 @@ async def _tick(db):
         for row in batch:
             if remaining <= 0:
                 break
-            res = await _process_one(db, row, kind)
+            res = await _process_one(db, row, kind, templates)
             if res == "sent":
                 summary[f"{kind}_sent"] += 1
                 remaining -= 1

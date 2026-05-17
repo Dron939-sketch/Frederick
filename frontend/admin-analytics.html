@@ -197,6 +197,7 @@
         <button data-tab="control">🎛️ Пульт</button>
         <button data-tab="reeng">📨 Возврат</button>
         <button data-tab="wave">🌊 2-я волна</button>
+        <button data-tab="friends">👥 Друзья из ВК</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
     </div>
 
@@ -358,38 +359,6 @@
                 Имя получателя подставляется в шаблоны через <code style="background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:4px">{name}</code>. <b>Не закрывайте вкладку до окончания.</b>
             </div>
 
-            <!-- 🌱 АВТО-ПРОГРЕВ ДРУЗЕЙ (3 дня × 40/день) -->
-            <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:12px;padding:14px;margin-bottom:14px">
-                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">🌱 Авто-прогрев VK-друзей <span style="font-weight:500;color:var(--text-dim);font-size:11px">(3 дня × 40/день, без участия)</span></div>
-                <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
-                    Загружает твоих VK-друзей (через <code style="background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:4px">friends.get</code> с user-token), фильтрует по полу/возрасту/открытой личке, кладёт в очередь.<br>
-                    Бэкенд сам шлёт <b>Д1 (voice+text)</b> → через 24ч <b>Д2 (text)</b> → через 24ч <b>Д3 (text)</b>. Окно 10:00–21:00 МСК, лимит 40/сутки. Тексты — мужчинам и женщинам разные, зашиты в код.
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim)">
-                        Пол:
-                        <select id="dripSex" style="padding:6px 10px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:6px;color:var(--text);font:12px inherit">
-                            <option value="1" selected>♀ Женщины</option>
-                            <option value="2">♂ Мужчины</option>
-                        </select>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim)">
-                        Возраст:
-                        <input id="dripAgeMin" type="number" min="14" max="99" value="30" style="width:60px;padding:5px 8px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:6px;color:var(--text);font:12px inherit">
-                        –
-                        <input id="dripAgeMax" type="number" min="14" max="99" value="55" style="width:60px;padding:5px 8px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:6px;color:var(--text);font:12px inherit">
-                    </label>
-                    <button id="dripInitBtn" style="padding:8px 14px;border-radius:8px;border:none;background:#10b981;color:#fff;font:600 12px inherit;cursor:pointer">👥 Загрузить друзей в очередь</button>
-                </div>
-                <div id="dripStatusBox" style="font-size:12px;color:var(--text-dim);padding:10px 12px;background:rgba(255,255,255,0.5);border-radius:8px;line-height:1.6;min-height:30px;margin-bottom:10px">— нажми «обновить» —</div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap">
-                    <button id="dripRefreshBtn" style="padding:7px 13px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 12px inherit;cursor:pointer">🔄 Обновить статус</button>
-                    <button id="dripPauseBtn" style="padding:7px 13px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 12px inherit;cursor:pointer">⏸ Пауза</button>
-                    <button id="dripResumeBtn" style="padding:7px 13px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 12px inherit;cursor:pointer">▶ Возобновить</button>
-                    <button id="dripStopBtn" style="padding:7px 13px;border-radius:8px;border:1px solid rgba(239,68,68,0.5);background:transparent;color:#ef4444;font:600 12px inherit;cursor:pointer;margin-left:auto">🗑 Очистить очередь</button>
-                </div>
-            </div>
-
             <div style="margin-bottom:12px">
                 <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📋 Шаблоны рассылки (клик — подставит голос и текст)</div>
                 <div id="waveTemplateButtons" style="display:flex;flex-wrap:wrap;gap:6px"></div>
@@ -482,6 +451,76 @@ POV: ты на семейном ужине, и мама такая «как у �
 
             <div id="waveStatus" style="font-size:12px;color:var(--text-dim);padding:10px 12px;background:rgba(0,0,0,0.03);border-radius:8px;min-height:18px"></div>
             <div id="waveLog" style="font-size:11px;color:var(--text-dim);max-height:240px;overflow-y:auto;margin-top:10px;padding:0 4px"></div>
+        </div>
+    </section>
+
+    <!-- 👥 ДРУЗЬЯ ИЗ ВК — авто-прогрев 3 дня × 40/день -->
+    <section id="friendsTab" style="display:none">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">
+            <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">👥 Друзья из ВК — 3-дневный авто-прогрев</div>
+            <div style="font-size:13px;color:var(--text);margin-bottom:14px;line-height:1.55">
+                Загружает твоих VK-друзей через <code style="background:rgba(0,0,0,0.08);padding:1px 6px;border-radius:4px">friends.get</code> (user-token), фильтрует по полу/возрасту/открытой личке. Дальше бэкенд сам шлёт:<br>
+                <b>Д1</b> (голос + текст) → пауза 24ч → <b>Д2</b> (текст) → пауза 24ч → <b>Д3</b> (текст). Окно 10:00–21:00 МСК, лимит 40/сутки. Тексты разные для ♀ и ♂.
+            </div>
+
+            <!-- ===== БЛОК ШАБЛОНОВ ===== -->
+            <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.3);border-radius:12px;padding:14px;margin-bottom:14px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+                    <div style="font-size:13px;font-weight:700;color:var(--text)">📝 Шаблоны (можно редактировать)</div>
+                    <div style="display:flex;gap:6px">
+                        <button id="frTemplatesSaveBtn" style="padding:7px 12px;border-radius:8px;border:none;background:#6366f1;color:#fff;font:600 11px inherit;cursor:pointer">💾 Сохранить</button>
+                        <button id="frTemplatesResetBtn" style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 11px inherit;cursor:pointer" title="Откатить на заводские">↺ К дефолту</button>
+                    </div>
+                </div>
+
+                <div id="frTemplatesContainer" style="display:flex;flex-direction:column;gap:14px">
+                    <!-- Заполняется JS из ответа /api/admin/vk/drip/templates -->
+                    <div style="color:var(--text-dim);font-size:12px;padding:8px 0">⏳ Загружаю шаблоны…</div>
+                </div>
+            </div>
+
+            <!-- ===== БЛОК ЗАПУСКА ===== -->
+            <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:12px;padding:14px;margin-bottom:14px">
+                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">🚀 Запуск рассылки</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text)">
+                        Пол:
+                        <select id="frSex" style="padding:7px 11px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px inherit">
+                            <option value="1" selected>♀ Женщины</option>
+                            <option value="2">♂ Мужчины</option>
+                        </select>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text)">
+                        Возраст:
+                        <input id="frAgeMin" type="number" min="14" max="99" value="30" style="width:64px;padding:6px 9px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px inherit">
+                        –
+                        <input id="frAgeMax" type="number" min="14" max="99" value="55" style="width:64px;padding:6px 9px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px inherit">
+                    </label>
+                    <button id="frLoadFriendsBtn" style="padding:9px 14px;border-radius:8px;border:none;background:#10b981;color:#fff;font:600 12px inherit;cursor:pointer">👥 Загрузить друзей в очередь</button>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button id="frResumeBtn" style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font:700 13px inherit;cursor:pointer">▶ Запустить рассылку</button>
+                    <button id="frPauseBtn" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 12px inherit;cursor:pointer">⏸ Пауза</button>
+                    <button id="frStopBtn" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.5);background:transparent;color:#ef4444;font:600 12px inherit;cursor:pointer;margin-left:auto">🗑 Очистить очередь</button>
+                </div>
+            </div>
+
+            <!-- ===== БЛОК СТАТУСА ===== -->
+            <div style="background:rgba(0,0,0,0.06);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+                    <div style="font-size:13px;font-weight:700;color:var(--text)">📊 Статус кампании</div>
+                    <button id="frStatusRefreshBtn" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 11px inherit;cursor:pointer">🔄 Обновить</button>
+                </div>
+                <div id="frStatusBox" style="font-size:13px;color:var(--text);line-height:1.7;min-height:32px">— загрузка —</div>
+            </div>
+
+            <!-- ===== ЛОГ ===== -->
+            <div style="background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:12px;padding:14px">
+                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">📜 Лог последних отправок</div>
+                <div id="frRecentLog" style="max-height:320px;overflow-y:auto;font-size:12px;color:var(--text);line-height:1.6">
+                    <div style="color:var(--text-dim);padding:4px 0">— нет данных —</div>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -868,21 +907,27 @@ POV: ты на семейном ужине, и мама такая «как у �
         }
 
 
-        // ====== DRIP CAMPAIGN UI ======
-        var DRIP_AUTO_TIMER = null;
+        // ====== FRIENDS TAB (drip-кампания) ======
+        var FR_AUTO_TIMER = null;
+        var FR_TEMPLATES_CACHE = null;
+        var FR_TEMPLATES_DEFAULTS = null;
 
-        async function _dripFetch(path, method, body) {
+        async function _frFetch(path, method, body, raw) {
             method = method || 'GET';
             var token = _token();
             var url = _apiBase() + path;
-            var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+            var opts = { method: method, headers: {} };
             if (token) opts.headers['X-Admin-Token'] = token;
-            if (body) opts.body = JSON.stringify(body);
+            if (body !== undefined && body !== null) {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = JSON.stringify(body);
+            }
             var r = await fetch(url, opts);
+            if (raw) return r;
             try { return await r.json(); } catch (e) { return { success: false, error: 'bad_json' }; }
         }
 
-        function _dripFmtTime(iso) {
+        function _frFmtTime(iso) {
             if (!iso) return '—';
             try {
                 var d = new Date(iso);
@@ -890,105 +935,278 @@ POV: ты на семейном ужине, и мама такая «как у �
             } catch (e) { return iso; }
         }
 
-        async function _dripRefresh() {
-            var box = document.getElementById('dripStatusBox');
-            if (!box) return;
-            var data;
-            try {
-                data = await _dripFetch('/api/admin/vk/drip/status');
-            } catch (e) {
-                box.textContent = '✗ Ошибка сети: ' + e;
-                return;
-            }
-            if (!data || !data.success) {
-                box.innerHTML = '<span style="color:#ef4444">✗ ' + ((data && data.error) || 'unknown') + '</span>';
-                return;
-            }
-            var hourBadge = data.in_working_hours
-                ? '<span style="color:#10b981">●</span> в рабочем окне (10:00–21:00 МСК)'
-                : '<span style="color:#9ca3af">○</span> вне окна — спит';
-            var pauseBadge = data.paused
-                ? '<span style="background:#ef4444;color:#fff;padding:1px 6px;border-radius:6px;font-size:10px;margin-left:6px">PAUSED</span>'
-                : '';
-            var floodBadge = data.flood_cooldown_until
-                ? '<span style="background:#f59e0b;color:#fff;padding:1px 6px;border-radius:6px;font-size:10px;margin-left:6px">FLOOD COOLDOWN до ' + _dripFmtTime(data.flood_cooldown_until) + '</span>'
-                : '';
-            var lastSent = data.last_sent_user
-                ? ('Д' + data.last_sent_user.day_status + ' → ' + (data.last_sent_user.first_name || '') + ' (vk=' + data.last_sent_user.vk_id + '), ' + _dripFmtTime(data.last_sent_user.at))
-                : '—';
-            box.innerHTML =
-                '<div>' + hourBadge + pauseBadge + floodBadge + '</div>' +
-                '<div style="margin-top:6px">' +
-                  '<b>Всего в очереди:</b> ' + (data.queue_total || 0) +
-                  ' &nbsp;|&nbsp; <b>ждут Д1:</b> ' + (data.pending_d1 || 0) +
-                  ' &nbsp;|&nbsp; <b>получили Д1:</b> ' + (data.got_d1 || 0) +
-                  ' &nbsp;|&nbsp; <b>получили Д2:</b> ' + (data.got_d2 || 0) +
-                  ' &nbsp;|&nbsp; <b>прошли Д3:</b> ' + (data.completed_d3 || 0) +
-                '</div>' +
-                '<div style="margin-top:4px"><b>За 24ч отправлено:</b> ' + (data.sent_last_24h || 0) + ' / ' + (data.daily_cap || 40) +
-                ' &nbsp;|&nbsp; <b>фатальных ошибок:</b> ' + (data.fatal_errors || 0) + '</div>' +
-                '<div style="margin-top:4px;color:var(--text-dim)"><b>Последняя отправка:</b> ' + lastSent + '</div>' +
-                '<div style="margin-top:4px;color:var(--text-dim)"><b>Прошлый цикл:</b> ' + _dripFmtTime(data.last_run_at) +
-                  (data.last_run_summary && data.last_run_summary.skipped_reason ? ' (' + data.last_run_summary.skipped_reason + ')' : '') + '</div>';
+        function _frEscape(s) {
+            return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+                return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' })[c];
+            });
         }
 
-        async function _dripInit() {
-            var sex = parseInt(document.getElementById('dripSex').value || '1', 10);
-            var aMin = parseInt(document.getElementById('dripAgeMin').value || '30', 10);
-            var aMax = parseInt(document.getElementById('dripAgeMax').value || '55', 10);
-            var btn = document.getElementById('dripInitBtn');
-            btn.disabled = true; btn.textContent = '⏳ Грузим друзей…';
+        // ===== Шаблоны =====
+        function _frRenderTemplatesEditor(tpls) {
+            FR_TEMPLATES_CACHE = JSON.parse(JSON.stringify(tpls));
+            var box = document.getElementById('frTemplatesContainer');
+            if (!box) return;
+            var sexLabels = { female: '♀ Женщины', male: '♂ Мужчины' };
+            var dayLabels = { d1: 'День 1 — Знакомство', d2: 'День 2 — Эмпатия', d3: 'День 3 — Напоминание' };
+            var html = '';
+            ['female', 'male'].forEach(function (sex) {
+                var s = tpls[sex] || {};
+                html += '<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:12px">' +
+                    '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px;letter-spacing:0.3px">' + sexLabels[sex] + '</div>';
+                ['d1', 'd2', 'd3'].forEach(function (day) {
+                    var t = s[day] || {};
+                    html += '<div style="margin-bottom:12px">' +
+                        '<div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:4px">' + dayLabels[day] + (day === 'd1' ? '' : ' (только текст)') + '</div>';
+                    if (day === 'd1') {
+                        html += '<div style="margin-bottom:6px">' +
+                            '<label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span>Голос — приставка с именем</span></label>' +
+                            '<input data-tpl="' + sex + '.d1.voice_name" type="text" value="' + _frEscape(t.voice_name || '') + '" style="width:100%;padding:8px 10px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px/1.5 inherit;box-sizing:border-box">' +
+                        '</div>' +
+                        '<div style="margin-bottom:6px">' +
+                            '<label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span>Голос — тело сообщения</span><button data-preview="' + sex + '" style="padding:3px 9px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 10px inherit;cursor:pointer">🎧 Прослушать</button></label>' +
+                            '<textarea data-tpl="' + sex + '.d1.voice_body" rows="4" style="width:100%;padding:9px 11px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px/1.5 inherit;resize:vertical;box-sizing:border-box">' + _frEscape(t.voice_body || '') + '</textarea>' +
+                        '</div>' +
+                        '<div>' +
+                            '<label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Текст вдогонку (после голоса)</label>' +
+                            '<textarea data-tpl="' + sex + '.d1.text" rows="5" style="width:100%;padding:9px 11px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px/1.5 inherit;resize:vertical;box-sizing:border-box">' + _frEscape(t.text || '') + '</textarea>' +
+                        '</div>';
+                    } else {
+                        html += '<textarea data-tpl="' + sex + '.' + day + '.text" rows="6" style="width:100%;padding:9px 11px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px/1.5 inherit;resize:vertical;box-sizing:border-box">' + _frEscape(t.text || '') + '</textarea>';
+                    }
+                    html += '</div>';
+                });
+                html += '</div>';
+            });
+            box.innerHTML = html;
+            // Подвешиваем предпрослушку
+            box.querySelectorAll('[data-preview]').forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    _frPreview(btn.dataset.preview, btn);
+                });
+            });
+        }
+
+        function _frCollectTemplates() {
+            // Считываем актуальные значения из textarea/input обратно в объект.
+            var out = JSON.parse(JSON.stringify(FR_TEMPLATES_CACHE || {}));
+            document.querySelectorAll('#frTemplatesContainer [data-tpl]').forEach(function (el) {
+                var path = el.dataset.tpl.split('.'); // sex.day.field
+                if (!out[path[0]]) out[path[0]] = {};
+                if (!out[path[0]][path[1]]) out[path[0]][path[1]] = {};
+                out[path[0]][path[1]][path[2]] = el.value;
+            });
+            return out;
+        }
+
+        async function _frLoadTemplates() {
+            var r = await _frFetch('/api/admin/vk/drip/templates');
+            if (!r || !r.success) {
+                document.getElementById('frTemplatesContainer').innerHTML =
+                    '<div style="color:#ef4444;font-size:12px">✗ Не удалось загрузить шаблоны: ' + ((r && (r.error || r.message)) || 'ошибка') + '</div>';
+                return;
+            }
+            FR_TEMPLATES_DEFAULTS = r.defaults;
+            _frRenderTemplatesEditor(r.current);
+        }
+
+        async function _frSaveTemplates() {
+            var btn = document.getElementById('frTemplatesSaveBtn');
+            btn.disabled = true; btn.textContent = '⏳ …';
             try {
-                var data = await _dripFetch('/api/admin/vk/drip/init', 'POST', { sex: sex, age_min: aMin, age_max: aMax });
-                if (data && data.success) {
-                    alert('Готово: всего друзей по фильтру — ' + (data.total_friends || 0) +
-                          ', добавлено новых — ' + (data.inserted || 0) +
-                          ', уже было в очереди — ' + (data.skipped_existing || 0));
+                var tpls = _frCollectTemplates();
+                var r = await _frFetch('/api/admin/vk/drip/templates', 'POST', { templates: tpls });
+                if (r && r.success) {
+                    btn.textContent = '✓ Сохранено';
+                    setTimeout(function () { btn.textContent = '💾 Сохранить'; btn.disabled = false; }, 1500);
+                    FR_TEMPLATES_CACHE = tpls;
                 } else {
-                    alert('Ошибка: ' + ((data && (data.error || data.message)) || 'unknown'));
+                    alert('Ошибка: ' + ((r && (r.error || r.message)) || 'unknown'));
+                    btn.disabled = false; btn.textContent = '💾 Сохранить';
                 }
             } catch (e) {
                 alert('Сеть упала: ' + e);
-            } finally {
-                btn.disabled = false; btn.textContent = '👥 Загрузить друзей в очередь';
-                _dripRefresh();
+                btn.disabled = false; btn.textContent = '💾 Сохранить';
             }
         }
 
-        async function _dripPause() {
-            await _dripFetch('/api/admin/vk/drip/pause', 'POST', {});
-            _dripRefresh();
-        }
-        async function _dripResume() {
-            await _dripFetch('/api/admin/vk/drip/resume', 'POST', {});
-            _dripRefresh();
-        }
-        async function _dripStop() {
-            if (!confirm('Очистить очередь полностью? Все ждущие Д1/Д2/Д3 пропадут.')) return;
-            var data = await _dripFetch('/api/admin/vk/drip/stop', 'POST', {});
-            if (data && data.success) alert('Удалено: ' + (data.deleted || 0));
-            _dripRefresh();
+        async function _frResetTemplates() {
+            if (!confirm('Откатить все шаблоны на заводские? Текущие правки пропадут.')) return;
+            await _frFetch('/api/admin/vk/drip/templates/reset', 'POST', {});
+            await _frLoadTemplates();
         }
 
-        function _dripWireUI() {
-            var initBtn = document.getElementById('dripInitBtn');
-            if (initBtn) initBtn.addEventListener('click', _dripInit);
-            var refr = document.getElementById('dripRefreshBtn');
-            if (refr) refr.addEventListener('click', _dripRefresh);
-            var pau = document.getElementById('dripPauseBtn');
-            if (pau) pau.addEventListener('click', _dripPause);
-            var res = document.getElementById('dripResumeBtn');
-            if (res) res.addEventListener('click', _dripResume);
-            var stp = document.getElementById('dripStopBtn');
-            if (stp) stp.addEventListener('click', _dripStop);
-            // Авто-рефреш каждые 60 сек пока вкладка wave открыта.
-            if (DRIP_AUTO_TIMER) clearInterval(DRIP_AUTO_TIMER);
-            DRIP_AUTO_TIMER = setInterval(function () {
-                var waveTab = document.getElementById('waveTab');
-                if (waveTab && waveTab.style.display !== 'none') _dripRefresh();
-            }, 60000);
-            _dripRefresh();
+        // ===== TTS preview =====
+        async function _frPreview(sex, btn) {
+            var bodyEl = document.querySelector('#frTemplatesContainer textarea[data-tpl="' + sex + '.d1.voice_body"]');
+            var nameEl = document.querySelector('#frTemplatesContainer input[data-tpl="' + sex + '.d1.voice_name"]');
+            if (!bodyEl) return;
+            var preview = (nameEl ? nameEl.value : '').replace('{name}', 'Анна') + ' ' + bodyEl.value;
+            preview = preview.trim();
+            if (!preview) { alert('Пустой текст'); return; }
+            btn.disabled = true; var prev = btn.textContent; btn.textContent = '⏳ TTS…';
+            try {
+                var r = await _frFetch('/api/admin/tts/synthesize', 'POST', { text: preview, mode: 'psychologist' }, true);
+                if (!r.ok) {
+                    var txt = await r.text();
+                    alert('TTS ошибка ' + r.status + ': ' + txt.slice(0, 200));
+                    return;
+                }
+                var blob = await r.blob();
+                var url = URL.createObjectURL(blob);
+                // Удалим прошлое аудио того же sex, если было
+                var prevA = document.getElementById('frAudio_' + sex);
+                if (prevA && prevA.parentNode) prevA.parentNode.removeChild(prevA);
+                var a = document.createElement('audio');
+                a.id = 'frAudio_' + sex;
+                a.controls = true;
+                a.src = url;
+                a.style.cssText = 'display:block;width:100%;margin-top:8px';
+                btn.parentNode.parentNode.appendChild(a);
+                a.play().catch(function(){});
+            } catch (e) {
+                alert('Сеть упала: ' + e);
+            } finally {
+                btn.disabled = false; btn.textContent = prev;
+            }
         }
+
+        // ===== Status =====
+        async function _frRefreshStatus() {
+            var box = document.getElementById('frStatusBox');
+            if (!box) return;
+            var r = await _frFetch('/api/admin/vk/drip/status');
+            if (!r || !r.success) {
+                box.innerHTML = '<span style="color:#ef4444">✗ ' + ((r && r.error) || 'ошибка') + '</span>';
+                return;
+            }
+            var hourBadge = r.in_working_hours
+                ? '<span style="color:#10b981">●</span> в рабочем окне (10:00–21:00 МСК)'
+                : '<span style="color:#9ca3af">○</span> вне окна — пауза до утра';
+            var pauseBadge = r.paused
+                ? ' <span style="background:#ef4444;color:#fff;padding:1px 7px;border-radius:6px;font-size:10px">PAUSED</span>'
+                : '';
+            var flood = r.flood_cooldown_until
+                ? ' <span style="background:#f59e0b;color:#fff;padding:1px 7px;border-radius:6px;font-size:10px">FLOOD до ' + _frFmtTime(r.flood_cooldown_until) + '</span>'
+                : '';
+            var last = r.last_sent_user
+                ? ('Д' + r.last_sent_user.day_status + ' → ' + _frEscape(r.last_sent_user.first_name) + ' (vk=' + r.last_sent_user.vk_id + '), ' + _frFmtTime(r.last_sent_user.at))
+                : '—';
+            box.innerHTML =
+                '<div>' + hourBadge + pauseBadge + flood + '</div>' +
+                '<div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">' +
+                  '<span>📋 <b>В очереди:</b> ' + (r.queue_total || 0) + '</span>' +
+                  '<span>🕐 <b>Ждут Д1:</b> ' + (r.pending_d1 || 0) + '</span>' +
+                  '<span>1️⃣ <b>Получили Д1:</b> ' + (r.got_d1 || 0) + '</span>' +
+                  '<span>2️⃣ <b>Получили Д2:</b> ' + (r.got_d2 || 0) + '</span>' +
+                  '<span>3️⃣ <b>Прошли Д3:</b> ' + (r.completed_d3 || 0) + '</span>' +
+                '</div>' +
+                '<div style="margin-top:6px;display:flex;gap:14px;flex-wrap:wrap">' +
+                  '<span><b>За 24ч:</b> ' + (r.sent_last_24h || 0) + '/' + (r.daily_cap || 40) + '</span>' +
+                  '<span><b>Фатальных ошибок:</b> ' + (r.fatal_errors || 0) + '</span>' +
+                  '<span style="color:var(--text-dim)"><b>Последняя:</b> ' + last + '</span>' +
+                '</div>' +
+                '<div style="margin-top:6px;color:var(--text-dim);font-size:11px">Прошлый цикл: ' + _frFmtTime(r.last_run_at) +
+                  (r.last_run_summary && r.last_run_summary.skipped_reason ? ' — ' + r.last_run_summary.skipped_reason : '') + '</div>';
+        }
+
+        // ===== Recent log =====
+        async function _frRefreshLog() {
+            var box = document.getElementById('frRecentLog');
+            if (!box) return;
+            var r = await _frFetch('/api/admin/vk/drip/recent?limit=30');
+            if (!r || !r.success) {
+                box.innerHTML = '<div style="color:#ef4444;padding:6px 0">✗ ' + ((r && r.error) || 'ошибка') + '</div>';
+                return;
+            }
+            var items = r.items || [];
+            if (!items.length) {
+                box.innerHTML = '<div style="color:var(--text-dim);padding:6px 0">— нет отправок —</div>';
+                return;
+            }
+            box.innerHTML = items.map(function (x) {
+                var icon = x.is_error ? '<span style="color:#ef4444">✗</span>' : '<span style="color:#10b981">✓</span>';
+                var dayBadge = '<span style="background:rgba(99,102,241,0.18);color:#a5b4fc;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700">Д' + x.day_status + '</span>';
+                var errPart = x.is_error ? ' <span style="color:#ef4444;font-size:11px">(' + _frEscape(x.error) + ')</span>' : '';
+                return '<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05)">' +
+                    icon + ' ' + dayBadge +
+                    ' <span style="color:var(--text-dim);font-size:11px">' + _frFmtTime(x.ts) + '</span>' +
+                    ' <span style="color:var(--text)">' + _frEscape(x.first_name) + ' ' + _frEscape(x.last_name) + '</span>' +
+                    ' <span style="color:var(--text-dim);font-size:11px">vk=' + x.vk_id + '</span>' +
+                    errPart +
+                '</div>';
+            }).join('');
+        }
+
+        // ===== Actions =====
+        async function _frLoadFriends() {
+            var sex = parseInt(document.getElementById('frSex').value || '1', 10);
+            var aMin = parseInt(document.getElementById('frAgeMin').value || '30', 10);
+            var aMax = parseInt(document.getElementById('frAgeMax').value || '55', 10);
+            var btn = document.getElementById('frLoadFriendsBtn');
+            btn.disabled = true; var prev = btn.textContent; btn.textContent = '⏳ Грузим…';
+            try {
+                var r = await _frFetch('/api/admin/vk/drip/init', 'POST', { sex: sex, age_min: aMin, age_max: aMax });
+                if (r && r.success) {
+                    alert('✓ Всего по фильтру: ' + (r.total_friends || 0) +
+                          '\nДобавлено новых: ' + (r.inserted || 0) +
+                          '\nУже было в очереди: ' + (r.skipped_existing || 0));
+                } else {
+                    alert('Ошибка: ' + ((r && (r.error || r.message)) || 'unknown'));
+                }
+            } catch (e) { alert('Сеть упала: ' + e); }
+            finally {
+                btn.disabled = false; btn.textContent = prev;
+                _frRefreshStatus(); _frRefreshLog();
+            }
+        }
+
+        async function _frResume() {
+            var r = await _frFetch('/api/admin/vk/drip/resume', 'POST', {});
+            if (r && r.success) _frRefreshStatus();
+        }
+        async function _frPause() {
+            var r = await _frFetch('/api/admin/vk/drip/pause', 'POST', {});
+            if (r && r.success) _frRefreshStatus();
+        }
+        async function _frStop() {
+            if (!confirm('Очистить очередь полностью? Все ждущие пропадут.')) return;
+            var r = await _frFetch('/api/admin/vk/drip/stop', 'POST', {});
+            if (r && r.success) alert('Удалено: ' + (r.deleted || 0));
+            _frRefreshStatus(); _frRefreshLog();
+        }
+
+        // ===== Init (вешаемся когда вкладка показывается) =====
+        var FR_WIRED = false;
+        function _frWireOnce() {
+            if (FR_WIRED) return;
+            FR_WIRED = true;
+            var bid = function (id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+            bid('frTemplatesSaveBtn', _frSaveTemplates);
+            bid('frTemplatesResetBtn', _frResetTemplates);
+            bid('frLoadFriendsBtn', _frLoadFriends);
+            bid('frResumeBtn', _frResume);
+            bid('frPauseBtn', _frPause);
+            bid('frStopBtn', _frStop);
+            bid('frStatusRefreshBtn', function () { _frRefreshStatus(); _frRefreshLog(); });
+        }
+
+        function _frActivate() {
+            _frWireOnce();
+            _frLoadTemplates();
+            _frRefreshStatus();
+            _frRefreshLog();
+            if (FR_AUTO_TIMER) clearInterval(FR_AUTO_TIMER);
+            FR_AUTO_TIMER = setInterval(function () {
+                var t = document.getElementById('friendsTab');
+                if (t && t.style.display !== 'none') {
+                    _frRefreshStatus(); _frRefreshLog();
+                }
+            }, 60000);
+        }
+
+        // Экспортируем активацию наружу — refresh() вызовет при выборе вкладки.
+        window._frActivate = _frActivate;
 
         function _init() {
             BTN_SEND = document.getElementById('waveSendBtn');
@@ -1003,7 +1221,6 @@ POV: ты на семейном ужине, и мама такая «как у �
             document.getElementById('waveVkIds').addEventListener('input', _updateCount);
             _updateCount();
             _renderTemplateButtons();
-            try { _dripWireUI(); } catch (e) { console.warn('drip UI wire failed', e); }
         }
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', _init);
@@ -1097,6 +1314,8 @@ POV: ты на семейном ужине, и мама такая «как у �
         if (reengTab) reengTab.style.display = 'none';
         var waveTab = document.getElementById('waveTab');
         if (waveTab) waveTab.style.display = 'none';
+        var friendsTab = document.getElementById('friendsTab');
+        if (friendsTab) friendsTab.style.display = 'none';
         try {
             if (currentTab === 'summary') {
                 var d = await _fetch('/api/analytics/summary');
@@ -1134,6 +1353,11 @@ POV: ты на семейном ужине, и мама такая «как у �
             } else if (currentTab === 'wave') {
                 // 2-я волна — это форма, fetch не нужен. Просто показываем UI.
                 if (waveTab) waveTab.style.display = 'block';
+            } else if (currentTab === 'friends') {
+                // Друзья из ВК — drip-кампания. Вкладка активирует свою логику.
+                var fr = document.getElementById('friendsTab');
+                if (fr) fr.style.display = 'block';
+                if (typeof window._frActivate === 'function') window._frActivate();
             }
         } catch (e) {
             _err(e.message || 'Ошибка');
