@@ -3108,4 +3108,60 @@ def register_vk_routes(app, db):
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
         return {"success": True, "deleted": deleted}
 
+    @app.get("/api/admin/vk/drip/templates")
+    async def vk_drip_templates_get(x_admin_token: Optional[str] = Header(default=None)):
+        _check_admin(x_admin_token)
+        from drip_campaign import get_templates
+        try:
+            info = await get_templates(db)
+        except Exception as e:
+            logger.error(f"drip templates get error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **info}
+
+    @app.post("/api/admin/vk/drip/templates")
+    async def vk_drip_templates_save(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        from drip_campaign import save_templates
+        templates = body.get("templates")
+        if not isinstance(templates, dict):
+            raise HTTPException(status_code=400, detail={"error": "bad_input", "message": "templates: dict required"})
+        try:
+            await save_templates(db, templates)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail={"error": "validation", "message": str(e)})
+        except Exception as e:
+            logger.error(f"drip templates save error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True}
+
+    @app.post("/api/admin/vk/drip/templates/reset")
+    async def vk_drip_templates_reset(x_admin_token: Optional[str] = Header(default=None)):
+        _check_admin(x_admin_token)
+        from drip_campaign import reset_templates_to_default
+        try:
+            await reset_templates_to_default(db)
+        except Exception as e:
+            logger.error(f"drip templates reset error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True}
+
+    @app.get("/api/admin/vk/drip/recent")
+    async def vk_drip_recent(
+        limit: int = 30,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Последние N сообщений из очереди (отправленные и упавшие)."""
+        _check_admin(x_admin_token)
+        from drip_campaign import get_recent_log
+        try:
+            items = await get_recent_log(db, limit=int(limit))
+        except Exception as e:
+            logger.error(f"drip recent error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, "items": items}
+
     return init_vk_table
