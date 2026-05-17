@@ -3028,4 +3028,84 @@ def register_vk_routes(app, db):
         n = await reset_status(db, from_status="error", to_status="queued")
         return {"success": True, "reset_count": n}
 
+    # =========================================================
+    # DRIP CAMPAIGN — 3-дневный прогрев VK-друзей (Д1 voice+text
+    # → Д2 text → Д3 text), 40/день. Подробности — backend/drip_campaign.py.
+    # =========================================================
+    @app.post("/api/admin/vk/drip/init")
+    async def vk_drip_init(
+        body: dict = Body(default={}),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Парсит твоих VK-друзей и добавляет в очередь прогрева.
+        body: {sex: 1|2, age_min: int, age_max: int}
+        """
+        _check_admin(x_admin_token)
+        try:
+            from drip_campaign import init_campaign
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={
+                "error": "drip_module_unavailable", "message": str(e),
+            })
+        try:
+            sex = int(body.get("sex") or 1)
+        except (TypeError, ValueError):
+            sex = 1
+        try:
+            age_min = int(body.get("age_min") or 30)
+            age_max = int(body.get("age_max") or 55)
+        except (TypeError, ValueError):
+            age_min, age_max = 30, 55
+        age_min = max(14, min(age_min, 99))
+        age_max = max(age_min, min(age_max, 99))
+        try:
+            result = await init_campaign(db, sex=sex, age_min=age_min, age_max=age_max)
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={"error": "vk_api", "message": str(e)})
+        except Exception as e:
+            logger.error(f"drip init error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **result, "filters": {"sex": sex, "age_min": age_min, "age_max": age_max}}
+
+    @app.get("/api/admin/vk/drip/status")
+    async def vk_drip_status(x_admin_token: Optional[str] = Header(default=None)):
+        _check_admin(x_admin_token)
+        try:
+            from drip_campaign import get_status
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={"error": "drip_module_unavailable", "message": str(e)})
+        try:
+            s = await get_status(db)
+        except Exception as e:
+            logger.error(f"drip status error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **s}
+
+    @app.post("/api/admin/vk/drip/pause")
+    async def vk_drip_pause(x_admin_token: Optional[str] = Header(default=None)):
+        _check_admin(x_admin_token)
+        from drip_campaign import set_paused
+        return {"success": True, "paused": set_paused(True)}
+
+    @app.post("/api/admin/vk/drip/resume")
+    async def vk_drip_resume(x_admin_token: Optional[str] = Header(default=None)):
+        _check_admin(x_admin_token)
+        from drip_campaign import set_paused
+        return {"success": True, "paused": set_paused(False)}
+
+    @app.post("/api/admin/vk/drip/stop")
+    async def vk_drip_stop(x_admin_token: Optional[str] = Header(default=None)):
+        """Полностью очищает очередь — рассылка прекращается."""
+        _check_admin(x_admin_token)
+        try:
+            from drip_campaign import stop_and_clear
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={"error": "drip_module_unavailable", "message": str(e)})
+        try:
+            deleted = await stop_and_clear(db)
+        except Exception as e:
+            logger.error(f"drip stop error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, "deleted": deleted}
+
     return init_vk_table
