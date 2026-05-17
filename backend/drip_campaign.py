@@ -1,0 +1,558 @@
+"""drip_campaign.py — 3-дневный прогрев VK-друзей (Д1 voice+text → Д2 text → Д3 text).
+
+Архитектура:
+  - Очередь хранится в Postgres (fredi_drip_queue): по одной строке на VK-id,
+    с полями day_status (0..3) и last_sent_at.
+  - Scheduler — отдельная asyncio-таска, запускаемая из lifespan() в main.py.
+    Каждые SCHEDULER_INTERVAL секунд (15 мин по умолчанию) она:
+      * проверяет «рабочие часы» (10:00–21:00 Москва)
+      * проверяет дневной лимит (DAILY_CAP сообщений/сутки)
+      * берёт батч eligible-кандидатов на Д1/Д2/Д3 и шлёт их по очереди
+  - Шаблоны (DRIP_TEMPLATES) хардкодом — Д1 разделён на name+body для
+    кэширования TTS-тела через vk_send_voice.send_voice_with_split().
+  - Тексты Д2/Д3 шлются напрямую через messages.send (user-токен).
+
+Чтобы запустить кампанию админ дёргает /api/admin/vk/drip/init с фильтром —
+это вызывает friends.get, фильтрует по полу/возрасту/открытой личке и
+INSERT'ит в очередь. Дальше scheduler работает сам.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import random
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# ===== Конфиг =====
+# Часовой пояс Москвы — фиксированный +3 (без перехода на летнее).
+MSK = timezone(timedelta(hours=3))
+# Окно отправки (по Москве). Полночь и утренние часы — категорически нет:
+# в это время VK быстрее банит за рассылки.
+ALLOWED_HOUR_FROM = 10
+ALLOWED_HOUR_TO = 21
+# Дневной лимит сообщений (Д1+Д2+Д3 суммарно). VK-аккаунты типично
+# держат ~40-50/сутки до жалоб; 40 — безопасный потолок.
+DAILY_CAP = 40
+# Пауза между отдельными отправками внутри одного цикла scheduler-а.
+INTER_SEND_PAUSE_SEC = 4.0
+# Интервал между запусками scheduler-цикла (15 мин). За цикл шлём
+# до BATCH_SIZE_PER_TICK сообщений — итого ~40 за рабочий день при
+# 15-минутном интервале × 8-9 циклов в рабочие часы.
+SCHEDULER_INTERVAL = 900
+BATCH_SIZE_PER_TICK = 5
+# Кулдаун после VK error 9 (flood). Часовой пояс — UTC, чтобы не
+# зависеть от перевода времени.
+FLOOD_COOLDOWN_SEC = 1800
+
+# ===== Шаблоны =====
+# Текст голосового разбит на name (короткий префикс с {name}) и body
+# (остальное, кэшируется TTS). Текст вдогонку — обычный multi-line.
+DRIP_TEMPLATES = {
+    "female": {
+        "d1": {
+            "voice_name": "{name}, привет. Это Фреди. ",
+            "voice_body": (
+                "Просто хотел сказать: я здесь. Не психолог, не подруга, "
+                "которая всё расскажет другим, не тот, кто будет «спасать». "
+                "Просто пространство, где можно быть собой. Без масок. Без "
+                "«всё нормально», когда внутри — шторм. Если когда-нибудь "
+                "захочешь поговорить по-честному — ты знаешь, где меня "
+                "найти. Просто имей в виду. Береги себя."
+            ),
+            "text": (
+                "{name}, чтобы не искать меня в недрах интернета — вот "
+                "ссылка: 👉 meysternlp.ru/fredi/\n\n"
+                "Что я могу:\n"
+                "• Выслушать без оценок и «ой, да забей»\n"
+                "• Помочь разобраться в чувствах без драмы\n"
+                "• Просто поболтать о том, о чём стыдно сказать близким\n\n"
+                "Никакой магии. Только эмпатия и вопросы, которые ведут "
+                "к ответам.\n\n"
+                "Зайди, когда будет минутка. Без обязательств.\n\nФреди"
+            ),
+        },
+        "d2": {
+            "text": (
+                "{name}, Фреди на связи.\n\n"
+                "Знаешь, как иногда хочется выговориться, но:\n"
+                "• Подруга — начнёт «спасать» или расскажет другим\n"
+                "• Мама — переживёт больше тебя\n"
+                "• Парень — не поймёт или замкнётся\n\n"
+                "Я — не человек. Но я умею слушать. Без оценок. Без "
+                "сплетен. Без «всё будет хорошо».\n\n"
+                "Могу помочь:\n"
+                "— Разобраться в чувствах без драмы\n"
+                "— Найти выход, когда «всё запуталось»\n"
+                "— Просто выслушать, когда нужно выдохнуть\n\n"
+                "👉 meysternlp.ru/fredi/\n\n"
+                "Зайди, когда будет минутка. Просто попробуй."
+            ),
+        },
+        "d3": {
+            "text": (
+                "{name}, это Фреди.\n\n"
+                "Не буду грузить. Просто напоминаю:\n\n"
+                "Если когда-то будет нужно выговориться, разобраться в "
+                "себе или просто выдохнуть — ты знаешь, кто может помочь.\n\n"
+                "👉 meysternlp.ru/fredi/\n\n"
+                "Я не тороплю. Я просто здесь."
+            ),
+        },
+    },
+    "male": {
+        "d1": {
+            "voice_name": "{name}, привет. Это Фреди. ",
+            "voice_body": (
+                "Коротко: я появился. Не психолог, не бот для спама, не "
+                "«успешный успех». Просто умный собеседник, который всегда "
+                "на связи. Если когда-нибудь захочешь выговориться, "
+                "разложить мысли по полочкам или просто поболтать о том, "
+                "о чём не говорят вслух — ты знаешь, где меня найти. "
+                "Просто имей в виду. Хорошего дня."
+            ),
+            "text": (
+                "{name}, чтобы не искать меня в недрах интернета — вот "
+                "ссылка: 👉 meysternlp.ru/fredi/\n\n"
+                "Что я могу:\n"
+                "• Выслушать без оценок и «соберись»\n"
+                "• Помочь увидеть ситуацию под другим углом\n"
+                "• Просто поболтать о том, о чём не говорят с друзьями\n\n"
+                "Никакой магии. Только вопросы, которые работают.\n\n"
+                "Зайди, когда будет минутка. Без обязательств.\n\nФреди"
+            ),
+        },
+        "d2": {
+            "text": (
+                "{name}, Фреди на связи.\n\n"
+                "Заметил, что мужчины часто держат всё в себе. Не потому "
+                "что сильные. А потому что:\n"
+                "• Друзья — заняты своими делами\n"
+                "• Родные — не поймут или начнут «спасать»\n"
+                "• А выговориться — иногда нужно\n\n"
+                "Я — не человек. Но я умею слушать. Без оценок. Без "
+                "сплетен. Без «ты должен».\n\n"
+                "Могу помочь:\n"
+                "— Разобраться в запутанной ситуации\n"
+                "— Найти неочевидный выход\n"
+                "— Просто выслушать, когда «всё бесит»\n\n"
+                "👉 meysternlp.ru/fredi/\n\n"
+                "Зайди, когда будет минутка. Просто попробуй."
+            ),
+        },
+        "d3": {
+            "text": (
+                "{name}, это Фреди.\n\n"
+                "Не буду грузить. Просто напоминаю:\n\n"
+                "Если когда-то будет нужно выговориться, разобраться в "
+                "себе или найти угол зрения, который упустил — ты знаешь, "
+                "кто может помочь.\n\n"
+                "👉 meysternlp.ru/fredi/\n\n"
+                "Я не тороплю. Я просто здесь.\n\nФреди"
+            ),
+        },
+    },
+}
+
+# ===== Состояние scheduler-а (in-memory) =====
+class _DripState:
+    paused = False  # глобальная пауза от админа
+    flood_until: Optional[datetime] = None  # cooldown после VK error 9
+    last_run_at: Optional[datetime] = None
+    last_run_summary: Dict[str, int] = {}
+
+_STATE = _DripState()
+
+
+# ===== БД =====
+async def init_drip_tables(db) -> None:
+    """Создаёт таблицу очереди (idempotent)."""
+    async with db.get_connection() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_drip_queue (
+                id BIGSERIAL PRIMARY KEY,
+                vk_id BIGINT NOT NULL,
+                first_name TEXT,
+                last_name TEXT,
+                sex SMALLINT,
+                age SMALLINT,
+                day_status SMALLINT NOT NULL DEFAULT 0,
+                last_sent_at TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                last_error TEXT,
+                last_error_at TIMESTAMP WITH TIME ZONE,
+                CONSTRAINT fredi_drip_queue_vk_id_unique UNIQUE (vk_id)
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_fredi_drip_queue_status
+            ON fredi_drip_queue(day_status, last_sent_at)
+        """)
+    logger.info("drip_campaign: table ready")
+
+
+# ===== VK friends.get =====
+async def fetch_friends_filtered(
+    *, sex: int = 1, age_min: int = 30, age_max: int = 55, max_count: int = 5000
+) -> List[Dict[str, Any]]:
+    """friends.get + локальная фильтрация по полу/возрасту/закрытой личке.
+    Использует VK_USER_TOKEN (тот же, что для отправки сообщений).
+    """
+    import httpx
+    token = (os.environ.get("VK_USER_TOKEN") or "").strip()
+    if not token:
+        raise RuntimeError("VK_USER_TOKEN не задан")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            "https://api.vk.com/method/friends.get",
+            params={
+                "access_token": token,
+                "v": "5.199",
+                "fields": "sex,bdate,first_name,last_name,can_write_private_message,last_seen,is_closed,deactivated",
+                "count": max(1, min(int(max_count), 10000)),
+                "order": "name",
+            },
+        )
+    data = resp.json()
+    if "error" in data:
+        err = data["error"]
+        raise RuntimeError(f"VK friends.get: {err.get('error_code')}/{err.get('error_msg')}")
+    items = (data.get("response") or {}).get("items") or []
+
+    out = []
+    today = datetime.now()
+    for u in items:
+        if u.get("deactivated"):
+            continue
+        if u.get("is_closed"):
+            continue
+        if u.get("can_write_private_message") == 0:
+            continue
+        if sex in (1, 2) and int(u.get("sex") or 0) != sex:
+            continue
+        # Возраст из bdate (нам важен ТОЛЬКО если есть год)
+        bdate = u.get("bdate") or ""
+        age = None
+        parts = str(bdate).split(".")
+        if len(parts) == 3:
+            try:
+                day = int(parts[0]); month = int(parts[1]); year = int(parts[2])
+                if 1900 < year < 2100:
+                    age = today.year - year - (1 if (today.month, today.day) < (month, day) else 0)
+            except ValueError:
+                age = None
+        if age is None:
+            # Возраст неизвестен — для друзей-30+ безопаснее пропустить.
+            continue
+        if age < age_min or age > age_max:
+            continue
+        out.append({
+            "vk_id": int(u["id"]),
+            "first_name": u.get("first_name") or "",
+            "last_name": u.get("last_name") or "",
+            "sex": int(u.get("sex") or 0),
+            "age": age,
+        })
+    return out
+
+
+async def init_campaign(db, *, sex: int = 1, age_min: int = 30, age_max: int = 55) -> Dict[str, Any]:
+    """Парсит друзей, INSERT'ит новых в очередь (старых не трогает).
+    Возвращает счётчики: total_friends, inserted, skipped_existing.
+    """
+    friends = await fetch_friends_filtered(sex=sex, age_min=age_min, age_max=age_max)
+    inserted = 0
+    skipped = 0
+    async with db.get_connection() as conn:
+        for f in friends:
+            row = await conn.fetchrow(
+                "SELECT id, day_status FROM fredi_drip_queue WHERE vk_id = $1", f["vk_id"]
+            )
+            if row:
+                skipped += 1
+                continue
+            await conn.execute("""
+                INSERT INTO fredi_drip_queue (vk_id, first_name, last_name, sex, age, day_status)
+                VALUES ($1, $2, $3, $4, $5, 0)
+            """, f["vk_id"], f["first_name"], f["last_name"], f["sex"], f["age"])
+            inserted += 1
+    logger.info(f"drip init: friends={len(friends)} inserted={inserted} skipped={skipped}")
+    return {"total_friends": len(friends), "inserted": inserted, "skipped_existing": skipped}
+
+
+async def get_status(db) -> Dict[str, Any]:
+    """Счётчики по day_status + последние ошибки."""
+    async with db.get_connection() as conn:
+        rows = await conn.fetch("""
+            SELECT day_status, COUNT(*) AS c FROM fredi_drip_queue
+            WHERE last_error IS NULL OR last_error NOT LIKE 'FATAL:%'
+            GROUP BY day_status ORDER BY day_status
+        """)
+        sent_today = await conn.fetchval("""
+            SELECT COUNT(*) FROM fredi_drip_queue
+            WHERE last_sent_at >= NOW() - INTERVAL '24 hours'
+        """) or 0
+        fatal_errors = await conn.fetchval("""
+            SELECT COUNT(*) FROM fredi_drip_queue
+            WHERE last_error LIKE 'FATAL:%'
+        """) or 0
+        last_sent = await conn.fetchrow("""
+            SELECT vk_id, first_name, day_status, last_sent_at
+            FROM fredi_drip_queue
+            WHERE last_sent_at IS NOT NULL
+            ORDER BY last_sent_at DESC LIMIT 1
+        """)
+    by_status = {0: 0, 1: 0, 2: 0, 3: 0}
+    for r in rows:
+        by_status[int(r["day_status"])] = int(r["c"])
+    return {
+        "queue_total": sum(by_status.values()),
+        "pending_d1": by_status[0],
+        "got_d1": by_status[1],
+        "got_d2": by_status[2],
+        "completed_d3": by_status[3],
+        "sent_last_24h": int(sent_today),
+        "fatal_errors": int(fatal_errors),
+        "daily_cap": DAILY_CAP,
+        "paused": _STATE.paused,
+        "in_working_hours": _in_working_hours(),
+        "flood_cooldown_until": _STATE.flood_until.isoformat() if _STATE.flood_until else None,
+        "last_run_at": _STATE.last_run_at.isoformat() if _STATE.last_run_at else None,
+        "last_run_summary": _STATE.last_run_summary,
+        "last_sent_user": ({
+            "vk_id": last_sent["vk_id"],
+            "first_name": last_sent["first_name"],
+            "day_status": last_sent["day_status"],
+            "at": last_sent["last_sent_at"].isoformat(),
+        } if last_sent else None),
+    }
+
+
+# ===== Eligibility =====
+def _in_working_hours() -> bool:
+    h = datetime.now(MSK).hour
+    return ALLOWED_HOUR_FROM <= h < ALLOWED_HOUR_TO
+
+
+async def _pick_eligible(conn, kind: str, limit: int) -> List[Dict[str, Any]]:
+    """kind in {'d1', 'd2', 'd3'}. Возвращает строки готовых к отправке."""
+    if kind == "d1":
+        rows = await conn.fetch("""
+            SELECT id, vk_id, first_name, sex FROM fredi_drip_queue
+            WHERE day_status = 0
+              AND (last_error IS NULL OR last_error NOT LIKE 'FATAL:%')
+            ORDER BY id ASC LIMIT $1
+        """, limit)
+    elif kind == "d2":
+        rows = await conn.fetch("""
+            SELECT id, vk_id, first_name, sex FROM fredi_drip_queue
+            WHERE day_status = 1
+              AND last_sent_at < NOW() - INTERVAL '20 hours'
+              AND (last_error IS NULL OR last_error NOT LIKE 'FATAL:%')
+            ORDER BY last_sent_at ASC LIMIT $1
+        """, limit)
+    elif kind == "d3":
+        rows = await conn.fetch("""
+            SELECT id, vk_id, first_name, sex FROM fredi_drip_queue
+            WHERE day_status = 2
+              AND last_sent_at < NOW() - INTERVAL '20 hours'
+              AND (last_error IS NULL OR last_error NOT LIKE 'FATAL:%')
+            ORDER BY last_sent_at ASC LIMIT $1
+        """, limit)
+    else:
+        rows = []
+    return [dict(r) for r in rows]
+
+
+def _fmt(template: str, name: str) -> str:
+    return template.replace("{name}", name or "Привет")
+
+
+def _gender_key(sex: int) -> str:
+    return "male" if sex == 2 else "female"
+
+
+# ===== Отправка =====
+async def _send_d1(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Voice + text followup. Использует существующий send_voice_with_split."""
+    from vk_send_voice import send_voice_with_split
+    g = _gender_key(int(row.get("sex") or 1))
+    tpl = DRIP_TEMPLATES[g]["d1"]
+    name = (row.get("first_name") or "").strip() or "Привет"
+    return await send_voice_with_split(
+        voice_name_text=_fmt(tpl["voice_name"], name),
+        voice_body_text=tpl["voice_body"],
+        vk_peer_id=int(row["vk_id"]),
+        text_followup=_fmt(tpl["text"], name),
+        pause_ms=350,
+    )
+
+
+async def _send_text_only(vk_peer_id: int, text: str) -> Dict[str, Any]:
+    """Text-only через messages.send (user-токен)."""
+    from vk_send_voice import _vk_method
+    msg_random_id = random.randint(1, 2**31 - 1)
+    out = await _vk_method("messages.send", {
+        "peer_id": vk_peer_id,
+        "random_id": msg_random_id,
+        "message": text,
+        "dont_parse_links": 0,
+    })
+    return {"message_id": out if isinstance(out, int) else None}
+
+
+async def _send_dN(row: Dict[str, Any], kind: str) -> Dict[str, Any]:
+    """kind='d2' | 'd3'."""
+    g = _gender_key(int(row.get("sex") or 1))
+    tpl = DRIP_TEMPLATES[g][kind]
+    name = (row.get("first_name") or "").strip() or "Привет"
+    return await _send_text_only(int(row["vk_id"]), _fmt(tpl["text"], name))
+
+
+def _classify_error(exc: Exception) -> str:
+    """Возвращает FATAL:<code> (юзера больше не трогаем) или RETRY:<code>."""
+    msg = str(exc).lower()
+    # 902 — пользователь закрыл личку: FATAL
+    if "902" in msg or "private message" in msg or "privacy" in msg:
+        return "FATAL:902_privacy"
+    # 7 — нет прав; 15 — доступ запрещён; deleted; banned — FATAL
+    if "deactivated" in msg or "banned" in msg or "deleted" in msg:
+        return "FATAL:account_dead"
+    if "/7/" in msg or "/15/" in msg:
+        return "FATAL:no_permission"
+    # 9 — flood control: RETRY с глобальным cooldown
+    if " 9/" in msg or "flood" in msg:
+        return "RETRY:flood"
+    # 10 — internal server error VK: RETRY
+    if " 10/" in msg or "internal server" in msg:
+        return "RETRY:vk_internal"
+    return "RETRY:unknown"
+
+
+async def _process_one(db, row: Dict[str, Any], kind: str) -> str:
+    """Возвращает 'sent' / 'fatal' / 'retry' / 'flood'."""
+    next_status = {"d1": 1, "d2": 2, "d3": 3}[kind]
+    try:
+        if kind == "d1":
+            await _send_d1(row)
+        else:
+            await _send_dN(row, kind)
+    except Exception as e:
+        cls = _classify_error(e)
+        logger.warning(f"drip {kind} vk={row['vk_id']}: {e} [{cls}]")
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                UPDATE fredi_drip_queue SET last_error = $1, last_error_at = NOW()
+                WHERE id = $2
+            """, cls, row["id"])
+        if cls.startswith("FATAL"):
+            return "fatal"
+        if cls == "RETRY:flood":
+            return "flood"
+        return "retry"
+    # Успех — продвигаем day_status, чистим last_error.
+    async with db.get_connection() as conn:
+        await conn.execute("""
+            UPDATE fredi_drip_queue
+            SET day_status = $1, last_sent_at = NOW(),
+                last_error = NULL, last_error_at = NULL
+            WHERE id = $2
+        """, next_status, row["id"])
+    return "sent"
+
+
+# ===== Scheduler =====
+async def drip_scheduler(db):
+    """Основной цикл — запускается из lifespan() main.py."""
+    logger.info("drip_scheduler: started")
+    # Начальная задержка чтобы дать time приложению инициализироваться.
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await _tick(db)
+        except Exception as e:
+            logger.error(f"drip_scheduler tick error: {e}")
+        await asyncio.sleep(SCHEDULER_INTERVAL)
+
+
+async def _tick(db):
+    summary = {"d1_sent": 0, "d2_sent": 0, "d3_sent": 0, "fatal": 0, "retry": 0, "skipped_reason": None}
+    _STATE.last_run_at = datetime.now(timezone.utc)
+    _STATE.last_run_summary = summary
+
+    if _STATE.paused:
+        summary["skipped_reason"] = "paused"
+        return
+    if not _in_working_hours():
+        summary["skipped_reason"] = "out_of_hours"
+        return
+    if _STATE.flood_until and datetime.now(timezone.utc) < _STATE.flood_until:
+        summary["skipped_reason"] = "flood_cooldown"
+        return
+    _STATE.flood_until = None
+
+    async with db.get_connection() as conn:
+        sent_24h = await conn.fetchval("""
+            SELECT COUNT(*) FROM fredi_drip_queue
+            WHERE last_sent_at >= NOW() - INTERVAL '24 hours'
+        """) or 0
+    remaining = DAILY_CAP - int(sent_24h)
+    if remaining <= 0:
+        summary["skipped_reason"] = "daily_cap_reached"
+        return
+
+    # Распределение тика: приоритет тем, кто уже в воронке (Д3 > Д2 > Д1),
+    # чтобы быстрее доводить юзеров до конца кампании.
+    quotas = [
+        ("d3", min(BATCH_SIZE_PER_TICK, remaining)),
+        ("d2", min(BATCH_SIZE_PER_TICK, remaining)),
+        ("d1", min(BATCH_SIZE_PER_TICK, remaining)),
+    ]
+
+    for kind, quota in quotas:
+        if remaining <= 0:
+            break
+        if quota <= 0:
+            continue
+        async with db.get_connection() as conn:
+            batch = await _pick_eligible(conn, kind, min(quota, remaining))
+        if not batch:
+            continue
+        for row in batch:
+            if remaining <= 0:
+                break
+            res = await _process_one(db, row, kind)
+            if res == "sent":
+                summary[f"{kind}_sent"] += 1
+                remaining -= 1
+            elif res == "fatal":
+                summary["fatal"] += 1
+            elif res == "flood":
+                _STATE.flood_until = datetime.now(timezone.utc) + timedelta(seconds=FLOOD_COOLDOWN_SEC)
+                summary["skipped_reason"] = "flood_triggered"
+                logger.warning(f"drip: flood control triggered, cooldown {FLOOD_COOLDOWN_SEC}s")
+                return
+            else:
+                summary["retry"] += 1
+            await asyncio.sleep(INTER_SEND_PAUSE_SEC + random.uniform(0, 2))
+
+    if any(summary[k] for k in ("d1_sent", "d2_sent", "d3_sent")):
+        logger.info(f"drip tick: {summary}")
+
+
+# ===== Pause/Resume/Stop =====
+def set_paused(v: bool):
+    _STATE.paused = bool(v)
+    return _STATE.paused
+
+
+async def stop_and_clear(db) -> int:
+    """Удаляет ВСЕ записи из очереди (для перезапуска кампании)."""
+    async with db.get_connection() as conn:
+        before = await conn.fetchval("SELECT COUNT(*) FROM fredi_drip_queue") or 0
+        await conn.execute("DELETE FROM fredi_drip_queue")
+    return int(before)

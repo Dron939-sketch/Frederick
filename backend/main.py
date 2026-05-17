@@ -378,9 +378,28 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"life_experience init failed: {e}")
 
+        # Drip-кампания (3-дневный прогрев VK-друзей, 40/день).
+        try:
+            from drip_campaign import init_drip_tables as _init_drip
+            await _init_drip(db)
+            logger.info("✅ drip_campaign таблица готова")
+        except Exception as e:
+            logger.warning(f"drip_campaign init failed: {e}")
+
         logger.info("✅ Таблицы готовы (включая платежи, auth и analytics)")
 
         logger.info("📦 Запуск фоновых задач...")
+        # Drip-scheduler — отдельная таска, ходит каждые 15 мин по очереди
+        # fredi_drip_queue и шлёт Д1/Д2/Д3 в рамках дневного лимита.
+        # Запускается всегда — даже если очередь пуста, цикл просто ничего
+        # не делает. Если drip_campaign import упал — без шедулера живём.
+        _drip_task = None
+        try:
+            from drip_campaign import drip_scheduler as _drip_scheduler
+            _drip_task = asyncio.create_task(_drip_scheduler(db))
+        except Exception as e:
+            logger.warning(f"drip_scheduler not started: {e}")
+
         background_tasks = [
             asyncio.create_task(cleanup_old_data()),
             asyncio.create_task(send_reminders()),
@@ -390,6 +409,8 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(cycle_reminders_scheduler()),
             asyncio.create_task(life_experience_scheduler()),
         ]
+        if _drip_task is not None:
+            background_tasks.append(_drip_task)
         if background_tasks_extra_reeng is not None:
             background_tasks.append(background_tasks_extra_reeng)
         logger.info("✅ Фоновые задачи запущены")
