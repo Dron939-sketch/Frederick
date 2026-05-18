@@ -3164,4 +3164,90 @@ def register_vk_routes(app, db):
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
         return {"success": True, "items": items}
 
+    @app.post("/api/admin/vk/drip/preview")
+    async def vk_drip_preview(
+        body: dict = Body(default={}),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Парсит друзей по фильтру и возвращает список БЕЗ записи в очередь.
+        Фронт показывает их в таблице с галочками, чтобы админ выбрал кого
+        реально слать. После выбора фронт дёргает /drip/enqueue."""
+        _check_admin(x_admin_token)
+        from drip_campaign import preview_friends
+        try:
+            sex = int(body.get("sex") or 1)
+        except (TypeError, ValueError):
+            sex = 1
+        try:
+            age_min = int(body.get("age_min") or 30)
+            age_max = int(body.get("age_max") or 55)
+        except (TypeError, ValueError):
+            age_min, age_max = 30, 55
+        age_min = max(14, min(age_min, 99))
+        age_max = max(age_min, min(age_max, 99))
+        try:
+            result = await preview_friends(db, sex=sex, age_min=age_min, age_max=age_max)
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={"error": "vk_api", "message": str(e)})
+        except Exception as e:
+            logger.error(f"drip preview error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **result, "filters": {"sex": sex, "age_min": age_min, "age_max": age_max}}
+
+    @app.post("/api/admin/vk/drip/enqueue")
+    async def vk_drip_enqueue(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Принимает {friends: [...], interval_min?: int} — кладёт выбранных
+        в очередь и (опционально) сохраняет новый интервал scheduler-а."""
+        _check_admin(x_admin_token)
+        from drip_campaign import enqueue_friends, save_config
+        friends = body.get("friends")
+        if not isinstance(friends, list):
+            raise HTTPException(status_code=400, detail={"error": "bad_input", "message": "friends: list required"})
+        try:
+            res = await enqueue_friends(db, friends)
+        except Exception as e:
+            logger.error(f"drip enqueue error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        # Если фронт прислал interval_min — обновляем глобальный интервал.
+        interval_min = body.get("interval_min")
+        if interval_min is not None:
+            try:
+                await save_config(db, int(interval_min) * 60)
+            except Exception as e:
+                logger.warning(f"drip enqueue: save_config failed: {e}")
+        return {"success": True, **res}
+
+    @app.get("/api/admin/vk/drip/config")
+    async def vk_drip_config_get(x_admin_token: Optional[str] = Header(default=None)):
+        _check_admin(x_admin_token)
+        from drip_campaign import get_config
+        try:
+            cfg = await get_config(db)
+        except Exception as e:
+            logger.error(f"drip config get error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **cfg}
+
+    @app.post("/api/admin/vk/drip/config")
+    async def vk_drip_config_save(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        from drip_campaign import save_config
+        interval_min = body.get("interval_min")
+        if interval_min is None:
+            raise HTTPException(status_code=400, detail={"error": "bad_input", "message": "interval_min required"})
+        try:
+            await save_config(db, int(interval_min) * 60)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={"error": "bad_input", "message": "interval_min must be int"})
+        except Exception as e:
+            logger.error(f"drip config save error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True}
+
     return init_vk_table
