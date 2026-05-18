@@ -3231,6 +3231,20 @@ def register_vk_routes(app, db):
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
         return {"success": True, **cfg}
 
+    @app.post("/api/admin/vk/drip/run-once")
+    async def vk_drip_run_once(x_admin_token: Optional[str] = Header(default=None)):
+        """Принудительный одиночный тик scheduler-а: игнорит pause,
+        рабочие часы, flood cooldown. Возвращает summary тика
+        (сколько отправок прошло)."""
+        _check_admin(x_admin_token)
+        from drip_campaign import force_tick_now
+        try:
+            result = await force_tick_now(db)
+        except Exception as e:
+            logger.error(f"drip run-once error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **result}
+
     @app.post("/api/admin/vk/drip/config")
     async def vk_drip_config_save(
         body: dict = Body(...),
