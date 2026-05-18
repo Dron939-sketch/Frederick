@@ -2359,17 +2359,17 @@ async function init() {
 
     await initVoice();
 
-    // Проверяем имя пользователя
+    // Проверяем имя пользователя. Имя теперь спрашивает только login.js
+    // (модалкой поверх дашборда), чтобы юзер не видел подряд два промпта.
+    // Если имени нет — сразу рендерим дашборд; login.js поверх покажет свою.
     const userName = localStorage.getItem('fredi_user_name');
     if (userName) {
         const userNameEl = document.getElementById('userName');
         const avatarEl = document.getElementById('userMiniAvatar');
         if (userNameEl) userNameEl.textContent = userName;
         if (avatarEl) avatarEl.textContent = userName.charAt(0).toUpperCase();
-        renderDashboard();
-    } else {
-        showNamePrompt();
     }
+    renderDashboard();
 
     // Обработчики пунктов меню
     document.querySelectorAll('.chat-item').forEach(item => {
