@@ -40,10 +40,15 @@ DAILY_CAP = 40
 # Пауза между отдельными отправками внутри одного цикла scheduler-а.
 INTER_SEND_PAUSE_SEC = 4.0
 # Интервал между запусками scheduler-цикла (15 мин). За цикл шлём
-# до BATCH_SIZE_PER_TICK сообщений — итого ~40 за рабочий день при
-# 15-минутном интервале × 8-9 циклов в рабочие часы.
+# до TICK_TOTAL_LIMIT получателей — итого ~30-40 в рабочий день при
+# 15-минутном интервале × 11 рабочих часов = 44 тика.
 SCHEDULER_INTERVAL = 900
-BATCH_SIZE_PER_TICK = 5
+# Получателей за один цикл (а не сообщений). Д1 = голос+текст = 2 msg,
+# Д2/Д3 = 1 msg. С limit=1 у одного юзера за тик максимум 2 сообщения.
+TICK_TOTAL_LIMIT = 1
+# Размер «батча» при выборке из БД — берём с запасом, чтобы пропустить
+# FATAL'ы (закрытая личка и т.п.) и дойти до живого кандидата.
+BATCH_LOOKAHEAD = 4
 # Кулдаун после VK error 9 (flood). Часовой пояс — UTC, чтобы не
 # зависеть от перевода времени.
 FLOOD_COOLDOWN_SEC = 1800
@@ -602,32 +607,35 @@ async def _tick(db):
     # Один раз за тик грузим актуальные шаблоны (юзер мог их отредактировать).
     templates = await _load_templates_or_default(db)
 
-    # Распределение тика: приоритет тем, кто уже в воронке (Д3 > Д2 > Д1),
-    # чтобы быстрее доводить юзеров до конца кампании.
-    quotas = [
-        ("d3", min(BATCH_SIZE_PER_TICK, remaining)),
-        ("d2", min(BATCH_SIZE_PER_TICK, remaining)),
-        ("d1", min(BATCH_SIZE_PER_TICK, remaining)),
-    ]
+    # Один получатель за тик (вкл. все 3 «дня»). Так в VK-личке адресата
+    # не появляется 4 сообщения подряд (Д1 = голос + текст вдогонку = 2 шт;
+    # с двумя юзерами за тик было 4). Приоритет: Д3 > Д2 > Д1 — быстрее
+    # доводим юзера до конца воронки. FATAL/retry внутри тика — пробуем
+    # следующего кандидата того же типа, в лимит тика не считается.
+    sent_this_tick = 0
 
-    for kind, quota in quotas:
+    for kind in ("d3", "d2", "d1"):
+        if sent_this_tick >= TICK_TOTAL_LIMIT:
+            break
         if remaining <= 0:
             break
-        if quota <= 0:
-            continue
         async with db.get_connection() as conn:
-            batch = await _pick_eligible(conn, kind, min(quota, remaining))
+            batch = await _pick_eligible(conn, kind, BATCH_LOOKAHEAD)
         if not batch:
             continue
         for row in batch:
+            if sent_this_tick >= TICK_TOTAL_LIMIT:
+                break
             if remaining <= 0:
                 break
             res = await _process_one(db, row, kind, templates)
             if res == "sent":
                 summary[f"{kind}_sent"] += 1
+                sent_this_tick += 1
                 remaining -= 1
             elif res == "fatal":
                 summary["fatal"] += 1
+                # пробуем следующего кандидата того же типа
             elif res == "flood":
                 _STATE.flood_until = datetime.now(timezone.utc) + timedelta(seconds=FLOOD_COOLDOWN_SEC)
                 summary["skipped_reason"] = "flood_triggered"
@@ -635,6 +643,7 @@ async def _tick(db):
                 return
             else:
                 summary["retry"] += 1
+                # retry тоже не считается в лимит тика, пробуем следующего
             await asyncio.sleep(INTER_SEND_PAUSE_SEC + random.uniform(0, 2))
 
     if any(summary[k] for k in ("d1_sent", "d2_sent", "d3_sent")):
