@@ -89,12 +89,13 @@ def _ffmpeg_mp3_to_ogg_opus(mp3_bytes: bytes) -> bytes:
 
 # In-memory кэш MP3-«тела» сообщения по hash. Используется в split-режиме:
 # тело генерится один раз, имя — каждый раз отдельно, потом склеивается.
-# TTL 1 час (после рассылки кэш ни к чему).
+# TTL 7 дней — на всю drip-кампанию: тело синтезится РАЗ для каждого
+# пола, дальше только короткий префикс с именем.
 import hashlib
 import time
 
 _BODY_CACHE: dict[str, tuple[float, bytes]] = {}
-_BODY_CACHE_TTL_SEC = 3600
+_BODY_CACHE_TTL_SEC = 7 * 24 * 3600
 _BODY_CACHE_MAX = 50
 
 
