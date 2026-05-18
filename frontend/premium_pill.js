@@ -65,10 +65,10 @@
         var s = document.createElement('style');
         s.id = MODE_STYLE_ID;
         s.textContent =
-            '.mode-selector { position: relative; gap: 6px !important; margin-top: 18px !important; margin-bottom: 44px !important; }' +
-            '.mode-selector::after {' +
+            '.mode-selector { position: relative; gap: 6px !important; margin-top: 44px !important; margin-bottom: 18px !important; }' +
+            '.mode-selector::before {' +
             '  content: "🎭 Выбери стиль общения с Фреди";' +
-            '  position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%);' +
+            '  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);' +
             '  font-size: 12px; font-weight: 700; letter-spacing: 0.2px;' +
             '  color: var(--text-primary);' +
             '  background: rgba(99,102,241,0.14);' +
@@ -116,7 +116,7 @@
             '  box-shadow: 0 0 8px rgba(59,130,246,0.25) !important;' +
             '  text-shadow: none !important;' +
             '}' +
-            '[data-theme="light"] .mode-selector::after {' +
+            '[data-theme="light"] .mode-selector::before {' +
             '  color: rgba(0,0,0,0.75);' +
             '  background: rgba(99,102,241,0.10);' +
             '  border-color: rgba(99,102,241,0.30);' +
