@@ -137,9 +137,19 @@ class _DripState:
     paused = False  # глобальная пауза от админа
     flood_until: Optional[datetime] = None  # cooldown после VK error 9
     last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None  # когда планируется следующий цикл
     last_run_summary: Dict[str, int] = {}
 
 _STATE = _DripState()
+
+
+def _seconds_until_next_run() -> Optional[int]:
+    """Сколько секунд осталось до следующего scheduler-цикла.
+    None если scheduler ещё ни разу не выставлял next_run_at."""
+    if not _STATE.next_run_at:
+        return None
+    remaining = (_STATE.next_run_at - datetime.now(timezone.utc)).total_seconds()
+    return max(0, int(remaining))
 
 
 # ===== БД =====
@@ -389,7 +399,9 @@ async def preview_friends(db, *, sex: int = 1, age_min: int = 30, age_max: int =
 
 async def enqueue_friends(db, friends: List[Dict[str, Any]]) -> Dict[str, int]:
     """Принимает выбранный фронтом список и кладёт в очередь (только тех,
-    кого ещё нет). Поля: vk_id, first_name, last_name, sex, age."""
+    кого ещё нет). Поля: vk_id, first_name, last_name, sex, age.
+    Автоматически снимает паузу — раз юзер только что положил людей,
+    он хочет чтобы они отправлялись."""
     if not friends or not isinstance(friends, list):
         return {"inserted": 0, "skipped_existing": 0}
     inserted = 0
@@ -421,8 +433,12 @@ async def enqueue_friends(db, friends: List[Dict[str, Any]]) -> Dict[str, int]:
                 VALUES ($1, $2, $3, $4, $5, 0)
             """, vk_id, (f.get("first_name") or "").strip(), (f.get("last_name") or "").strip(), sex, age)
             inserted += 1
+    # После постановки — автоматически возобновляем кампанию.
+    if inserted > 0 and _STATE.paused:
+        _STATE.paused = False
+        logger.info("drip enqueue: auto-resumed campaign")
     logger.info(f"drip enqueue: inserted={inserted} skipped={skipped}")
-    return {"inserted": inserted, "skipped_existing": skipped}
+    return {"inserted": inserted, "skipped_existing": skipped, "resumed": _STATE.paused is False}
 
 
 async def get_config(db) -> Dict[str, Any]:
@@ -465,7 +481,7 @@ async def _get_interval_sec_or_default(db) -> int:
 
 
 async def get_status(db) -> Dict[str, Any]:
-    """Счётчики по day_status + последние ошибки."""
+    """Счётчики по day_status + последние ошибки + время до следующего тика."""
     async with db.get_connection() as conn:
         rows = await conn.fetch("""
             SELECT day_status, COUNT(*) AS c FROM fredi_drip_queue
@@ -505,6 +521,10 @@ async def get_status(db) -> Dict[str, Any]:
         "flood_cooldown_until": _STATE.flood_until.isoformat() if _STATE.flood_until else None,
         "last_run_at": _STATE.last_run_at.isoformat() if _STATE.last_run_at else None,
         "last_run_summary": _STATE.last_run_summary,
+        # Сколько секунд до следующего цикла. Если last_run_at нет —
+        # scheduler ещё ни разу не дёргался (только что стартанул).
+        "next_run_in_sec": _seconds_until_next_run(),
+        "scheduler_interval_sec": await _get_interval_sec_or_default(db),
         "last_sent_user": ({
             "vk_id": last_sent["vk_id"],
             "first_name": last_sent["first_name"],
@@ -655,23 +675,25 @@ async def drip_scheduler(db):
         except Exception as e:
             logger.error(f"drip_scheduler tick error: {e}")
         interval = await _get_interval_sec_or_default(db)
+        _STATE.next_run_at = datetime.now(timezone.utc) + timedelta(seconds=interval)
         await asyncio.sleep(interval)
 
 
-async def _tick(db):
-    summary = {"d1_sent": 0, "d2_sent": 0, "d3_sent": 0, "fatal": 0, "retry": 0, "skipped_reason": None}
+async def _tick(db, *, force: bool = False):
+    summary = {"d1_sent": 0, "d2_sent": 0, "fatal": 0, "retry": 0, "skipped_reason": None}
     _STATE.last_run_at = datetime.now(timezone.utc)
     _STATE.last_run_summary = summary
 
-    if _STATE.paused:
-        summary["skipped_reason"] = "paused"
-        return
-    if not _in_working_hours():
-        summary["skipped_reason"] = "out_of_hours"
-        return
-    if _STATE.flood_until and datetime.now(timezone.utc) < _STATE.flood_until:
-        summary["skipped_reason"] = "flood_cooldown"
-        return
+    if not force:
+        if _STATE.paused:
+            summary["skipped_reason"] = "paused"
+            return summary
+        if not _in_working_hours():
+            summary["skipped_reason"] = "out_of_hours"
+            return summary
+        if _STATE.flood_until and datetime.now(timezone.utc) < _STATE.flood_until:
+            summary["skipped_reason"] = "flood_cooldown"
+            return summary
     _STATE.flood_until = None
 
     async with db.get_connection() as conn:
@@ -726,6 +748,18 @@ async def _tick(db):
 
     if any(summary[k] for k in ("d1_sent", "d2_sent", "d3_sent")):
         logger.info(f"drip tick: {summary}")
+
+
+async def force_tick_now(db) -> Dict[str, Any]:
+    """Принудительный одиночный тик — игнорирует pause / рабочие часы /
+    flood cooldown. Используется для теста из админки кнопкой
+    «Отправить сейчас»."""
+    try:
+        await _tick(db, force=True)
+    except Exception as e:
+        logger.error(f"force_tick_now error: {e}")
+        return {"summary": {"skipped_reason": "error", "error": str(e)}}
+    return {"summary": _STATE.last_run_summary or {}}
 
 
 # ===== Pause/Resume/Stop =====
