@@ -58,57 +58,34 @@ BATCH_LOOKAHEAD = 4
 FLOOD_COOLDOWN_SEC = 1800
 
 # ===== Шаблоны =====
-# Текст голосового разбит на name (короткий префикс с {name}) и body
-# (остальное, кэшируется TTS). Текст вдогонку — обычный multi-line.
+# Новый формат — 2 шага:
+#   Д1: только голосовое, без текста и без ссылки. Создаёт интерес, обещает
+#       завтра написать со ссылкой.
+#   Д2: только текст со ссылкой («как обещал — вот ссылочка»).
+# Так короче, меньше шансов словить блок за длинные тексты с ссылками
+# в первой же отправке от нового VK-аккаунта.
 DRIP_TEMPLATES = {
     "female": {
         "d1": {
             "voice_name": "{name}, привет. Это Фреди. ",
             "voice_body": (
-                "Просто хотел сказать: я здесь. Не психолог, не подруга, "
-                "которая всё расскажет другим, не тот, кто будет «спасать». "
-                "Просто пространство, где можно быть собой. Без масок. Без "
-                "«всё нормально», когда внутри — шторм. Если когда-нибудь "
-                "захочешь поговорить по-честному — ты знаешь, где меня "
-                "найти. Просто имей в виду. Береги себя."
-            ),
-            "text": (
-                "{name}, чтобы не искать меня в недрах интернета — вот "
-                "ссылка: 👉 meysternlp.ru/fredi/\n\n"
-                "Что я могу:\n"
-                "• Выслушать без оценок и «ой, да забей»\n"
-                "• Помочь разобраться в чувствах без драмы\n"
-                "• Просто поболтать о том, о чём стыдно сказать близким\n\n"
-                "Никакой магии. Только эмпатия и вопросы, которые ведут "
-                "к ответам.\n\n"
-                "Зайди, когда будет минутка. Без обязательств.\n\nФреди"
+                "Слушай, такая штука. Ты, наверное, не раз замечала: "
+                "рассказала подруге что-то очень личное — стало легче, "
+                "а потом она это помнит. Годами. И иногда вдруг всплывает "
+                "не вовремя. Я появился, чтобы у тебя был кто-то, с кем "
+                "можно поговорить без свидетелей. Без памяти, без сплетен, "
+                "без «давай я тебя спасу». Не буду сейчас грузить и кидать "
+                "ссылок. Завтра напишу — скину ссылочку, посмотришь сама."
             ),
         },
         "d2": {
             "text": (
-                "{name}, Фреди на связи.\n\n"
-                "Знаешь, как иногда хочется выговориться, но:\n"
-                "• Подруга — начнёт «спасать» или расскажет другим\n"
-                "• Мама — переживёт больше тебя\n"
-                "• Парень — не поймёт или замкнётся\n\n"
-                "Я — не человек. Но я умею слушать. Без оценок. Без "
-                "сплетен. Без «всё будет хорошо».\n\n"
-                "Могу помочь:\n"
-                "— Разобраться в чувствах без драмы\n"
-                "— Найти выход, когда «всё запуталось»\n"
-                "— Просто выслушать, когда нужно выдохнуть\n\n"
-                "👉 meysternlp.ru/fredi/\n\n"
-                "Зайди, когда будет минутка. Просто попробуй."
-            ),
-        },
-        "d3": {
-            "text": (
-                "{name}, это Фреди.\n\n"
-                "Не буду грузить. Просто напоминаю:\n\n"
-                "Если когда-то будет нужно выговориться, разобраться в "
-                "себе или просто выдохнуть — ты знаешь, кто может помочь.\n\n"
-                "👉 meysternlp.ru/fredi/\n\n"
-                "Я не тороплю. Я просто здесь."
+                "{name}, как обещал — вот ссылка 👇\n"
+                "👉 https://meysternlp.ru/fredi/\n\n"
+                "Виртуальный психолог. Без обид и без памяти. "
+                "Поговорили → закрыла → всё. Никто ничего не помнит.\n\n"
+                "Зайди, когда будет минутка. Без регистрации души и "
+                "подписи кровью.\n\nФреди"
             ),
         },
     },
@@ -116,51 +93,24 @@ DRIP_TEMPLATES = {
         "d1": {
             "voice_name": "{name}, привет. Это Фреди. ",
             "voice_body": (
-                "Коротко: я появился. Не психолог, не бот для спама, не "
-                "«успешный успех». Просто умный собеседник, который всегда "
-                "на связи. Если когда-нибудь захочешь выговориться, "
-                "разложить мысли по полочкам или просто поболтать о том, "
-                "о чём не говорят вслух — ты знаешь, где меня найти. "
-                "Просто имей в виду. Хорошего дня."
-            ),
-            "text": (
-                "{name}, чтобы не искать меня в недрах интернета — вот "
-                "ссылка: 👉 meysternlp.ru/fredi/\n\n"
-                "Что я могу:\n"
-                "• Выслушать без оценок и «соберись»\n"
-                "• Помочь увидеть ситуацию под другим углом\n"
-                "• Просто поболтать о том, о чём не говорят с друзьями\n\n"
-                "Никакой магии. Только вопросы, которые работают.\n\n"
-                "Зайди, когда будет минутка. Без обязательств.\n\nФреди"
+                "Слушай, такая штука. Есть вещи, которые не очень "
+                "расскажешь друзьям — не потому что не доверяешь, а "
+                "потому что друзья помнят. А потом эта инфа всплывает "
+                "не вовремя. Я появился, чтобы был кто-то, с кем можно "
+                "обсудить серьёзное без последствий. Без памяти, без "
+                "оценок, без «соберись, мужик». Не буду сейчас грузить "
+                "и кидать ссылок. Завтра напишу — скину ссылочку, "
+                "посмотришь сам."
             ),
         },
         "d2": {
             "text": (
-                "{name}, Фреди на связи.\n\n"
-                "Заметил, что мужчины часто держат всё в себе. Не потому "
-                "что сильные. А потому что:\n"
-                "• Друзья — заняты своими делами\n"
-                "• Родные — не поймут или начнут «спасать»\n"
-                "• А выговориться — иногда нужно\n\n"
-                "Я — не человек. Но я умею слушать. Без оценок. Без "
-                "сплетен. Без «ты должен».\n\n"
-                "Могу помочь:\n"
-                "— Разобраться в запутанной ситуации\n"
-                "— Найти неочевидный выход\n"
-                "— Просто выслушать, когда «всё бесит»\n\n"
-                "👉 meysternlp.ru/fredi/\n\n"
-                "Зайди, когда будет минутка. Просто попробуй."
-            ),
-        },
-        "d3": {
-            "text": (
-                "{name}, это Фреди.\n\n"
-                "Не буду грузить. Просто напоминаю:\n\n"
-                "Если когда-то будет нужно выговориться, разобраться в "
-                "себе или найти угол зрения, который упустил — ты знаешь, "
-                "кто может помочь.\n\n"
-                "👉 meysternlp.ru/fredi/\n\n"
-                "Я не тороплю. Я просто здесь.\n\nФреди"
+                "{name}, как обещал — вот ссылка 👇\n"
+                "👉 https://meysternlp.ru/fredi/\n\n"
+                "Виртуальный психолог. Без обид и без памяти. "
+                "Поговорили → закрыл → всё. Никто ничего не помнит.\n\n"
+                "Зайди, когда будет минутка. Без регистрации души и "
+                "подписи кровью.\n\nФреди"
             ),
         },
     },
@@ -239,20 +189,21 @@ async def get_templates(db) -> Dict[str, Any]:
 
 
 async def save_templates(db, templates: Dict[str, Any]) -> None:
-    """UPSERT новых шаблонов. Минимальная валидация структуры."""
+    """UPSERT новых шаблонов. Минимальная валидация структуры (2 дня)."""
     import json
-    # Валидация: ждём ключи 'female' и 'male', внутри 'd1' (voice_name, voice_body, text), 'd2'/'d3' (text)
+    # Валидация: ждём ключи 'female' и 'male', внутри 'd1' (voice_name, voice_body),
+    # 'd2' (text). Поле text у d1 необязательное (теперь только голос).
     for sex in ("female", "male"):
         if sex not in templates:
             raise ValueError(f"missing sex section: {sex}")
         s = templates[sex]
-        for d in ("d1", "d2", "d3"):
+        for d in ("d1", "d2"):
             if d not in s:
                 raise ValueError(f"missing day section: {sex}.{d}")
-        if not s["d1"].get("voice_body") or not s["d1"].get("text"):
-            raise ValueError(f"{sex}.d1: voice_body and text required")
-        if not s["d2"].get("text") or not s["d3"].get("text"):
-            raise ValueError(f"{sex}.d2/d3: text required")
+        if not s["d1"].get("voice_body"):
+            raise ValueError(f"{sex}.d1: voice_body required")
+        if not s["d2"].get("text"):
+            raise ValueError(f"{sex}.d2: text required")
     js = json.dumps(templates, ensure_ascii=False)
     async with db.get_connection() as conn:
         await conn.execute("""
@@ -521,13 +472,15 @@ async def get_status(db) -> Dict[str, Any]:
         """)
     by_status = {0: 0, 1: 0, 2: 0, 3: 0}
     for r in rows:
-        by_status[int(r["day_status"])] = int(r["c"])
+        ds = int(r["day_status"])
+        if ds in by_status:
+            by_status[ds] = int(r["c"])
     return {
         "queue_total": sum(by_status.values()),
         "pending_d1": by_status[0],
         "got_d1": by_status[1],
-        "got_d2": by_status[2],
-        "completed_d3": by_status[3],
+        "got_d2": by_status[2] + by_status[3],
+        "completed_d3": 0,  # legacy поле, не используется в 2-дневной схеме
         "sent_last_24h": int(sent_today),
         "fatal_errors": int(fatal_errors),
         "daily_cap": DAILY_CAP,
@@ -568,14 +521,6 @@ async def _pick_eligible(conn, kind: str, limit: int) -> List[Dict[str, Any]]:
               AND (last_error IS NULL OR last_error NOT LIKE 'FATAL:%')
             ORDER BY last_sent_at ASC LIMIT $1
         """, limit)
-    elif kind == "d3":
-        rows = await conn.fetch("""
-            SELECT id, vk_id, first_name, sex FROM fredi_drip_queue
-            WHERE day_status = 2
-              AND last_sent_at < NOW() - INTERVAL '20 hours'
-              AND (last_error IS NULL OR last_error NOT LIKE 'FATAL:%')
-            ORDER BY last_sent_at ASC LIMIT $1
-        """, limit)
     else:
         rows = []
     return [dict(r) for r in rows]
@@ -591,16 +536,19 @@ def _gender_key(sex: int) -> str:
 
 # ===== Отправка =====
 async def _send_d1(row: Dict[str, Any], templates: Dict[str, Any]) -> Dict[str, Any]:
-    """Voice + text followup. Использует существующий send_voice_with_split."""
+    """Только голосовое (без текста вдогонку и без ссылки).
+    Текст со ссылкой уйдёт на Д2 («как обещал — вот ссылочка»)."""
     from vk_send_voice import send_voice_with_split
     g = _gender_key(int(row.get("sex") or 1))
     tpl = templates[g]["d1"]
     name = (row.get("first_name") or "").strip() or "Привет"
+    # text_followup=None — никакого follow-up текста после голоса.
+    # Поле tpl.get("text") игнорируем, даже если кто-то прислал.
     return await send_voice_with_split(
         voice_name_text=_fmt(tpl["voice_name"], name),
         voice_body_text=tpl["voice_body"],
         vk_peer_id=int(row["vk_id"]),
-        text_followup=_fmt(tpl["text"], name),
+        text_followup=None,
         pause_ms=350,
     )
 
@@ -619,7 +567,7 @@ async def _send_text_only(vk_peer_id: int, text: str) -> Dict[str, Any]:
 
 
 async def _send_dN(row: Dict[str, Any], kind: str, templates: Dict[str, Any]) -> Dict[str, Any]:
-    """kind='d2' | 'd3'."""
+    """kind='d2' — текст со ссылкой («как обещал»)."""
     g = _gender_key(int(row.get("sex") or 1))
     tpl = templates[g][kind]
     name = (row.get("first_name") or "").strip() or "Привет"
@@ -648,7 +596,7 @@ def _classify_error(exc: Exception) -> str:
 
 async def _process_one(db, row: Dict[str, Any], kind: str, templates: Dict[str, Any]) -> str:
     """Возвращает 'sent' / 'fatal' / 'retry' / 'flood'."""
-    next_status = {"d1": 1, "d2": 2, "d3": 3}[kind]
+    next_status = {"d1": 1, "d2": 2}[kind]
     try:
         if kind == "d1":
             await _send_d1(row, templates)
@@ -723,14 +671,12 @@ async def _tick(db):
     # Один раз за тик грузим актуальные шаблоны (юзер мог их отредактировать).
     templates = await _load_templates_or_default(db)
 
-    # Один получатель за тик (вкл. все 3 «дня»). Так в VK-личке адресата
-    # не появляется 4 сообщения подряд (Д1 = голос + текст вдогонку = 2 шт;
-    # с двумя юзерами за тик было 4). Приоритет: Д3 > Д2 > Д1 — быстрее
-    # доводим юзера до конца воронки. FATAL/retry внутри тика — пробуем
-    # следующего кандидата того же типа, в лимит тика не считается.
+    # Один получатель за тик. Приоритет: Д2 > Д1 — быстрее доводим
+    # юзера до конца воронки (получил ссылку = терминальное состояние).
+    # FATAL/retry — пробуем следующего, в лимит тика не считается.
     sent_this_tick = 0
 
-    for kind in ("d3", "d2", "d1"):
+    for kind in ("d2", "d1"):
         if sent_this_tick >= TICK_TOTAL_LIMIT:
             break
         if remaining <= 0:
