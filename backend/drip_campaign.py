@@ -39,10 +39,14 @@ ALLOWED_HOUR_TO = 21
 DAILY_CAP = 40
 # Пауза между отдельными отправками внутри одного цикла scheduler-а.
 INTER_SEND_PAUSE_SEC = 4.0
-# Интервал между запусками scheduler-цикла (15 мин). За цикл шлём
-# до TICK_TOTAL_LIMIT получателей — итого ~30-40 в рабочий день при
-# 15-минутном интервале × 11 рабочих часов = 44 тика.
-SCHEDULER_INTERVAL = 900
+# Интервал между запусками scheduler-цикла (15 мин по умолчанию). Можно
+# изменить через /api/admin/vk/drip/config — scheduler перечитывает БД на
+# каждом тике, новое значение применяется со следующего цикла без рестарта.
+DEFAULT_SCHEDULER_INTERVAL = 900
+SCHEDULER_INTERVAL = DEFAULT_SCHEDULER_INTERVAL
+# Минимум/максимум для интервала (защита от случайного 0/огромного значения).
+MIN_INTERVAL_SEC = 60
+MAX_INTERVAL_SEC = 24 * 3600
 # Получателей за один цикл (а не сообщений). Д1 = голос+текст = 2 msg,
 # Д2/Д3 = 1 msg. С limit=1 у одного юзера за тик максимум 2 сообщения.
 TICK_TOTAL_LIMIT = 1
@@ -206,6 +210,15 @@ async def init_drip_tables(db) -> None:
                 CONSTRAINT fredi_drip_templates_singleton CHECK (id = 1)
             )
         """)
+        # Конфиг кампании (интервал scheduler-а). Singleton.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_drip_config (
+                id INT PRIMARY KEY,
+                interval_sec INT NOT NULL DEFAULT 900,
+                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                CONSTRAINT fredi_drip_config_singleton CHECK (id = 1)
+            )
+        """)
     logger.info("drip_campaign: tables ready")
 
 
@@ -362,6 +375,7 @@ async def fetch_friends_filtered(
 async def init_campaign(db, *, sex: int = 1, age_min: int = 30, age_max: int = 55) -> Dict[str, Any]:
     """Парсит друзей, INSERT'ит новых в очередь (старых не трогает).
     Возвращает счётчики: total_friends, inserted, skipped_existing.
+    Legacy-эндпоинт — фронт теперь идёт по preview→enqueue.
     """
     friends = await fetch_friends_filtered(sex=sex, age_min=age_min, age_max=age_max)
     inserted = 0
@@ -381,6 +395,106 @@ async def init_campaign(db, *, sex: int = 1, age_min: int = 30, age_max: int = 5
             inserted += 1
     logger.info(f"drip init: friends={len(friends)} inserted={inserted} skipped={skipped}")
     return {"total_friends": len(friends), "inserted": inserted, "skipped_existing": skipped}
+
+
+async def preview_friends(db, *, sex: int = 1, age_min: int = 30, age_max: int = 55) -> Dict[str, Any]:
+    """Парсит друзей и возвращает список БЕЗ записи в очередь. Помечает
+    флагом already_in_queue тех, кто уже стоит в очереди — фронт их
+    подсветит и не даст повторно ставить."""
+    friends = await fetch_friends_filtered(sex=sex, age_min=age_min, age_max=age_max)
+    if not friends:
+        return {"total_friends": 0, "friends": []}
+    vk_ids = [int(f["vk_id"]) for f in friends]
+    async with db.get_connection() as conn:
+        rows = await conn.fetch(
+            "SELECT vk_id, day_status FROM fredi_drip_queue WHERE vk_id = ANY($1::bigint[])",
+            vk_ids,
+        )
+    in_queue = {int(r["vk_id"]): int(r["day_status"]) for r in rows}
+    out = []
+    for f in friends:
+        item = dict(f)
+        item["already_in_queue"] = f["vk_id"] in in_queue
+        item["day_status"] = in_queue.get(f["vk_id"])
+        out.append(item)
+    return {"total_friends": len(out), "friends": out}
+
+
+async def enqueue_friends(db, friends: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Принимает выбранный фронтом список и кладёт в очередь (только тех,
+    кого ещё нет). Поля: vk_id, first_name, last_name, sex, age."""
+    if not friends or not isinstance(friends, list):
+        return {"inserted": 0, "skipped_existing": 0}
+    inserted = 0
+    skipped = 0
+    async with db.get_connection() as conn:
+        for f in friends:
+            try:
+                vk_id = int(f.get("vk_id") or 0)
+            except (TypeError, ValueError):
+                vk_id = 0
+            if vk_id <= 0:
+                continue
+            row = await conn.fetchrow(
+                "SELECT id FROM fredi_drip_queue WHERE vk_id = $1", vk_id
+            )
+            if row:
+                skipped += 1
+                continue
+            try:
+                sex = int(f.get("sex") or 1)
+            except (TypeError, ValueError):
+                sex = 1
+            try:
+                age = int(f.get("age") or 0)
+            except (TypeError, ValueError):
+                age = 0
+            await conn.execute("""
+                INSERT INTO fredi_drip_queue (vk_id, first_name, last_name, sex, age, day_status)
+                VALUES ($1, $2, $3, $4, $5, 0)
+            """, vk_id, (f.get("first_name") or "").strip(), (f.get("last_name") or "").strip(), sex, age)
+            inserted += 1
+    logger.info(f"drip enqueue: inserted={inserted} skipped={skipped}")
+    return {"inserted": inserted, "skipped_existing": skipped}
+
+
+async def get_config(db) -> Dict[str, Any]:
+    """Возвращает текущий интервал scheduler-а."""
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow("SELECT interval_sec FROM fredi_drip_config WHERE id = 1")
+        interval = int(row["interval_sec"]) if row and row["interval_sec"] else DEFAULT_SCHEDULER_INTERVAL
+    except Exception as e:
+        logger.warning(f"drip get_config failed: {e}")
+        interval = DEFAULT_SCHEDULER_INTERVAL
+    return {
+        "interval_sec": interval,
+        "interval_min": interval // 60,
+        "daily_cap": DAILY_CAP,
+        "working_hours": [ALLOWED_HOUR_FROM, ALLOWED_HOUR_TO],
+        "tick_total_limit": TICK_TOTAL_LIMIT,
+    }
+
+
+async def save_config(db, interval_sec: int) -> None:
+    interval_sec = max(MIN_INTERVAL_SEC, min(int(interval_sec), MAX_INTERVAL_SEC))
+    async with db.get_connection() as conn:
+        await conn.execute("""
+            INSERT INTO fredi_drip_config (id, interval_sec, updated_at)
+            VALUES (1, $1, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                interval_sec = EXCLUDED.interval_sec,
+                updated_at = NOW()
+        """, interval_sec)
+
+
+async def _get_interval_sec_or_default(db) -> int:
+    """Используется scheduler-ом каждый цикл — читает свежее значение."""
+    try:
+        cfg = await get_config(db)
+        return int(cfg["interval_sec"])
+    except Exception:
+        return DEFAULT_SCHEDULER_INTERVAL
 
 
 async def get_status(db) -> Dict[str, Any]:
@@ -566,16 +680,18 @@ async def _process_one(db, row: Dict[str, Any], kind: str, templates: Dict[str, 
 
 # ===== Scheduler =====
 async def drip_scheduler(db):
-    """Основной цикл — запускается из lifespan() main.py."""
+    """Основной цикл — запускается из lifespan() main.py.
+    Интервал между циклами читается из fredi_drip_config — админ может
+    менять его на лету через /api/admin/vk/drip/config."""
     logger.info("drip_scheduler: started")
-    # Начальная задержка чтобы дать time приложению инициализироваться.
     await asyncio.sleep(60)
     while True:
         try:
             await _tick(db)
         except Exception as e:
             logger.error(f"drip_scheduler tick error: {e}")
-        await asyncio.sleep(SCHEDULER_INTERVAL)
+        interval = await _get_interval_sec_or_default(db)
+        await asyncio.sleep(interval)
 
 
 async def _tick(db):
