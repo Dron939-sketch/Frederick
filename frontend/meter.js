@@ -50,17 +50,29 @@
             '.meter-features-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);margin-bottom:8px}',
             '.meter-btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;text-align:center;margin-bottom:10px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:transform 0.15s}',
             '.meter-btn:active{transform:scale(0.98)}',
-            '.meter-btn-primary{background:linear-gradient(135deg,#3b82ff 0%,#6366f1 100%);color:#fff}',
-            '.meter-btn-secondary{background:rgba(224,224,224,0.07);border:1px solid rgba(224,224,224,0.18);color:var(--text-secondary)}'
+            '.meter-btn-primary{background:linear-gradient(135deg,#3b82ff 0%,#6366f1 100%);color:#fff;display:flex;flex-direction:column;gap:2px;align-items:center;line-height:1.25}',
+            '.meter-btn-sub{font-size:11px;font-weight:500;opacity:0.85}',
+            '.meter-btn-secondary{background:rgba(224,224,224,0.07);border:1px solid rgba(224,224,224,0.18);color:var(--text-secondary)}',
+            '.meter-context{display:flex;gap:10px;align-items:flex-start;background:rgba(59,130,255,0.06);border:1px solid rgba(59,130,255,0.14);border-radius:14px;padding:12px 14px;margin-bottom:18px}',
+            '.meter-context-icon{font-size:18px;line-height:1.3;flex-shrink:0}',
+            '.meter-context-text{font-size:13px;color:var(--text-primary);line-height:1.5}'
         ].join('\n');
         document.head.appendChild(s);
     }
 
     var _lastCheck = null;
     var _lastCheckTime = 0;
-    var _warningShown = false;       // флаг «soft» предупреждения (≤5 мин)
-    var _criticalShown = false;      // флаг «critical» предупреждения (≤2 мин)
+    var _warningShown = false;       // 70% использовано
+    var _criticalShown = false;      // 90% использовано
     var CHECK_CACHE_MS = 5000;
+    // Пороги предупреждений по доле использованного лимита.
+    // Раньше были фиксированные 5/2 мин — это игнорировало размер лимита
+    // и стреляло «слишком рано» (за 50% до блока). В аналитике meter_warning
+    // показывало 0: фронт слал имя 'meter_warning', а SQL ищет
+    // 'meter_warning_shown'/'meter_warning_server'. Здесь и фикс порога,
+    // и фикс имени события.
+    var WARN_USED_PCT = 0.70;        // soft: пора задуматься
+    var CRIT_USED_PCT = 0.90;        // critical: последний шанс
 
     async function checkCanSend() {
         var uid = _uid();
@@ -79,22 +91,27 @@
     }
 
     // Двухступенчатое предупреждение об исчерпании дневного лимита.
-    // Цель — подготовить юзера к paywall ДО самой блокировки, чтобы
-    // он успел задуматься о ценности (по аналитике: paywall показывается
-    // внезапно → conversion = 0).
+    // Цель — подготовить юзера к paywall ДО самой блокировки, чтобы он
+    // успел задуматься о ценности. Раньше paywall падал внезапно (по
+    // аналитике meter_warning=0, meter_blocked_shown=11) — отсюда низкий
+    // conversion blocked→clicked (≈18%).
     //
-    // 5 мин ≤ rem  → пока тишина
-    // 2 мин < rem ≤ 5 мин → soft: «осталось N мин» (info-toast)
-    // rem ≤ 2 мин → critical: «осталось 1-2 мин» (warn-toast)
+    // Триггер — по доле использованного лимита, не по фиксированным минутам:
+    //   used < 70%       → тишина
+    //   70% ≤ used < 90% → soft: «остаётся ~N мин» (info-toast)
+    //   used ≥ 90%       → critical: «последняя минута» (warn-toast)
     //
     // Каждый уровень показывается 1 раз за окно 2 мин (защита от спама).
-    // Оба трекаются как `meter_warning` в аналитике с полем `level`.
-    function _trackWarning(level, rem) {
+    // Имя события — `meter_warning_shown`, чтобы попасть в SQL-воронку.
+    function _trackWarning(level, rem, used, limit) {
         try {
             if (window.FrediTracker && window.FrediTracker.track) {
-                window.FrediTracker.track('meter_warning', {
-                    level: level,            // 'soft' | 'critical'
+                window.FrediTracker.track('meter_warning_shown', {
+                    level: level,                  // 'soft' | 'critical'
                     remaining_minutes: rem,
+                    used_minutes: used,
+                    limit_minutes: limit,
+                    used_pct: limit ? Math.round((used / limit) * 100) : null,
                 });
             }
         } catch (e) {}
@@ -103,21 +120,27 @@
     function _showWarningToast(check) {
         if (!check || check.is_premium) return;
         var rem = check.remaining_minutes;
-        if (rem == null) return;
+        var used = check.used_minutes_today;
+        var limit = check.limit_minutes;
+        if (rem == null || limit == null || limit <= 0) return;
+        if (used == null) used = Math.max(0, limit - rem);
 
-        // Critical: осталось < 2 мин — последний шанс предложить Premium.
-        if (rem <= 2 && !_criticalShown) {
+        var usedPct = used / limit;
+        var remRound = Math.max(1, Math.round(rem));
+
+        // Critical: ≥90% использовано — последний шанс предложить Premium.
+        if (usedPct >= CRIT_USED_PCT && !_criticalShown) {
             _criticalShown = true;
-            _toast('⏱ Осталось ' + Math.max(1, Math.round(rem)) + ' мин на сегодня. С Premium — без лимитов.', 'warn');
-            _trackWarning('critical', rem);
+            _toast('⏱ Остаётся около минуты. С Premium — без перерыва.', 'warn');
+            _trackWarning('critical', rem, used, limit);
             setTimeout(function() { _criticalShown = false; }, 120000);
             return;
         }
-        // Soft: 2 < rem ≤ 5 — мягкая подготовка.
-        if (rem <= 5 && !_warningShown) {
+        // Soft: ≥70% использовано — мягкая подготовка.
+        if (usedPct >= WARN_USED_PCT && !_warningShown) {
             _warningShown = true;
-            _toast('⏱ Осталось ' + Math.round(rem) + ' мин на сегодня', 'info');
-            _trackWarning('soft', rem);
+            _toast('⏱ Осталось ~' + remRound + ' мин на сегодня', 'info');
+            _trackWarning('soft', rem, used, limit);
             setTimeout(function() { _warningShown = false; }, 120000);
         }
     }
@@ -173,6 +196,8 @@
 
         var minutesUntilReset = data.minutes_until_reset || 0;
         var limit = data.limit_minutes || 10;
+        var usedToday = data.used_minutes_today;
+        if (usedToday == null) usedToday = limit;
         var trialExhausted = !!data.trial_exhausted;
         var daysUsed = data.free_days_used || 0;
 
@@ -184,22 +209,31 @@
         });
 
         var emoji, title, mainText, timerHtml;
+        // \u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442-\u044F\u043A\u043E\u0440\u044C: \u0444\u0438\u043A\u0441\u0438\u0440\u0443\u0435\u043C, \u0447\u0442\u043E \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440 \u043D\u0435 \u043F\u043E\u0442\u0435\u0440\u044F\u043D, \u0424\u0440\u0435\u0434\u0434\u0438 \u043F\u043E\u043C\u043D\u0438\u0442.
+        // \u0426\u0435\u043B\u044C \u2014 \u0441\u043D\u044F\u0442\u044C \u0443 \u044E\u0437\u0435\u0440\u0430 \u043E\u0449\u0443\u0449\u0435\u043D\u0438\u0435 \u00AB\u0441\u0442\u0435\u043D\u044B\u00BB \u0438 \u0441\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0444\u0440\u0435\u0439\u043C \u043D\u0430 \u00AB\u043F\u0430\u0443\u0437\u0430\u00BB.
+        var contextHtml =
+            '<div class="meter-context">' +
+                '<span class="meter-context-icon">\uD83D\uDCAC</span>' +
+                '<span class="meter-context-text">' +
+                    '\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 \u0431\u0435\u0441\u0435\u0434\u044B \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D \u2014 \u0424\u0440\u0435\u0434\u0438 \u0432\u0441\u043F\u043E\u043C\u043D\u0438\u0442, \u043E \u0447\u0451\u043C \u0432\u044B \u0433\u043E\u0432\u043E\u0440\u0438\u043B\u0438.' +
+                '</span>' +
+            '</div>';
 
         if (trialExhausted) {
             // \u0424\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 paywall: 3 free-\u0434\u043D\u044F \u043F\u0440\u043E\u0448\u043B\u0438, \u0434\u0430\u043B\u044C\u0448\u0435 \u0442\u043E\u043B\u044C\u043A\u043E Premium.
-            emoji = '\uD83D\uDD13'; // \uD83D\uDD13
-            title = '3 \u0434\u043D\u044F \u043F\u0440\u043E\u0431\u044B \u043F\u0440\u043E\u0448\u043B\u0438';
+            emoji = '\uD83D\uDCAC'; // \uD83D\uDCAC
+            title = '\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u043C \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440?';
             mainText =
-                '\u0422\u044B \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B\u0441\u044F \u0424\u0440\u0435\u0434\u0438 ' + daysUsed + ' \u0434\u043D\u044F \u2014 \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u044B\u0439 trial \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D.<br>' +
-                '\u0427\u0442\u043E\u0431\u044B \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432 \u2014 \u043E\u0442\u043A\u0440\u043E\u0439 Premium.';
+                '\u0412\u044B \u043F\u0440\u043E\u0432\u0435\u043B\u0438 \u0441 \u0424\u0440\u0435\u0434\u0438 ' + daysUsed + ' \u0434\u043D\u044F \u2014 \u0441\u043F\u0430\u0441\u0438\u0431\u043E, \u0447\u0442\u043E \u043F\u043E\u043F\u0440\u043E\u0431\u043E\u0432\u0430\u043B\u0438.<br>' +
+                '\u0427\u0442\u043E\u0431\u044B \u043D\u0435 \u0442\u0435\u0440\u044F\u0442\u044C \u043D\u0438\u0442\u044C \u0431\u0435\u0441\u0435\u0434\u044B \u2014 \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 Premium, \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u043C \u0431\u0435\u0437 \u043F\u0435\u0440\u0435\u0440\u044B\u0432\u043E\u0432.';
             timerHtml = '';
         } else {
             // \u0414\u043D\u0435\u0432\u043D\u043E\u0439 \u043B\u0438\u043C\u0438\u0442 \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D, \u043D\u043E trial-\u0434\u043D\u0438 \u0435\u0449\u0451 \u0435\u0441\u0442\u044C.
-            emoji = '\u23F1\uFE0F'; // \u23F1
-            title = '10 \u043C\u0438\u043D\u0443\u0442 \u0441\u0435\u0433\u043E\u0434\u043D\u044F \u0438\u0441\u0447\u0435\u0440\u043F\u0430\u043D\u044B';
+            emoji = '\uD83D\uDCAC'; // \uD83D\uDCAC
+            title = '\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u043C \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440?';
             mainText =
-                '\u0414\u043D\u0435\u0432\u043D\u043E\u0439 \u043B\u0438\u043C\u0438\u0442 \u0432 ' + limit + ' \u043C\u0438\u043D\u0443\u0442 \u2014 \u043F\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u0441\u044F \u0432 00:00 UTC.<br>' +
-                '\u041C\u043E\u0436\u043D\u043E \u0436\u0434\u0430\u0442\u044C \u0438\u043B\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u044C Premium \u2014 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432.';
+                '\u0421\u0435\u0433\u043E\u0434\u043D\u044F \u0432\u044B \u0443\u0436\u0435 \u043F\u043E\u0433\u043E\u0432\u043E\u0440\u0438\u043B\u0438 \u0441 \u0424\u0440\u0435\u0434\u0438 ~' + Math.round(usedToday) + ' \u043C\u0438\u043D \u0438\u0437 ' + limit + '.<br>' +
+                '\u041C\u043E\u0436\u043D\u043E \u0432\u0435\u0440\u043D\u0443\u0442\u044C\u0441\u044F \u0437\u0430\u0432\u0442\u0440\u0430 \u2014 \u0438\u043B\u0438 \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u043F\u0440\u044F\u043C\u043E \u0441\u0435\u0439\u0447\u0430\u0441 \u0431\u0435\u0437 \u043F\u0435\u0440\u0435\u0440\u044B\u0432\u0430.';
             timerHtml = minutesUntilReset > 0
                 ? '<div class="meter-timer" id="meterTimer">\u041D\u043E\u0432\u044B\u0439 \u0434\u0435\u043D\u044C \u0447\u0435\u0440\u0435\u0437 ' + _formatResetCountdown(minutesUntilReset) + '</div>'
                 : '';
@@ -214,12 +248,16 @@
                 '<div class="meter-title">' + title + '</div>' +
                 timerHtml +
                 '<div class="meter-text">' + mainText + '</div>' +
-                '<div class="meter-features-title">\u0421 Premium \u0424\u0440\u0435\u0434\u0438 \u043D\u0435 \u0443\u0441\u0442\u0430\u0451\u0442:</div>' +
+                contextHtml +
+                '<div class="meter-features-title">\u0427\u0442\u043E \u0434\u0430\u0451\u0442 Premium:</div>' +
                 PREMIUM_FEATURES +
-                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">\u2728 Premium \u2014 690 \u20BD/\u043C\u0435\u0441, \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432</button>' +
+                '<button class="meter-btn meter-btn-primary" id="meterSubscribeBtn">' +
+                    '\u2728 \u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440' +
+                    '<span class="meter-btn-sub">Premium \u2014 690 \u20BD / \u043C\u0435\u0441, \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u043E\u0432</span>' +
+                '</button>' +
                 (trialExhausted
                     ? '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u0434\u0443\u043C\u0430\u044E \u043F\u043E\u0437\u0436\u0435</button>'
-                    : '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u041F\u043E\u043D\u044F\u0442\u043D\u043E, \u0434\u043E \u0437\u0430\u0432\u0442\u0440\u0430</button>') +
+                    : '<button class="meter-btn meter-btn-secondary" id="meterCloseBtn">\u0412\u0435\u0440\u043D\u0443\u0441\u044C \u0437\u0430\u0432\u0442\u0440\u0430</button>') +
             '</div>';
         document.body.appendChild(overlay);
 

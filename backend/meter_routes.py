@@ -134,16 +134,26 @@ def register_meter_routes(app, db, limiter):
                 result["is_on_cooldown"] = False
                 result["remaining_cooldown_minutes"] = 0
             else:
-                remaining = status.get("remaining_minutes", 30)
-                if (remaining is not None
-                        and remaining <= 5
-                        and not status.get("is_premium")):
+                # Warning срабатывает при ≥70% использованного лимита —
+                # синхронно с фронтовым _showWarningToast. Раньше был
+                # фиксированный «remaining ≤ 5 мин», который не зависел
+                # от размера лимита и не попадал в воронку при изменении
+                # FREE_DAILY_MINUTES.
+                remaining = status.get("remaining_minutes")
+                used = status.get("used_minutes_today")
+                limit_min = status.get("limit_minutes")
+                if (limit_min and limit_min > 0
+                        and used is not None
+                        and not status.get("is_premium")
+                        and (used / limit_min) >= 0.70):
                     result["warning"] = True
-                    # Analytics: момент когда юзер в зоне warning — старт воронки.
                     try:
                         from analytics_routes import log_server_event
                         await log_server_event(int(user_id), "meter_warning_server", {
-                            "remaining_minutes": float(remaining),
+                            "remaining_minutes": float(remaining or 0),
+                            "used_minutes": float(used),
+                            "limit_minutes": float(limit_min),
+                            "used_pct": round((used / limit_min) * 100, 1),
                         })
                     except Exception:
                         pass
