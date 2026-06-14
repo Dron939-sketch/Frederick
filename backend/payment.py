@@ -4,8 +4,10 @@ Recurring payments: first payment saves card, then autopay.
 """
 
 import asyncio
+import hashlib
 import os
 import logging
+import time
 import uuid
 import base64
 import httpx
@@ -35,8 +37,22 @@ class PaymentService:
         auth_b64 = base64.b64encode(auth_string.encode()).decode()
         return f"Basic {auth_b64}"
 
-    def _idempotence_key(self) -> str:
-        return str(uuid.uuid4())
+    def _idempotence_key(
+        self,
+        user_id: Optional[int] = None,
+        op: str = "default",
+        bucket_seconds: int = 600,
+    ) -> str:
+        # Без user_id — обычный одноразовый UUID (для операций, где
+        # дедупликация не нужна).
+        if user_id is None:
+            return str(uuid.uuid4())
+        # Стабильный ключ на (op, user, 10-мин окно). YooKassa по этому
+        # ключу вернёт существующий платёж вместо создания нового —
+        # это фикс тройного списания при дабл-клике/рестарте фронта.
+        bucket = int(time.time() // bucket_seconds)
+        raw = f"{op}:{user_id}:{bucket}"
+        return hashlib.sha256(raw.encode()).hexdigest()
 
     async def create_subscription_payment(
         self,
@@ -92,23 +108,28 @@ class PaymentService:
                     json=payment_data,
                     headers={
                         "Authorization": self._get_auth_header(),
-                        "Idempotence-Key": self._idempotence_key(),
+                        # Стабильный idempotence-key: при повторном вызове
+                        # в течение 10 минут YooKassa вернёт тот же платёж,
+                        # а не создаст новый.
+                        "Idempotence-Key": self._idempotence_key(
+                            user_id=user_id, op="subscription_first"
+                        ),
                         "Content-Type": "application/json",
                     },
                 )
-                
+
                 if resp.status_code != 200:
                     logger.error(f"YooKassa API error: {resp.status_code}")
                     logger.error(f"Response: {resp.text}")
-                    
+
                     if resp.status_code == 403:
                         return {
                             "success": False,
                             "error": "Ошибка аутентификации платежной системы. Пожалуйста, сообщите администратору."
                         }
-                    
+
                     resp.raise_for_status()
-                
+
                 result = resp.json()
 
             yookassa_id = result["id"]
