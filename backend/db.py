@@ -75,7 +75,9 @@ class Database:
         
         # Для production: включаем расширения
         try:
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
+            # pg_stat_statements requires shared_preload_libraries (not available on managed Amvera PG)
+
+            pass
         except Exception:
             pass  # Может не хватать прав
     

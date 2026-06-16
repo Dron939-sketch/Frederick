@@ -277,6 +277,8 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("📦 Подключение к PostgreSQL...")
         db = Database()
+        import os
+        print(f"[DEBUG] DATABASE_URL_FROM_ENV: {os.environ.get('DATABASE_URL', 'NOT_SET')!r}", flush=True)
         await db.connect()
         logger.info("✅ PostgreSQL подключена")
 
@@ -463,6 +465,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://meysternlp-ddd989.amvera.io",
+        "https://ffred-ddd989.amvera.io",
         "https://meysternlp.ru",
         "http://meysternlp.ru",
         "https://www.meysternlp.ru",
@@ -5560,7 +5564,7 @@ async def migrate_user(request: Request):
 
 
 # ---------- АДМИНКА ----------
-@app.get("/admin/stats")
+@app.get("/api/admin/stats")
 async def admin_stats(request: Request):
     try:
         async with db.get_connection() as conn:

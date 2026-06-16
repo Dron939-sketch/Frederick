@@ -1,4 +1,5 @@
 FROM python:3.11-slim
+RUN echo "Cache bust 2026-06-06-02:50" > /tmp/.cachebust
 
 WORKDIR /app
 

@@ -309,7 +309,7 @@ async def _get_user_name(db, user_id: int) -> str:
     """Имя из fredi_users.name (профиль). Пусто если нет."""
     try:
         row = await db.fetchrow(
-            "SELECT name FROM fredi_users WHERE user_id = $1", user_id
+            "SELECT COALESCE(profile->>'name', first_name, username) AS name FROM fredi_users WHERE user_id = $1", user_id
         )
         if row and row["name"]:
             n = str(row["name"]).strip()

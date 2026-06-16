@@ -746,7 +746,7 @@ async def _tick(db, *, force: bool = False):
                 # retry тоже не считается в лимит тика, пробуем следующего
             await asyncio.sleep(INTER_SEND_PAUSE_SEC + random.uniform(0, 2))
 
-    if any(summary[k] for k in ("d1_sent", "d2_sent", "d3_sent")):
+    if any(summary.get(k, 0) for k in ("d1_sent", "d2_sent", "d3_sent")):
         logger.info(f"drip tick: {summary}")
 
 
