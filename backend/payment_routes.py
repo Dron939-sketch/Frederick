@@ -163,6 +163,54 @@ def register_payment_routes(app, db, limiter):
                         "UPDATE fredi_users SET phone = $2, updated_at = NOW() WHERE user_id = $1",
                         user_id, customer_phone
                     )
+
+            # Идемпотентность: если за последние 10 минут уже создан
+            # pending-платёж за эту же подписку — отдаём его confirmation_url
+            # вместо создания нового. Это страховка от тройного списания,
+            # когда фронт по какой-то причине дёрнул endpoint несколько раз.
+            try:
+                async with db.get_connection() as conn:
+                    existing = await conn.fetchrow(
+                        """
+                        SELECT yookassa_id, created_at
+                        FROM fredi_payments
+                        WHERE user_id = $1
+                          AND payment_type = 'subscription_first'
+                          AND status IN ('pending', 'waiting_for_capture')
+                          AND created_at > NOW() - INTERVAL '10 minutes'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        user_id,
+                    )
+                if existing:
+                    existing_id = existing["yookassa_id"]
+                    payment_obj = await payment_service._fetch_payment(existing_id)
+                    if payment_obj:
+                        yk_status = payment_obj.get("status")
+                        conf = (payment_obj.get("confirmation") or {}).get(
+                            "confirmation_url"
+                        )
+                        if (
+                            yk_status in ("pending", "waiting_for_capture")
+                            and conf
+                        ):
+                            logger.info(
+                                "Returning existing pending payment "
+                                f"{existing_id} for user {user_id} (dedupe)"
+                            )
+                            return {
+                                "success": True,
+                                "payment_id": existing_id,
+                                "confirmation_url": conf,
+                                "deduplicated": True,
+                            }
+            except Exception as dedupe_err:
+                # Не блокируем создание нового платежа из-за сбоя дедуп-проверки.
+                logger.warning(
+                    f"dedupe check failed for user {user_id}: {dedupe_err}"
+                )
+
             result = await payment_service.create_subscription_payment(
                 user_id, return_url,
                 customer_email=customer_email,
