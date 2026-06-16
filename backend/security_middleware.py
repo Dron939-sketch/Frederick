@@ -4,23 +4,11 @@ Import and call apply_security(app) after app creation in main.py.
 """
 
 import logging
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
-
-# Allowed origins for CORS
-ALLOWED_ORIGINS = [
-    "https://fredi-frontend.onrender.com",
-    "https://meysternlp.ru",
-    "https://www.meysternlp.ru",
-    "https://dron939-sketch.github.io",
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-]
 
 # Max request body size (5MB)
 MAX_BODY_SIZE = 5 * 1024 * 1024
@@ -54,31 +42,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def apply_security(app):
     """Apply security middleware to FastAPI app.
-    
-    Call BEFORE other middleware. Example:
-        from security_middleware import apply_security
-        apply_security(app)
+
+    Call AFTER main.py's CORSMiddleware is added (we don't touch CORS here —
+    main.py owns CORS as single source of truth с allow_credentials=True для
+    cookie-based session). Раньше тут добавлялся второй CORSMiddleware с
+    allow_credentials=False, который в Starlette LIFO-порядке обрабатывался
+    ПЕРВЫМ и перебивал ACAC из main.py → весь auth / cookies / messages
+    падал на CORS preflight на проде.
+
+    Сейчас apply_security вешает только security headers + size limit.
     """
-    # Remove existing CORS middleware if any
-    # (FastAPI adds it via app.add_middleware, we replace it)
-    
     # Security headers
     app.add_middleware(SecurityHeadersMiddleware)
-    
+
     # Request size limit
     app.add_middleware(RequestSizeLimitMiddleware)
-    
-    # Strict CORS
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=ALLOWED_ORIGINS,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "Accept"],
-        max_age=3600,
-    )
-    
-    logger.info(f"Security middleware applied. CORS origins: {len(ALLOWED_ORIGINS)}")
+
+    logger.info("Security middleware applied (headers + size limit; CORS owned by main.py)")
 
 
 def validate_message(text, max_length=MAX_MESSAGE_LENGTH):
