@@ -558,13 +558,76 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                 except Exception as e:
                     logger.warning(f"merge-anon: skip {t}: {e}")
 
-            # fredi_user_contexts — особый случай: у обоих может быть запись. Приоритет — у аккаунта.
+            # fredi_user_contexts — особый случай: у обоих может быть запись.
+            # Если у target ещё нет имени — копируем из anon, иначе оставляем target.
             try:
-                await conn.execute(
-                    "DELETE FROM fredi_user_contexts WHERE user_id = $1", anon_uid
+                anon_ctx = await conn.fetchrow(
+                    "SELECT name, age, gender, city, privacy FROM fredi_user_contexts WHERE user_id = $1", anon_uid
                 )
-            except Exception:
-                pass
+                tgt_ctx = await conn.fetchrow(
+                    "SELECT name FROM fredi_user_contexts WHERE user_id = $1", target_uid
+                )
+                if anon_ctx and (not tgt_ctx or not (tgt_ctx.get("name") or "").strip()):
+                    await conn.execute(
+                        """INSERT INTO fredi_user_contexts (user_id, name, age, gender, city, privacy, updated_at)
+                           VALUES ($1, $2, $3, $4, $5, COALESCE($6, '{}'::jsonb), NOW())
+                           ON CONFLICT (user_id) DO UPDATE SET
+                               name = COALESCE(NULLIF(EXCLUDED.name, ''), fredi_user_contexts.name),
+                               age = COALESCE(EXCLUDED.age, fredi_user_contexts.age),
+                               gender = COALESCE(NULLIF(EXCLUDED.gender, ''), fredi_user_contexts.gender),
+                               city = COALESCE(NULLIF(EXCLUDED.city, ''), fredi_user_contexts.city),
+                               updated_at = NOW()
+                        """,
+                        target_uid,
+                        anon_ctx.get("name") or "",
+                        anon_ctx.get("age"),
+                        anon_ctx.get("gender") or "",
+                        anon_ctx.get("city") or "",
+                        anon_ctx.get("privacy"),
+                    )
+                await conn.execute("DELETE FROM fredi_user_contexts WHERE user_id = $1", anon_uid)
+            except Exception as e:
+                logger.warning(f"merge-anon: contexts merge failed: {e}")
+
+            # Переносим psychologist-данные из самой fredi_users:
+            # profile_data, ai_generated_profile, behavioral_levels, perception_type.
+            # Это ТЕСТ юзера. Если он прошёл тест анонимно, потом зарегился,
+            # этот блок переносит результат теста на новый user_id.
+            # Перетираем только если у target эти поля пусты.
+            try:
+                anon_row = await conn.fetchrow(
+                    """SELECT profile_data, ai_generated_profile, behavioral_levels, perception_type, profile_photo
+                       FROM fredi_users WHERE user_id = $1""", anon_uid
+                )
+                tgt_row = await conn.fetchrow(
+                    """SELECT profile_data, ai_generated_profile, behavioral_levels, perception_type, profile_photo
+                       FROM fredi_users WHERE user_id = $1""", target_uid
+                )
+                if anon_row:
+                    sets = []
+                    args = []
+                    arg_idx = 1
+                    def _empty(v):
+                        if v is None: return True
+                        if isinstance(v, (dict, list)) and len(v) == 0: return True
+                        if isinstance(v, str) and not v.strip(): return True
+                        return False
+                    for col in ("profile_data", "ai_generated_profile", "behavioral_levels", "perception_type", "profile_photo"):
+                        anon_v = anon_row.get(col)
+                        tgt_v = (tgt_row or {}).get(col) if tgt_row else None
+                        if not _empty(anon_v) and _empty(tgt_v):
+                            sets.append(f"{col} = ${arg_idx}")
+                            args.append(anon_v)
+                            arg_idx += 1
+                    if sets:
+                        args.append(target_uid)
+                        await conn.execute(
+                            f"UPDATE fredi_users SET {', '.join(sets)}, updated_at = NOW() WHERE user_id = ${arg_idx}",
+                            *args,
+                        )
+                        logger.info(f"merge-anon: copied profile fields ({len(sets)}) from anon={anon_uid} → target={target_uid}")
+            except Exception as e:
+                logger.warning(f"merge-anon: profile fields merge failed: {e}")
 
             # Наконец удаляем самого анонимного юзера.
             try:
