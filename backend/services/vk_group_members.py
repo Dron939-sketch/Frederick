@@ -38,6 +38,55 @@ from vk_fisherman_search import (
 logger = logging.getLogger(__name__)
 
 
+import os as _os
+VK_API_VERSION_USER = "5.199"
+
+
+async def _user_token_filter_writable(user_ids: List[int]) -> Optional[set]:
+    """Возвращает set vk_id, кому МОЖНО писать (can_write_private_message=1),
+    либо None если user-токен недоступен (тогда фильтр пропускается).
+
+    Использует VK_USER_TOKEN (тот же что для отправки голосовых).
+    Это user-token, который в отличие от service-token, при users.get
+    отдаёт can_write_private_message — проверка privacy без попытки
+    отправки сообщения.
+    """
+    token = (_os.environ.get("VK_USER_TOKEN") or "").strip()
+    if not token:
+        return None
+    if not user_ids:
+        return set()
+    writable: set = set()
+    # users.get принимает до 1000 user_ids за один запрос
+    CHUNK = 500
+    async with httpx.AsyncClient(timeout=30) as client:
+        for i in range(0, len(user_ids), CHUNK):
+            batch = user_ids[i:i + CHUNK]
+            try:
+                resp = await client.post(
+                    "https://api.vk.com/method/users.get",
+                    data={
+                        "user_ids": ",".join(str(x) for x in batch),
+                        "fields": "can_write_private_message",
+                        "access_token": token,
+                        "v": VK_API_VERSION_USER,
+                    },
+                )
+                data = resp.json()
+            except Exception as e:
+                logger.warning(f"_user_token_filter_writable: chunk request failed: {e}")
+                continue
+            if "error" in data:
+                logger.warning(f"_user_token_filter_writable: VK error {data['error']}")
+                # При первой ошибке — отказываемся от фильтра, чтобы не блокировать парсинг
+                return None
+            for u in (data.get("response") or []):
+                if int(u.get("can_write_private_message") or 0) == 1:
+                    writable.add(int(u.get("id") or 0))
+            await asyncio.sleep(0.35)
+    return writable
+
+
 _GROUP_ID_RE = re.compile(r"^-?\d+$")
 _GROUP_URL_RE = re.compile(
     r"^(?:https?://)?(?:[a-z0-9.-]*\.)?vk\.(?:com|ru)/(?P<rest>[^/?#]+)", re.IGNORECASE
@@ -114,6 +163,7 @@ async def parse_group_members(
     city_id: Optional[int] = None,
     active_only: bool = True,
     active_inactivity_days: int = 90,
+    check_can_write: bool = False,
 ) -> Dict[str, Any]:
     """Возвращает {group, candidates, stats}."""
     stats: Dict[str, int] = {
@@ -214,6 +264,19 @@ async def parse_group_members(
                 # если city не отдан — пропускаем (нет данных)
             passed = _pass3
         stats["after_city"] = len(passed)
+
+        # 🔒 Фильтр privacy: оставляем только тех кому можно писать (can_write_private_message=1)
+        # Делаем последним, чтобы users.get лишний раз не дёргать на отсеянных.
+        if check_can_write and passed:
+            ids = [int(u.get("id") or 0) for u in passed if u.get("id")]
+            writable = await _user_token_filter_writable(ids)
+            if writable is None:
+                # user-token недоступен/упал — пропускаем фильтр, но логируем
+                logger.warning("check_can_write: VK_USER_TOKEN недоступен, пропускаю privacy-фильтр")
+                stats["can_write_skipped"] = True
+            else:
+                passed = [u for u in passed if int(u.get("id") or 0) in writable]
+        stats["after_can_write"] = len(passed)
 
         # --- Сборка в формат _candidate_dict ---
         cat_label = f"group_{gr.get('screen_name') or gid}"
