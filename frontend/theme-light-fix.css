@@ -42,6 +42,11 @@
 [data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.15)"] { background: rgba(0,0,0,0.08) !important; }
 [data-theme="light"] #screenContainer [style*="background:rgba(255,255,255,0.2)"] { background: rgba(0,0,0,0.10) !important; }
 [data-theme="light"] #screenContainer [style*="background: rgba(255,255,255"] { background: rgba(0,0,0,0.05) !important; }
+/* Светло-серые (rgba(224,224,224,...)) фоны inline-полей/контейнеров →
+   на светлой теме оставались почти белыми. Текст и границы у них уже
+   перекрыты (см. правила color:white и border rgba(224,224,224 ниже),
+   но фон надо притемнить, иначе поле сливается с белым фоном. */
+[data-theme="light"] #screenContainer [style*="background:rgba(224,224,224"] { background: rgba(0,0,0,0.04) !important; }
 
 /* === BLACK BACKGROUNDS → LIGHT === */
 [data-theme="light"] #screenContainer [style*="background:rgba(0,0,0,0.5)"] { background: rgba(0,0,0,0.03) !important; }
