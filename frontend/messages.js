@@ -1571,7 +1571,7 @@ window.showContactShared = function(contact) {
     const box = document.getElementById('msContactInfo');
     if (box) {
         box.style.display = '';
-        box.innerHTML = `🔓 Контакты раскрыты!<br>📞 ${contact?.phone || '—'}&nbsp;&nbsp;📧 ${contact?.email || '—'}`;
+        box.innerHTML = `🔓 Контакты раскрыты!<br>📞 ${_msEsc(contact?.phone || '—')}&nbsp;&nbsp;📧 ${_msEsc(contact?.email || '—')}`;
     }
 };
 
