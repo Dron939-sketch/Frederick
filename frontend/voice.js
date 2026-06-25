@@ -578,6 +578,18 @@ class VoiceTransport {
                 const wasWS = this._mode === 'ws';
                 this._wsReady = false;
 
+                // 4002 = сервер закрыл из-за исчерпанного лимита (meter).
+                // НЕ делаем HTTP-фоллбэк и НЕ реконнектим — иначе уйдёт
+                // мёртвый запрос и юзер увидит «ошибку». Показываем пейволл
+                // (дедуп: если meter_blocked-сообщение уже показало — повтора нет).
+                if (e.code === 4002) {
+                    this._pendingAudioBlob = null;
+                    this._clearWsResponseTimer();
+                    this._showMeterPaywall({ trial_exhausted: true });
+                    if (this.onStatusChange) this.onStatusChange('idle');
+                    return;
+                }
+
                 // Если ждали ответ по WS — повторяем через HTTP
                 const pendingBlob = this._pendingAudioBlob;
                 this._pendingAudioBlob = null;
@@ -720,6 +732,16 @@ class VoiceTransport {
                     if (this.onStatusChange) this.onStatusChange('idle');
                     break;
 
+                case 'meter_blocked':
+                    // Лимит исчерпан — показываем пейволл, а не «ошибку».
+                    // Сервер следом закроет WS кодом 4002; HTTP-фоллбэк и
+                    // реконнект подавляются в onclose (см. ветку e.code===4002).
+                    this._clearWsResponseTimer();
+                    this._pendingAudioBlob = null;
+                    this._showMeterPaywall(msg);
+                    if (this.onStatusChange) this.onStatusChange('idle');
+                    break;
+
                 case 'thinking':
                     if (this.onThinkingUpdate) this.onThinkingUpdate(msg.message || 'Фреди думает');
                     break;
@@ -794,12 +816,58 @@ class VoiceTransport {
             return false;
         }
 
+        // Сброс флага дедупа пейволла на каждую новую отправку.
+        this._meterBlockedHandled = false;
+
+        // Предчек дневного лимита ДО отправки: если минуты исчерпаны —
+        // показываем пейволл сразу, не гоняя заведомо блокируемый запрос.
+        // Раньше запрос уходил, сервер рвал WS (4002) / возвращал 402, а
+        // фронт показывал generic «Ошибка» вместо предложения подписки.
+        try {
+            if (window.FrediMeter && typeof window.FrediMeter.checkCanSend === 'function') {
+                const chk = await window.FrediMeter.checkCanSend();
+                if (chk && chk.can_send === false) {
+                    this._showMeterPaywall(chk);
+                    if (this.onStatusChange) this.onStatusChange('idle');
+                    return false;
+                }
+            }
+        } catch (e) { /* предчек необязателен — упадём на серверную проверку */ }
+
         console.log(`📤 sendAudio: ${audioBlob.size}b (${audioBlob.type}) via ${this._mode.toUpperCase()}`);
 
         if (this._mode === 'ws' && this._wsReady && this._ws?.readyState === WebSocket.OPEN) {
             return this._sendWS(audioBlob);
         }
         return this._sendHTTP(audioBlob);
+    }
+
+    // Показ пейволла (исчерпан лимит) — единая точка для WS/HTTP-веток.
+    // Дедуп через _meterBlockedHandled: один пейволл на одну отправку,
+    // даже если прилетит и meter_blocked-сообщение, и close 4002.
+    _showMeterPaywall(data) {
+        if (this._meterBlockedHandled) return;
+        this._meterBlockedHandled = true;
+        this._pendingAudioBlob = null;
+        this._clearWsResponseTimer();
+        if (this.onThinking) this.onThinking(false);
+        const d = data || {};
+        const payload = {
+            limit_minutes: d.limit_minutes,
+            used_minutes_today: d.used_minutes_today,
+            minutes_until_reset: d.minutes_until_reset,
+            free_days_used: d.free_days_used,
+            trial_exhausted: !!(d.trial_exhausted || d.reason === 'trial_exhausted'),
+        };
+        try {
+            if (window.FrediMeter && typeof window.FrediMeter.showFatigueModal === 'function') {
+                window.FrediMeter.showFatigueModal(payload);
+            } else if (this.onError) {
+                this.onError(d.message || 'Дневной лимит исчерпан. Оформите Premium, чтобы продолжить.');
+            }
+        } catch (e) {
+            if (this.onError) this.onError('Дневной лимит исчерпан.');
+        }
     }
 
     // ---- WEBSOCKET ПУТЬ ----
@@ -898,6 +966,15 @@ class VoiceTransport {
             });
             clearTimeout(tid);
 
+            // 402 = дневной лимит исчерпан (meter_guard). Это не ошибка —
+            // показываем пейволл вместо generic-тоста «Ошибка».
+            if (resp.status === 402) {
+                const data = await resp.json().catch(() => ({}));
+                this._showMeterPaywall(data);
+                if (this.onStatusChange) this.onStatusChange('idle');
+                return false;
+            }
+
             if (!resp.ok) {
                 const body = await resp.text().catch(() => '');
                 throw new Error(`HTTP ${resp.status}: ${body.substring(0, 100)}`);
@@ -933,10 +1010,13 @@ class VoiceTransport {
                 if (ev.type === 'transcript') {
                     if (ev.text && this.onTranscript) this.onTranscript(ev.text);
                 } else if (ev.type === 'audio') {
-                    if (this.onThinking && !firstAudioPlayed) {
-                        // Первый аудио-чанк — гасим thinking-индикатор.
-                        this.onThinking(false);
+                    if (!firstAudioPlayed) {
                         firstAudioPlayed = true;
+                        // Первый аудио-чанк: гасим thinking-бабл в чате и
+                        // переключаем САМУ КНОПКУ на «🔊 Фреди отвечает…»,
+                        // чтобы прогресс ответа был виден без прокрутки вниз.
+                        if (this.onThinking) this.onThinking(false);
+                        if (this.onStatusChange) this.onStatusChange('speaking');
                     }
                     if (ev.text) fullText += (fullText ? ' ' : '') + ev.text;
                     enqueueAudio(ev.b64);

@@ -668,7 +668,7 @@ async def _enforce_premium_mode(user_id, requested_mode: str) -> str:
 _METER_AI_REGEX = _re_meter.compile(
     r"^/api/(?:"
     r"chat"
-    r"|voice/(?:process|stt|tts)"   # ← +stt/tts тоже LLM/TTS-биллинг
+    r"|voice/(?:process(?:_stream)?|stt|tts)"   # ← process_stream + stt/tts тоже LLM/TTS-биллинг
     r"|ai/generate"
     r"|deep-analysis"
     r"|hypno/support"
