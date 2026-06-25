@@ -11,7 +11,7 @@
     if (window._loginLoaded) return;
     window._loginLoaded = true;
 
-    var API_BASE = window.API_BASE_URL || (window.CONFIG && window.CONFIG.API_BASE_URL) || 'https://fredi-backend-flz2.onrender.com';
+    var API_BASE = window.API_BASE_URL || (window.CONFIG && window.CONFIG.API_BASE_URL) || 'https://ffred-ddd989.amvera.io';
     var LS_LAST_EMAIL = 'fredi_last_email';
 
     function _safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -82,10 +82,13 @@
         var m = document.getElementById('faAuthModal');
         if (m && m.parentNode) m.parentNode.removeChild(m);
         // Если автопоказ при входе закрылся без авторизации — запоминаем
-        // в sessionStorage. Не докучаем при перезагрузках этой же сессии.
-        // На следующий день / в другом браузере модалка снова появится.
+        // и в sessionStorage (не докучаем в этой же сессии), и в localStorage
+        // на 24 часа (не докучаем при каждом новом визите). По аналитике
+        // юзер с visits=14 получал auth_modal_auto_shown 12 раз подряд —
+        // это убивает retention и взвинчивает auth_modal_opened без конверсии.
         if (_lastSource === 'app_start' && !window.IS_AUTHENTICATED) {
             try { sessionStorage.setItem('fredi_auth_skipped', '1'); } catch (e) {}
+            try { localStorage.setItem('fredi_auth_dismissed_at', String(Date.now())); } catch (e) {}
         }
     }
 
@@ -319,7 +322,12 @@
             // had_anon=true всегда. Теперь видим реальное соотношение.
             var hadAnon = !!(anonUidBefore && anonUidBefore !== newUid);
             try { localStorage.setItem('fredi_user_id', String(newUid)); } catch (e) {}
+            try { localStorage.removeItem('fredi_auth_dismissed_at'); } catch (e) {}
             _track('register_success', { had_anon: hadAnon, source: _lastSource });
+            // Welcome voice: первый раз после регистрации играем
+            // голосовое приветствие Фреди через 3 сек после reload.
+            // Триггер срабатывает ОДИН раз — флаг played в app.js.
+            try { localStorage.setItem('fredi_welcome_pending', '1'); } catch (e) {}
             _toast('Аккаунт создан ✓', 'success');
 
             // Если был возвращающийся anon — мержим его данные на новый
@@ -390,6 +398,7 @@
             }
             _safeSet(LS_LAST_EMAIL, email);
             try { localStorage.setItem('fredi_user_id', data.user_id); } catch (e) {}
+            try { localStorage.removeItem('fredi_auth_dismissed_at'); } catch (e) {}
             _track('login_success', { remember: !!remember, has_anon_data: !!data.has_anon_data });
             _toast('Добро пожаловать, ' + (data.name || email) + '!', 'success');
             _closeModal();
@@ -819,6 +828,78 @@
         } catch (e) {}
     })();
 
+    function _incrementVisit() {
+        // Инкрементируем счётчик визитов. Новый визит = прошло >30 мин с прошлого.
+        try {
+            var now = Date.now();
+            var lastAt = parseInt(localStorage.getItem('fredi_last_visit_at') || '0', 10);
+            var visits = parseInt(localStorage.getItem('fredi_visits_count') || '0', 10);
+            if (!lastAt || (now - lastAt) > 30 * 60 * 1000) {
+                visits++;
+                localStorage.setItem('fredi_visits_count', String(visits));
+            }
+            localStorage.setItem('fredi_last_visit_at', String(now));
+            return visits;
+        } catch (e) { return 1; }
+    }
+
+    function _showNamePrompt() {
+        // Минимальная onboarding-модалка для 1-го визита: одно поле «Имя».
+        // Можно пропустить — не блокируем юзера. Цель: снизить friction
+        // с 90% bounce (см. аналитику auth_modal_auto_shown vs register_success).
+        if (document.getElementById('fredi-name-prompt')) return;
+        var overlay = document.createElement('div');
+        overlay.id = 'fredi-name-prompt';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)';
+        overlay.innerHTML = ''
+            + '<div style="background:var(--surface,#1a1a1a);border:1px solid rgba(255,255,255,0.08);border-radius:18px;padding:28px;max-width:380px;width:100%;text-align:center;font-family:inherit">'
+            + '  <div style="font-size:36px;margin-bottom:6px">⭐</div>'
+            + '  <div style="font-size:18px;font-weight:700;color:var(--text-primary,#fff);margin-bottom:8px">Привет, я Фреди.</div>'
+            + '  <div style="font-size:13px;color:var(--text-secondary,rgba(255,255,255,0.6));line-height:1.5;margin-bottom:20px">Виртуальный психолог. Без обид и без памяти.<br>Как тебя называть?</div>'
+            + '  <input id="fredi-name-input" type="text" maxlength="40" autocomplete="given-name" placeholder="Твоё имя" style="width:100%;padding:13px 15px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;color:var(--text-primary,#fff);font:15px inherit;box-sizing:border-box;outline:none;text-align:center;margin-bottom:14px">'
+            + '  <button id="fredi-name-continue" style="display:block;width:100%;padding:13px;border:none;border-radius:12px;background:linear-gradient(135deg,#3b82ff,#6366f1);color:#fff;font:700 14px inherit;cursor:pointer;margin-bottom:8px">Продолжить →</button>'
+            + '  <button id="fredi-name-skip" style="display:block;width:100%;padding:9px;border:none;border-radius:8px;background:transparent;color:var(--text-secondary,rgba(255,255,255,0.4));font:13px inherit;cursor:pointer">Пропустить</button>'
+            + '</div>';
+        document.body.appendChild(overlay);
+        var input = document.getElementById('fredi-name-input');
+        try { input.focus(); } catch (e) {}
+
+        async function _saveAndClose(name) {
+            var uid = (window.CONFIG && window.CONFIG.USER_ID) || window.USER_ID;
+            var trimmed = (name || '').trim();
+            if (trimmed && uid) {
+                try {
+                    var apiBase = (window.CONFIG && window.CONFIG.API_BASE_URL) || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
+                    await fetch(apiBase + '/api/save-context', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: uid, context: { name: trimmed } })
+                    });
+                    try { window.CONFIG.USER_NAME = trimmed; window.CURRENT_USER_NAME = trimmed; } catch (e) {}
+                } catch (e) { console.warn('save name failed', e); }
+            }
+            try { sessionStorage.setItem('fredi_name_prompt_seen', '1'); } catch (e) {}
+            _track('name_prompt_completed', { skipped: !trimmed });
+            overlay.remove();
+            // Перерисуем дашборд, если он уже на экране — чтобы подставилось имя в hero.
+            if (typeof window.renderDashboard === 'function') {
+                try { window.renderDashboard(); } catch (e) {}
+            }
+        }
+
+        document.getElementById('fredi-name-continue').addEventListener('click', function () {
+            _saveAndClose(input.value);
+        });
+        document.getElementById('fredi-name-skip').addEventListener('click', function () {
+            _saveAndClose('');
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); _saveAndClose(input.value); }
+        });
+
+        _track('name_prompt_shown', {});
+    }
+
     function _maybeShowOnLoad() {
         if (window.IS_AUTHENTICATED) return;
         try {
@@ -829,11 +910,6 @@
             if (p.get('reset_token')) return;
         } catch (e) {}
 
-        // Различаем «свежий юзер» vs «возвращающийся anon с данными» —
-        // им показываем разную копирайтерскую подачу, и в аналитике
-        // считаем их отдельно (их доля влияет на стратегию: если 80%
-        // открытий — fresh, важнее onboarding; если возвращаются —
-        // важнее merge-flow и доверие к сохранности).
         var hasUid = false;
         var hasData = false;
         try {
@@ -848,9 +924,55 @@
             }
         } catch (e) {}
 
+        var visits = _incrementVisit();
+
+        // 1-й визит — мягкий onboarding: спрашиваем только имя (или пропускаем).
+        // Полноценную auth-модалку показываем только начиная со 2-го визита,
+        // когда юзер уже немного знаком с Фреди и есть смысл сохранить прогресс.
+        if (visits <= 1) {
+            // Если в этой же сессии уже показывали (например ребут страницы) — не дёргаем повторно.
+            try { if (sessionStorage.getItem('fredi_name_prompt_seen') === '1') return; } catch (e) {}
+            _track('name_prompt_auto_shown', { visit: visits, user_kind: hasData ? 'returning_anon' : (hasUid ? 'returning_no_data' : 'fresh') });
+            _showNamePrompt();
+            return;
+        }
+
+        // 24-часовой snooze после dismiss. Если юзер недавно закрыл модал —
+        // не показываем его снова при каждом следующем визите.
+        try {
+            var dismissedAt = parseInt(localStorage.getItem('fredi_auth_dismissed_at') || '0', 10);
+            if (dismissedAt && (Date.now() - dismissedAt) < 24 * 60 * 60 * 1000) {
+                _track('auth_modal_auto_skipped', {
+                    reason: 'recent_dismiss',
+                    hours_since: Math.round((Date.now() - dismissedAt) / 3600000),
+                    visits: visits,
+                    user_kind: hasData ? 'returning_anon' : (hasUid ? 'returning_no_data' : 'fresh')
+                });
+                return;
+            }
+        } catch (e) {}
+
+        // Экспоненциальная каденция: показываем модал на визитах 2, 5, 10, 20, 40, 80…
+        // Вместо «каждый визит начиная со 2-го». У того же анона мы можем
+        // встретиться с просьбой о регистрации не 12 раз, а 3-4 за месяц.
+        // Анонам без какой-либо активности (hasData=false) — каденцию ещё реже:
+        // им продукт ещё не доказал ценность, мы не имеем права требовать аккаунт.
+        var cadenceFull   = [2, 5, 10, 20, 40, 80, 160];
+        var cadenceSilent = [5, 20, 80];
+        var cadence = hasData ? cadenceFull : cadenceSilent;
+        if (cadence.indexOf(visits) === -1) {
+            _track('auth_modal_auto_skipped', {
+                reason: 'off_cadence',
+                visits: visits,
+                user_kind: hasData ? 'returning_anon' : (hasUid ? 'returning_no_data' : 'fresh')
+            });
+            return;
+        }
+
         _track('auth_modal_auto_shown', {
             source: 'app_start',
-            user_kind: hasData ? 'returning_anon' : (hasUid ? 'returning_no_data' : 'fresh')
+            user_kind: hasData ? 'returning_anon' : (hasUid ? 'returning_no_data' : 'fresh'),
+            visits: visits
         });
         _open('register', { source: 'app_start' });
     }

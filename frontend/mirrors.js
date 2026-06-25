@@ -3,7 +3,7 @@
 // Версия 3.3 — унификация USER_ID + mobile/Telegram WebView / PWA / private-mode fallback
 // ============================================
 
-const API_BASE = window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+const API_BASE = window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
 
 // ============================================
 // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ USER_ID (ДЛЯ МОБИЛЬНЫХ УСТРОЙСТВ)
@@ -572,7 +572,7 @@ async function showReflectionsTab(container) {
                                 border-radius:20px;padding:20px;">
                         <div class="mirror-section-label">КАК ЭТО РАБОТАЕТ</div>
                         ${['1️⃣ Создаёшь уникальную ссылку',
-                           '2️⃣ Отправляешь другу в Telegram или MAX',
+                           '2️⃣ Отправляешь её другу любым удобным способом',
                            '3️⃣ Друг проходит тест по твоей ссылке',
                            '4️⃣ Тебе открывается его полный профиль + интимный + 4F ключи'].map(s => `
                             <div style="display:flex;align-items:center;gap:10px;padding:10px 0;
@@ -687,29 +687,7 @@ async function showCreateLinkTab(container) {
             <!-- ВЫБОР ПЛАТФОРМЫ -->
             <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
                         border-radius:20px;padding:20px;margin-bottom:16px;">
-                <div class="mirror-section-label">ВЫБЕРИ ПЛАТФОРМУ</div>
-
-                <button class="mirror-action-btn" onclick="generateMirrorLink('telegram')">
-                    <div style="width:44px;height:44px;border-radius:12px;background:rgba(0,136,204,0.15);
-                                border:1px solid rgba(0,136,204,0.3);display:flex;align-items:center;
-                                justify-content:center;font-size:22px;flex-shrink:0;">✈️</div>
-                    <div style="flex:1;">
-                        <div style="font-size:14px;font-weight:600;color:#fff;">Telegram</div>
-                        <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">t.me/Nanotech_varik_bot?start=mirror_...</div>
-                    </div>
-                    <div style="color:rgba(255,255,255,0.2);font-size:18px;">›</div>
-                </button>
-
-                <button class="mirror-action-btn" onclick="generateMirrorLink('max')">
-                    <div style="width:44px;height:44px;border-radius:12px;background:rgba(255,107,59,0.12);
-                                border:1px solid rgba(255,107,59,0.25);display:flex;align-items:center;
-                                justify-content:center;font-size:22px;flex-shrink:0;">⚡</div>
-                    <div style="flex:1;">
-                        <div style="font-size:14px;font-weight:600;color:#fff;">MAX</div>
-                        <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">max.ru/id502238728185_bot?start=mirror_...</div>
-                    </div>
-                    <div style="color:rgba(255,255,255,0.2);font-size:18px;">›</div>
-                </button>
+                <div class="mirror-section-label">СПОСОБ ОТПРАВКИ</div>
 
                 <button class="mirror-action-btn" onclick="generateMirrorLink('web')" style="margin-bottom:0;">
                     <div style="width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,0.06);

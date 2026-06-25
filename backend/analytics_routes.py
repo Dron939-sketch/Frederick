@@ -288,15 +288,20 @@ def register_analytics_routes(app, db):
                     "meter_subscribe_clicked": msc,
                     "subscription_activated": sub_act,
                 }
-                # Средняя длительность фич (feature_closed.duration_sec)
+                # Средняя длительность фич (feature_closed.duration_sec).
+                # LEAST cap 7200с (2 часа): защита от старых wall-clock
+                # значений (юзер открыл вкладку и закрыл через сутки →
+                # duration_sec = 86400). После fix tracker.js дальше всё
+                # будет коротким, но исторические данные ещё неделю в окне.
                 feat_rows = await conn.fetch(
                     "SELECT (data->>'feature') AS feature, "
-                    "AVG((data->>'duration_sec')::int) AS avg_sec, "
+                    "AVG(LEAST((data->>'duration_sec')::int, 7200)) AS avg_sec, "
                     "COUNT(*) AS opens "
                     "FROM fredi_analytics "
                     "WHERE event = 'feature_closed' "
                     "AND created_at > NOW() - INTERVAL '7 days' "
                     "AND data ? 'feature' AND data ? 'duration_sec' "
+                    "AND (data->>'duration_sec') ~ '^[0-9]+$' "
                     "GROUP BY feature ORDER BY avg_sec DESC NULLS LAST LIMIT 20"
                 )
                 features = [{

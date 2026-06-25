@@ -3,7 +3,7 @@
 // Версия 5.1 - С ПОГОДОЙ В КОНТЕКСТЕ
 // ============================================
 
-const TEST_API_BASE_URL = 'https://fredi-backend-flz2.onrender.com';
+const TEST_API_BASE_URL = (window.CONFIG && window.CONFIG.API_BASE_URL) || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
 
 const Test = {
 

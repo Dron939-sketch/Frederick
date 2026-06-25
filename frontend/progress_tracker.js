@@ -227,7 +227,7 @@ async function _ptFetchTransitions(skillId) {
         return _ptTC.transitions;
     }
     try {
-        const api = window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const api = window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const r = await fetch(`${api}/api/skill-plan/details/${encodeURIComponent(skillId)}`,
                               { cache: 'no-store' });
         if (!r.ok) return null;

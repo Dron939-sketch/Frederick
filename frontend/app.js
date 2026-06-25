@@ -1,9 +1,30 @@
+// Стили для мигающего бутера-приглашения. Голубое свечение + плавная
+// пульсация. После первого клика класс убирается и кнопка возвращается
+// в обычный нейтральный вид.
+(function _injectMenuAttentionStyles() {
+    if (document.getElementById('fredi-menu-attention-styles')) return;
+    var s = document.createElement('style');
+    s.id = 'fredi-menu-attention-styles';
+    s.textContent = ''
+        + '@keyframes fredi-menu-pulse {'
+        + '  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6); color: #60a5fa; }'
+        + '  50%      { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); color: #93c5fd; }'
+        + '}'
+        + '.mobile-menu-btn--attention {'
+        + '  color: #60a5fa !important;'
+        + '  background: rgba(59, 130, 246, 0.15) !important;'
+        + '  border-radius: 8px;'
+        + '  animation: fredi-menu-pulse 1.4s ease-in-out infinite;'
+        + '}';
+    document.head.appendChild(s);
+})();
+
 // ============================================
 // КОНФИГУРАЦИЯ
 // ============================================
 
 const CONFIG = {
-    API_BASE_URL: 'https://fredi-backend-flz2.onrender.com',
+    API_BASE_URL: 'https://ffred-ddd989.amvera.io',
 
     // USER_ID: всегда числовой (localStorage + cookie fallback)
     get USER_ID() {
@@ -127,8 +148,8 @@ const MODES = {
         name: 'БАЗОВЫЙ',
         emoji: '💬',
         color: '#6E6E73',
-        greeting: 'Я Фреди — поговорим о том, что для вас важно.',
-        voicePrompt: 'Расскажите, что у вас на душе'
+        greeting: 'Я Фреди — ваш виртуальный психолог и собеседник.',
+        voicePrompt: 'О чём поговорим?'
     },
     coach: {
         id: 'coach',
@@ -673,7 +694,9 @@ function navigateTo(screen, params = {}) {
         case 'tales': if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; s.onerror=()=>{showToast('Не удалось загрузить модуль','error');}; document.head.appendChild(s); } break;
         case 'anchors': if (typeof showAnchorsScreen==='function') showAnchorsScreen(); else { const s=document.createElement('script');s.src='anchors.js';s.onload=()=>{if(typeof showAnchorsScreen==='function')showAnchorsScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'dreams': if (typeof showDreamsScreen==='function') showDreamsScreen(); else { const s=document.createElement('script');s.src='dreams.js';s.onload=()=>{if(typeof showDreamsScreen==='function')showDreamsScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
+        case 'supervizor': if (typeof showSupervizorScreen==='function') showSupervizorScreen(); else { const s=document.createElement('script');s.src='supervizor.js';s.onload=()=>{if(typeof showSupervizorScreen==='function')showSupervizorScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'esoterica': if (typeof showEsotericaScreen==='function') showEsotericaScreen(); else { const s=document.createElement('script');s.src='esoterica.js';s.onload=()=>{if(typeof showEsotericaScreen==='function')showEsotericaScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
+        case 'kontur': if (typeof showKonturScreen==='function') showKonturScreen(); else { const s=document.createElement('script');s.src='kontur.js';s.onload=()=>{if(typeof showKonturScreen==='function')showKonturScreen();};s.onerror=()=>{showToast('Не удалось загрузить модуль','error');};document.head.appendChild(s); } break;
         case 'statistics': showStatistics(); break;
         case 'analysis':
             if (typeof openAnalysisScreen === 'function') {
@@ -963,9 +986,13 @@ async function switchMode(mode) {
             await apiCall('/api/save-mode', { method: 'POST', body: JSON.stringify({ user_id: CONFIG.USER_ID, mode }) });
         } catch (e) { console.warn('Failed to save mode:', e); }
     } else {
-        // Без подписки: визуальное переключение есть, но диалог остаётся базовым.
-        // Показываем мягкое окно про премиум.
-        showPremiumLockPopup(config.name);
+        // Без подписки: визуальное переключение работает, диалог
+        // остаётся базовым (бэк сам понижает promt до basic через
+        // _enforce_premium_mode). Раньше тут вылазил popup —
+        // он отпугивал юзеров на этапе знакомства. Убрали:
+        // пусть пробует, ощутит ценность сам, и тогда сам пойдёт
+        // в подписку. Если упрётся в дневной лимит — meter
+        // покажет paywall в нужный момент.
         if (voiceManager && voiceManager.setMode) voiceManager.setMode('basic');
     }
     renderDashboard();
@@ -1739,14 +1766,45 @@ function renderDashboard() {
         }
     } catch (e) {}
 
+    // Анонс модуля «Ритуал» — показываем один раз, пока пользователь не открыл
+    // этот таб. NEW-бейдж на пункте «Эзотерика» висит до первого открытия.
+    var ritualBannerHtml = '';
+    try {
+        if (!localStorage.getItem('fredi_ritual_announce_seen_v1')) {
+            ritualBannerHtml = ''
+                + '<div class="ritual-banner" id="ritualBanner" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(99,102,241,0.08));border:1px solid rgba(139,92,246,0.35);border-radius:14px;padding:14px 16px;margin:12px 16px 0;display:flex;align-items:center;gap:12px;cursor:pointer">'
+                + '  <div style="font-size:28px;flex-shrink:0">🪬</div>'
+                + '  <div style="flex:1;min-width:0">'
+                + '    <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Новый модуль: AI-ритуал <span style="background:linear-gradient(135deg,#8B5CF6,#6366F1);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:4px;letter-spacing:0.5px;vertical-align:middle">NEW</span></div>'
+                + '    <div style="font-size:11px;color:var(--text-secondary);line-height:1.4">Собирает поведенческий протокол под твоё конкретное желание. 10 вопросов — AI генерит ритуал на 11 дней с ингредиентами, формулой и датой открытия конверта.</div>'
+                + '  </div>'
+                + '  <button id="ritualBannerOpen" style="background:linear-gradient(135deg,#8B5CF6,#6366F1);color:#fff;border:none;padding:8px 14px;border-radius:10px;font-size:12px;font-weight:600;flex-shrink:0;cursor:pointer">Попробовать</button>'
+                + '  <button id="ritualBannerDismiss" aria-label="Закрыть" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:18px;padding:4px 6px;line-height:1">✕</button>'
+                + '</div>';
+        }
+    } catch (e) {}
+
+    // Имя-обращение вставляем ПЕРЕД финальной .!?… приветствия — иначе
+    // выходит «…что для вас важно., Андрей» (точка + запятая). Без имени —
+    // приветствие остаётся как есть.
+    const _hg = (modeConfig.greeting || '');
+    const _hgM = _hg.match(/^([\s\S]*?)\s*([.!?…]+)\s*$/);
+    const _hgBody = _hgM ? _hgM[1] : _hg;
+    const _hgPunct = _hgM ? _hgM[2] : '';
+    const _hgName = (CONFIG.USER_NAME || '').trim();
+    const heroGreetingHtml = _hgName
+        ? `${_hgBody}, <span class="hero-name">${_hgName}</span>${_hgPunct}`
+        : `${_hgBody}${_hgPunct}`;
+
     container.innerHTML = `
         <div class="dashboard-container">
             ${maxBannerHtml}
+            ${ritualBannerHtml}
             <div class="hero-section">
                 <div class="hero-greeting">
                     <div class="hero-mode-emoji">${modeConfig.emoji}</div>
-                    <h2 class="hero-title">${modeConfig.greeting}, <span class="hero-name">${CONFIG.USER_NAME}</span></h2>
-                    <p class="hero-sub">Фреди слушает — говорите голосом или выберите действие</p>
+                    <h2 class="hero-title">${heroGreetingHtml}</h2>
+                    <p class="hero-sub">Слушает, поддерживает, помогает разобраться — говорите голосом или выберите действие</p>
                 </div>
                 <div class="profile-badge" id="profileBadge">
                     <div class="profile-code" id="profileCode">${CONFIG.PROFILE_CODE || '···'}</div>
@@ -2020,6 +2078,54 @@ function renderDashboard() {
             maxBan.style.display = 'none';
         });
     }
+
+    // === Анонс модуля «Ритуал» ===
+    // NEW-бейдж на пункте меню «Эзотерика» — пока пользователь не открыл
+    // ритуал хотя бы раз.
+    try {
+        var seen = !!localStorage.getItem('fredi_ritual_announce_seen_v1');
+        var navBadge = document.getElementById('navEsotericaBadge');
+        if (navBadge) navBadge.style.display = seen ? 'none' : 'inline-block';
+    } catch (e) {}
+
+    // Обработчик кликов по баннеру и кнопке "Попробовать"
+    window.openRitualFromBanner = function () {
+        try {
+            localStorage.setItem('fredi_ritual_announce_seen_v1', '1');
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('ritual_banner_clicked', {});
+            }
+        } catch (e) {}
+        // Открываем экран эзотерики на табе "ritual"
+        if (typeof showEsotericaScreen === 'function') {
+            showEsotericaScreen('ritual');
+        } else {
+            var s = document.createElement('script');
+            s.src = 'esoterica.js';
+            s.onload = function () {
+                if (typeof showEsotericaScreen === 'function') showEsotericaScreen('ritual');
+            };
+            document.head.appendChild(s);
+        }
+    };
+    document.getElementById('ritualBanner')?.addEventListener('click', function (e) {
+        // Игнорируем клики по крестику-dismiss
+        if (e.target.closest('#ritualBannerDismiss')) return;
+        window.openRitualFromBanner();
+    });
+    document.getElementById('ritualBannerDismiss')?.addEventListener('click', function (e) {
+        e.stopPropagation();
+        try {
+            localStorage.setItem('fredi_ritual_announce_seen_v1', '1');
+            if (window.FrediTracker?.track) {
+                window.FrediTracker.track('ritual_banner_dismissed', {});
+            }
+        } catch (er) {}
+        var ban = document.getElementById('ritualBanner');
+        if (ban) ban.style.display = 'none';
+        var navBadge2 = document.getElementById('navEsotericaBadge');
+        if (navBadge2) navBadge2.style.display = 'none';
+    });
 }
 
 // ============================================
@@ -2031,10 +2137,29 @@ function initMobileMenu() {
     const chatsPanel = document.getElementById('chatsPanel');
     if (!mobileMenuBtn || !chatsPanel) return;
 
+    // Привлекаем внимание новых юзеров к бутеру (☰): на мобильном они
+    // часто не видят что навигация спрятана. Мигаем голубым пока юзер
+    // первый раз не нажмёт.
+    try {
+        if (!localStorage.getItem('fredi_menu_clicked')) {
+            mobileMenuBtn.classList.add('mobile-menu-btn--attention');
+        }
+    } catch (e) {}
+
     mobileMenuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
         chatsPanel.classList.toggle('open');
+        // После первого клика — снимаем мигание навсегда.
+        try {
+            if (!localStorage.getItem('fredi_menu_clicked')) {
+                localStorage.setItem('fredi_menu_clicked', '1');
+                mobileMenuBtn.classList.remove('mobile-menu-btn--attention');
+                if (window.FrediTracker && window.FrediTracker.track) {
+                    window.FrediTracker.track('mobile_menu_first_click', {});
+                }
+            }
+        } catch (e) {}
     });
 
     // touchstart быстрее click на мобиле (нет 300мс задержки)
@@ -2378,6 +2503,7 @@ async function init() {
             const actions = {
                 fredi: renderDashboard,
                 test: startTest,
+                kontur: () => { if (typeof showKonturScreen==='function') showKonturScreen(); else { showToast('🧠 Загрузка модуля...', 'info'); const s=document.createElement('script'); s.src='kontur.js'; s.onload=()=>{ if(typeof showKonturScreen==='function') showKonturScreen(); }; s.onerror=()=>showToast('Не удалось загрузить модуль','error'); document.head.appendChild(s); } },
                 messages: () => {
                     if (typeof showMessagesScreen === 'function') showMessagesScreen();
                     else { showToast('💬 Загрузка сообщений...', 'info'); const s = document.createElement('script'); s.src = 'messages.js'; s.onload = () => { if (typeof showMessagesScreen === 'function') showMessagesScreen(); }; document.head.appendChild(s); }
@@ -2390,6 +2516,7 @@ async function init() {
                 tales: () => { if (typeof showTalesScreen==='function') showTalesScreen(); else { const s=document.createElement('script'); s.src='tales.js'; s.onload=()=>{ if(typeof showTalesScreen==='function') showTalesScreen(); }; document.head.appendChild(s); } },
                 anchors: () => { if (typeof showAnchorsScreen==='function') showAnchorsScreen(); else { const s=document.createElement('script');s.src='anchors.js';s.onload=()=>{if(typeof showAnchorsScreen==='function')showAnchorsScreen();};document.head.appendChild(s); } },
                 dreams: () => { if (typeof showDreamsScreen==='function') showDreamsScreen(); else { const s=document.createElement('script');s.src='dreams.js';s.onload=()=>{if(typeof showDreamsScreen==='function')showDreamsScreen();};document.head.appendChild(s); } },
+                supervizor: () => { if (typeof showSupervizorScreen==='function') showSupervizorScreen(); else { const s=document.createElement('script');s.src='supervizor.js';s.onload=()=>{if(typeof showSupervizorScreen==='function')showSupervizorScreen();};document.head.appendChild(s); } },
                 esoterica: () => { if (typeof showEsotericaScreen==='function') showEsotericaScreen(); else { const s=document.createElement('script');s.src='esoterica.js';s.onload=()=>{if(typeof showEsotericaScreen==='function')showEsotericaScreen();};document.head.appendChild(s); } },
                 statistics: () => showStatistics(),
                 mirrors: () => { if (typeof showMirrorsScreen==='function') showMirrorsScreen(); },
@@ -2431,3 +2558,185 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+
+// ============================================================
+// Welcome voice — голосовое приветствие Фреди при ПЕРВОЙ
+// регистрации.
+// Триггер: login.js ставит localStorage.fredi_welcome_pending = 1
+// после успешного /api/auth/register, потом перезагружает страницу.
+// Сюда (на DOMContentLoaded) попадаем уже под новым user_id — через
+// 3 сек играем /fredi/sounds/welcome.mp3 (хардкод-приветствие,
+// одно на всех).
+// Защита от повтора: localStorage.fredi_welcome_played после play.
+// Если autoplay браузер заблокирует — silent fail (played НЕ
+// ставится, попробуем при следующем register, маловероятно).
+// ============================================================
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        if (!localStorage.getItem('fredi_welcome_pending')) return;
+        // pending снимаем сразу — даже если play упадёт, не зацикливаемся
+        localStorage.removeItem('fredi_welcome_pending');
+        if (localStorage.getItem('fredi_welcome_played')) return;
+    } catch (e) { return; }
+
+    setTimeout(function() {
+        var audio = new Audio('/fredi/sounds/welcome.mp3');
+        audio.volume = 0.85;
+        var toast = document.getElementById('toastMessage');
+        var toastText = document.getElementById('toastText');
+        var toastClose = document.getElementById('toastClose');
+
+        var hide = function() {
+            if (toast) toast.classList.remove('visible');
+        };
+        var stop = function() {
+            try { audio.pause(); } catch (e) {}
+            hide();
+        };
+
+        if (toast && toastText) {
+            toastText.textContent = '🔊 Фреди говорит...';
+            toast.classList.add('visible');
+            if (toastClose) toastClose.onclick = stop;
+        }
+
+        audio.onended = hide;
+        audio.onerror = function() {
+            console.warn('[Fredi] welcome.mp3 not loaded — skipping');
+            hide();
+        };
+
+        audio.play().then(function() {
+            try { localStorage.setItem('fredi_welcome_played', '1'); } catch (e) {}
+        }).catch(function(e) {
+            console.warn('[Fredi] welcome autoplay blocked:', e);
+            hide();
+        });
+    }, 3000);
+});
+
+
+// ============================================================
+// Messenger warnings toast — показывается при первом заходе,
+// если юзер выбрал получать утренние skill-задания в Telegram/MAX,
+// но бот ещё не запущен (нет записи в fredi_messenger_links).
+// Один раз dismissed → больше не показываем для этого type.
+// Реальную проверку делает backend GET /api/user/messenger-warnings.
+// ============================================================
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        var uid = window.USER_ID;
+        if (!uid) return;
+        var API = window.API_BASE_URL;
+        if (!API) return;
+
+        // Не показываем сразу — даём странице прорисоваться, и
+        // не конфликтуем с welcome-voice toast (тот тоже на 3 сек).
+        setTimeout(async function() {
+            try {
+                var dismissed = {};
+                try { dismissed = JSON.parse(localStorage.getItem('fredi_warnings_dismissed') || '{}'); } catch (e) {}
+
+                var resp = await fetch(API + '/api/user/messenger-warnings?user_id=' + encodeURIComponent(uid));
+                if (!resp.ok) return;
+                var data = await resp.json();
+                var warnings = (data && data.warnings) || [];
+                if (!warnings.length) return;
+
+                // Берём первое не-dismissed
+                var w = null;
+                for (var i = 0; i < warnings.length; i++) {
+                    if (!dismissed[warnings[i].type]) { w = warnings[i]; break; }
+                }
+                if (!w) return;
+
+                var toast = document.getElementById('toastMessage');
+                var toastText = document.getElementById('toastText');
+                var toastClose = document.getElementById('toastClose');
+                if (!toast || !toastText) return;
+
+                // Если welcome-voice toast ещё открыт — подождём
+                if (toast.classList.contains('visible')) {
+                    setTimeout(arguments.callee, 8000);
+                    return;
+                }
+
+                // Безопасный экранировщик
+                function esc(s) {
+                    return String(s || '')
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                }
+
+                var html =
+                    '<div style="font-weight:600;margin-bottom:4px">' + esc(w.title) + '</div>' +
+                    '<div style="font-size:12px;line-height:1.4;margin-bottom:8px">' + esc(w.text) + '</div>';
+                if (w.action_url && w.action_label) {
+                    html += '<a href="' + esc(w.action_url) + '" target="_blank" rel="noopener" ' +
+                        'style="display:inline-block;padding:6px 14px;border-radius:8px;' +
+                        'background:#0088cc;color:#fff;text-decoration:none;font-size:12px;font-weight:600">' +
+                        esc(w.action_label) + '</a>';
+                }
+                toastText.innerHTML = html;
+                toast.classList.add('visible');
+
+                if (toastClose) {
+                    toastClose.onclick = function() {
+                        toast.classList.remove('visible');
+                        dismissed[w.type] = Date.now();
+                        try { localStorage.setItem('fredi_warnings_dismissed', JSON.stringify(dismissed)); } catch (e) {}
+                    };
+                }
+                // Авто-скрытие через 30 сек (но без dismiss-флага — если
+                // юзер не успел прочитать, покажем ещё раз при следующем заходе)
+                setTimeout(function() {
+                    if (toast.classList.contains('visible')) toast.classList.remove('visible');
+                }, 30000);
+            } catch (e) {
+                console.warn('[Fredi] messenger-warnings:', e);
+            }
+        }, 8000); // через 8 сек после загрузки страницы — после welcome voice
+    } catch (e) {}
+});
+
+// ============================================
+// DEEP-LINK НА МОДУЛЬ: /fredi/?m=kontur
+// Позволяет вести из статьи/поста прямо в модуль, минуя поиск в меню.
+// ============================================
+(function () {
+    try {
+        var m = null;
+        try { m = new URLSearchParams(location.search).get('m'); }
+        catch (e1) { var mm = (location.search || '').match(/[?&]m=([^&]+)/); m = mm ? decodeURIComponent(mm[1]) : null; }
+        if (!m) return;
+        var ROUTES = {
+            kontur: { fn: 'showKonturGame', src: 'kontur.js', chat: 'kontur' }, // прямо в игру «О чём ты умеешь думать»
+            games:  { fn: 'showKonturScreen', src: 'kontur.js', chat: 'kontur' } // в список игр
+        };
+        var r = ROUTES[m];
+        if (!r) return;
+        var open = function () {
+            var go = function () {
+                try {
+                    if (typeof window[r.fn] === 'function') {
+                        window[r.fn]();
+                        document.querySelectorAll('.chat-item').forEach(function (i) { i.classList.remove('active'); });
+                        var item = document.querySelector('[data-chat="' + r.chat + '"]');
+                        if (item) item.classList.add('active');
+                    } else {
+                        var s = document.createElement('script'); s.src = r.src;
+                        s.onload = function () { if (typeof window[r.fn] === 'function') window[r.fn](); };
+                        document.head.appendChild(s);
+                    }
+                } catch (e) { console.warn('[Fredi] deep-link error', e); }
+            };
+            setTimeout(go, 500);
+        };
+        if (window.authReady && typeof window.authReady.then === 'function') {
+            window.authReady.then(open).catch(open);
+        } else {
+            setTimeout(open, 1400);
+        }
+    } catch (e) {}
+})();

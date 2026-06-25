@@ -7,7 +7,7 @@
     if (window._subscriptionLoaded) return;
     window._subscriptionLoaded = true;
 
-    function _api() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+    function _api() { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
     function _uid() { return window.CONFIG?.USER_ID; }
     function _toast(msg, type) { if (window.showToast) window.showToast(msg, type || 'info'); }
 
@@ -70,7 +70,13 @@
 
     function _pendingKey(uid) { return 'fredi_pending_payment_' + uid; }
 
+    // Защита от двойных/тройных списаний:
+    // запоминаем, что прямо сейчас уже создаём платёж и блокируем повторные клики.
+    let _isCreatingPayment = false;
+
     async function _createPayment() {
+        if (_isCreatingPayment) return;
+
         const uid = _uid();
         if (!uid) return;
 
@@ -81,6 +87,18 @@
             if (emailInput) emailInput.focus();
             return;
         }
+
+        const payBtn = document.getElementById('subPayBtn');
+        const prevBtnText = payBtn ? payBtn.innerHTML : '';
+
+        _isCreatingPayment = true;
+        if (payBtn) {
+            payBtn.disabled = true;
+            payBtn.style.opacity = '0.6';
+            payBtn.style.cursor = 'not-allowed';
+            payBtn.innerHTML = 'Создаю платёж…';
+        }
+        if (emailInput) emailInput.disabled = true;
 
         _toast('Создаю платёж...', 'info');
         try {
@@ -102,9 +120,26 @@
                         created_at: Date.now(),
                     }));
                 } catch (e) {}
+                // Уходим на ЮKassa — флаг сознательно НЕ сбрасываем,
+                // чтобы быстрый back-button + повторный клик не создал второй платёж.
                 window.location.href = data.confirmation_url;
-            } else { _toast(data.error || 'Не удалось создать платёж', 'error'); }
-        } catch (e) { _toast('Ошибка сети', 'error'); }
+                return;
+            } else {
+                _toast(data.error || 'Не удалось создать платёж', 'error');
+            }
+        } catch (e) {
+            _toast('Ошибка сети', 'error');
+        }
+
+        // Сюда попадаем только если редирект не произошёл — возвращаем кнопку.
+        _isCreatingPayment = false;
+        if (payBtn) {
+            payBtn.disabled = false;
+            payBtn.style.opacity = '';
+            payBtn.style.cursor = '';
+            payBtn.innerHTML = prevBtnText;
+        }
+        if (emailInput) emailInput.disabled = false;
     }
 
     async function _verifyPayment(paymentId) {

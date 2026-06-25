@@ -335,7 +335,7 @@ const _mot = window._motState;
 // ============================================
 function _motToast(msg, type) { if (window.showToast) window.showToast(msg, type||'info'); }
 function _motHome() { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
-function _motApi()  { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _motApi()  { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _motUid()  { return window.CONFIG?.USER_ID; }
 function _motName() { return localStorage.getItem('fredi_user_name') || 'друг'; }
 
@@ -398,6 +398,7 @@ async function _motGenerate() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 user_id: _motUid(),
+                platform: 'web',
                 prompt: `Ты — Фреди, виртуальный психолог. Создай персональную мотивацию на сегодня.
 
 Пользователь: ${name}

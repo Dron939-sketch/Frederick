@@ -9,7 +9,7 @@
     const TG_BOT = window.CONFIG?.TG_BOT_USERNAME || 'Frederick777bot';
     const MAX_LINK = window.CONFIG?.MAX_BOT_LINK || 'https://max.ru/id502238728185_1_bot';
 
-    function _api() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+    function _api() { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
     function _uid() { return window.CONFIG?.USER_ID; }
     function _toast(msg, t) { if (window.showToast) window.showToast(msg, t || 'info'); }
 
@@ -170,14 +170,14 @@
 
     function _channelCard(key, icon, title, desc, extra) {
         var act = _state.channel === key;
-        return '<div class="st-channel-card ' + (act ? 'active' : '') + '" data-channel="' + key + '"><div class="st-channel-icon">' + icon + '</div><div class="st-channel-body"><div class="st-channel-title">' + title + '</div><div class="st-channel-desc">' + desc + '</div>' + (extra || '') + '</div><div class="st-channel-check">' + (act ? '\u2713' : '') + '</div></div>';
+        return '<div class="st-channel-card ' + (act ? 'active' : '') + '" data-channel="' + key + '"><div class="st-channel-icon">' + icon + '</div><div class="st-channel-body"><div class="st-channel-title">' + title + '</div><div class="st-channel-desc">' + desc + '</div>' + (extra || '') + '</div><div class="st-channel-check">' + (act ? '✓' : '') + '</div></div>';
     }
 
     function _linkRow(platform, link) {
         var l = _state.linked[platform];
         if (l) {
             var u = l.username ? '@' + l.username : 'привязан';
-            return '<div class="st-link-row" onclick="event.stopPropagation()"><span class="st-link-status linked">\u2713 ' + u + '</span><button class="st-link-btn danger" data-action="unlink" data-platform="' + platform + '">Отвязать</button></div>';
+            return '<div class="st-link-row" onclick="event.stopPropagation()"><span class="st-link-status linked">✓ ' + u + '</span><button class="st-link-btn danger" data-action="unlink" data-platform="' + platform + '">Отвязать</button></div>';
         }
         return '<div class="st-link-row" onclick="event.stopPropagation()"><span class="st-link-status">Не связан</span><a class="st-link-btn" href="' + link + '" target="_blank" rel="noopener">Связать</a></div>';
     }
@@ -188,16 +188,16 @@
         if (!c) return;
 
         c.innerHTML = '<div class="full-content-page">' +
-            '<button class="back-btn" id="stBack">\u25C0\uFE0F НАЗАД</button>' +
-            '<div class="content-header"><div class="content-emoji">\u2699\uFE0F</div>' +
+            '<button class="back-btn" id="stBack">◀️ НАЗАД</button>' +
+            '<div class="content-header"><div class="content-emoji">⚙️</div>' +
             '<h1 class="content-title">Настройки</h1>' +
             '<p style="font-size:12px;color:var(--text-secondary);margin-top:4px">Управление Фреди</p></div>' +
-            _accordion('account', '\uD83D\uDD11', 'Аккаунт') +
-            _accordion('subscription', '\uD83D\uDC8E', 'Подписка') +
-            _accordion('tasks', '\uD83D\uDCCB', 'Активные задачи') +
-            _accordion('notifications', '\uD83D\uDD14', 'Уведомления') +
-            _accordion('appearance', '\uD83C\uDFA8', 'Оформление') +
-            _accordion('profile', '\uD83D\uDC64', 'Профиль') +
+            _accordion('account', '🔑', 'Аккаунт') +
+            _accordion('subscription', '💎', 'Подписка') +
+            _accordion('tasks', '📋', 'Активные задачи') +
+            _accordion('notifications', '🔔', 'Уведомления') +
+            _accordion('appearance', '🎨', 'Оформление') +
+            _accordion('profile', '👤', 'Профиль') +
             '</div>';
 
         document.getElementById('stBack').onclick = function() { if (typeof renderDashboard === 'function') renderDashboard(); };
@@ -378,17 +378,17 @@
 
             el.innerHTML = '<div class="st-hint">Выберите, куда Фреди будет отправлять сообщения: утренние послания, напоминания о задачах, уведомления о привычках и другие оповещения.</div>' +
                 '<div class="st-channel-grid">' +
-                _channelCard('push', '\uD83D\uDD14', 'Web Push', 'Уведомления прямо в браузере. На iPhone нужно добавить на экран Домой.', '') +
-                _channelCard('telegram', '\u2708\uFE0F', 'Telegram', 'Все сообщения от Фреди будут приходить в Telegram-бот.', _linkRow('telegram', tgLink)) +
-                _channelCard('max', '\uD83D\uDCAC', 'Max', 'Все сообщения от Фреди будут приходить в Max-бот.', _linkRow('max', maxLink)) +
-                _channelCard('none', '\uD83D\uDD15', 'Не отправлять', 'Фреди не будет присылать уведомления.', '') +
+                _channelCard('push', '🔔', 'Web Push', 'Уведомления прямо в браузере. На iPhone нужно добавить на экран Домой.', '') +
+                _channelCard('telegram', '✈️', 'Telegram', 'Все сообщения от Фреди будут приходить в Telegram-бот.', _linkRow('telegram', tgLink)) +
+                _channelCard('max', '💬', 'Max', 'Все сообщения от Фреди будут приходить в Max-бот.', _linkRow('max', maxLink)) +
+                _channelCard('none', '🔕', 'Не отправлять', 'Фреди не будет присылать уведомления.', '') +
                 '</div>' +
                 '<div style="margin-top:12px;font-size:11px;color:var(--text-secondary)">' +
                 '<b>Что присылает Фреди:</b><br>' +
-                '\u2022 Утренние мотивационные сообщения (9:00)<br>' +
-                '\u2022 Напоминания о задачах и привычках<br>' +
-                '\u2022 Идеи на выходные (по пятницам)<br>' +
-                '\u2022 Уведомления об окончании перерыва</div>';
+                '• Утренние мотивационные сообщения (9:00)<br>' +
+                '• Напоминания о задачах и привычках<br>' +
+                '• Идеи на выходные (по пятницам)<br>' +
+                '• Уведомления об окончании перерыва</div>';
 
             el.querySelectorAll('.st-channel-card').forEach(function(card) {
                 card.addEventListener('click', async function(e) {
@@ -411,8 +411,8 @@
         if (id === 'appearance') {
             el.innerHTML = '<div class="st-hint">Выберите тему оформления приложения.</div>' +
                 '<div class="st-theme-grid">' +
-                '<div class="st-theme-card st-theme-dark ' + (_state.theme === 'dark' ? 'active' : '') + '" data-theme="dark">\uD83C\uDF19<div class="st-theme-label">Темная</div></div>' +
-                '<div class="st-theme-card st-theme-light ' + (_state.theme === 'light' ? 'active' : '') + '" data-theme="light">\u2600\uFE0F<div class="st-theme-label">Светлая</div></div>' +
+                '<div class="st-theme-card st-theme-dark ' + (_state.theme === 'dark' ? 'active' : '') + '" data-theme="dark">🌙<div class="st-theme-label">Темная</div></div>' +
+                '<div class="st-theme-card st-theme-light ' + (_state.theme === 'light' ? 'active' : '') + '" data-theme="light">☀️<div class="st-theme-label">Светлая</div></div>' +
                 '</div>';
 
             el.querySelectorAll('.st-theme-card').forEach(function(card) {

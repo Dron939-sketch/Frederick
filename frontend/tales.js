@@ -467,7 +467,7 @@ const _tl = window._tlState;
 // ============================================
 function _tlToast(msg, t) { if (window.showToast) window.showToast(msg, t||'info'); }
 function _tlHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
-function _tlApi()   { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _tlApi()   { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _tlUid()   { return window.CONFIG?.USER_ID; }
 function _tlName()  { return localStorage.getItem('fredi_user_name') || 'друг'; }
 function _tlGender(){ return localStorage.getItem('fredi_user_gender') || 'other'; }

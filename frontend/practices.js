@@ -42,7 +42,7 @@ function goBackToDashboard() {
 async function checkTestCompleted() {
     try {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
         const data = await response.json();
         return data.has_profile === true;
@@ -52,7 +52,7 @@ async function checkTestCompleted() {
 async function loadUserProfileForPractices() {
     try {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const res  = await fetch(`${apiUrl}/api/get-profile/${userId}`);
         const data = await res.json();
         const bl   = data.profile?.behavioral_levels || {};
@@ -303,7 +303,7 @@ function _bindHandlers(container) {
         btn.textContent = '✨ ГЕНЕРИРУЮ...'; btn.disabled = true;
 
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const v = practicesState.userVectors;
 
         let practiceHtml = '';
@@ -312,6 +312,7 @@ function _bindHandlers(container) {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({
                     user_id: userId,
+                    platform: 'web',
                     prompt: `Ты — Фреди, психолог. Пользователь ${practicesState.userName} хочет: "${prompt}".
 Профиль: СБ-${v.СБ}, ТФ-${v.ТФ}, УБ-${v.УБ}, ЧВ-${v.ЧВ}.
 

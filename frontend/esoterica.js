@@ -566,18 +566,6 @@ function _esMdToHtml(text) {
     return escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
-// --- Простое экранирование HTML для вставки в innerHTML ---
-// Для пользовательского ввода (название места) и текстов ошибок backend.
-function _esEsc(text) {
-    if (text == null) return '';
-    return String(text)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 // --- Определение знака зодиака по дате ---
 function getZodiacSign(date) {
     const month = date.getMonth() + 1;
@@ -1027,7 +1015,7 @@ async function buildNatalChart() {
     if (latitude === null || longitude === null) {
         const hit = await geocodeCity(place);
         if (!hit) {
-            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось найти «${_esEsc(place)}». Попробуйте добавить страну или ввести координаты вручную.</div></div>`;
+            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось найти «${place}». Попробуйте добавить страну или ввести координаты вручную.</div></div>`;
             return;
         }
         latitude = hit.latitude;
@@ -1053,12 +1041,12 @@ async function buildNatalChart() {
             if (r.ok) {
                 const data = await r.json();
                 if (data?.success) chart = data;
-                else resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Ошибка расчёта: ${_esEsc(data?.error || 'неизвестно')}</div></div>`;
+                else resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Ошибка расчёта: ${data?.error || 'неизвестно'}</div></div>`;
             } else {
                 resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Backend недоступен (HTTP ${r.status}). Натальная карта требует серверной части.</div></div>`;
             }
         } catch (e) {
-            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось связаться с backend: ${_esEsc(e.message)}</div></div>`;
+            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось связаться с backend: ${e.message}</div></div>`;
         }
     }
     if (!chart) {
@@ -1298,6 +1286,1079 @@ function attachNatalHandlers() {
     });
 }
 
+// =============================================================================
+// === РИТУАЛ — персонализированный поведенческий протокол ====================
+// =============================================================================
+// AI-конструктор ритуалов на основе:
+//   - van Gennep (3-фазная структура: сепарация → лиминальность → инкорпорация)
+//   - Carroll sigil method (формулировка → символ → заряд → отпустить)
+//   - Gollwitzer implementation intentions (if-then, d=0.65)
+//   - Behavioral activation (ежедневные шаги)
+// Этическая граница: никаких реальных жертв, всё обратимо, без вреда.
+
+const RITUAL_STORAGE_KEY = 'fredi_ritual_state_v1';
+
+let ritualState = {
+    stage: 'intro',         // intro | test | generating | display | daily | assembly | sealed | opened
+    test: {},               // ответы теста
+    ritual: null,           // сгенерированный AI ритуал (JSON)
+    startDate: null,        // ISO дата старта
+    assemblyDate: null,     // ISO дата сборки
+    openDate: null,         // ISO дата открытия
+    dailyChecks: {},        // { 'YYYY-MM-DD': { ingredient1: true, ... } }
+    ingredientsDone: {},    // { ingredient_id: { collectedAt, note } }
+    spokeAloud: false,
+    buriedConfirmed: false,
+    reflection: null,
+    history: []
+};
+
+function _ritLoad() {
+    try {
+        const raw = localStorage.getItem(RITUAL_STORAGE_KEY);
+        if (raw) ritualState = { ...ritualState, ...JSON.parse(raw) };
+    } catch (e) { console.warn('ritual: load failed', e); }
+}
+
+function _ritSave() {
+    try {
+        localStorage.setItem(RITUAL_STORAGE_KEY, JSON.stringify(ritualState));
+    } catch (e) { console.warn('ritual: save failed', e); }
+}
+
+function _ritReset() {
+    // Архивируем в history перед сбросом
+    if (ritualState.ritual && ritualState.startDate) {
+        const archived = {
+            title: ritualState.ritual.title,
+            wish: ritualState.test.wish,
+            sphere: ritualState.test.sphere,
+            startDate: ritualState.startDate,
+            openDate: ritualState.openDate,
+            reflection: ritualState.reflection,
+            archivedAt: new Date().toISOString()
+        };
+        ritualState.history = (ritualState.history || []);
+        ritualState.history.unshift(archived);
+        if (ritualState.history.length > 20) ritualState.history = ritualState.history.slice(0, 20);
+    }
+    const keepHistory = ritualState.history;
+    ritualState = {
+        stage: 'intro', test: {}, ritual: null, startDate: null, assemblyDate: null,
+        openDate: null, dailyChecks: {}, ingredientsDone: {}, spokeAloud: false,
+        buriedConfirmed: false, reflection: null, history: keepHistory
+    };
+    _ritSave();
+}
+
+function _ritToday() { return new Date().toISOString().slice(0, 10); }
+
+function _ritDaysSince(isoDate) {
+    if (!isoDate) return 0;
+    const start = new Date(isoDate); start.setHours(0,0,0,0);
+    const today = new Date(); today.setHours(0,0,0,0);
+    return Math.floor((today - start) / (1000 * 60 * 60 * 24));
+}
+
+function _ritDaysUntil(isoDate) {
+    if (!isoDate) return 0;
+    return -_ritDaysSince(isoDate);
+}
+
+function _ritEscape(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// --- 10 вопросов теста ---
+const RITUAL_QUESTIONS = [
+    {
+        id: 'wish',
+        title: 'Чего ты сейчас хочешь?',
+        hint: 'Опиши конкретно. Не «счастья», а «к сентябрю выйти из текущей работы и начать своё дело».',
+        type: 'textarea',
+        required: true,
+        maxLength: 500
+    },
+    {
+        id: 'sphere',
+        title: 'Какая сфера?',
+        type: 'radio',
+        options: [
+            { v: 'relationships', label: '💞 Отношения' },
+            { v: 'work', label: '💼 Работа / карьера' },
+            { v: 'money', label: '💰 Финансы' },
+            { v: 'health', label: '🌿 Здоровье' },
+            { v: 'creative', label: '🎨 Творчество' },
+            { v: 'identity', label: '🪞 Самоидентичность' },
+            { v: 'other', label: '🌀 Другое' }
+        ],
+        required: true
+    },
+    {
+        id: 'tried',
+        title: 'Что ты уже пробовал — и почему не сработало?',
+        hint: 'Чтобы не повторять. Если не пробовал — напиши «ничего».',
+        type: 'textarea',
+        required: false,
+        maxLength: 400
+    },
+    {
+        id: 'temperament',
+        title: 'Тебе легче действовать или думать?',
+        type: 'scale',
+        leftLabel: 'Думать, анализировать',
+        rightLabel: 'Действовать, бросаться в дело',
+        required: true
+    },
+    {
+        id: 'social',
+        title: 'Один или с людьми?',
+        type: 'scale',
+        leftLabel: 'В одиночку',
+        rightLabel: 'Только с людьми',
+        required: true
+    },
+    {
+        id: 'resources',
+        title: 'Что тебе сейчас доступно?',
+        hint: 'Можно отметить несколько',
+        type: 'checkbox',
+        options: [
+            { v: 'time', label: '⏱ 15 минут в день на ритуал' },
+            { v: 'money_small', label: '💵 До 3000 ₽ на «жертвенный» предмет' },
+            { v: 'money_mid', label: '💸 3000–10000 ₽' },
+            { v: 'money_big', label: '💳 Больше 10000 ₽' },
+            { v: 'nature', label: '🌳 Доступ к природе (земля, лес, вода)' },
+            { v: 'quiet', label: '🤫 Тихое уединённое место дома' },
+            { v: 'witness', label: '🧑‍🤝‍🧑 Есть тот, кому можно довериться' },
+            { v: 'hands', label: '✋ Готов делать что-то руками' }
+        ],
+        required: true
+    },
+    {
+        id: 'magic_tolerance',
+        title: 'Как ты относишься к «магическому» языку?',
+        type: 'scale',
+        leftLabel: 'Только наука и психология',
+        rightLabel: 'Магия — это нормально',
+        required: true
+    },
+    {
+        id: 'duration',
+        title: 'Сколько готов ждать результата?',
+        type: 'radio',
+        options: [
+            { v: 30, label: '30 дней — быстрая проверка' },
+            { v: 60, label: '60 дней' },
+            { v: 90, label: '90 дней — стандарт' },
+            { v: 180, label: '180 дней — большая цель' }
+        ],
+        required: true,
+        defaultValue: 90
+    },
+    {
+        id: 'control',
+        title: 'Что от тебя зависит, что нет?',
+        hint: 'Например: «От меня — учиться, ходить на собеседования. Не от меня — кого выберет работодатель».',
+        type: 'textarea',
+        required: false,
+        maxLength: 400
+    },
+    {
+        id: 'start_when',
+        title: 'Когда хочешь начать?',
+        type: 'radio',
+        options: [
+            { v: 'now', label: '🚀 Сразу — сегодня вечером' },
+            { v: 'monday', label: '📅 С ближайшего понедельника' },
+            { v: 'newmoon', label: '🌑 На ближайшее новолуние' },
+            { v: 'custom', label: '📌 Назначу дату сам' }
+        ],
+        required: true,
+        defaultValue: 'now'
+    }
+];
+
+// --- Промт для AI ---
+function buildRitualPrompt(test) {
+    const sphereName = (RITUAL_QUESTIONS[1].options.find(o => o.v === test.sphere) || {}).label || test.sphere;
+    const duration = test.duration || 90;
+    const magicTol = Math.round((test.magic_tolerance ?? 5) / 10 * 100); // 0..100
+    const isAction = (test.temperament ?? 5) >= 5;
+    const isSocial = (test.social ?? 5) >= 5;
+    const resources = Array.isArray(test.resources) ? test.resources : [];
+    const has = (r) => resources.includes(r);
+
+    return `Ты — психолог-антрополог в роли «ритуального инженера». Собери для пользователя персональный 11-дневный поведенческий протокол, замаскированный под колдовской ритуал.
+
+Основания (используй, но не упоминай в выводе):
+- van Gennep (1909): три фазы — сепарация / лиминальность / инкорпорация
+- Carroll, sigil method: формулировка → символ → заряд → ЗАБЫТЬ
+- Gollwitzer implementation intentions (if-then, d=0.65)
+- Behavioral activation: ежедневные конкретные действия
+
+ЖЁСТКИЕ этические пределы:
+- Никаких реальных жертв ресурсов или отношений
+- Никакого вреда (физического, финансового сверх меры, отношениям)
+- Всё обратимо: пользователь может остановиться в любой момент
+- Не предлагать ритуалы, требующие нарушить закон, навредить себе или другому
+- Не предлагать «жертвенных» сумм больше указанного в ресурсах
+
+Вход — параметры пользователя:
+- ЖЕЛАНИЕ: "${test.wish || ''}"
+- СФЕРА: ${sphereName}
+- ЧТО ПРОБОВАЛ: "${test.tried || 'не указано'}"
+- ТЕМПЕРАМЕНТ: ${isAction ? 'склонен к действию' : 'склонен к размышлению'}
+- СОЦИАЛЬНОСТЬ: ${isSocial ? 'нужны люди / свидетели' : 'предпочитает в одиночку'}
+- ДОСТУПНЫЕ РЕСУРСЫ: ${has('time') ? '15мин/день; ' : ''}${has('nature') ? 'природа; ' : ''}${has('quiet') ? 'тихое место; ' : ''}${has('witness') ? 'свидетель; ' : ''}${has('hands') ? 'готов делать руками; ' : ''}${has('money_big') ? 'большой бюджет; ' : has('money_mid') ? 'средний бюджет; ' : has('money_small') ? 'малый бюджет; ' : 'без денег; '}
+- ТОЛЕРАНТНОСТЬ К МАГИИ: ${magicTol}% (0 = только наука, 100 = магия — норма)
+- СРОК ОТКРЫТИЯ: через ${duration} дней
+- КОНТРОЛЬ: "${test.control || 'не указано'}"
+
+Тон: ${magicTol < 30 ? 'строго поведенческий, без эзотерических метафор' : magicTol < 70 ? 'нейтральный, лёгкие традиционные термины ("формула", "запечатывание")' : 'традиционно-магический язык: "зарядить", "запечатать", "связать намерение"'}. Уважительно, не снисходительно.
+
+ВЫДАЙ ТОЛЬКО JSON, БЕЗ КОММЕНТАРИЕВ ВОКРУГ:
+{
+  "title": "1-3 слова, название ритуала, без слова 'ритуал' в начале",
+  "preamble": "2-3 предложения о том, как этот протокол работает с этим конкретным желанием",
+  "wish_refined": "переформулированная версия желания: утвердительно, конкретно, с датой, в зоне контроля пользователя",
+  "ingredients": [
+    {
+      "id": "past",
+      "icon": "🕰",
+      "name": "Предмет «Прошлое»",
+      "instruction": "конкретное указание, что найти из уже имеющегося, привязанное к сфере и желанию пользователя (1-2 предложения)",
+      "deadline_day": 7
+    },
+    {
+      "id": "border",
+      "icon": "💸",
+      "name": "Предмет «Граница»",
+      "instruction": "что специально купить ногами в магазине, на сумму, заметную для пользователя (с учётом его бюджета), привязано к сфере (1-2 предложения)",
+      "deadline_day": 7
+    },
+    {
+      "id": "future",
+      "icon": "✂️",
+      "name": "Предмет «Будущее»",
+      "instruction": "что сделать своими руками — нарисовать, сшить, испечь, склеить, привязано к сфере (1-2 предложения)",
+      "deadline_day": 9
+    }
+  ],
+  "daily_anchor": {
+    "icon": "⚓",
+    "name": "Ежедневный якорь",
+    "instruction": "конкретное действие, 3-7 минут, которое пользователь делает каждый день из 11 дней. Привязано к темпераменту: если думающий — записать одну мысль о цели; если действующий — короткая телесная практика. Должно быть выполнимо в любой обстановке.",
+    "duration_minutes": 5
+  },
+  "assembly": {
+    "day_number": 11,
+    "instruction": "что сделать вечером 11-го дня: где сесть, что положить рядом, в каком порядке сложить ингредиенты в конверт/коробку (2-3 предложения, тон ритуально-точный)",
+    "formula": "ТОЧНАЯ фраза в первом лице, которую пользователь произнесёт вслух (1-2 предложения). Обязательно содержит смысл: «Я сделал всё, что мог. Дальше — моя работа, не моя тревога». Адаптируй под желание пользователя."
+  },
+  "burial": {
+    "instruction": "куда убрать конверт — конкретно, чтобы пользователь не имел регулярного доступа. Предложи 2-3 варианта (1-2 предложения)"
+  },
+  "open_date_offset_days": ${duration},
+  "until_open_anchor": "одна короткая фраза-якорь, которую пользователь повторяет про себя, когда приходит мысль «а сбудется ли». Например: «Конверт работает. Моё дело — действовать».",
+  "opening_reflection_prompts": [
+    "вопрос 1 для дня открытия (про то, что изменилось во внешнем мире)",
+    "вопрос 2 для дня открытия (про то, что изменилось во внутреннем мире)",
+    "вопрос 3 для дня открытия (про то, актуально ли ещё то желание)"
+  ]
+}`;
+}
+
+async function generateRitualFromAI(test) {
+    const prompt = buildRitualPrompt(test);
+    if (!window.apiCall) throw new Error('apiCall не доступен');
+    const response = await window.apiCall('/api/ai/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+            user_id: window.CONFIG?.USER_ID || window.USER_ID,
+            prompt,
+            max_tokens: 2500,
+            temperature: 0.7
+        }),
+        timeout: 90000
+    });
+    if (!response?.success || !response.content) {
+        throw new Error('AI не вернул ответ');
+    }
+    const match = response.content.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('AI не вернул JSON');
+    const ritual = JSON.parse(match[0]);
+    // sanity checks
+    if (!ritual.ingredients || !Array.isArray(ritual.ingredients) || ritual.ingredients.length < 3) {
+        throw new Error('AI вернул некорректный JSON (мало ингредиентов)');
+    }
+    if (!ritual.assembly?.formula) {
+        throw new Error('AI не вернул формулу для сборки');
+    }
+    return ritual;
+}
+
+// --- Стадия: intro ---
+function renderRitualIntro() {
+    _ritLoad();
+    // Если уже есть активный ритуал — показываем его, а не intro
+    if (ritualState.ritual && ritualState.stage !== 'intro') {
+        // переключаемся на текущую стадию
+        return renderRitualByStage();
+    }
+    const hasHistory = (ritualState.history || []).length > 0;
+    return `
+        <div class="rit-wrap">
+            <div class="rit-hero">
+                <div class="rit-emoji">🪬</div>
+                <h2 class="rit-title">Скрытый ритуал</h2>
+                <p class="rit-sub">Персональный 11-дневный поведенческий протокол под твоё конкретное желание.</p>
+            </div>
+            <div class="rit-intro-box">
+                <p><strong>Как это работает:</strong></p>
+                <ol class="rit-intro-list">
+                    <li>Ответишь на 10 коротких вопросов (3 минуты)</li>
+                    <li>AI соберёт ритуал под тебя — формулировка, ингредиенты, ежедневный якорь, сборка и захоронение</li>
+                    <li>11 дней — каждый день один маленький шаг</li>
+                    <li>День сборки — складываешь всё в конверт, произносишь формулу вслух, убираешь в недосягаемое место</li>
+                    <li>В выбранную дату открытия — рефлексия с AI</li>
+                </ol>
+                <p class="rit-disclaimer">
+                    Это поведенческий протокол с антропологической упаковкой. Не магия — рабочая психология
+                    (van Gennep, Carroll, Gollwitzer). Никаких реальных жертв, всё обратимо.
+                </p>
+            </div>
+            <button class="rit-btn rit-btn-primary" id="ritStart">Собрать мой ритуал →</button>
+            ${hasHistory ? `<button class="rit-btn rit-btn-ghost" id="ritShowHistory">📜 Прошлые ритуалы (${ritualState.history.length})</button>` : ''}
+        </div>
+    `;
+}
+
+// --- Стадия: тест ---
+function renderRitualTest() {
+    const total = RITUAL_QUESTIONS.length;
+    const idx = ritualState.testIdx || 0;
+    const q = RITUAL_QUESTIONS[idx];
+    if (!q) return renderRitualGenerating();
+    const current = ritualState.test[q.id];
+    let inputHtml = '';
+    if (q.type === 'textarea') {
+        inputHtml = `<textarea class="rit-textarea" id="ritQAns" maxlength="${q.maxLength || 500}" placeholder="${q.hint || ''}">${_ritEscape(current || '')}</textarea>`;
+    } else if (q.type === 'radio') {
+        inputHtml = (q.options || []).map(o => `
+            <label class="rit-radio">
+                <input type="radio" name="ritQ" value="${_ritEscape(o.v)}" ${String(current) === String(o.v) || (current === undefined && o.v === q.defaultValue) ? 'checked' : ''}>
+                <span>${o.label}</span>
+            </label>
+        `).join('');
+    } else if (q.type === 'checkbox') {
+        const arr = Array.isArray(current) ? current : [];
+        inputHtml = (q.options || []).map(o => `
+            <label class="rit-radio">
+                <input type="checkbox" name="ritQ" value="${_ritEscape(o.v)}" ${arr.includes(o.v) ? 'checked' : ''}>
+                <span>${o.label}</span>
+            </label>
+        `).join('');
+    } else if (q.type === 'scale') {
+        const val = (typeof current === 'number') ? current : 5;
+        inputHtml = `
+            <div class="rit-scale">
+                <div class="rit-scale-labels"><span>${q.leftLabel}</span><span>${q.rightLabel}</span></div>
+                <input type="range" min="0" max="10" step="1" value="${val}" id="ritQAns" class="rit-range">
+                <div class="rit-scale-value" id="ritScaleValue">${val} / 10</div>
+            </div>
+        `;
+    }
+    const progress = Math.round(((idx) / total) * 100);
+    return `
+        <div class="rit-wrap">
+            <div class="rit-progress"><div class="rit-progress-bar" style="width:${progress}%"></div></div>
+            <div class="rit-progress-label">Вопрос ${idx + 1} из ${total}</div>
+            <h3 class="rit-q-title">${q.title}</h3>
+            ${q.hint && q.type !== 'textarea' ? `<p class="rit-q-hint">${q.hint}</p>` : ''}
+            <div class="rit-q-input">${inputHtml}</div>
+            <div class="rit-q-nav">
+                ${idx > 0 ? '<button class="rit-btn rit-btn-ghost" id="ritQBack">← Назад</button>' : '<div></div>'}
+                <button class="rit-btn rit-btn-primary" id="ritQNext">${idx + 1 === total ? 'Собрать ритуал →' : 'Дальше →'}</button>
+            </div>
+        </div>
+    `;
+}
+
+// --- Стадия: генерация ---
+function renderRitualGenerating() {
+    return `
+        <div class="rit-wrap rit-center">
+            <div class="rit-loader"></div>
+            <h3 class="rit-title">Ритуал собирается под тебя…</h3>
+            <p class="rit-sub" id="ritGenStatus">Формулирую желание, подбираю ингредиенты, собираю последовательность…</p>
+            <p class="rit-sub" style="font-size:11px;opacity:0.6">Это занимает 20-40 секунд</p>
+        </div>
+    `;
+}
+
+// --- Стадия: показ свежесгенерированного ритуала ---
+function renderRitualDisplay() {
+    const r = ritualState.ritual;
+    if (!r) return renderRitualIntro();
+    const startDate = ritualState.startDate ? new Date(ritualState.startDate) : new Date();
+    const assemblyDay = (r.assembly?.day_number || 11);
+    const assemblyDate = new Date(startDate);
+    assemblyDate.setDate(assemblyDate.getDate() + (assemblyDay - 1));
+    const openDate = new Date(assemblyDate);
+    openDate.setDate(openDate.getDate() + (r.open_date_offset_days || 90));
+    const _fmt = (d) => d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    return `
+        <div class="rit-wrap">
+            <div class="rit-card rit-card-hero">
+                <div class="rit-card-emoji">🪬</div>
+                <h2 class="rit-card-title">${_ritEscape(r.title)}</h2>
+                <p class="rit-card-text">${_ritEscape(r.preamble)}</p>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Уточнённая формулировка желания</div>
+                <p class="rit-card-text rit-card-wish">${_ritEscape(r.wish_refined)}</p>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Что нужно собрать (дни 1-${assemblyDay - 1})</div>
+                ${(r.ingredients || []).map(ing => `
+                    <div class="rit-ingr">
+                        <div class="rit-ingr-icon">${ing.icon || '🔸'}</div>
+                        <div class="rit-ingr-body">
+                            <div class="rit-ingr-name">${_ritEscape(ing.name)}</div>
+                            <div class="rit-ingr-instr">${_ritEscape(ing.instruction)}</div>
+                            <div class="rit-ingr-deadline">До дня ${ing.deadline_day || 7}</div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">${r.daily_anchor?.icon || '⚓'} Ежедневный якорь</div>
+                <div class="rit-card-text"><strong>${_ritEscape(r.daily_anchor?.name || '')}</strong></div>
+                <div class="rit-card-text">${_ritEscape(r.daily_anchor?.instruction || '')}</div>
+                <div class="rit-card-text" style="font-size:12px;opacity:0.7;margin-top:4px">~${r.daily_anchor?.duration_minutes || 5} минут в день</div>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">📅 Расписание</div>
+                <ul class="rit-schedule">
+                    <li><strong>Сегодня:</strong> старт. Сформулировать желание на бумаге</li>
+                    <li><strong>Дни 2-${assemblyDay - 1}:</strong> сбор предметов + ежедневный якорь</li>
+                    <li><strong>День ${assemblyDay} (${_fmt(assemblyDate)}):</strong> сборка и запечатывание</li>
+                    <li><strong>${_fmt(openDate)}:</strong> открытие конверта и рефлексия</li>
+                </ul>
+            </div>
+
+            <button class="rit-btn rit-btn-primary" id="ritActivate">Активировать ритуал →</button>
+            <button class="rit-btn rit-btn-ghost" id="ritRegen">↺ Пересобрать с другими ответами</button>
+        </div>
+    `;
+}
+
+// --- Стадия: ежедневный режим ---
+function renderRitualDaily() {
+    const r = ritualState.ritual;
+    if (!r) return renderRitualIntro();
+    const dayNum = _ritDaysSince(ritualState.startDate) + 1;
+    const assemblyDay = r.assembly?.day_number || 11;
+    const isAssemblyDay = dayNum >= assemblyDay;
+    if (isAssemblyDay && !ritualState.assemblyDate) {
+        ritualState.assemblyDate = _ritToday();
+        ritualState.stage = 'assembly';
+        _ritSave();
+        return renderRitualAssembly();
+    }
+    const today = _ritToday();
+    const todayCheck = ritualState.dailyChecks[today] || {};
+    const anchorDone = !!todayCheck.anchor;
+    const ingrDone = ritualState.ingredientsDone || {};
+    const allIngrCollected = (r.ingredients || []).every(i => ingrDone[i.id]);
+
+    return `
+        <div class="rit-wrap">
+            <div class="rit-progress"><div class="rit-progress-bar" style="width:${Math.round(dayNum / assemblyDay * 100)}%"></div></div>
+            <div class="rit-progress-label">День ${dayNum} из ${assemblyDay} • до сборки ${assemblyDay - dayNum} ${assemblyDay - dayNum === 1 ? 'день' : 'дней'}</div>
+
+            <div class="rit-card rit-card-wish-small">
+                <div class="rit-card-label">Желание</div>
+                <p>${_ritEscape(r.wish_refined)}</p>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">${r.daily_anchor?.icon || '⚓'} Сегодняшний якорь</div>
+                <div class="rit-card-text">${_ritEscape(r.daily_anchor?.instruction || '')}</div>
+                <label class="rit-check ${anchorDone ? 'done' : ''}">
+                    <input type="checkbox" id="ritAnchorCheck" ${anchorDone ? 'checked' : ''}>
+                    <span>${anchorDone ? '✅ Сделано сегодня' : 'Отметить, что сделал'}</span>
+                </label>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Сбор предметов</div>
+                ${(r.ingredients || []).map(ing => {
+                    const done = !!ingrDone[ing.id];
+                    return `
+                        <div class="rit-ingr ${done ? 'done' : ''}">
+                            <div class="rit-ingr-icon">${ing.icon || '🔸'}</div>
+                            <div class="rit-ingr-body">
+                                <div class="rit-ingr-name">${_ritEscape(ing.name)}</div>
+                                <div class="rit-ingr-instr">${_ritEscape(ing.instruction)}</div>
+                                <label class="rit-check ${done ? 'done' : ''}">
+                                    <input type="checkbox" class="rit-ingr-check" data-id="${ing.id}" ${done ? 'checked' : ''}>
+                                    <span>${done ? '✅ Собрано' : 'Отметить как собранное'}</span>
+                                </label>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+
+            ${allIngrCollected && dayNum >= 7 ? `
+                <button class="rit-btn rit-btn-primary" id="ritGoAssembly">Перейти к сборке →</button>
+                <p class="rit-sub" style="text-align:center;font-size:12px">Все предметы собраны. Можно собирать конверт сегодня или подождать до ${assemblyDay}-го дня.</p>
+            ` : ''}
+
+            <div class="rit-card rit-card-anchor-mini">
+                <div class="rit-card-label">Когда приходит мысль «а сбудется ли?»</div>
+                <p class="rit-card-text rit-card-mantra">${_ritEscape(r.until_open_anchor || 'Конверт работает. Моё дело — действовать.')}</p>
+            </div>
+
+            <details class="rit-details">
+                <summary>Управление ритуалом</summary>
+                <button class="rit-btn rit-btn-ghost" id="ritAbort">⊗ Прервать и начать заново</button>
+            </details>
+        </div>
+    `;
+}
+
+// --- Стадия: сборка ---
+function renderRitualAssembly() {
+    const r = ritualState.ritual;
+    if (!r) return renderRitualIntro();
+    const openOffset = r.open_date_offset_days || 90;
+    const proposedOpen = new Date(); proposedOpen.setDate(proposedOpen.getDate() + openOffset);
+    const proposedOpenIso = ritualState.openDate || proposedOpen.toISOString().slice(0, 10);
+
+    return `
+        <div class="rit-wrap">
+            <div class="rit-card rit-card-hero">
+                <div class="rit-card-emoji">🕯</div>
+                <h2 class="rit-card-title">Сегодня — день сборки</h2>
+                <p class="rit-card-text">Найди тихий час, без телефона. Положи перед собой все три предмета и лист с желанием.</p>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Как собрать</div>
+                <p class="rit-card-text">${_ritEscape(r.assembly?.instruction || '')}</p>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Формула — произнести ВСЛУХ</div>
+                <p class="rit-card-text rit-card-formula">«${_ritEscape(r.assembly?.formula || '')}»</p>
+                <label class="rit-check ${ritualState.spokeAloud ? 'done' : ''}">
+                    <input type="checkbox" id="ritSpokeAloud" ${ritualState.spokeAloud ? 'checked' : ''}>
+                    <span>${ritualState.spokeAloud ? '✅ Произнёс вслух' : 'Я произнёс вслух'}</span>
+                </label>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Куда убрать</div>
+                <p class="rit-card-text">${_ritEscape(r.burial?.instruction || '')}</p>
+                <label class="rit-check ${ritualState.buriedConfirmed ? 'done' : ''}">
+                    <input type="checkbox" id="ritBuriedCheck" ${ritualState.buriedConfirmed ? 'checked' : ''}>
+                    <span>${ritualState.buriedConfirmed ? '✅ Убрал в недосягаемое место' : 'Я убрал в недосягаемое место'}</span>
+                </label>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Дата открытия конверта</div>
+                <input type="date" id="ritOpenDate" class="rit-date" value="${proposedOpenIso}">
+                <p class="rit-sub" style="font-size:12px;opacity:0.7">До этой даты — не вспоминаешь о ритуале. Если приходит мысль — повтори: «${_ritEscape(r.until_open_anchor || 'Конверт работает.')}»</p>
+            </div>
+
+            <button class="rit-btn rit-btn-primary" id="ritSeal" ${(!ritualState.spokeAloud || !ritualState.buriedConfirmed) ? 'disabled' : ''}>🔒 Запечатать ритуал</button>
+        </div>
+    `;
+}
+
+// --- Стадия: запечатано, ожидание ---
+function renderRitualSealed() {
+    const r = ritualState.ritual;
+    if (!r || !ritualState.openDate) return renderRitualIntro();
+    const daysLeft = _ritDaysUntil(ritualState.openDate);
+    if (daysLeft <= 0) {
+        ritualState.stage = 'opened';
+        _ritSave();
+        return renderRitualOpened();
+    }
+    const openDateFmt = new Date(ritualState.openDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    return `
+        <div class="rit-wrap rit-center">
+            <div class="rit-emoji" style="font-size:64px">🔒</div>
+            <h2 class="rit-title">Конверт запечатан</h2>
+
+            <div class="rit-countdown">
+                <div class="rit-countdown-num">${daysLeft}</div>
+                <div class="rit-countdown-label">${daysLeft === 1 ? 'день до открытия' : daysLeft < 5 ? 'дня до открытия' : 'дней до открытия'}</div>
+            </div>
+
+            <div class="rit-card rit-card-anchor-mini">
+                <div class="rit-card-label">Если приходит мысль «а сбудется ли?»</div>
+                <p class="rit-card-text rit-card-mantra">${_ritEscape(r.until_open_anchor || 'Конверт работает. Моё дело — действовать.')}</p>
+            </div>
+
+            <p class="rit-sub" style="text-align:center">Дата открытия: <strong>${openDateFmt}</strong></p>
+
+            <details class="rit-details">
+                <summary>Открыть досрочно</summary>
+                <p class="rit-sub" style="margin-top:8px">Досрочное открытие подрывает протокол — психика возвращается к тревожному отслеживанию.</p>
+                <button class="rit-btn rit-btn-ghost" id="ritOpenEarly">Всё равно открыть сейчас</button>
+            </details>
+        </div>
+    `;
+}
+
+// --- Стадия: открыто, рефлексия ---
+function renderRitualOpened() {
+    const r = ritualState.ritual;
+    if (!r) return renderRitualIntro();
+    const prompts = r.opening_reflection_prompts || [
+        'Что изменилось в твоей жизни за это время?',
+        'Что изменилось внутри тебя?',
+        'Желание, которое ты загадывал, — оно сбылось, неактуально или ты пошёл в обход?'
+    ];
+    const answers = (ritualState.reflection && ritualState.reflection.answers) || {};
+    const showAi = !!(ritualState.reflection && ritualState.reflection.aiText);
+
+    return `
+        <div class="rit-wrap">
+            <div class="rit-card rit-card-hero">
+                <div class="rit-card-emoji">✨</div>
+                <h2 class="rit-card-title">Конверт открыт</h2>
+                <p class="rit-card-text">Сейчас ты можешь распечатать конверт. Внутри — твоё желание, написанное ${Math.abs(_ritDaysSince(ritualState.startDate))} дней назад.</p>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Желание, которое ты записал</div>
+                <p class="rit-card-text rit-card-wish">${_ritEscape(r.wish_refined)}</p>
+            </div>
+
+            <div class="rit-card">
+                <div class="rit-card-label">Рефлексия</div>
+                ${prompts.map((p, i) => `
+                    <div class="rit-reflect-q">
+                        <p><strong>${i + 1}. ${_ritEscape(p)}</strong></p>
+                        <textarea class="rit-textarea rit-reflect-ans" data-idx="${i}" placeholder="Отвечай развёрнуто, для себя">${_ritEscape(answers[i] || '')}</textarea>
+                    </div>
+                `).join('')}
+            </div>
+
+            <button class="rit-btn rit-btn-primary" id="ritReflectSubmit">${showAi ? '↻ Перегенерировать разбор' : 'Получить разбор от Fredi →'}</button>
+
+            ${showAi ? `
+                <div class="rit-card rit-ai-reflect">
+                    <div class="rit-card-label">🪞 Разбор Fredi</div>
+                    <div class="rit-card-text">${_esMdToHtml(ritualState.reflection.aiText)}</div>
+                </div>
+            ` : ''}
+
+            <button class="rit-btn rit-btn-ghost" id="ritArchive">📜 Архивировать и начать новый</button>
+        </div>
+    `;
+}
+
+// --- Стадия: история ---
+function renderRitualHistory() {
+    const h = ritualState.history || [];
+    if (!h.length) {
+        ritualState.stage = 'intro';
+        _ritSave();
+        return renderRitualIntro();
+    }
+    return `
+        <div class="rit-wrap">
+            <button class="rit-btn rit-btn-ghost" id="ritHistoryBack">← К ритуалу</button>
+            <h2 class="rit-title">Прошлые ритуалы</h2>
+            ${h.map((it, idx) => `
+                <div class="rit-history-item">
+                    <div class="rit-history-title">${_ritEscape(it.title || 'Ритуал')}</div>
+                    <div class="rit-history-wish">${_ritEscape(it.wish || '')}</div>
+                    <div class="rit-history-meta">
+                        ${new Date(it.startDate).toLocaleDateString('ru-RU')} → ${new Date(it.openDate || it.archivedAt).toLocaleDateString('ru-RU')}
+                    </div>
+                    ${it.reflection?.aiText ? `<details><summary>Разбор</summary><div class="rit-history-reflect">${_esMdToHtml(it.reflection.aiText)}</div></details>` : ''}
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+// --- Маршрутизатор по стадиям ---
+function renderRitualByStage() {
+    switch (ritualState.stage) {
+        case 'test': return renderRitualTest();
+        case 'generating': return renderRitualGenerating();
+        case 'display': return renderRitualDisplay();
+        case 'daily': return renderRitualDaily();
+        case 'assembly': return renderRitualAssembly();
+        case 'sealed': return renderRitualSealed();
+        case 'opened': return renderRitualOpened();
+        case 'history': return renderRitualHistory();
+        case 'intro':
+        default: return renderRitualIntro();
+    }
+}
+
+function renderRitual() {
+    _ritLoad();
+    return renderRitualByStage();
+}
+
+// --- AI рефлексия в день открытия ---
+async function generateRitualReflectionAI(test, ritual, answers) {
+    if (!window.apiCall) throw new Error('apiCall не доступен');
+    const prompt = `Ты — Fredi, виртуальный психолог. Пользователь прошёл 90-дневный персональный поведенческий протокол (замаскированный под колдовской ритуал). Сегодня день открытия конверта. Прочитай его ответы и дай разбор: что сработало, что изменилось, какой следующий шаг.
+
+ИСХОДНОЕ ЖЕЛАНИЕ: "${ritual.wish_refined || test.wish}"
+СФЕРА: ${test.sphere}
+ДЛИТЕЛЬНОСТЬ: ${ritual.open_date_offset_days || 90} дней
+
+ОТВЕТЫ НА РЕФЛЕКСИЮ:
+${(ritual.opening_reflection_prompts || []).map((q, i) => `Q${i+1}: ${q}\nA: ${answers[i] || '(пусто)'}`).join('\n\n')}
+
+ДАЙ РАЗБОР (4-6 абзацев, тёплый но конкретный тон, как добрый старший наставник):
+1. Что сработало в этом протоколе для пользователя
+2. Какой паттерн ты видишь в ответах
+3. Где была реальная работа, а где — только декларация
+4. Один конкретный следующий шаг
+5. Если желание не сбылось — почему это нормально и что это значит
+
+Не пиши «как AI» или «дисклеймер». Пиши от первого лица.`;
+    const r = await window.apiCall('/api/ai/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+            user_id: window.CONFIG?.USER_ID || window.USER_ID,
+            prompt, max_tokens: 1200, temperature: 0.75
+        }),
+        timeout: 60000
+    });
+    if (!r?.success || !r.content) throw new Error('AI рефлексия не получилась');
+    return r.content.trim();
+}
+
+// --- Обработчики ---
+function attachRitualHandlers() {
+    // intro
+    document.getElementById('ritStart')?.addEventListener('click', () => {
+        ritualState.stage = 'test';
+        ritualState.testIdx = 0;
+        ritualState.test = {};
+        _ritSave();
+        render();
+    });
+    document.getElementById('ritShowHistory')?.addEventListener('click', () => {
+        ritualState.stage = 'history';
+        _ritSave();
+        render();
+    });
+
+    // test
+    const scale = document.getElementById('ritQAns');
+    if (scale && scale.type === 'range') {
+        scale.addEventListener('input', (e) => {
+            const v = document.getElementById('ritScaleValue');
+            if (v) v.textContent = `${e.target.value} / 10`;
+        });
+    }
+    document.getElementById('ritQNext')?.addEventListener('click', () => _ritNextQuestion());
+    document.getElementById('ritQBack')?.addEventListener('click', () => {
+        ritualState.testIdx = Math.max(0, (ritualState.testIdx || 0) - 1);
+        _ritSave();
+        render();
+    });
+
+    // display
+    document.getElementById('ritActivate')?.addEventListener('click', () => {
+        ritualState.stage = 'daily';
+        ritualState.startDate = ritualState.startDate || _ritToday();
+        _ritSave();
+        _esTrack('ritual_activated', { sphere: ritualState.test.sphere });
+        render();
+    });
+    document.getElementById('ritRegen')?.addEventListener('click', async () => {
+        ritualState.stage = 'generating';
+        _ritSave(); render();
+        try {
+            ritualState.ritual = await generateRitualFromAI(ritualState.test);
+            ritualState.stage = 'display';
+            _ritSave(); render();
+        } catch (e) {
+            _esToast('Не удалось пересобрать: ' + e.message, 'error');
+            ritualState.stage = 'display';
+            _ritSave(); render();
+        }
+    });
+
+    // daily
+    document.getElementById('ritAnchorCheck')?.addEventListener('change', (e) => {
+        const today = _ritToday();
+        ritualState.dailyChecks[today] = ritualState.dailyChecks[today] || {};
+        ritualState.dailyChecks[today].anchor = e.target.checked;
+        _ritSave(); render();
+    });
+    document.querySelectorAll('.rit-ingr-check').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            const id = e.target.dataset.id;
+            ritualState.ingredientsDone = ritualState.ingredientsDone || {};
+            if (e.target.checked) {
+                ritualState.ingredientsDone[id] = { collectedAt: new Date().toISOString() };
+            } else {
+                delete ritualState.ingredientsDone[id];
+            }
+            _ritSave(); render();
+        });
+    });
+    document.getElementById('ritGoAssembly')?.addEventListener('click', () => {
+        ritualState.stage = 'assembly';
+        ritualState.assemblyDate = _ritToday();
+        _ritSave(); render();
+    });
+    document.getElementById('ritAbort')?.addEventListener('click', () => {
+        if (confirm('Прервать ритуал и начать заново? Прогресс будет потерян.')) {
+            _ritReset();
+            render();
+        }
+    });
+
+    // assembly
+    document.getElementById('ritSpokeAloud')?.addEventListener('change', (e) => {
+        ritualState.spokeAloud = e.target.checked;
+        _ritSave(); render();
+    });
+    document.getElementById('ritBuriedCheck')?.addEventListener('change', (e) => {
+        ritualState.buriedConfirmed = e.target.checked;
+        _ritSave(); render();
+    });
+    document.getElementById('ritOpenDate')?.addEventListener('change', (e) => {
+        ritualState.openDate = e.target.value;
+        _ritSave();
+    });
+    document.getElementById('ritSeal')?.addEventListener('click', () => {
+        if (!ritualState.spokeAloud || !ritualState.buriedConfirmed) {
+            _esToast('Отметь оба пункта прежде чем запечатать', 'warning');
+            return;
+        }
+        const od = document.getElementById('ritOpenDate')?.value;
+        if (od) ritualState.openDate = od;
+        if (!ritualState.openDate) {
+            const r = ritualState.ritual;
+            const offset = r?.open_date_offset_days || 90;
+            const d = new Date(); d.setDate(d.getDate() + offset);
+            ritualState.openDate = d.toISOString().slice(0, 10);
+        }
+        ritualState.stage = 'sealed';
+        _ritSave();
+        _esTrack('ritual_sealed', { offset_days: ritualState.openDate });
+        render();
+    });
+
+    // sealed
+    document.getElementById('ritOpenEarly')?.addEventListener('click', () => {
+        if (confirm('Точно открыть сейчас? Это снижает эффект протокола.')) {
+            ritualState.stage = 'opened';
+            _ritSave(); render();
+        }
+    });
+
+    // opened
+    document.querySelectorAll('.rit-reflect-ans').forEach(ta => {
+        ta.addEventListener('input', (e) => {
+            ritualState.reflection = ritualState.reflection || { answers: {} };
+            ritualState.reflection.answers = ritualState.reflection.answers || {};
+            ritualState.reflection.answers[e.target.dataset.idx] = e.target.value;
+            _ritSave();
+        });
+    });
+    document.getElementById('ritReflectSubmit')?.addEventListener('click', async () => {
+        const answers = (ritualState.reflection && ritualState.reflection.answers) || {};
+        const filled = Object.values(answers).filter(v => (v || '').trim().length > 5).length;
+        if (filled < 1) {
+            _esToast('Ответь хотя бы на один вопрос рефлексии', 'warning');
+            return;
+        }
+        const btn = document.getElementById('ritReflectSubmit');
+        if (btn) { btn.disabled = true; btn.textContent = 'Fredi думает…'; }
+        try {
+            const aiText = await generateRitualReflectionAI(ritualState.test, ritualState.ritual, answers);
+            ritualState.reflection = ritualState.reflection || {};
+            ritualState.reflection.aiText = aiText;
+            _ritSave();
+            _esTrack('ritual_reflected', {});
+            render();
+        } catch (e) {
+            _esToast('AI не ответил: ' + e.message, 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Получить разбор от Fredi →'; }
+        }
+    });
+    document.getElementById('ritArchive')?.addEventListener('click', () => {
+        if (confirm('Архивировать этот ритуал и начать новый?')) {
+            _ritReset();
+            render();
+        }
+    });
+
+    // history
+    document.getElementById('ritHistoryBack')?.addEventListener('click', () => {
+        ritualState.stage = ritualState.ritual ? (ritualState.openDate ? 'sealed' : 'daily') : 'intro';
+        _ritSave(); render();
+    });
+}
+
+async function _ritNextQuestion() {
+    const idx = ritualState.testIdx || 0;
+    const q = RITUAL_QUESTIONS[idx];
+    if (!q) return;
+    // собираем ответ
+    let val;
+    const input = document.getElementById('ritQAns');
+    if (q.type === 'textarea') {
+        val = (input?.value || '').trim();
+    } else if (q.type === 'radio') {
+        const r = document.querySelector('input[name="ritQ"]:checked');
+        val = r ? (q.options.find(o => String(o.v) === r.value)?.v ?? r.value) : null;
+    } else if (q.type === 'checkbox') {
+        val = Array.from(document.querySelectorAll('input[name="ritQ"]:checked')).map(c => c.value);
+    } else if (q.type === 'scale') {
+        val = parseInt(input?.value || '5', 10);
+    }
+    // валидация
+    if (q.required) {
+        if (val == null || val === '' || (Array.isArray(val) && val.length === 0)) {
+            _esToast('Ответь на этот вопрос', 'warning');
+            return;
+        }
+    }
+    ritualState.test[q.id] = val;
+    _ritSave();
+    if (idx + 1 >= RITUAL_QUESTIONS.length) {
+        // переходим к генерации
+        ritualState.stage = 'generating';
+        _ritSave(); render();
+        try {
+            const ritual = await generateRitualFromAI(ritualState.test);
+            ritualState.ritual = ritual;
+            ritualState.stage = 'display';
+            ritualState.startDate = _ritToday();
+            _ritSave();
+            _esTrack('ritual_generated', { sphere: ritualState.test.sphere });
+            render();
+        } catch (e) {
+            _esToast('Не удалось собрать ритуал: ' + e.message, 'error');
+            ritualState.stage = 'test';
+            ritualState.testIdx = idx;
+            _ritSave(); render();
+        }
+        return;
+    }
+    ritualState.testIdx = idx + 1;
+    _ritSave();
+    render();
+}
+
+// --- CSS для ритуала ---
+function _ritInjectStyles() {
+    if (document.getElementById('rit-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'rit-styles';
+    s.textContent = `
+        .rit-wrap { padding: 0; }
+        .rit-center { text-align: center; }
+        .rit-hero { text-align: center; margin: 16px 0 24px; }
+        .rit-emoji { font-size: 56px; line-height: 1; margin-bottom: 8px; }
+        .rit-title { font-size: 22px; font-weight: 700; margin: 8px 0; color: var(--text-primary, #fff); }
+        .rit-sub { font-size: 13px; color: var(--text-secondary, rgba(255,255,255,0.7)); line-height: 1.5; }
+        .rit-intro-box { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 16px; margin: 16px 0; }
+        .rit-intro-list { padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--text-primary); margin: 8px 0; }
+        .rit-intro-list li { margin-bottom: 6px; }
+        .rit-disclaimer { font-size: 11px; color: var(--text-secondary); margin-top: 12px; opacity: 0.7; line-height: 1.5; }
+        .rit-btn { display: block; width: 100%; padding: 14px 18px; border-radius: 10px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; margin: 8px 0; transition: opacity .15s, transform .1s; }
+        .rit-btn:hover { opacity: 0.9; }
+        .rit-btn:active { transform: scale(0.98); }
+        .rit-btn-primary { background: linear-gradient(135deg, #8B5CF6, #6366F1); color: #fff; }
+        .rit-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .rit-btn-ghost { background: rgba(255,255,255,0.06); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.1); }
+        .rit-progress { background: rgba(255,255,255,0.06); height: 6px; border-radius: 3px; margin: 16px 0 4px; overflow: hidden; }
+        .rit-progress-bar { height: 100%; background: linear-gradient(90deg, #8B5CF6, #6366F1); transition: width .3s; }
+        .rit-progress-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; }
+        .rit-q-title { font-size: 17px; font-weight: 600; margin: 12px 0 6px; color: var(--text-primary); line-height: 1.4; }
+        .rit-q-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 14px; line-height: 1.5; }
+        .rit-q-input { margin: 16px 0; }
+        .rit-textarea { width: 100%; box-sizing: border-box; min-height: 100px; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: var(--text-primary); font: inherit; resize: vertical; }
+        .rit-textarea:focus { outline: 2px solid #8B5CF6; }
+        .rit-radio { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); margin-bottom: 6px; cursor: pointer; font-size: 13px; }
+        .rit-radio:hover { background: rgba(255,255,255,0.06); }
+        .rit-radio input { margin: 0; flex-shrink: 0; accent-color: #8B5CF6; }
+        .rit-range { width: 100%; accent-color: #8B5CF6; }
+        .rit-scale-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; }
+        .rit-scale-value { text-align: center; font-size: 13px; color: var(--text-primary); margin-top: 6px; }
+        .rit-q-nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; }
+        .rit-q-nav .rit-btn { flex: 1; margin: 0; }
+        .rit-loader { width: 48px; height: 48px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #8B5CF6; border-radius: 50%; margin: 24px auto; animation: rit-spin 1s linear infinite; }
+        @keyframes rit-spin { to { transform: rotate(360deg); } }
+        .rit-card { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 14px 16px; margin: 12px 0; border: 1px solid rgba(255,255,255,0.06); }
+        .rit-card-hero { text-align: center; background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(99,102,241,0.15)); border-color: rgba(139,92,246,0.3); }
+        .rit-card-emoji { font-size: 40px; margin-bottom: 6px; }
+        .rit-card-title { font-size: 19px; font-weight: 700; margin: 6px 0; color: var(--text-primary); }
+        .rit-card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #8B5CF6; font-weight: 600; margin-bottom: 8px; }
+        .rit-card-text { font-size: 13px; line-height: 1.6; color: var(--text-primary); margin: 4px 0; }
+        .rit-card-wish { font-style: italic; font-size: 14px; padding: 10px; background: rgba(139,92,246,0.08); border-radius: 8px; border-left: 3px solid #8B5CF6; }
+        .rit-card-wish-small p { font-size: 13px; font-style: italic; margin: 4px 0; }
+        .rit-card-formula { font-size: 15px; font-weight: 500; line-height: 1.6; padding: 12px; background: rgba(255,200,100,0.08); border-radius: 8px; border-left: 3px solid #F59E0B; font-style: italic; }
+        .rit-card-mantra { font-style: italic; text-align: center; font-size: 13px; padding: 10px; background: rgba(255,255,255,0.04); border-radius: 6px; }
+        .rit-card-anchor-mini { background: rgba(139,92,246,0.05); }
+        .rit-schedule { padding-left: 18px; font-size: 12px; line-height: 1.7; }
+        .rit-schedule li { margin-bottom: 4px; }
+        .rit-ingr { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .rit-ingr:last-child { border-bottom: none; }
+        .rit-ingr.done { opacity: 0.6; }
+        .rit-ingr-icon { font-size: 24px; flex-shrink: 0; }
+        .rit-ingr-body { flex: 1; min-width: 0; }
+        .rit-ingr-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+        .rit-ingr-instr { font-size: 12px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 6px; }
+        .rit-ingr-deadline { font-size: 11px; color: #F59E0B; }
+        .rit-check { display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer; font-size: 12px; color: var(--text-primary); }
+        .rit-check input { accent-color: #10B981; }
+        .rit-check.done { color: #10B981; }
+        .rit-date { display: block; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: var(--text-primary); font-size: 13px; }
+        .rit-countdown { text-align: center; margin: 24px 0; padding: 20px; background: rgba(139,92,246,0.08); border-radius: 12px; border: 1px solid rgba(139,92,246,0.2); }
+        .rit-countdown-num { font-size: 56px; font-weight: 800; color: #8B5CF6; line-height: 1; font-variant-numeric: tabular-nums; }
+        .rit-countdown-label { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+        .rit-details { margin-top: 16px; }
+        .rit-details summary { font-size: 12px; color: var(--text-secondary); cursor: pointer; padding: 8px 0; }
+        .rit-ai-reflect { background: rgba(139,92,246,0.06); border-color: rgba(139,92,246,0.2); }
+        .rit-reflect-q { margin: 12px 0; }
+        .rit-reflect-q p { font-size: 13px; margin: 0 0 6px; }
+        .rit-history-item { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 12px 14px; margin: 8px 0; }
+        .rit-history-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+        .rit-history-wish { font-size: 12px; color: var(--text-secondary); font-style: italic; margin: 4px 0; }
+        .rit-history-meta { font-size: 11px; color: var(--text-secondary); opacity: 0.7; }
+        .rit-history-reflect { font-size: 12px; line-height: 1.6; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 6px; margin-top: 8px; }
+    `;
+    document.head.appendChild(s);
+}
+
+// инжектим стили вместе с общими
+const _origEsInject = _esInjectStyles;
+_esInjectStyles = function() {
+    _origEsInject();
+    _ritInjectStyles();
+};
+
 // --- Главный рендер ---
 function render() {
     _esInjectStyles();
@@ -1309,13 +2370,15 @@ function render() {
             <button class="es-tab ${state.activeTab === 'horoscope' ? 'active' : ''}" data-tab="horoscope">✨ Гороскоп</button>
             <button class="es-tab ${state.activeTab === 'natal' ? 'active' : ''}" data-tab="natal">🌟 Натальная карта</button>
             <button class="es-tab ${state.activeTab === 'tarot' ? 'active' : ''}" data-tab="tarot">🔮 Таро</button>
+            <button class="es-tab ${state.activeTab === 'ritual' ? 'active' : ''}" data-tab="ritual">🪬 Ритуал</button>
         </div>
     `;
-    
+
     let content = '';
     if (state.activeTab === 'tarot') content = renderTarot();
     else if (state.activeTab === 'horoscope') content = renderHoroscope();
     else if (state.activeTab === 'natal') content = renderNatal();
+    else if (state.activeTab === 'ritual') content = renderRitual();
     
     container.innerHTML = `
         <div class="full-content-page">
@@ -1345,12 +2408,21 @@ function render() {
     if (state.activeTab === 'tarot') attachTarotHandlers();
     else if (state.activeTab === 'horoscope') attachHoroscopeHandlers();
     else if (state.activeTab === 'natal') attachNatalHandlers();
+    else if (state.activeTab === 'ritual') attachRitualHandlers();
 }
 
 // --- Точка входа ---
-window.showEsotericaScreen = function() {
-    state.activeTab = 'tarot';
+window.showEsotericaScreen = function(tab) {
+    state.activeTab = (tab && ['tarot', 'horoscope', 'natal', 'ritual'].includes(tab)) ? tab : 'tarot';
+    // Если открыли ритуал — снимаем "NEW"-бейдж и помечаем анонс как увиденный
+    if (state.activeTab === 'ritual') {
+        try {
+            localStorage.setItem('fredi_ritual_announce_seen_v1', '1');
+            var b = document.getElementById('navEsotericaBadge');
+            if (b) b.style.display = 'none';
+        } catch (e) {}
+    }
     render();
 };
 
-console.log('✅ esoterica.js v1.0 загружен');
+console.log('✅ esoterica.js v1.1 (с модулем Ритуал) загружен');

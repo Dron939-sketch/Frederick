@@ -310,7 +310,7 @@ const _hy = window._hyState;
 // ============================================
 function _hyToast(msg, t) { if (window.showToast) window.showToast(msg, t||'info'); }
 function _hyHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
-function _hyApi()   { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _hyApi()   { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _hyUid()   { return window.CONFIG?.USER_ID; }
 function _hyName()  { return localStorage.getItem('fredi_user_name') || ''; }
 

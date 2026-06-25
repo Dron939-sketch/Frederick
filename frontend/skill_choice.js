@@ -630,7 +630,7 @@ const _sc = window._scState;
 function _scToast(msg, t) { if (window.showToast) window.showToast(msg, t||'info'); }
 function _scHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
 function _scUid()   { return window.CONFIG?.USER_ID; }
-function _scApi()   { return window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _scApi()   { return window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _scTz()    {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
     catch { return 'UTC'; }

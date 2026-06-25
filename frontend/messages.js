@@ -503,7 +503,7 @@ const _msState = window._msState;
 // ============================================
 // УТИЛИТЫ
 // ============================================
-function _msApi()    { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _msApi()    { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _msUserId() { return window.CONFIG?.USER_ID; }
 function _msToast(msg, type) { if (window.showToast) window.showToast(msg, type || 'info'); }
 function _msHome()   { if (typeof renderDashboard === 'function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
@@ -1571,7 +1571,7 @@ window.showContactShared = function(contact) {
     const box = document.getElementById('msContactInfo');
     if (box) {
         box.style.display = '';
-        box.innerHTML = `🔓 Контакты раскрыты!<br>📞 ${_msEsc(contact?.phone || '—')}&nbsp;&nbsp;📧 ${_msEsc(contact?.email || '—')}`;
+        box.innerHTML = `🔓 Контакты раскрыты!<br>📞 ${contact?.phone || '—'}&nbsp;&nbsp;📧 ${contact?.email || '—'}`;
     }
 };
 

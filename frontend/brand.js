@@ -821,7 +821,7 @@ function _brandExportPdf(arch, archName) {
     _brandToast('💾 PDF-превью скачано как HTML (откройте и сохраните как PDF)');
 }
 
-function _brandGetApiUrl() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _brandGetApiUrl() { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _brandGetUserId() { return window.CONFIG?.USER_ID; }
 
 // ============================================
@@ -1474,7 +1474,7 @@ async function _brandFetchTransformation(targetKey, customTarget) {
     _renderBrand();
     try {
         const uid = (window.CONFIG && window.CONFIG.USER_ID) || _brandGetUserId();
-        const r = await fetch((window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com') + '/api/brand/transformation', {
+        const r = await fetch((window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io') + '/api/brand/transformation', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ user_id: uid, target: targetKey || '', custom_target: customTarget || '' })
         });
