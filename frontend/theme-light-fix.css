@@ -225,3 +225,18 @@
 [data-theme="light"] .db-empty { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.06) !important; }
 [data-theme="light"] .db-bottom-btn-primary { background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.12) !important; color: #1c1c1e !important; }
 [data-theme="light"] .db-bottom-btn-secondary { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.08) !important; color: rgba(0,0,0,0.5) !important; }
+
+/* ============================================
+   TALES MODULE (tl-*) — сказки-катарсис
+   На тёмной теме текст и блоки заданы светло-серым
+   rgba(224,224,224,...). В светлой теме это давало
+   почти невидимый («едва заметный») текст на белом фоне.
+   ============================================ */
+[data-theme="light"] .tl-tale-body { color: #1c1c1e !important; }
+[data-theme="light"] .tl-tale-wrap { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.08) !important; }
+[data-theme="light"] .tl-level-card { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.08) !important; }
+[data-theme="light"] .tl-level-card:hover { background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.15) !important; }
+[data-theme="light"] .tl-level-card.recommended { background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.15) !important; }
+[data-theme="light"] .tl-level-card.personal { background: linear-gradient(135deg, rgba(0,0,0,0.05), rgba(0,0,0,0.02)) !important; border-color: rgba(0,0,0,0.15) !important; }
+[data-theme="light"] .tl-level-badge { background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.10) !important; }
+[data-theme="light"] .tl-tag { background: rgba(0,0,0,0.05) !important; }

@@ -566,6 +566,18 @@ function _esMdToHtml(text) {
     return escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
+// --- Простое экранирование HTML для вставки в innerHTML ---
+// Для пользовательского ввода (название места) и текстов ошибок backend.
+function _esEsc(text) {
+    if (text == null) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // --- Определение знака зодиака по дате ---
 function getZodiacSign(date) {
     const month = date.getMonth() + 1;
@@ -1015,7 +1027,7 @@ async function buildNatalChart() {
     if (latitude === null || longitude === null) {
         const hit = await geocodeCity(place);
         if (!hit) {
-            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось найти «${place}». Попробуйте добавить страну или ввести координаты вручную.</div></div>`;
+            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось найти «${_esEsc(place)}». Попробуйте добавить страну или ввести координаты вручную.</div></div>`;
             return;
         }
         latitude = hit.latitude;
@@ -1041,12 +1053,12 @@ async function buildNatalChart() {
             if (r.ok) {
                 const data = await r.json();
                 if (data?.success) chart = data;
-                else resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Ошибка расчёта: ${data?.error || 'неизвестно'}</div></div>`;
+                else resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Ошибка расчёта: ${_esEsc(data?.error || 'неизвестно')}</div></div>`;
             } else {
                 resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Backend недоступен (HTTP ${r.status}). Натальная карта требует серверной части.</div></div>`;
             }
         } catch (e) {
-            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось связаться с backend: ${e.message}</div></div>`;
+            resultDiv.innerHTML = `<div class="hy-suggestion-box"><div class="hy-suggestion-text">⚠️ Не удалось связаться с backend: ${_esEsc(e.message)}</div></div>`;
         }
     }
     if (!chart) {

@@ -546,12 +546,25 @@ class PaymentService:
                 return {"success": True, "event": "payment_method.active"}
         
         if event == "payment.succeeded" and status == "succeeded":
-            if not user_id_str:
-                logger.warning(f"Webhook without user_id: {yookassa_id}")
-                return {"success": False, "error": "No user_id in metadata"}
-
-            user_id = int(user_id_str)
-            return await self._apply_succeeded_payment(user_id, payment_obj)
+            # БЕЗОПАСНОСТЬ: тело webhook'а нельзя считать доверенным. YooKassa
+            # не подписывает уведомления (HMAC у них нет), а IP-проверка за
+            # reverse-proxy обходится подменой X-Forwarded-For. Поэтому НЕ
+            # активируем подписку по данным из запроса, а перезапрашиваем
+            # платёж через API YooKassa (единственный авторитетный источник
+            # статуса) и активируем только если API подтвердил succeeded.
+            # Без этого поддельный payment.succeeded давал бы бесплатную
+            # подписку любому, кто знает URL webhook'а.
+            if not yookassa_id:
+                logger.warning("Webhook payment.succeeded without payment id")
+                return {"success": False, "error": "No payment id"}
+            expected_uid = int(user_id_str) if user_id_str else None
+            result = await self.verify_payment(yookassa_id, expected_user_id=expected_uid)
+            if not result.get("activated"):
+                logger.warning(
+                    f"Webhook payment.succeeded NOT confirmed via API: "
+                    f"id={yookassa_id} result={result}"
+                )
+            return result
         
         if event == "payment.canceled":
             logger.info(f"Payment canceled: {yookassa_id}")
