@@ -3375,14 +3375,33 @@ async def process_voice_stream(
                 mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
 
                 full_text_parts = []
+                # Какой TTS-провайдер озвучивает этот стрим. None = ещё не
+                # определился (первое предложение); после первой успешной
+                # синтезации фиксируется на весь остаток ответа, чтобы голос
+                # не менялся посередине (см. PR с фиксом TTS voice switching).
+                tts_pinned_provider: Optional[str] = None
                 if hasattr(mode_instance, 'process_question_streaming'):
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         sentence = (chunk or "").strip()
                         if not sentence:
                             continue
                         full_text_parts.append(sentence)
+                        # Пиним TTS-провайдера на весь стрим: если первое
+                        # предложение озвучил Fish, остальные тоже только Fish.
+                        # Иначе Fish-сбой посередине ответа переключает на
+                        # Yandex и юзер слышит смену голоса в середине фразы.
                         try:
-                            audio_b64 = await voice_service.text_to_speech(sentence, mode_name)
+                            from services.voice_service import text_to_speech_with_provider as _tts_wp
+                            audio_bytes, used_provider = await _tts_wp(
+                                sentence, mode_name, pin_provider=tts_pinned_provider
+                            )
+                            if audio_bytes is not None:
+                                audio_b64 = base64.b64encode(audio_bytes).decode('ascii')
+                                if tts_pinned_provider is None and used_provider:
+                                    tts_pinned_provider = used_provider
+                                    logger.info(f"🎤 TTS pinned to provider={used_provider} for this stream")
+                            else:
+                                audio_b64 = None
                         except Exception as _e:
                             logger.warning(f"TTS skip sentence ({_e}): «{sentence[:60]}»")
                             audio_b64 = None

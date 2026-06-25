@@ -742,7 +742,24 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
 # TTS - Text-to-Speech (Yandex)
 # ============================================
 
-async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[bytes]:
+async def text_to_speech(text: str, mode: str = "psychologist", pin_provider: Optional[str] = None) -> Optional[bytes]:
+    """Синтез речи. pin_provider: 'fish'|'yandex'|None.
+    None = старая логика (Fish primary, Yandex fallback). 'fish'/'yandex'
+    = строго один провайдер (если упал — вернёт None, без переключения).
+    Это нужно для per-sentence стрима в /api/voice/process_stream:
+    если первое предложение озвучено Fish'ем, а Fish посередине упал, дальше
+    переключаться на Yandex НЕЛЬЗЯ — юзер услышит смену голоса в середине
+    ответа. Лучше тишина для одного предложения, чем «полу-голос»."""
+    bytes_, _ = await text_to_speech_with_provider(text, mode, pin_provider=pin_provider)
+    return bytes_
+
+
+async def text_to_speech_with_provider(
+    text: str, mode: str = "psychologist", pin_provider: Optional[str] = None
+) -> tuple[Optional[bytes], Optional[str]]:
+    """Как text_to_speech, но дополнительно возвращает имя реально
+    использованного провайдера ('fish' | 'yandex' | None). Нужно для
+    кода, который пинит провайдера на остаток стрима (см. pin_provider)."""
     logger.info(f"🎤 TTS запрос — режим: {mode}")
     if not text or not text.strip():
         logger.warning("⚠️ Пустой текст для TTS")
@@ -824,15 +841,26 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
         text = text[:4500] + "..."
 
     # ===== FISH AUDIO (Jarvis) — PRIMARY =====
-    try:
-        from services.fish_audio_service import synthesize_fish_audio
-        fish_result = await synthesize_fish_audio(text, mode)
-        if fish_result:
-            logger.info(f"✅ Fish Audio (Jarvis): {len(fish_result)} байт, mode={mode}")
-            return fish_result
-        logger.info("Fish Audio недоступен, переключаюсь на Yandex")
-    except Exception as e:
-        logger.warning(f"Fish Audio ошибка: {e}, fallback на Yandex")
+    if pin_provider in (None, 'fish'):
+        try:
+            from services.fish_audio_service import synthesize_fish_audio
+            fish_result = await synthesize_fish_audio(text, mode)
+            if fish_result:
+                logger.info(f"✅ Fish Audio (Jarvis): {len(fish_result)} байт, mode={mode}")
+                return fish_result, 'fish'
+            if pin_provider == 'fish':
+                # Пиннинг включен — НЕ переключаемся, лучше тишина чем смена голоса.
+                logger.warning("Fish Audio упал, pin=fish → возвращаю None (без fallback на Yandex)")
+                return None, None
+            logger.info("Fish Audio недоступен, переключаюсь на Yandex")
+        except Exception as e:
+            if pin_provider == 'fish':
+                logger.warning(f"Fish Audio ошибка ({e}), pin=fish → None")
+                return None, None
+            logger.warning(f"Fish Audio ошибка: {e}, fallback на Yandex")
+
+    if pin_provider == 'fish':
+        return None, None
 
     # ===== YANDEX (Filipp) — FALLBACK =====
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/x-www-form-urlencoded"}
@@ -853,14 +881,14 @@ async def text_to_speech(text: str, mode: str = "psychologist") -> Optional[byte
                 ))
             except Exception as _e:
                 logger.warning(f"api_usage skip: {_e}")
-            return audio_data
+            return audio_data, 'yandex'
         else:
             logger.error(f"❌ Yandex TTS error {response.status_code}: {response.text[:200]}")
-            return None
+            return None, None
     except Exception as e:
         logger.error(f"❌ Ошибка синтеза речи: {e}")
         logger.error(traceback.format_exc())
-        return None
+        return None, None
 
 
 # ============================================
