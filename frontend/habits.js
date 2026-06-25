@@ -378,7 +378,7 @@ const _hab = window._habState;
 // ============================================
 function _habToast(msg, type) { if (window.showToast) window.showToast(msg, type||'info'); }
 function _habHome() { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
-function _habApi()  { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _habApi()  { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _habUid()  { return window.CONFIG?.USER_ID; }
 function _habSave() {
     try {

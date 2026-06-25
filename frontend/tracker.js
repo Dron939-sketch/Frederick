@@ -12,7 +12,7 @@
     if(window._trackerLoaded) return;
     window._trackerLoaded=true;
 
-    var API=function(){return window.API_BASE_URL||window.CONFIG?.API_BASE_URL||'https://fredi-backend-flz2.onrender.com';};
+    var API=function(){return window.API_BASE_URL||window.CONFIG?.API_BASE_URL||'https://ffred-ddd989.amvera.io';};
     var UID=function(){return window.USER_ID||window.CONFIG?.USER_ID;};
     var SID=Date.now()+'_'+Math.random().toString(36).substr(2,6);
     var START=Date.now();
@@ -36,6 +36,12 @@
     // Текущая «открытая» фича для feature_opened/closed.
     var _currentFeature=null;
     var _featureOpenedAt=0;
+    // Снапшот _activeMs на момент открытия фичи — нужен чтобы
+    // duration_sec считался по АКТИВНОМУ времени, а не wall-clock.
+    // Раньше: юзер закрывает вкладку с открытой фичей, через 16 часов
+    // переоткрывает страницу, феча закрывается → duration_sec = 59000.
+    // Это ломает все средние длительности (tales avg=29666s в дашборде).
+    var _featureOpenedActiveMs=0;
 
     // ---- user attrs ----
     var _isPremium=null;
@@ -66,14 +72,33 @@
         var uid=UID();
         if(!uid) return;
         try{
-            var r=await _origFetch.call(window, API()+'/api/meter/status/'+uid, {credentials:'include'});
+            var r=await _origFetch.call(window, API()+'/api/meter/status/'+uid, {credentials:'omit'});
             if(!r.ok) return;
             var d=await r.json();
             _isPremium=!!d.is_premium;
         }catch(e){}
     }
 
+    // ---- error dedupe ----
+    // По аналитике polling-эндпоинты (/api/notifications, /api/profile/access/inbox)
+    // генерят повторяющиеся api_network_error/api_error при каждом тике сети,
+    // создавая шум (43 ошибки/неделя при том, что причина — одна и та же).
+    // Троттлим повторы по ключу endpoint+method+status: один раз в 5 минут.
+    var _errKeyLastAt = Object.create(null);
+    var _ERR_DEDUPE_MS = 5 * 60 * 1000;
+    function _shouldDedupeError(event, data) {
+        if (event !== 'api_network_error' && event !== 'api_error') return false;
+        if (!data) return false;
+        var key = (data.endpoint || '') + '|' + (data.method || '') + '|' + (data.status || '');
+        var now = Date.now();
+        var last = _errKeyLastAt[key] || 0;
+        if (now - last < _ERR_DEDUPE_MS) return true;
+        _errKeyLastAt[key] = now;
+        return false;
+    }
+
     function track(event,data){
+        if (_shouldDedupeError(event, data)) return;
         var payload={
             user_id:UID(),
             session_id:SID,
@@ -95,34 +120,51 @@
         if(_sending||!_queue.length) return;
         _sending=true;
         var batch=_queue.splice(0,10);
+        // sendBeacon шлёт куки (credentials = include), а у бэка нет
+        // Access-Control-Allow-Credentials → preflight падает на CORS.
+        // Уходим на fetch с credentials:'omit' и keepalive:true (даёт то же
+        // поведение «дотащить даже при закрытии вкладки», но без куки).
         try{
-            var blob=new Blob([JSON.stringify({events:batch})],{type:'application/json'});
-            navigator.sendBeacon(API()+'/api/analytics/events',blob);
-        }catch(e){
-            try{
-                _origFetch(API()+'/api/analytics/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({events:batch}),keepalive:true});
-            }catch(e2){}
-        }
+            _origFetch(API()+'/api/analytics/events',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({events:batch}),
+                keepalive:true,
+                credentials:'omit',
+                mode:'cors'
+            }).catch(function(){});
+        }catch(e){}
         _sending=false;
         if(_queue.length) setTimeout(_flush,1000);
     }
 
     // ---- feature lifecycle ----
+    // duration_sec — это АКТИВНОЕ время (фокус вкладки), а не wall-clock.
+    // wall_sec шлём в дополнение для отладки / сравнения.
+    // Capped до 2 часов на случай если активный счётчик где-то заглючит.
+    function _featureDuration(){
+        _tickActive(); // дотикать до текущего момента
+        var activeSec = Math.max(0, Math.round((_activeMs - _featureOpenedActiveMs)/1000));
+        return Math.min(activeSec, 7200);
+    }
+
     function _openFeature(name){
         if(!name) return;
         if(_currentFeature && _currentFeature === name) return;
         if(_currentFeature){
-            var dur=Math.round((Date.now()-_featureOpenedAt)/1000);
-            track('feature_closed',{feature:_currentFeature,duration_sec:dur});
+            var wall=Math.round((Date.now()-_featureOpenedAt)/1000);
+            track('feature_closed',{feature:_currentFeature,duration_sec:_featureDuration(),wall_sec:wall});
         }
         _currentFeature=name;
         _featureOpenedAt=Date.now();
+        _tickActive();
+        _featureOpenedActiveMs=_activeMs;
         track('feature_opened',{feature:name});
     }
     function _closeCurrentFeature(reason){
         if(!_currentFeature) return;
-        var dur=Math.round((Date.now()-_featureOpenedAt)/1000);
-        track('feature_closed',{feature:_currentFeature,duration_sec:dur,reason:reason||''});
+        var wall=Math.round((Date.now()-_featureOpenedAt)/1000);
+        track('feature_closed',{feature:_currentFeature,duration_sec:_featureDuration(),wall_sec:wall,reason:reason||''});
         _currentFeature=null;
     }
 

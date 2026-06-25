@@ -150,7 +150,7 @@ function goBackToDashboard() {
 async function checkTestCompleted() {
     try {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
         const data = await response.json();
         return data.has_profile === true;
@@ -162,7 +162,7 @@ async function checkTestCompleted() {
 async function loadUserVectors() {
     try {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const res = await fetch(`${apiUrl}/api/get-profile/${userId}`);
         const data = await res.json();
         const bl = data.profile?.behavioral_levels || {};

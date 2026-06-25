@@ -419,7 +419,7 @@ const _gs = window._goalsState;
 // ============================================
 function _glToast(msg) { if (window.showToast) window.showToast(msg, 'info'); }
 function _glHome() { if (typeof renderDashboard === 'function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
-function _glApi() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _glApi() { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _glUid() { return window.CONFIG?.USER_ID; }
 
 const DIFF_ICON = { easy:'🟢', medium:'🟡', hard:'🔴' };

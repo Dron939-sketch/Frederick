@@ -123,13 +123,13 @@ async function subscribeToPushNotifications() {
 
         pushSubscription = subscription;
 
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
 
         await fetch(`${apiUrl}/api/push/subscribe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, subscription: subscription })
+            body: JSON.stringify({ user_id: userId, subscription: subscription, platform: 'web' })
         });
 
         showToast('✅ Push-уведомления включены! Буду присылать утренние сообщения.');

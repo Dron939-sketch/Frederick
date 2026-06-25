@@ -80,7 +80,7 @@ function goBackToDashboard() {
 async function checkTestCompleted() {
     try {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
         const response = await fetch(`${apiUrl}/api/user-status?user_id=${userId}`);
         const data = await response.json();
         return data.has_profile === true;
@@ -95,7 +95,7 @@ async function checkTestCompleted() {
 async function loadUserProfileForRelationships() {
     try {
         const userId = window.CONFIG?.USER_ID || window.USER_ID;
-        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+        const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
 
         const contextRes = await fetch(`${apiUrl}/api/get-context/${userId}`);
         const contextData = await contextRes.json();
@@ -136,7 +136,7 @@ async function loadUserProfileForRelationships() {
 async function generateRelationshipAnalysis() {
     const v = relationshipsState.userVectors;
     const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
     const attachmentInfo = ATTACHMENT_TYPES[relationshipsState.attachmentType] || ATTACHMENT_TYPES.secure;
 
     const prompt = `Ты — Фреди, виртуальный психолог. Сделай анализ стиля отношений пользователя.
@@ -161,7 +161,7 @@ async function generateRelationshipAnalysis() {
     try {
         const response = await fetch(`${apiUrl}/api/ai/generate`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, prompt, max_tokens: 800, temperature: 0.7 })
+            body: JSON.stringify({ user_id: userId, prompt, max_tokens: 800, temperature: 0.7, platform: 'web' })
         });
         const data = await response.json();
         if (data.success && data.content) {
@@ -187,7 +187,7 @@ async function generateRelationshipAnalysis() {
 async function analyzeSituation(situationText, partnerProfile = null) {
     const v = relationshipsState.userVectors;
     const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
 
     let partnerContext = '';
     if (partnerProfile) {
@@ -215,7 +215,7 @@ async function analyzeSituation(situationText, partnerProfile = null) {
     try {
         const response = await fetch(`${apiUrl}/api/ai/generate`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, prompt, max_tokens: 1000, temperature: 0.7 })
+            body: JSON.stringify({ user_id: userId, prompt, max_tokens: 1000, temperature: 0.7, platform: 'web' })
         });
         const data = await response.json();
         if (data.success && data.content) {
@@ -239,7 +239,7 @@ async function analyzeSituation(situationText, partnerProfile = null) {
 async function getCrisisHelp(scenarioId, scenarioName) {
     const v = relationshipsState.userVectors;
     const userId = window.CONFIG?.USER_ID || window.USER_ID;
-    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com';
+    const apiUrl = window.CONFIG?.API_BASE_URL || window.API_BASE_URL || 'https://ffred-ddd989.amvera.io';
 
     const prompt = `Ты — Фреди, виртуальный психолог. Пользователь в кризисной ситуации: ${scenarioName}.
 
@@ -258,7 +258,7 @@ async function getCrisisHelp(scenarioId, scenarioName) {
     try {
         const response = await fetch(`${apiUrl}/api/ai/generate`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, prompt, max_tokens: 500, temperature: 0.6 })
+            body: JSON.stringify({ user_id: userId, prompt, max_tokens: 500, temperature: 0.6, platform: 'web' })
         });
         const data = await response.json();
         if (data.success && data.content) {

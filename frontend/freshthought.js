@@ -321,7 +321,7 @@ const _ft = window._ftState;
 // УТИЛИТЫ
 // ============================================
 function _ftHome()  { if (typeof renderDashboard==='function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
-function _ftApi()   { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _ftApi()   { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _ftUid()   { return window.CONFIG?.USER_ID; }
 function _ftToast(msg, type) { if (window.showToast) window.showToast(msg, type||'info'); }
 function _ftShuffle(arr) {

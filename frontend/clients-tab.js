@@ -2,7 +2,7 @@
 // Self-injecting лоадер. Использует localStorage['fredi_admin_token'].
 (function(){
   'use strict';
-  var API = (window.API_BASE_URL) || 'https://fredi-backend-flz2.onrender.com';
+  var API = (window.API_BASE_URL) || 'https://ffred-ddd989.amvera.io';
   var LS = 'fredi_admin_token';
   var debTimer = null, currentSearch = '';
 
@@ -1186,7 +1186,7 @@
 // ============================================
 (function(){
   'use strict';
-  var API = (window.API_BASE_URL) || 'https://fredi-backend-flz2.onrender.com';
+  var API = (window.API_BASE_URL) || 'https://ffred-ddd989.amvera.io';
   var LS = 'fredi_admin_token';
   function tok(){ try { return localStorage.getItem(LS) || ''; } catch(e){ return ''; } }
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1760,7 +1760,7 @@
 // ============================================
 (function(){
   'use strict';
-  var API = (window.API_BASE_URL) || 'https://fredi-backend-flz2.onrender.com';
+  var API = (window.API_BASE_URL) || 'https://ffred-ddd989.amvera.io';
   var LS = 'fredi_admin_token';
   function tok(){ try { return localStorage.getItem(LS) || ''; } catch(e){ return ''; } }
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1929,7 +1929,141 @@
     var ub = (r.vk_data || {}).user_basic || {};
     var chatUrl = ub.id ? ('https://vk.com/im?sel=' + ub.id) : '';
 
-    var profileHtml =
+    // Экзистенциальный слой (Ялом × Роттер) — координатная сетка
+    // для уточнения А и С. Бэк передаёт r.existential = {existential_stance,
+    // existential_card, locus_of_control, locus_card, compass, evidences}
+    // или null если LLM не классифицировал.
+    var ex = r.existential;
+    var existentialHtml = '';
+    if (ex && (ex.existential_card || ex.locus_card)) {
+      var esCard = ex.existential_card;
+      var lcCard = ex.locus_card;
+      var esColor = '#fbbf24';   // янтарный — экзистенция
+      var lcColor = '#06b6d4';   // циан — локус
+      existentialHtml =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
+          // existential
+          '<div style="background:'+esColor+'12;border-left:3px solid '+esColor+';padding:8px 11px;border-radius:6px">' +
+            '<div style="font-size:10px;color:'+esColor+';text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px">⚰️ Экзистенция (Ялом)</div>' +
+            '<div style="font-size:12px;font-weight:600;line-height:1.3">' + esc((esCard||{}).name_ru || '—') + '</div>' +
+            ((esCard||{}).summary ? '<div style="font-size:10px;color:var(--text-dim);margin-top:3px;line-height:1.4">' + esc(esCard.summary) + '</div>' : '') +
+            (ex.existential_evidence ? '<div style="font-size:10px;color:var(--text-dim);font-style:italic;margin-top:3px">«' + esc(ex.existential_evidence) + '»</div>' : '') +
+          '</div>' +
+          // locus
+          '<div style="background:'+lcColor+'12;border-left:3px solid '+lcColor+';padding:8px 11px;border-radius:6px">' +
+            '<div style="font-size:10px;color:'+lcColor+';text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px">🎯 Локус контроля (Роттер)</div>' +
+            '<div style="font-size:12px;font-weight:600;line-height:1.3">' + esc((lcCard||{}).name_ru || '—') + '</div>' +
+            ((lcCard||{}).summary ? '<div style="font-size:10px;color:var(--text-dim);margin-top:3px;line-height:1.4">' + esc(lcCard.summary) + '</div>' : '') +
+            (ex.locus_evidence ? '<div style="font-size:10px;color:var(--text-dim);font-style:italic;margin-top:3px">«' + esc(ex.locus_evidence) + '»</div>' : '') +
+          '</div>' +
+        '</div>';
+    }
+
+    // Compensatory pattern badge — отдельная плашка для глаз админа.
+    // Бэк передаёт pain.compensatory_pattern + pain.is_target_audience.
+    var cpCode = (pain.compensatory_pattern || '').toLowerCase();
+    var cpMap = {
+      'peace_deficit':    { letter: 'А', name: 'Дефицит покоя',       color: '#0ea5e9', emoji: '🌙' },
+      'intimacy_deficit': { letter: 'Б', name: 'Дефицит близости',    color: '#a855f7', emoji: '💔' },
+      'body_deficit':     { letter: 'В', name: 'Дефицит телесности', color: '#ec4899', emoji: '🪞' }
+    };
+    var cpInfo = cpMap[cpCode];
+    var cpBadgeHtml = '';
+    if (cpInfo) {
+      cpBadgeHtml =
+        '<div style="background:' + cpInfo.color + '14;border-left:3px solid ' + cpInfo.color + ';padding:10px 12px;border-radius:6px;margin-bottom:12px">' +
+          '<div style="font-size:10px;color:' + cpInfo.color + ';text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">' +
+            cpInfo.emoji + ' Компенсаторный паттерн: ' + cpInfo.letter + '. ' + esc(cpInfo.name) +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);font-style:italic">' + esc(cpCode) + (pain.is_target_audience ? ' · ✓ ЦА — бьюти 30+' : '') + '</div>' +
+        '</div>';
+    } else if (pain.is_target_audience) {
+      cpBadgeHtml =
+        '<div style="background:rgba(168,85,247,0.06);border-left:3px solid var(--accent);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:11px;color:var(--text-dim)">' +
+          '🎯 ЦА — бьюти-предпринимательница 30+ (паттерн не определён)' +
+        '</div>';
+    }
+
+    // Нарративный слой: журней А→Б→С + цепочка инструментов.
+    // Бэк передаёт r.journey = {code,name_ru,compass,point_a,point_c,
+    // evidence_a,evidence_c,tool_chain:[{step,tool,step_name,why,time_min}],
+    // weight,compensatory_link} или null если LLM не классифицировал.
+    var journey = r.journey;
+    var journeyHtml = '';
+    if (journey && journey.code) {
+      var chain = journey.tool_chain || [];
+      var chainHtml = chain.map(function(s){
+        var t = s.tool || {};
+        return (
+          '<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,0.06)">' +
+            '<div style="flex-shrink:0;width:22px;height:22px;border-radius:50%;background:rgba(99,102,241,0.2);color:#a5b4fc;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">'+esc(String(s.step||'·'))+'</div>' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-size:12px;font-weight:600">' +
+                (t.icon_emoji || '🔧') + ' ' + esc(t.name || s.tool_code || '—') +
+                ' <span style="color:var(--text-dim);font-weight:400">— ' + esc(s.step_name || '') + '</span>' +
+                ' <span style="color:var(--text-dim);font-size:10px">· ~' + esc(String(s.time_min || 5)) + ' мин</span>' +
+              '</div>' +
+              (s.why ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px;line-height:1.4">' + esc(s.why) + '</div>' : '') +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+      var jWeight = Math.round((journey.weight || 0) * 100);
+      journeyHtml =
+        '<div style="background:rgba(99,102,241,0.06);border-left:3px solid #6366f1;padding:12px 14px;border-radius:6px;margin-bottom:12px">' +
+          '<div style="font-size:10px;color:#a5b4fc;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">' +
+            '🗺️ Путь А → Б → С: «' + esc(journey.name_ru || journey.code) + '» (компас: ' + esc(journey.compass || '—') + ') · уверенность ' + jWeight + '%' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+            '<div style="background:rgba(0,0,0,0.12);padding:8px 10px;border-radius:4px">' +
+              '<div style="font-size:10px;color:#a5b4fc;font-weight:700;margin-bottom:3px">А · ОТКУДА (причина)</div>' +
+              '<div style="font-size:12px;line-height:1.45">' + esc(journey.point_a || '—') + '</div>' +
+              (journey.evidence_a ? '<div style="font-size:10px;color:var(--text-dim);font-style:italic;margin-top:4px">«' + esc(journey.evidence_a) + '»</div>' : '') +
+            '</div>' +
+            '<div style="background:rgba(0,0,0,0.12);padding:8px 10px;border-radius:4px">' +
+              '<div style="font-size:10px;color:#86efac;font-weight:700;margin-bottom:3px">С · КУДА (компенсация)</div>' +
+              '<div style="font-size:12px;line-height:1.45">' + esc(journey.point_c || '—') + '</div>' +
+              (journey.evidence_c ? '<div style="font-size:10px;color:var(--text-dim);font-style:italic;margin-top:4px">«' + esc(journey.evidence_c) + '»</div>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:#a5b4fc;font-weight:700;margin-bottom:4px">Б · ПУТЬ (' + chain.length + ' шагов)</div>' +
+          chainHtml +
+        '</div>';
+    }
+
+    // Тактический слой: top-3 actionable problem_signals + рекомендованный
+    // инструмент для второго касания. Бэк передаёт уже отфильтрованный
+    // список (weight >= weight_floor).
+    var sigs = r.problem_signals_actionable || [];
+    var sigsHtml = '';
+    if (sigs.length) {
+      var rows = sigs.map(function(s){
+        var tool = s.tool || {};
+        var w = Math.round((s.weight || 0) * 100);
+        var bar = '<div style="display:inline-block;width:36px;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;vertical-align:middle;margin:0 6px;overflow:hidden"><div style="width:'+w+'%;height:100%;background:#10b981"></div></div>';
+        var time = s.best_send_time_msk ? ' · ⏰ ' + esc(s.best_send_time_msk) : '';
+        return (
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,0.06)">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-size:12px;font-weight:600">' + esc(s.name_ru || s.code || '—') + '</div>' +
+              (s.evidence ? '<div style="font-size:10px;color:var(--text-dim);font-style:italic;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">«' + esc(s.evidence) + '»</div>' : '') +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--text-dim);text-align:right;flex-shrink:0">' +
+              (tool.icon_emoji || '🔧') + ' <b style="color:var(--text)">' + esc(tool.name || s.tool_code || '—') + '</b>' + time +
+              '<div style="font-size:10px;margin-top:2px">' + bar + w + '%</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+      sigsHtml =
+        '<div style="background:rgba(16,185,129,0.06);border-left:3px solid #10b981;padding:10px 12px;border-radius:6px;margin-bottom:12px">' +
+          '<div style="font-size:10px;color:#10b981;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">🎯 Острые проблемы → рекомендованный инструмент</div>' +
+          rows +
+        '</div>';
+    }
+    cpBadgeHtml = existentialHtml + cpBadgeHtml + journeyHtml + sigsHtml;
+
+    var profileHtml = cpBadgeHtml +
       '<div style="background:rgba(167,139,250,0.06);border-left:3px solid var(--accent);padding:10px 12px;border-radius:6px;margin-bottom:12px">' +
         '<div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🧠 Психологический портрет</div>' +
         '<div style="font-size:13px;line-height:1.5">' + esc(p.profile || '—') + '</div>' +
@@ -1994,12 +2128,22 @@
     var pitchHtml = '';
     var pitch = r.pitch || null;
     if (pitch && pitch.message){
+      // pitch.message — короткое (5 строк) сообщение, что РЕАЛЬНО уйдёт в VK.
+      // pitch.preview_full — то же сообщение + анализ выше, для глаз админа.
+      // Бэкенд после b2c-personal-offer-recency возвращает оба поля; до него
+      // приходит только pitch.message — fallback оставит старое поведение.
+      var previewText = pitch.preview_full || pitch.message;
+      var sendText = pitch.message;
       pitchHtml =
         '<div style="background:rgba(0,136,204,0.06);border:1px solid rgba(0,136,204,0.25);border-radius:10px;padding:14px;margin-bottom:14px">' +
           '<div style="font-size:10px;color:#0088cc;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">📨 Готовое цепляющее обращение</div>' +
-          '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">📝 Текст для VK</div>' +
-          '<div class="vk-b2c-pitch-msg" style="white-space:pre-wrap;line-height:1.55;font-size:12.5px;background:rgba(255,255,255,0.03);border-left:3px solid #0088cc;border-radius:6px;padding:10px 12px;margin-bottom:10px">' +
-            esc(pitch.message) +
+          '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">📝 Превью (анализ + сообщение для VK)</div>' +
+          '<div class="vk-b2c-pitch-preview" style="white-space:pre-wrap;line-height:1.55;font-size:12.5px;background:rgba(255,255,255,0.03);border-left:3px solid #0088cc;border-radius:6px;padding:10px 12px;margin-bottom:8px;max-height:280px;overflow:auto">' +
+            esc(previewText) +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">📤 Что уйдёт в VK</div>' +
+          '<div class="vk-b2c-pitch-msg" style="white-space:pre-wrap;line-height:1.55;font-size:12.5px;background:rgba(0,136,204,0.06);border-left:3px solid #0088cc;border-radius:6px;padding:10px 12px;margin-bottom:10px">' +
+            esc(sendText) +
           '</div>' +
           (pitch.voice_script
             ? '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">🎙️ Скрипт для голоса · ~60 сек</div>' +

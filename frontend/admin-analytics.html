@@ -196,6 +196,9 @@
         <button data-tab="mirrors">🪞 Зеркала</button>
         <button data-tab="control">🎛️ Пульт</button>
         <button data-tab="reeng">📨 Возврат</button>
+        <button data-tab="tts">🔊 Озвучка</button>
+        <button data-tab="parse">🎣 Парсинг</button>
+        <button data-tab="messengers">📱 Messenger</button>
         <button data-tab="wave">🌊 2-я волна</button>
         <button data-tab="friends">👥 Друзья из ВК</button>
         <button id="exportClaudeBtn" style="background:#10b981;color:#fff;border-color:#10b981;flex:0 0 auto">📋 Экспорт для Claude</button>
@@ -350,6 +353,322 @@
         </div>
     </section>
 
+    <!-- 🔊 TTS Озвучка -->
+    <section id="ttsTab" style="display:none">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">
+            <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🔊 Генератор голоса Фреди</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+                Текст → MP3 через Fish Audio. Можно скачать или отправить в MAX-мессенджер.
+            </div>
+
+            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Текст для озвучки (макс. 4000 символов)</label>
+            <textarea id="ttsText" rows="5" maxlength="4000"
+                style="width:100%;padding:12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;color:var(--text);font:13px/1.55 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px"
+                placeholder="Введите текст…">Привет. Я Фреди. Если захочешь поговорить — нажимай и говори, я рядом.</textarea>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+                <label style="font-size:11px;color:var(--text-dim)">Голос:</label>
+                <select id="ttsMode" style="padding:8px 12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                    <option value="psychologist" selected>Психолог</option>
+                    <option value="coach">Коуч</option>
+                    <option value="trainer">Тренер</option>
+                </select>
+                <span id="ttsCharCount" style="font-size:11px;color:var(--text-dim);margin-left:auto">0 / 4000</span>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                <button id="ttsSynthesize"
+                    style="padding:11px 18px;border-radius:10px;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:700;cursor:pointer">
+                    🔊 Озвучить
+                </button>
+                <button id="ttsDownload" disabled
+                    style="padding:11px 18px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;font-weight:600;cursor:pointer;opacity:0.4">
+                    💾 Скачать MP3
+                </button>
+            </div>
+
+            <!-- Блок отправки в MAX (виден после генерации MP3) -->
+            <div id="ttsMaxBlock" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:8px;margin-bottom:10px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">📨 Отправить в MAX</div>
+
+                <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Получатель (MAX chat_id) или выбери из списка</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+                    <input id="ttsMaxChatId" type="number" placeholder="например 123456789"
+                        style="flex:1;min-width:200px;padding:10px 12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                    <select id="ttsMaxRecent" style="padding:10px 12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;max-width:260px">
+                        <option value="">— из недавних —</option>
+                    </select>
+                </div>
+
+                <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px">Подпись (опционально, до 1000 символов)</label>
+                <input id="ttsMaxCaption" type="text" placeholder="что-нибудь в одну строку…" maxlength="1000"
+                    style="width:100%;box-sizing:border-box;padding:10px 12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;margin-bottom:10px">
+
+                <button id="ttsSendMax"
+                    style="padding:11px 18px;border-radius:10px;border:none;background:#4f46e5;color:#fff;font:inherit;font-weight:700;cursor:pointer">
+                    📨 Отправить в MAX
+                </button>
+            </div>
+
+            <div id="ttsAudioBox" style="display:none;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px">
+                <audio id="ttsAudio" controls style="width:100%"></audio>
+                <div id="ttsAudioInfo" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
+            </div>
+
+            <div id="ttsStatus" style="font-size:12px;color:var(--text-dim);min-height:16px"></div>
+        </div>
+    </section>
+
+    <!-- 🎣 PARSING + OUTREACH QUEUE -->
+    <section id="parseTab" style="display:none">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">
+            <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🎣 Парсинг и очередь авто-аутрича</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">
+                Парсит ВСЕ fisherman-категории (15 шт.) под фильтром (город / возраст / пол / только активные) → даёт уникальный список → можно добавить в очередь авто-аутрича. Воркер берёт по одному, делает B2C-анализ и шлёт голос+текст в VK.
+            </div>
+
+            <!-- Фильтры -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+                <div>
+                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Город</label>
+                    <input id="parseCity" type="text" value="Коломна" placeholder="Коломна"
+                        style="width:100%;box-sizing:border-box;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                </div>
+                <div>
+                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Возраст от</label>
+                    <input id="parseAgeMin" type="number" value="30" min="14" max="80"
+                        style="width:100%;box-sizing:border-box;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                </div>
+                <div>
+                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Возраст до</label>
+                    <input id="parseAgeMax" type="number" value="0" min="0" max="80" placeholder="0 = без ограничения"
+                        style="width:100%;box-sizing:border-box;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                </div>
+                <div>
+                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Пол</label>
+                    <select id="parseSex" style="width:100%;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                        <option value="1" selected>Женский</option>
+                        <option value="2">Мужской</option>
+                        <option value="0">Любой</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Активность (дней)</label>
+                    <input id="parseInactivityDays" type="number" value="90" min="7" max="365"
+                        style="width:100%;box-sizing:border-box;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                </div>
+                <div>
+                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px">Макс на категорию</label>
+                    <input id="parseMaxPerCat" type="number" value="100" min="10" max="500"
+                        style="width:100%;box-sizing:border-box;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-bottom:12px">
+                <input id="parseActiveOnly" type="checkbox" checked style="width:16px;height:16px">
+                Только активные (живые) страницы
+            </label>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+                <button id="parseRun"
+                    style="padding:11px 18px;border-radius:10px;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:700;cursor:pointer">
+                    🎣 Найти всех (15 категорий)
+                </button>
+                <button id="parseAddSelected" disabled
+                    style="padding:11px 18px;border-radius:10px;border:1px solid #10b981;background:transparent;color:#10b981;font:inherit;font-weight:600;cursor:pointer;opacity:0.4">
+                    ➕ Добавить выбранных в очередь
+                </button>
+            </div>
+
+            <!-- Парсинг подписчиков VK-группы -->
+            <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:10px">
+                <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">📍 Альтернатива — спарсить подписчиков конкретной VK-группы:</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+                    <input id="parseGroup" type="text" placeholder="club12345 / id / vk.com/groupname / screen_name"
+                        style="flex:1;min-width:260px;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                    <input id="parseGroupMaxMembers" type="number" value="1000" min="100" max="10000" title="макс участников"
+                        style="width:110px;padding:9px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                    <button id="parseGroupRun"
+                        style="padding:10px 16px;border-radius:10px;border:none;background:#0088cc;color:#fff;font:inherit;font-weight:700;cursor:pointer">
+                        🎯 Парсить группу
+                    </button>
+                </div>
+                <div style="font-size:11px;color:var(--text-dim)">Используются те же фильтры выше (город / возраст / пол / активные).</div>
+            </div>
+
+            <div id="parseStatus" style="font-size:12px;color:var(--text-dim);min-height:16px;margin-bottom:10px"></div>
+
+            <!-- Результат поиска -->
+            <div id="parseResults" style="display:none">
+                <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap">
+                    <div id="parseResultsSummary" style="font-size:11px;color:var(--text-dim);flex:1;min-width:200px"></div>
+                    <button id="parseAddSelectedNearResults" disabled
+                        style="padding:10px 18px;border-radius:10px;border:none;background:#10b981;color:#fff;font:inherit;font-weight:700;cursor:pointer;opacity:0.4">
+                        ➕ Добавить выбранных в очередь
+                    </button>
+                </div>
+                <div style="max-height:400px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px">
+                        <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
+                            <tr style="border-bottom:1px solid var(--border)">
+                                <th style="padding:8px;text-align:left;width:32px"><input id="parseSelectAll" type="checkbox" style="width:16px;height:16px"></th>
+                                <th style="padding:8px;text-align:left">Имя</th>
+                                <th style="padding:8px;text-align:left;width:80px">vk_id</th>
+                                <th style="padding:8px;text-align:left;width:80px">Год</th>
+                                <th style="padding:8px;text-align:left">Категория</th>
+                                <th style="padding:8px;text-align:left;width:50px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="parseResultsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Очередь -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px">📋 Очередь авто-аутрича</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button id="queueRefresh" style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;font-size:12px;cursor:pointer">🔄 Обновить</button>
+                    <button id="queueProcessOne" style="padding:7px 14px;border-radius:8px;border:none;background:#0088cc;color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer">▶ Обработать следующего</button>
+                    <button id="queueResetErrors" style="padding:7px 12px;border-radius:8px;border:1px solid #f59e0b;background:transparent;color:#f59e0b;font:inherit;font-size:12px;cursor:pointer">↺ Сброс error → queued</button>
+                </div>
+            </div>
+
+            <div id="queueStats" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:12px"></div>
+
+            <div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
+                Фильтр:
+                <select id="queueFilter" style="padding:5px 9px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:6px;color:var(--text);font:inherit;font-size:12px;margin-left:4px">
+                    <option value="">все</option>
+                    <option value="queued">queued</option>
+                    <option value="processing">processing</option>
+                    <option value="sent">sent</option>
+                    <option value="skipped">skipped</option>
+                    <option value="error">error</option>
+                </select>
+            </div>
+
+            <div style="max-height:500px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
+                        <tr style="border-bottom:1px solid var(--border)">
+                            <th style="padding:8px;text-align:left">Имя</th>
+                            <th style="padding:8px;text-align:left;width:80px">vk_id</th>
+                            <th style="padding:8px;text-align:left">Категория</th>
+                            <th style="padding:8px;text-align:left;width:90px">Статус</th>
+                            <th style="padding:8px;text-align:left;width:140px">Когда</th>
+                            <th style="padding:8px;text-align:left;width:50px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="queueBody"></tbody>
+                </table>
+            </div>
+
+            <div id="queueStatus" style="font-size:12px;color:var(--text-dim);min-height:16px;margin-top:10px"></div>
+        </div>
+    </section>
+
+    <!-- 📱 MESSENGER LINKS STATS -->
+    <section id="messengersTab" style="display:none">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">
+            <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">📱 Привязки мессенджеров</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">
+                Юзеры, прошедшие тест и привязавшие MAX/Telegram-бота через «PDF в MAX». Каждый chat_id — потенциальная точка реактивации (можно слать через бота).
+            </div>
+
+            <!-- KPI карточки -->
+            <div id="msgKpi" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:14px"></div>
+
+            <!-- Фильтр + действия -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+                <label style="font-size:11px;color:var(--text-dim)">Платформа:</label>
+                <select id="msgFilter" style="padding:7px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:6px;color:var(--text);font:inherit;font-size:12px">
+                    <option value="">все</option>
+                    <option value="max">MAX</option>
+                    <option value="telegram">Telegram</option>
+                </select>
+                <button id="msgRefresh" style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;font-size:12px;cursor:pointer;margin-left:auto">🔄 Обновить</button>
+                <button id="msgExportCsv" style="padding:7px 12px;border-radius:8px;border:1px solid #10b981;background:transparent;color:#10b981;font:inherit;font-size:12px;cursor:pointer">💾 CSV</button>
+                <button id="msgBroadcastOpen" style="padding:7px 14px;border-radius:8px;border:none;background:#a855f7;color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer">📨 Рассылка от Фреди</button>
+            </div>
+
+            <div id="broadcastOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:600px;width:100%;max-height:92vh;display:flex;flex-direction:column;padding:18px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <div style="font-weight:700;font-size:16px">📨 Рассылка от Фреди</div>
+                        <button id="broadcastClose" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 10px;color:var(--text);cursor:pointer;font-size:12px">✕</button>
+                    </div>
+                    <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:3px">Текст сообщения (≤4000)</label>
+                    <textarea id="broadcastText" rows="6" maxlength="4000" style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:13px/1.5 inherit;resize:vertical;box-sizing:border-box;margin-bottom:10px" placeholder="Привет! Я Фреди..."></textarea>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                        <div>
+                            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:3px">Платформа</label>
+                            <select id="broadcastPlatform" style="width:100%;padding:8px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                                <option value="max" selected>⚡ MAX</option>
+                                <option value="telegram">✈️ Telegram</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:3px">Кому</label>
+                            <select id="broadcastTarget" style="width:100%;padding:8px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                                <option value="last_7d">За последние 7 дней</option>
+                                <option value="last_30d" selected>За последние 30 дней</option>
+                                <option value="all">Всем активным</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-bottom:10px;padding:10px;border:1px dashed var(--border);border-radius:8px;background:rgba(168,85,247,0.04)">
+                        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:6px;cursor:pointer;font-weight:600">
+                            <input id="broadcastVoiceOn" type="checkbox" style="margin:0">
+                            🎙 С голосом Фреди (только MAX)
+                        </label>
+                        <div id="broadcastVoiceBlock" style="display:none">
+                            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:3px">Текст для озвучки (≤500, отдельный — может отличаться от текста-подписи выше)</label>
+                            <textarea id="broadcastVoiceText" rows="3" maxlength="500" style="width:100%;padding:8px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:13px/1.5 inherit;resize:vertical;box-sizing:border-box;margin-bottom:6px" placeholder="Привет, я Фреди..."></textarea>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <label style="font-size:11px;color:var(--text-dim)">Голос:</label>
+                                <select id="broadcastVoiceMode" style="padding:5px 9px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:6px;color:var(--text);font:inherit;font-size:12px">
+                                    <option value="psychologist" selected>Психолог</option>
+                                    <option value="coach">Коуч</option>
+                                    <option value="trainer">Тренер</option>
+                                </select>
+                                <span style="font-size:10px;color:var(--text-dim)">TTS 1 раз → upload 1 раз → attach всем</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom:10px">
+                        <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:3px">Тестовый chat_id (опц. — только в один)</label>
+                        <input id="broadcastTestChatId" type="text" placeholder="например 123456789" style="width:100%;box-sizing:border-box;padding:8px 11px;background:rgba(0,0,0,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit">
+                    </div>
+                    <div style="display:flex;gap:10px;margin-top:6px">
+                        <button id="broadcastDryRun" style="flex:1;padding:11px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;font-weight:600;cursor:pointer">🔍 Подсчитать (dry-run)</button>
+                        <button id="broadcastSend" style="flex:1;padding:11px;border-radius:10px;border:none;background:#a855f7;color:#fff;font:inherit;font-weight:700;cursor:pointer">📨 Отправить</button>
+                    </div>
+                    <div id="broadcastStatus" style="font-size:12px;color:var(--text-dim);min-height:30px;margin-top:10px;white-space:pre-wrap"></div>
+                </div>
+            </div>
+
+            <!-- Таблица последних -->
+            <div style="max-height:600px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
+                        <tr style="border-bottom:1px solid var(--border)">
+                            <th style="padding:8px;text-align:left">Имя</th>
+                            <th style="padding:8px;text-align:left;width:80px">User ID</th>
+                            <th style="padding:8px;text-align:left;width:60px">Platform</th>
+                            <th style="padding:8px;text-align:left">Chat ID / username</th>
+                            <th style="padding:8px;text-align:left;width:140px">Привязан</th>
+                        </tr>
+                    </thead>
+                    <tbody id="msgBody"></tbody>
+                </table>
+            </div>
+
+            <div id="msgStatus" style="font-size:12px;color:var(--text-dim);min-height:16px;margin-top:10px"></div>
+        </div>
+    </section>
+
     <!-- 🌊 2-я волна: голос + текст по списку VK ID -->
     <section id="waveTab" style="display:none">
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">
@@ -370,9 +689,29 @@
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                     <input id="waveGroupInput" type="text" placeholder="vk.com/group_id  или  screen_name  или  -123456"
                         style="flex:1;min-width:240px;padding:9px 12px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font:13px inherit">
-                    <input id="waveGroupLimit" type="number" min="1" max="10000" value="200" title="Сколько участников взять"
+                    <input id="waveGroupLimit" type="number" min="1" max="10000" value="500" title="Сколько участников взять (до фильтрации)"
                         style="width:90px;padding:9px 12px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font:13px inherit">
                     <button id="waveParseGroupBtn" style="padding:9px 16px;border-radius:8px;border:none;background:#10b981;color:#fff;font:600 13px inherit;cursor:pointer">🎣 Запарсить</button>
+                </div>
+                <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12px;color:var(--text-dim)">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                        <input type="checkbox" id="waveFilterFemale" checked>
+                        Только женщины
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px">
+                        Возраст:
+                        <input type="number" id="waveAgeMin" min="14" max="99" value="30" style="width:60px;padding:4px 8px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:6px;color:var(--text);font:12px inherit">
+                        –
+                        <input type="number" id="waveAgeMax" min="14" max="99" value="55" style="width:60px;padding:4px 8px;background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:6px;color:var(--text);font:12px inherit">
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                        <input type="checkbox" id="waveFilterAlive" checked>
+                        Только живые (90 дней)
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Через users.get с user-token проверяет can_write_private_message — отсекает тех, кому нельзя писать. Медленнее (~1 запрос/0.4с на 500 юзеров).">
+                        <input type="checkbox" id="waveFilterCanWrite" checked>
+                        🔒 Только открытая личка
+                    </label>
                 </div>
                 <div id="waveGroupStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
             </div>
@@ -565,7 +904,7 @@ POV: ты на семейном ужине, и мама такая «как у �
         // Карта vk_id → имя (наполняется при парсинге группы или resolve)
         var NAME_MAP = {};
 
-        function _apiBase() { return window.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+        function _apiBase() { return window.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
         function _token() {
             try { return localStorage.getItem('fredi_admin_token') || ''; }
             catch (e) { return ''; }
@@ -672,7 +1011,11 @@ POV: ты на семейном ужине, и мама такая «как у �
                     body: JSON.stringify({
                         group: raw,
                         max_members: limit,
-                        active_only: true
+                        active_only: document.getElementById('waveFilterAlive').checked,
+                        sex: document.getElementById('waveFilterFemale').checked ? 1 : 0,
+                        age_min: parseInt(document.getElementById('waveAgeMin').value, 10) || 0,
+                        age_max: parseInt(document.getElementById('waveAgeMax').value, 10) || 0,
+                        check_can_write: document.getElementById('waveFilterCanWrite').checked
                     })
                 });
                 var d = await r.json().catch(function () { return {}; });
@@ -688,8 +1031,20 @@ POV: ты на семейном ужине, и мама такая «как у �
                 document.getElementById('waveVkIds').value = lines.join('\n');
                 _updateCount();
                 var gname = (d.group && d.group.name) || raw;
-                statusEl.textContent = '✓ ' + gname + ' — заполнено ' + lines.length + ' VK ID (имена сохранены)';
-                statusEl.style.color = '#10b981';
+                var st = d.stats || {};
+                var funnel = [];
+                if (st.total_fetched != null) funnel.push('всего: ' + st.total_fetched);
+                if (st.after_alive != null) funnel.push('живые: ' + st.after_alive);
+                if (st.after_sex != null) funnel.push('пол: ' + st.after_sex);
+                if (st.after_age != null) funnel.push('возраст: ' + st.after_age);
+                if (st.after_city != null) funnel.push('город: ' + st.after_city);
+                if (st.after_can_write != null) funnel.push('открытая личка: ' + st.after_can_write);
+                var hint = funnel.length ? ' (' + funnel.join(' → ') + ')' : '';
+                statusEl.innerHTML = '<b>' + (lines.length ? '✓' : '⚠') + ' ' + gname + '</b> — отобрано ' + lines.length + ' VK ID' + hint;
+                statusEl.style.color = lines.length ? '#10b981' : '#f59e0b';
+                if (lines.length === 0) {
+                    statusEl.innerHTML += '<br><span style="font-size:11px">Подсказка: bdate скрыт у многих юзеров — фильтр по возрасту режет сильно. Попробуй увеличить лимит или ослабить фильтры.</span>';
+                }
             } catch (e) {
                 statusEl.textContent = '✗ ' + (e && e.message || e);
                 statusEl.style.color = '#ef4444';
@@ -994,7 +1349,7 @@ POV: ты на семейном ужине, и мама такая «как у �
                             '<label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span>Голос — приставка с именем</span></label>' +
                             '<input data-tpl="' + sex + '.d1.voice_name" type="text" value="' + _frEscape(t.voice_name || '') + '" style="width:100%;padding:8px 10px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px/1.5 inherit;box-sizing:border-box">' +
                         '</div>' +
-                        '<div style="margin-bottom:6px">' +
+                        '<div>' +
                             '<label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span>Голос — тело сообщения</span><button data-preview="' + sex + '" style="padding:3px 9px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font:600 10px inherit;cursor:pointer">🎧 Прослушать</button></label>' +
                             '<textarea data-tpl="' + sex + '.d1.voice_body" rows="5" style="width:100%;padding:9px 11px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);font:13px/1.5 inherit;resize:vertical;box-sizing:border-box">' + _frEscape(t.voice_body || '') + '</textarea>' +
                         '</div>';
@@ -1434,7 +1789,7 @@ POV: ты на семейном ужине, и мама такая «как у �
         try {
             if (window.API_BASE_URL) return window.API_BASE_URL;
         } catch(e){}
-        return 'https://fredi-backend-flz2.onrender.com';
+        return 'https://ffred-ddd989.amvera.io';
     })();
     var LS_KEY = 'fredi_admin_token';
 
@@ -1495,6 +1850,12 @@ POV: ты на семейном ужине, и мама такая «как у �
         if (controlTab) controlTab.style.display = 'none';
         var reengTab = document.getElementById('reengTab');
         if (reengTab) reengTab.style.display = 'none';
+        var ttsTab = document.getElementById('ttsTab');
+        if (ttsTab) ttsTab.style.display = 'none';
+        var parseTab = document.getElementById('parseTab');
+        if (parseTab) parseTab.style.display = 'none';
+        var messengersTab = document.getElementById('messengersTab');
+        if (messengersTab) messengersTab.style.display = 'none';
         var waveTab = document.getElementById('waveTab');
         if (waveTab) waveTab.style.display = 'none';
         var friendsTab = document.getElementById('friendsTab');
@@ -1520,7 +1881,7 @@ POV: ты на семейном ужине, и мама такая «как у �
             } else if (currentTab === 'mirrors') {
                 // Три open-эндпоинта — не требуют admin-токена.
                 var [stats, ms, ru] = await Promise.all([
-                    fetch(API + '/admin/stats').then(r => r.json()).catch(() => ({})),
+                    fetch(API + '/api/admin/stats').then(r => r.json()).catch(() => ({})),
                     fetch(API + '/api/admin/mirrors-stats').then(r => r.json()).catch(() => ({})),
                     fetch(API + '/api/admin/recent-users').then(r => r.json()).catch(() => ({})),
                 ]);
@@ -1533,6 +1894,16 @@ POV: ты на семейном ужине, и мама такая «как у �
             } else if (currentTab === 'reeng') {
                 if (reengTab) reengTab.style.display = 'block';
                 await reengReload();
+            } else if (currentTab === 'tts') {
+                // TTS — это форма, fetch не нужен. Просто показываем UI.
+                if (ttsTab) ttsTab.style.display = 'block';
+            } else if (currentTab === 'parse') {
+                if (parseTab) parseTab.style.display = 'block';
+                // Подгрузим очередь сразу при открытии
+                if (typeof _parseLoadQueue === 'function') _parseLoadQueue();
+            } else if (currentTab === 'messengers') {
+                if (messengersTab) messengersTab.style.display = 'block';
+                if (typeof _msgLoad === 'function') _msgLoad();
             } else if (currentTab === 'wave') {
                 // 2-я волна — это форма, fetch не нужен. Просто показываем UI.
                 if (waveTab) waveTab.style.display = 'block';
@@ -2224,7 +2595,7 @@ POV: ты на семейном ужине, и мама такая «как у �
         out.push(_mdTable(
             ['Step', 'Count'],
             [
-                ['meter_warning (≥70% лимита)', f.meter_warning || 0],
+                ['meter_warning (≤5 мин)', f.meter_warning || 0],
                 ['meter_blocked_shown', f.meter_blocked_shown || 0],
                 ['meter_subscribe_clicked', f.meter_subscribe_clicked || 0],
                 ['subscription_activated', f.subscription_activated || 0],
@@ -2479,6 +2850,818 @@ POV: ты на семейном ужине, и мама такая «как у �
     document.getElementById('reengReload').addEventListener('click', reengReload);
     document.getElementById('reengSendAll').addEventListener('click', function () { reengSend(false); });
     document.getElementById('reengDryRun').addEventListener('click', function () { reengSend(true); });
+
+    // ============================================================
+    // 🔊 TTS Озвучка — генератор голоса Фреди
+    // ============================================================
+    var _ttsBlob = null;       // последний сгенерённый Blob (mp3)
+    var _ttsBlobUrl = null;    // object URL для audio src и download
+    var _ttsLastText = '';     // текст из которого синтез — для имени файла
+
+    function _ttsSetStatus(msg, kind) {
+        var el = document.getElementById('ttsStatus');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = kind === 'err' ? 'var(--err, #e11d48)'
+                       : kind === 'ok'  ? 'var(--success, #10b981)'
+                       : 'var(--text-dim)';
+    }
+
+    function _ttsToggleResultButtons(enabled) {
+        var dl = document.getElementById('ttsDownload');
+        if (dl) {
+            dl.disabled = !enabled;
+            dl.style.opacity = enabled ? '1' : '0.4';
+            dl.style.cursor = enabled ? 'pointer' : 'not-allowed';
+        }
+        // Блок отправки в MAX — целиком скрываем/показываем
+        var maxBlock = document.getElementById('ttsMaxBlock');
+        if (maxBlock) maxBlock.style.display = enabled ? 'block' : 'none';
+    }
+
+    async function _ttsMaxLoadRecent() {
+        var sel = document.getElementById('ttsMaxRecent');
+        if (!sel || !token) return;
+        try {
+            var data = await _fetch('/api/admin/max/recent-chats?limit=20');
+            var items = (data && data.items) || [];
+            // Очищаем (оставляем дефолтный option)
+            while (sel.options.length > 1) sel.remove(1);
+            items.forEach(function (it) {
+                var opt = document.createElement('option');
+                opt.value = String(it.max_chat_id);
+                opt.textContent = it.name + ' · ' + it.max_chat_id;
+                sel.appendChild(opt);
+            });
+        } catch (e) {
+            // Тихо — список недавних опционален, ввод вручную всё равно работает
+            console.warn('[Fredi] max recent-chats:', e.message || e);
+        }
+    }
+
+    function _ttsCharCount() {
+        var ta = document.getElementById('ttsText');
+        var c  = document.getElementById('ttsCharCount');
+        if (!ta || !c) return;
+        var n = (ta.value || '').length;
+        c.textContent = n + ' / 4000';
+        c.style.color = n > 4000 ? '#e11d48' : 'var(--text-dim)';
+    }
+
+    var _ttsTextEl = document.getElementById('ttsText');
+    if (_ttsTextEl) {
+        _ttsCharCount();
+        _ttsTextEl.addEventListener('input', _ttsCharCount);
+    }
+
+    async function _ttsSynthesize() {
+        var btn = document.getElementById('ttsSynthesize');
+        var text = ((document.getElementById('ttsText') || {}).value || '').trim();
+        var mode = ((document.getElementById('ttsMode') || {}).value || 'psychologist').trim();
+        if (!text) {
+            _ttsSetStatus('⚠ Введи текст для озвучки', 'err');
+            return;
+        }
+        if (text.length > 4000) {
+            _ttsSetStatus('⚠ Максимум 4000 символов (сейчас ' + text.length + ')', 'err');
+            return;
+        }
+        if (!token) {
+            _ttsSetStatus('⚠ Сначала введи ADMIN_TOKEN сверху', 'err');
+            return;
+        }
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '⏳ Генерирую…';
+        _ttsSetStatus('Запрос в Fish Audio (5-15 сек)…');
+        _ttsToggleResultButtons(false);
+        // Сбросить предыдущий результат
+        if (_ttsBlobUrl) {
+            try { URL.revokeObjectURL(_ttsBlobUrl); } catch (e) {}
+            _ttsBlobUrl = null;
+        }
+        document.getElementById('ttsAudioBox').style.display = 'none';
+
+        try {
+            var resp = await fetch(API + '/api/admin/tts/synthesize', {
+                method: 'POST',
+                headers: {
+                    'X-Admin-Token': token,
+                    'Content-Type': 'application/json',
+                    'Accept': 'audio/mpeg',
+                },
+                body: JSON.stringify({ text: text, mode: mode }),
+            });
+            if (resp.status === 401) throw new Error('Неверный ADMIN_TOKEN');
+            if (resp.status === 503) throw new Error('TTS не настроен на сервере');
+            if (!resp.ok) {
+                var emsg = 'HTTP ' + resp.status;
+                try {
+                    var j = await resp.json();
+                    emsg = (j && j.detail && (j.detail.message || j.detail.error)) || emsg;
+                } catch (_) {}
+                throw new Error(emsg);
+            }
+            var blob = await resp.blob();
+            if (!blob || blob.size < 100) throw new Error('Пустой ответ TTS');
+
+            _ttsBlob = blob;
+            _ttsLastText = text;
+            _ttsBlobUrl = URL.createObjectURL(blob);
+
+            var audio = document.getElementById('ttsAudio');
+            audio.src = _ttsBlobUrl;
+            document.getElementById('ttsAudioBox').style.display = 'block';
+            var sizeKb = Math.round(blob.size / 1024);
+            document.getElementById('ttsAudioInfo').textContent =
+                '✓ MP3 готов · ' + sizeKb + ' КБ · ~' + Math.round(text.length / 15) + ' сек';
+            _ttsToggleResultButtons(true);
+            _ttsSetStatus('✓ Готово. Скачай или отправь в MAX', 'ok');
+        } catch (e) {
+            _ttsSetStatus('⚠ ' + (e.message || e), 'err');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
+    }
+
+    function _ttsDownload() {
+        if (!_ttsBlob || !_ttsBlobUrl) {
+            _ttsSetStatus('⚠ Сначала озвучь текст', 'err');
+            return;
+        }
+        // Имя файла = первые 30 символов текста + дата
+        var slug = (_ttsLastText || 'fredi-voice')
+            .toLowerCase()
+            .replace(/[^a-zа-я0-9\s-]/gi, '')
+            .trim()
+            .replace(/\s+/g, '-')
+            .slice(0, 30) || 'fredi-voice';
+        var date = new Date().toISOString().slice(0, 10);
+        var a = document.createElement('a');
+        a.href = _ttsBlobUrl;
+        a.download = 'fredi-' + slug + '-' + date + '.mp3';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        _ttsSetStatus('✓ Скачано', 'ok');
+    }
+
+    async function _ttsSendMax() {
+        if (!_ttsBlob) {
+            _ttsSetStatus('⚠ Сначала озвучь текст', 'err');
+            return;
+        }
+        var chatInput = document.getElementById('ttsMaxChatId');
+        var chatSel = document.getElementById('ttsMaxRecent');
+        var captionInput = document.getElementById('ttsMaxCaption');
+        var chatId = (chatInput && chatInput.value || '').trim();
+        if (!chatId && chatSel && chatSel.value) chatId = chatSel.value;
+        if (!chatId || isNaN(parseInt(chatId, 10)) || parseInt(chatId, 10) <= 0) {
+            _ttsSetStatus('⚠ Введи MAX chat_id или выбери из списка', 'err');
+            return;
+        }
+        var caption = (captionInput && captionInput.value || '').trim();
+
+        var btn = document.getElementById('ttsSendMax');
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '⏳ Отправляю…';
+        _ttsSetStatus('Загружаю в MAX (10-20 сек)…');
+        try {
+            var fd = new FormData();
+            fd.append('audio', _ttsBlob, 'fredi-voice.mp3');
+            fd.append('chat_id', String(parseInt(chatId, 10)));
+            if (caption) fd.append('caption', caption);
+            var resp = await fetch(API + '/api/admin/max/send-audio', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token },
+                body: fd,
+            });
+            if (resp.status === 404) {
+                throw new Error('Endpoint не настроен (бэкенд устарел?)');
+            }
+            if (resp.status === 401) throw new Error('Неверный ADMIN_TOKEN');
+            if (!resp.ok) {
+                var emsg = 'HTTP ' + resp.status;
+                try {
+                    var j = await resp.json();
+                    emsg = (j && j.detail && (j.detail.message || j.detail.error)) || emsg;
+                } catch (_) {}
+                throw new Error(emsg);
+            }
+            _ttsSetStatus('✓ Отправлено в MAX (chat_id=' + chatId + ')', 'ok');
+        } catch (e) {
+            _ttsSetStatus('⚠ ' + (e.message || e), 'err');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
+    }
+
+    var _ttsSynBtn = document.getElementById('ttsSynthesize');
+    if (_ttsSynBtn) _ttsSynBtn.addEventListener('click', _ttsSynthesize);
+    var _ttsDlBtn = document.getElementById('ttsDownload');
+    if (_ttsDlBtn) _ttsDlBtn.addEventListener('click', _ttsDownload);
+    var _ttsMaxBtn = document.getElementById('ttsSendMax');
+    if (_ttsMaxBtn) _ttsMaxBtn.addEventListener('click', _ttsSendMax);
+
+    // Select из недавних → подставить в input. Это даёт юзеру свободу:
+    // выбрал → можно отредактировать число вручную.
+    var _ttsMaxSel = document.getElementById('ttsMaxRecent');
+    if (_ttsMaxSel) {
+        _ttsMaxSel.addEventListener('change', function () {
+            var v = _ttsMaxSel.value;
+            if (!v) return;
+            var inp = document.getElementById('ttsMaxChatId');
+            if (inp) inp.value = v;
+        });
+    }
+
+    // При первом открытии таба «🔊 Озвучка» подгружаем недавних
+    // MAX-юзеров (один раз). Хук на nav кнопку с data-tab="tts".
+    var _ttsMaxRecentLoaded = false;
+    document.querySelectorAll('#navBar button').forEach(function (b) {
+        if (b.dataset.tab !== 'tts') return;
+        b.addEventListener('click', function () {
+            if (_ttsMaxRecentLoaded) return;
+            _ttsMaxRecentLoaded = true;
+            _ttsMaxLoadRecent();
+        });
+    });
+
+    // ============================================================
+    // 🎣 PARSE + OUTREACH QUEUE
+    // ============================================================
+    var _parseLastResults = [];   // последний batch с /parse-all
+    var _parseSelectedIds = new Set();
+
+    function _parseSetStatus(el, msg, kind) {
+        var s = document.getElementById(el);
+        if (!s) return;
+        s.textContent = msg || '';
+        s.style.color = kind === 'err' ? 'var(--err, #e11d48)'
+                      : kind === 'ok'  ? 'var(--success, #10b981)'
+                      : 'var(--text-dim)';
+    }
+
+    function _parseExtractYearFromBdate(bdate) {
+        // VK bdate: 'D.M' или 'D.M.YYYY' (год опционально)
+        if (!bdate) return '';
+        var parts = String(bdate).split('.');
+        if (parts.length >= 3) return parts[2];
+        return '';
+    }
+
+    async function _parseRun() {
+        var btn = document.getElementById('parseRun');
+        var city = (document.getElementById('parseCity').value || '').trim();
+        var ageMin = parseInt(document.getElementById('parseAgeMin').value || 0, 10);
+        var ageMax = parseInt(document.getElementById('parseAgeMax').value || 0, 10);
+        var sex = parseInt(document.getElementById('parseSex').value || 0, 10);
+        var inactDays = parseInt(document.getElementById('parseInactivityDays').value || 90, 10);
+        var maxPerCat = parseInt(document.getElementById('parseMaxPerCat').value || 100, 10);
+        var activeOnly = !!document.getElementById('parseActiveOnly').checked;
+
+        if (!token) { _parseSetStatus('parseStatus', '⚠ Введи ADMIN_TOKEN сверху', 'err'); return; }
+        if (!city && (!ageMin || ageMin <= 0)) {
+            _parseSetStatus('parseStatus', '⚠ Введи город или возраст', 'err');
+            return;
+        }
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '⏳ Парсю 15 категорий…';
+        _parseSetStatus('parseStatus', 'Это займёт 30-90 сек: 15 категорий × users.search…');
+        document.getElementById('parseResults').style.display = 'none';
+
+        try {
+            var resp = await fetch(API + '/api/admin/vk/outreach-queue/parse-all', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    city_name: city,
+                    age_min: ageMin || 0,
+                    age_max: ageMax || 0,
+                    sex: sex || 0,
+                    active_only: activeOnly,
+                    active_inactivity_days: inactDays,
+                    max_per_category: maxPerCat,
+                }),
+            });
+            if (!resp.ok) {
+                var msg = 'HTTP ' + resp.status;
+                try { var j = await resp.json(); msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg; } catch(_){}
+                throw new Error(msg);
+            }
+            var data = await resp.json();
+            _parseLastResults = data.candidates || [];
+            _parseSelectedIds.clear();
+            _renderParseResults(data);
+            _parseSetStatus('parseStatus', '✓ Найдено уникальных: ' + (data.total_unique || 0), 'ok');
+        } catch (e) {
+            _parseSetStatus('parseStatus', '⚠ ' + (e.message || e), 'err');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
+    }
+
+    function _renderParseResults(data) {
+        var box = document.getElementById('parseResults');
+        var tbody = document.getElementById('parseResultsBody');
+        var summary = document.getElementById('parseResultsSummary');
+        var byCat = data.by_category || {};
+        var catList = Object.entries(byCat).filter(function(e){return e[1]>0}).map(function(e){return e[0]+':'+e[1]});
+        summary.textContent = 'Всего уникальных: ' + (data.total_unique||0) + (catList.length?' · по категориям: '+catList.join(', '):'');
+
+        tbody.innerHTML = (_parseLastResults || []).map(function(c) {
+            var fullName = ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || ('id'+c.vk_id);
+            var year = _parseExtractYearFromBdate(c.bdate);
+            var url = 'https://vk.com/id' + c.vk_id;
+            return '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">' +
+                '<td style="padding:6px 8px"><input type="checkbox" class="parse-cb" data-vkid="'+c.vk_id+'" style="width:16px;height:16px"></td>' +
+                '<td style="padding:6px 8px">'+_esc(fullName)+'</td>' +
+                '<td style="padding:6px 8px;font-family:monospace;font-size:11px">'+c.vk_id+'</td>' +
+                '<td style="padding:6px 8px;color:var(--text-dim)">'+(year||'—')+'</td>' +
+                '<td style="padding:6px 8px;color:var(--text-dim);font-size:11px">'+_esc(c.matched_category||c.category||'')+'</td>' +
+                '<td style="padding:6px 8px"><a href="'+_esc(url)+'" target="_blank" rel="noopener" style="color:#0088cc;text-decoration:none">↗</a></td>' +
+            '</tr>';
+        }).join('');
+        box.style.display = (_parseLastResults.length ? 'block' : 'none');
+
+        // Чекбоксы → собираем _parseSelectedIds
+        tbody.querySelectorAll('.parse-cb').forEach(function(cb) {
+            cb.addEventListener('change', function() {
+                var vid = parseInt(cb.dataset.vkid, 10);
+                if (cb.checked) _parseSelectedIds.add(vid);
+                else _parseSelectedIds.delete(vid);
+                _parseUpdateAddBtn();
+            });
+        });
+        var sel = document.getElementById('parseSelectAll');
+        if (sel) {
+            sel.checked = false;
+            sel.onchange = function() {
+                tbody.querySelectorAll('.parse-cb').forEach(function(cb){
+                    cb.checked = sel.checked;
+                    var vid = parseInt(cb.dataset.vkid, 10);
+                    if (sel.checked) _parseSelectedIds.add(vid);
+                    else _parseSelectedIds.delete(vid);
+                });
+                _parseUpdateAddBtn();
+            };
+        }
+        _parseUpdateAddBtn();
+    }
+
+    function _parseUpdateAddBtn() {
+        var n = _parseSelectedIds.size;
+        var label = n ? ('➕ Добавить ' + n + ' в очередь') : '➕ Добавить выбранных в очередь';
+        // Обновляем ОБЕ кнопки: верхнюю (рядом с «Найти всех») и
+        // дублирующую около таблицы (видна после прокрутки парсинга).
+        ['parseAddSelected', 'parseAddSelectedNearResults'].forEach(function(id) {
+            var btn = document.getElementById(id);
+            if (!btn) return;
+            btn.disabled = n === 0;
+            btn.style.opacity = n === 0 ? '0.4' : '1';
+            btn.style.cursor = n === 0 ? 'not-allowed' : 'pointer';
+            btn.textContent = label;
+        });
+    }
+
+    async function _parseAddSelected() {
+        if (!_parseSelectedIds.size) return;
+        var chosen = (_parseLastResults || []).filter(function(c){
+            return _parseSelectedIds.has(parseInt(c.vk_id, 10));
+        });
+        var btn = document.getElementById('parseAddSelected');
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '⏳ Добавляю…';
+        _parseSetStatus('parseStatus', 'Добавляю в очередь…');
+        try {
+            var resp = await fetch(API + '/api/admin/vk/outreach-queue/add', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ candidates: chosen }),
+            });
+            if (!resp.ok) {
+                var msg = 'HTTP ' + resp.status;
+                try { var j = await resp.json(); msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg; } catch(_){}
+                throw new Error(msg);
+            }
+            var data = await resp.json();
+            _parseSetStatus('parseStatus', '✓ Добавлено: ' + data.added + ' · пропущено (дубль): ' + data.skipped, 'ok');
+            _parseSelectedIds.clear();
+            _parseUpdateAddBtn();
+            _parseLoadQueue();
+        } catch (e) {
+            _parseSetStatus('parseStatus', '⚠ ' + (e.message || e), 'err');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+            _parseUpdateAddBtn();
+        }
+    }
+
+    async function _parseLoadQueue() {
+        var filter = (document.getElementById('queueFilter') || {}).value || '';
+        var url = '/api/admin/vk/outreach-queue/list?limit=100';
+        if (filter) url += '&status=' + encodeURIComponent(filter);
+        try {
+            var data = await _fetch(url);
+            _renderQueue(data);
+        } catch (e) {
+            _parseSetStatus('queueStatus', '⚠ ' + (e.message || e), 'err');
+        }
+    }
+
+    function _renderQueue(data) {
+        var stats = data.stats || {};
+        var statsEl = document.getElementById('queueStats');
+        var colors = { queued: '#0088cc', processing: '#f59e0b', sent: '#10b981', skipped: '#6c6c70', error: '#e11d48' };
+        statsEl.innerHTML = ['queued','processing','sent','skipped','error'].map(function(s){
+            var n = stats[s] || 0;
+            var c = colors[s];
+            return '<span style="padding:5px 11px;border-radius:20px;background:'+c+'14;color:'+c+';font-weight:600">'+
+                s + ': ' + n + '</span>';
+        }).join('');
+
+        var body = document.getElementById('queueBody');
+        body.innerHTML = (data.items || []).map(function(it) {
+            var c = colors[it.status] || 'var(--text)';
+            var when = it.added_at ? new Date(it.added_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+            return '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">' +
+                '<td style="padding:6px 8px">'+_esc(it.full_name || ('id'+it.vk_id))+'</td>' +
+                '<td style="padding:6px 8px;font-family:monospace;font-size:11px"><a href="'+_esc(it.vk_url)+'" target="_blank" rel="noopener" style="color:#0088cc;text-decoration:none">'+it.vk_id+'</a></td>' +
+                '<td style="padding:6px 8px;color:var(--text-dim);font-size:11px">'+_esc(it.category||'')+'</td>' +
+                '<td style="padding:6px 8px"><span style="color:'+c+';font-weight:600">'+it.status+'</span>' +
+                  (it.error_message ? '<div style="font-size:10px;color:var(--text-dim);max-width:140px;overflow:hidden;text-overflow:ellipsis" title="'+_esc(it.error_message)+'">'+_esc(it.error_message)+'</div>' : '') +
+                '</td>' +
+                '<td style="padding:6px 8px;color:var(--text-dim);font-size:11px">'+_esc(when)+'</td>' +
+                '<td style="padding:6px 8px"><button class="queue-del-btn" data-id="'+it.id+'" style="padding:3px 8px;border-radius:6px;border:1px solid #e11d48;background:transparent;color:#e11d48;font:inherit;font-size:11px;cursor:pointer">×</button></td>' +
+            '</tr>';
+        }).join('');
+
+        body.querySelectorAll('.queue-del-btn').forEach(function(b) {
+            b.addEventListener('click', async function() {
+                if (!confirm('Удалить запись из очереди?')) return;
+                var id = b.dataset.id;
+                try {
+                    var resp = await fetch(API + '/api/admin/vk/outreach-queue/' + id, {
+                        method: 'DELETE',
+                        headers: { 'X-Admin-Token': token },
+                    });
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    _parseLoadQueue();
+                } catch (e) {
+                    _parseSetStatus('queueStatus', '⚠ ' + (e.message || e), 'err');
+                }
+            });
+        });
+    }
+
+    async function _parseProcessOne() {
+        var btn = document.getElementById('queueProcessOne');
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '⏳ Обрабатываю…';
+        _parseSetStatus('queueStatus', 'Анализирую VK-страницу + генерю pitch + шлю в VK (30-60 сек)…');
+        try {
+            var resp = await fetch(API + '/api/admin/vk/outreach-queue/process-one', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token },
+            });
+            if (!resp.ok) {
+                var msg = 'HTTP ' + resp.status;
+                try { var j = await resp.json(); msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg; } catch(_){}
+                throw new Error(msg);
+            }
+            var data = await resp.json();
+            var icon = { sent: '✅', skipped: '⏭', error: '⚠', empty: '∅' }[data.status] || '?';
+            var msg = icon + ' ' + data.status;
+            if (data.vk_id) msg += ' · vk_id=' + data.vk_id;
+            if (data.name) msg += ' · ' + data.name;
+            if (data.reason) msg += ' · ' + data.reason;
+            if (data.error) msg += ' · ' + data.error;
+            _parseSetStatus('queueStatus', msg, data.status === 'sent' ? 'ok' : (data.status === 'error' ? 'err' : ''));
+            _parseLoadQueue();
+        } catch (e) {
+            _parseSetStatus('queueStatus', '⚠ ' + (e.message || e), 'err');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
+    }
+
+    async function _parseResetErrors() {
+        if (!confirm('Переместить все error → queued для повторной попытки?')) return;
+        try {
+            var resp = await fetch(API + '/api/admin/vk/outreach-queue/reset-errors', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token },
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            var data = await resp.json();
+            _parseSetStatus('queueStatus', '✓ Переведено: ' + data.reset_count, 'ok');
+            _parseLoadQueue();
+        } catch (e) {
+            _parseSetStatus('queueStatus', '⚠ ' + (e.message || e), 'err');
+        }
+    }
+
+    async function _parseGroupRun() {
+        var btn = document.getElementById('parseGroupRun');
+        var group = (document.getElementById('parseGroup').value || '').trim();
+        if (!group) {
+            _parseSetStatus('parseStatus', '⚠ Введи группу (id / screen_name / vk.com/...)', 'err');
+            return;
+        }
+        if (!token) { _parseSetStatus('parseStatus', '⚠ Введи ADMIN_TOKEN сверху', 'err'); return; }
+        // Берём те же фильтры что у parseRun
+        var city = (document.getElementById('parseCity').value || '').trim();
+        var ageMin = parseInt(document.getElementById('parseAgeMin').value || 0, 10);
+        var ageMax = parseInt(document.getElementById('parseAgeMax').value || 0, 10);
+        var sex = parseInt(document.getElementById('parseSex').value || 0, 10);
+        var inactDays = parseInt(document.getElementById('parseInactivityDays').value || 90, 10);
+        var activeOnly = !!document.getElementById('parseActiveOnly').checked;
+        var maxMembers = parseInt(document.getElementById('parseGroupMaxMembers').value || 1000, 10);
+
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '⏳ Парсю участников…';
+        _parseSetStatus('parseStatus', 'groups.getMembers (постранично, ~1000/сек)…');
+        document.getElementById('parseResults').style.display = 'none';
+
+        try {
+            var resp = await fetch(API + '/api/admin/vk/outreach-queue/parse-group', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    group: group,
+                    max_members: maxMembers,
+                    city_name: city || '',
+                    age_min: ageMin || 0,
+                    age_max: ageMax || 0,
+                    sex: sex || 0,
+                    active_only: activeOnly,
+                    active_inactivity_days: inactDays,
+                }),
+            });
+            if (!resp.ok) {
+                var msg = 'HTTP ' + resp.status;
+                try { var j = await resp.json(); msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg; } catch(_){}
+                throw new Error(msg);
+            }
+            var data = await resp.json();
+            _parseLastResults = data.candidates || [];
+            _parseSelectedIds.clear();
+            // адаптируем под renderer (он смотрит by_category + total_unique)
+            var fakeByCat = {};
+            fakeByCat[(data.group && data.group.screen_name) || ('id'+(data.group && data.group.id))] = (_parseLastResults || []).length;
+            _renderParseResults({ by_category: fakeByCat, total_unique: (_parseLastResults||[]).length });
+            var gname = (data.group && data.group.name) || group;
+            var st = data.stats || {};
+            _parseSetStatus('parseStatus',
+                '✓ ' + gname + ' · fetched=' + (st.total_fetched||0) +
+                ' → alive=' + (st.after_alive||0) +
+                ' → sex=' + (st.after_sex||0) +
+                ' → age=' + (st.after_age||0) +
+                (city ? ' → city=' + (st.after_city||0) : '') +
+                ' → ' + (_parseLastResults.length) + ' к выбору',
+                'ok');
+        } catch (e) {
+            _parseSetStatus('parseStatus', '⚠ ' + (e.message || e), 'err');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
+    }
+
+    // Привязка кнопок
+    [
+        ['parseRun', _parseRun],
+        ['parseGroupRun', _parseGroupRun],
+        ['parseAddSelected', _parseAddSelected],
+        ['parseAddSelectedNearResults', _parseAddSelected],
+        ['queueRefresh', _parseLoadQueue],
+        ['queueProcessOne', _parseProcessOne],
+        ['queueResetErrors', _parseResetErrors],
+    ].forEach(function(pair) {
+        var el = document.getElementById(pair[0]);
+        if (el) el.addEventListener('click', pair[1]);
+    });
+    var qf = document.getElementById('queueFilter');
+    if (qf) qf.addEventListener('change', _parseLoadQueue);
+
+    // expose для refresh() — он вызывает _parseLoadQueue при открытии таба
+    window._parseLoadQueue = _parseLoadQueue;
+
+    // ============================================================
+    // 📱 MESSENGER LINKS STATS
+    // ============================================================
+    var _msgLastItems = [];
+
+    function _msgSetStatus(msg, kind) {
+        var s = document.getElementById('msgStatus');
+        if (!s) return;
+        s.textContent = msg || '';
+        s.style.color = kind === 'err' ? 'var(--err, #e11d48)'
+                      : kind === 'ok'  ? 'var(--success, #10b981)'
+                      : 'var(--text-dim)';
+    }
+
+    function _renderMsgKpi(summary) {
+        var box = document.getElementById('msgKpi');
+        if (!box) return;
+        var platforms = { max: { color: '#ec4899', label: 'MAX', icon: '⚡' },
+                          telegram: { color: '#0088cc', label: 'Telegram', icon: '✈️' } };
+        var html = '';
+        Object.keys(platforms).forEach(function(p) {
+            var meta = platforms[p];
+            var s = summary[p] || {};
+            html +=
+                '<div style="background:' + meta.color + '12;border:1px solid ' + meta.color + '40;border-radius:10px;padding:12px">' +
+                  '<div style="font-size:10px;color:' + meta.color + ';text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">' + meta.icon + ' ' + meta.label + '</div>' +
+                  '<div style="font-size:24px;font-weight:700;color:var(--text);line-height:1">' + (s.active || 0) + '</div>' +
+                  '<div style="font-size:10px;color:var(--text-dim);margin-top:6px">всего активных</div>' +
+                  '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;padding-top:8px;border-top:1px solid ' + meta.color + '20">' +
+                    '24ч: <b style="color:' + meta.color + '">+' + (s.last_24h || 0) + '</b>' +
+                    ' · 7д: <b style="color:' + meta.color + '">+' + (s.last_7d || 0) + '</b>' +
+                    ' · 30д: <b style="color:' + meta.color + '">+' + (s.last_30d || 0) + '</b>' +
+                  '</div>' +
+                '</div>';
+        });
+        box.innerHTML = html;
+    }
+
+    async function _msgLoad() {
+        var plat = (document.getElementById('msgFilter') || {}).value || '';
+        var url = '/api/analytics/messenger-links?limit=200';
+        if (plat) url += '&platform=' + encodeURIComponent(plat);
+        try {
+            var data = await _fetch(url);
+            _msgLastItems = data.items || [];
+            _renderMsgKpi(data.summary || {});
+            _renderMsgTable(_msgLastItems);
+            _msgSetStatus('✓ Загружено: ' + _msgLastItems.length, 'ok');
+        } catch (e) {
+            _msgSetStatus('⚠ ' + (e.message || e), 'err');
+        }
+    }
+
+    function _renderMsgTable(items) {
+        var body = document.getElementById('msgBody');
+        if (!body) return;
+        body.innerHTML = (items || []).map(function(it) {
+            var when = it.linked_at ? new Date(it.linked_at).toLocaleString('ru-RU',
+                { day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit' }) : '';
+            var ico = it.platform === 'max' ? '⚡' : (it.platform === 'telegram' ? '✈️' : '');
+            var color = it.platform === 'max' ? '#ec4899' : '#0088cc';
+            return '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">' +
+                '<td style="padding:6px 8px">' + _esc(it.display_name || ('id'+it.user_id)) + '</td>' +
+                '<td style="padding:6px 8px;font-family:monospace;font-size:11px;color:var(--text-dim)">' + it.user_id + '</td>' +
+                '<td style="padding:6px 8px;color:' + color + ';font-weight:600">' + ico + ' ' + _esc(it.platform) + '</td>' +
+                '<td style="padding:6px 8px;font-family:monospace;font-size:11px">' + _esc(it.chat_id || '') +
+                  (it.username ? '<span style="color:var(--text-dim);margin-left:6px">@' + _esc(it.username) + '</span>' : '') +
+                '</td>' +
+                '<td style="padding:6px 8px;color:var(--text-dim);font-size:11px">' + _esc(when) + '</td>' +
+            '</tr>';
+        }).join('');
+    }
+
+    function _msgExportCsv() {
+        if (!_msgLastItems.length) { _msgSetStatus('⚠ Нечего экспортировать', 'err'); return; }
+        var rows = [['user_id','platform','chat_id','username','display_name','linked_at']];
+        _msgLastItems.forEach(function(it) {
+            rows.push([it.user_id, it.platform, it.chat_id || '', it.username || '',
+                       it.display_name || '', it.linked_at || '']);
+        });
+        var csv = rows.map(function(r){
+            return r.map(function(v){
+                v = String(v || '');
+                if (v.indexOf(',')>=0 || v.indexOf('"')>=0 || v.indexOf('\n')>=0) {
+                    return '"' + v.replace(/"/g,'""') + '"';
+                }
+                return v;
+            }).join(',');
+        }).join('\n');
+        var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'fredi-messenger-links-' + new Date().toISOString().slice(0,10) + '.csv';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+        _msgSetStatus('✓ Скачано: ' + _msgLastItems.length + ' строк', 'ok');
+    }
+
+    var _msgRefreshBtn = document.getElementById('msgRefresh');
+    if (_msgRefreshBtn) _msgRefreshBtn.addEventListener('click', _msgLoad);
+    var _msgFilterEl = document.getElementById('msgFilter');
+    if (_msgFilterEl) _msgFilterEl.addEventListener('change', _msgLoad);
+    var _msgCsvBtn = document.getElementById('msgExportCsv');
+    if (_msgCsvBtn) _msgCsvBtn.addEventListener('click', _msgExportCsv);
+
+    window._msgLoad = _msgLoad;
+
+    // ============================================================
+    // 📨 BROADCAST modal
+    // ============================================================
+    function _bcSetStatus(msg, kind) {
+        var s = document.getElementById('broadcastStatus');
+        if (!s) return;
+        s.textContent = msg || '';
+        s.style.color = kind === 'err' ? 'var(--err, #e11d48)'
+                      : kind === 'ok'  ? 'var(--success, #10b981)' : 'var(--text-dim)';
+    }
+    function _bcOpen() {
+        document.getElementById('broadcastOverlay').style.display = 'flex';
+        _bcSetStatus('', '');
+    }
+    function _bcClose() {
+        document.getElementById('broadcastOverlay').style.display = 'none';
+    }
+    async function _bcRequest(dryRun) {
+        var text = (document.getElementById('broadcastText').value || '').trim();
+        var platform = document.getElementById('broadcastPlatform').value || 'max';
+        var target = document.getElementById('broadcastTarget').value || 'last_30d';
+        var testChat = (document.getElementById('broadcastTestChatId').value || '').trim();
+        var voiceOn = !!(document.getElementById('broadcastVoiceOn') || {}).checked;
+        var voiceText = (document.getElementById('broadcastVoiceText') || {}).value || '';
+        var voiceMode = (document.getElementById('broadcastVoiceMode') || {}).value || 'psychologist';
+        voiceText = voiceText.trim();
+        if (!text) { _bcSetStatus('⚠ Введи текст', 'err'); return; }
+        if (voiceOn && platform !== 'max') {
+            _bcSetStatus('⚠ Голос работает только для платформы MAX', 'err'); return;
+        }
+        if (voiceOn && !voiceText) {
+            _bcSetStatus('⚠ Введи текст для озвучки', 'err'); return;
+        }
+        var payload = { text: text, platform: platform, target: target,
+                        dry_run: !!dryRun, cooldown_hours: 24 };
+        if (testChat) payload.test_chat_id = testChat;
+        if (voiceOn && voiceText && platform === 'max') {
+            payload.voice_text = voiceText;
+            payload.voice_mode = voiceMode;
+        }
+        if (!dryRun && !testChat) {
+            if (!confirm('Отправить «' + platform.toUpperCase() + '» всем «' + target + '»? Это необратимо.')) return;
+        }
+        var btnSend = document.getElementById('broadcastSend');
+        var btnDry = document.getElementById('broadcastDryRun');
+        [btnSend, btnDry].forEach(function(b){ if(b) b.disabled = true; });
+        _bcSetStatus(dryRun ? '🔍 Считаю получателей...' : '📨 Отправляю (≈1 сек на адресата)...');
+        try {
+            var resp = await fetch(API + '/api/analytics/messenger-broadcast', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token, 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+                var msg = 'HTTP ' + resp.status;
+                try { var j = await resp.json(); msg = (j && j.detail && (j.detail.message || j.detail.error)) || msg; } catch(_){}
+                throw new Error(msg);
+            }
+            var data = await resp.json();
+            if (data.dry_run) {
+                _bcSetStatus('🔍 Найдено получателей: ' + (data.would_send_to || 0) +
+                    '\nПлатформа: ' + (data.platform || platform) +
+                    '\nФильтр: ' + (data.target || target), 'ok');
+            } else if (testChat) {
+                var vline = data.voice_used ? '\n🎙 Голос: прикреплён (' + (data.audio_size_bytes || 0) + ' байт)'
+                          : (data.voice_error ? '\n⚠ Голос: ' + data.voice_error : '');
+                if (data.sent) _bcSetStatus('✓ Отправлено в test_chat_id=' + testChat + vline, 'ok');
+                else _bcSetStatus('⚠ Не удалось: ' + (data.error || 'неизвестно') + vline, 'err');
+            } else {
+                var vline2 = data.voice_used ? '\n🎙 Голос: прикреплён ко всем (' + (data.audio_size_bytes || 0) + ' байт, 1 TTS + 1 upload)'
+                           : (data.voice_error ? '\n⚠ Голос: ' + data.voice_error : '');
+                _bcSetStatus(
+                    '✓ Отправлено: ' + (data.sent || 0) + ' / ' + (data.total || 0) +
+                    '\n⚠ Ошибок: ' + (data.failed || 0) +
+                    '\n⏸ Пропущено (cooldown 24ч): ' + (data.skipped_cooldown || 0) + vline2,
+                    'ok'
+                );
+            }
+        } catch (e) {
+            _bcSetStatus('⚠ ' + (e.message || e), 'err');
+        } finally {
+            [btnSend, btnDry].forEach(function(b){ if(b) b.disabled = false; });
+        }
+    }
+    var _bcOpenBtn = document.getElementById('msgBroadcastOpen');
+    if (_bcOpenBtn) _bcOpenBtn.addEventListener('click', _bcOpen);
+    var _bcCloseBtn = document.getElementById('broadcastClose');
+    if (_bcCloseBtn) _bcCloseBtn.addEventListener('click', _bcClose);
+    var _bcDryBtn = document.getElementById('broadcastDryRun');
+    if (_bcDryBtn) _bcDryBtn.addEventListener('click', function(){ _bcRequest(true); });
+    var _bcSendBtn = document.getElementById('broadcastSend');
+    if (_bcSendBtn) _bcSendBtn.addEventListener('click', function(){ _bcRequest(false); });
+    var _bcVoiceChk = document.getElementById('broadcastVoiceOn');
+    if (_bcVoiceChk) _bcVoiceChk.addEventListener('change', function(){
+        var b = document.getElementById('broadcastVoiceBlock');
+        if (b) b.style.display = _bcVoiceChk.checked ? 'block' : 'none';
+    });
 })();
 </script>
 <script src="clients-tab.js"></script>

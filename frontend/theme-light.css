@@ -116,12 +116,16 @@ body, .app, .chats-panel, .chat-panel, .chat-header,
 [data-theme="light"] .mode-btn.active {
     background: linear-gradient(135deg, rgba(0, 0, 0, 0.12), rgba(100, 100, 100, 0.08));
 }
+[data-theme="light"] .hero-sub {
+    color: #5b5f6b;
+}
 [data-theme="light"] .voice-card {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.85), rgba(230, 230, 235, 0.5));
-    border: 1px solid rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(59, 130, 255, 0.45);
+    box-shadow: 0 4px 22px rgba(59, 130, 255, 0.15);
 }
 [data-theme="light"] .voice-record-btn-premium {
-    background: linear-gradient(135deg, rgba(0, 0, 0, 0.06), rgba(100, 100, 100, 0.05));
+    background: linear-gradient(135deg, rgba(59, 130, 255, 0.16), rgba(59, 130, 255, 0.07));
 }
 [data-theme="light"] .module-card {
     background: rgba(0, 0, 0, 0.03);
@@ -313,6 +317,17 @@ body, .app, .chats-panel, .chat-panel, .chat-header,
 [data-theme="light"] .st-channel-icon {
     background: rgba(0, 0, 0, 0.05);
 }
+
+/* --- Dots popup (Meysternlp) --- */
+[data-theme="light"] .dots-popup { background: rgba(255,255,255,0.97); border-color: rgba(0,0,0,0.1); box-shadow: 0 8px 40px rgba(0,0,0,0.15); }
+[data-theme="light"] .dots-item { color: #1c1c1e; }
+[data-theme="light"] .dots-item:hover, [data-theme="light"] .dots-item:active { background: rgba(0,0,0,0.06); }
+[data-theme="light"] .dots-title { color: #1c1c1e; }
+[data-theme="light"] .dots-sub { color: rgba(0,0,0,0.4); }
+[data-theme="light"] .dots-divider { background: rgba(0,0,0,0.06); }
+[data-theme="light"] .install-modal-inner { background: #fff; border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .install-modal-title { color: #1c1c1e; }
+[data-theme="light"] .install-modal-text { color: rgba(0,0,0,0.55); }
 
 /* --- Menu accordion overrides --- */
 [data-theme="light"] .menu-accordion-header:hover {

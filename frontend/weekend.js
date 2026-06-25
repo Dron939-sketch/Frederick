@@ -208,7 +208,7 @@ const _wi = window._wiState;
 // ============================================
 function _wiToast(msg, type) { if (window.showToast) window.showToast(msg, type||'info'); }
 function _wiHome() { if (typeof renderDashboard === 'function') renderDashboard(); else if (window.renderDashboard) window.renderDashboard(); }
-function _wiApi() { return window.CONFIG?.API_BASE_URL || 'https://fredi-backend-flz2.onrender.com'; }
+function _wiApi() { return window.CONFIG?.API_BASE_URL || 'https://ffred-ddd989.amvera.io'; }
 function _wiUid() { return window.CONFIG?.USER_ID; }
 
 // ============================================
