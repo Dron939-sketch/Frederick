@@ -462,27 +462,51 @@ app = FastAPI(
     websocket_max_size=50 * 1024 * 1024,
 )
 
+# Единый whitelist для CORSMiddleware и для ручных ответов из middleware
+# (например, 402 из meter_guard). meter_guard и log_requests добавлены
+# через @app.middleware(), который оборачивает приложение СНАРУЖИ
+# CORSMiddleware — поэтому их прямые JSONResponse уходят БЕЗ CORS-заголовков,
+# и браузер режет их с «No 'Access-Control-Allow-Origin' header» прежде,
+# чем фронт увидит status=402. Используем этот список, чтобы вручную
+# добавить CORS-заголовки на 402-ответ.
+_CORS_ALLOWED_ORIGINS = [
+    "https://meysternlp-ddd989.amvera.io",
+    "https://ffred-ddd989.amvera.io",
+    "https://meysternlp.ru",
+    "http://meysternlp.ru",
+    "https://www.meysternlp.ru",
+    "https://fredium.ru",
+    "http://fredium.ru",
+    "https://www.fredium.ru",
+    "https://dron939-sketch.github.io",
+    "https://fredi-frontend.onrender.com",
+    "https://fredi-app.onrender.com",
+    "https://fredi-frontend-flz2.onrender.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://localhost:10000",
+    "https://fredi-backend-flz2.onrender.com",
+]
+
+
+def _cors_headers_for(request: Request) -> dict:
+    """Возвращает CORS-заголовки для ручных ответов из middleware,
+    если Origin запроса есть в whitelist. Иначе пустой словарь —
+    браузер запрос отклонит, что правильно для не-whitelisted origins."""
+    origin = (request.headers.get("origin") or "").strip()
+    if origin and origin in _CORS_ALLOWED_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+    return {}
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://meysternlp-ddd989.amvera.io",
-        "https://ffred-ddd989.amvera.io",
-        "https://meysternlp.ru",
-        "http://meysternlp.ru",
-        "https://www.meysternlp.ru",
-        "https://fredium.ru",
-        "http://fredium.ru",
-        "https://www.fredium.ru",
-        "https://dron939-sketch.github.io",
-        "https://fredi-frontend.onrender.com",
-        "https://fredi-app.onrender.com",
-        "https://fredi-frontend-flz2.onrender.com",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://localhost:10000",
-        "https://fredi-backend-flz2.onrender.com",
-    ],
+    allow_origins=_CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
@@ -840,6 +864,11 @@ async def meter_guard_middleware(request: Request, call_next):
                 "remaining_cooldown_minutes": 0,
                 "message": "Фреди отдыхает — мы наговорили дневной лимит. Возвращайся в полночь или открой Premium.",
             },
+            # CORS вручную: этот ответ возвращается из middleware ВЫШЕ
+            # CORSMiddleware, поэтому без явных заголовков браузер режет
+            # его как cross-origin до того, как фронт увидит status=402,
+            # и пейволл не открывается.
+            headers=_cors_headers_for(request),
         )
     except Exception as e:
         logger.error(f"meter_guard_middleware failure: {e}")
