@@ -232,7 +232,10 @@ def register_bot_webhooks(app, db):
                 )
                 logger.info(f"TG send: {resp.status_code}")
         except Exception as e:
-            logger.error(f"Telegram send error: {e}")
+            logger.error(
+                f"Telegram send error: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
 
     async def _max_send(chat_id, text):
         if not MAX_TOKEN:
@@ -249,7 +252,10 @@ def register_bot_webhooks(app, db):
                 )
                 logger.info(f"MAX send to {chat_id}: {resp.status_code} {resp.text[:200]}")
         except Exception as e:
-            logger.error(f"Max send error: {e}")
+            logger.error(
+                f"Max send error: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
 
     async def setup_bot_webhooks():
         webhook_base = BACKEND_URL.strip().rstrip("/")
@@ -270,7 +276,13 @@ def register_bot_webhooks(app, db):
                     else:
                         logger.error(f"Telegram deleteWebhook failed: {result}")
             except Exception as e:
-                logger.error(f"Telegram webhook setup error: {e}")
+                # exc_info + type — иначе при пустых str(e) (taймауты, DNS,
+                # ConnectError) в логе остаётся «Telegram webhook setup error:»
+                # без тела и невозможно понять, что упало.
+                logger.error(
+                    f"Telegram webhook setup error: {type(e).__name__}: {e}",
+                    exc_info=True,
+                )
 
         if MAX_TOKEN:
             try:
@@ -286,6 +298,9 @@ def register_bot_webhooks(app, db):
                     else:
                         logger.error(f"Max webhook failed: {resp.status_code} {resp.text[:200]}")
             except Exception as e:
-                logger.error(f"Max webhook setup error: {e}")
+                logger.error(
+                    f"Max webhook setup error: {type(e).__name__}: {e}",
+                    exc_info=True,
+                )
 
     return setup_bot_webhooks
