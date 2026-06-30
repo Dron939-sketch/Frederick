@@ -3,10 +3,9 @@
 """
 BasicMode - Fredi with Bikovic voice, memory, emotions.
 Primary LLM: DeepSeek. Anthropic Claude (с tool-use) — опционально,
-включается флагом BASIC_USE_ANTHROPIC=1.
+включается мастер-флагом USE_ANTHROPIC=1.
 """
 
-import os
 import re
 import logging
 import random
@@ -26,18 +25,6 @@ except Exception:
     _BEHAVIORAL_GUARD = ""
 
 logger = logging.getLogger(__name__)
-
-
-# Провайдер основного ответа BasicMode (входной чат «Фреди»).
-# По умолчанию — DeepSeek: дешевле, стабильнее, и весь остальной Фреди уже
-# на нём (психолог/коуч/тренер, голос, профили). Anthropic (Claude) на входном
-# чате включается ТОЛЬКО если выставить BASIC_USE_ANTHROPIC=1 (и иметь
-# ANTHROPIC_API_KEY) — тогда снова работает путь с tool-use (дата/погода/
-# веб-поиск) и кешированным системным префиксом. Без флага Claude не вызывается
-# вовсе, даже если ключ остался в окружении.
-_BASIC_USE_ANTHROPIC = os.environ.get("BASIC_USE_ANTHROPIC", "").strip().lower() in (
-    "1", "true", "yes", "on",
-)
 
 
 # ============================================================
@@ -186,17 +173,16 @@ class BasicMode(BaseMode):
 
     async def _call_llm(self, prompt: str, max_tokens: int = 150, temperature: float = 0.8) -> Optional[str]:
         """Плоский prompt → текст. По умолчанию DeepSeek; Claude — только при
-        BASIC_USE_ANTHROPIC=1 (с fallback на DeepSeek)."""
-        if _BASIC_USE_ANTHROPIC:
-            try:
-                from services.anthropic_client import call_anthropic, is_available
-                if is_available():
-                    result = await call_anthropic(prompt, max_tokens=max_tokens, temperature=temperature)
-                    if result:
-                        return result
-                    logger.info("Anthropic failed, falling back to DeepSeek")
-            except Exception as e:
-                logger.warning(f"Anthropic import/call error: {e}")
+        USE_ANTHROPIC=1 (is_available учитывает флаг), с fallback на DeepSeek."""
+        try:
+            from services.anthropic_client import call_anthropic, is_available
+            if is_available():
+                result = await call_anthropic(prompt, max_tokens=max_tokens, temperature=temperature)
+                if result:
+                    return result
+                logger.info("Anthropic failed, falling back to DeepSeek")
+        except Exception as e:
+            logger.warning(f"Anthropic import/call error: {e}")
 
         return await self.ai_service._simple_call(prompt, max_tokens=max_tokens, temperature=temperature)
 
@@ -716,41 +702,41 @@ class BasicMode(BaseMode):
         По умолчанию — DeepSeek с system+user сплитом: сохраняет весь
         промпт-инжиниринг BasicMode (пресет, few-shot, память, профиль,
         эмоцию, историю) и роли сообщений. Claude на входном чате включается
-        ТОЛЬКО при BASIC_USE_ANTHROPIC=1 — тогда работает путь с tool-use
+        ТОЛЬКО при USE_ANTHROPIC=1 — тогда работает путь с tool-use
         (дата/погода/веб-поиск) и кешированным системным префиксом.
         """
         system_text = self._build_system_prompt_block()
         user_text = self._build_user_message_block(question)
 
-        # Опциональный путь Claude — только если явно включён флагом окружения.
-        if _BASIC_USE_ANTHROPIC:
-            try:
-                from services.anthropic_client import (
-                    call_anthropic_with_tools,
-                    is_available as _anthropic_available,
-                    pick_model,
+        # Опциональный путь Claude — включается мастер-флагом USE_ANTHROPIC
+        # (см. anthropic_client.is_available). По умолчанию OFF → сразу DeepSeek.
+        try:
+            from services.anthropic_client import (
+                call_anthropic_with_tools,
+                is_available as _anthropic_available,
+                pick_model,
+            )
+            if _anthropic_available():
+                # Hero-режим: для первых N ходов сессии можно подсунуть Opus
+                # (см. ANTHROPIC_HERO_MODEL/_TURNS env). По умолчанию всегда
+                # Sonnet. Передаём 1-based turn index = message_counter.
+                model = pick_model(self.message_counter)
+                messages = [{"role": "user", "content": user_text}]
+                text = await call_anthropic_with_tools(
+                    system_text=system_text,
+                    messages=messages,
+                    tools=_BASIC_TOOLS,
+                    tool_executor=self._execute_tool,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    feature="basic_mode.chat",
+                    model=model,
                 )
-                if _anthropic_available():
-                    # Hero-режим: для первых N ходов сессии можно подсунуть Opus
-                    # (см. ANTHROPIC_HERO_MODEL/_TURNS env). По умолчанию всегда
-                    # Sonnet. Передаём 1-based turn index = message_counter.
-                    model = pick_model(self.message_counter)
-                    messages = [{"role": "user", "content": user_text}]
-                    text = await call_anthropic_with_tools(
-                        system_text=system_text,
-                        messages=messages,
-                        tools=_BASIC_TOOLS,
-                        tool_executor=self._execute_tool,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        feature="basic_mode.chat",
-                        model=model,
-                    )
-                    if text:
-                        return text
-                    logger.info("Anthropic returned empty / failed, falling back to DeepSeek")
-            except Exception as e:
-                logger.warning(f"Anthropic tool-use call failed: {e}")
+                if text:
+                    return text
+                logger.info("Anthropic returned empty / failed, falling back to DeepSeek")
+        except Exception as e:
+            logger.warning(f"Anthropic tool-use call failed: {e}")
 
         # Основной путь: DeepSeek с system+user сплитом. Роли и история
         # передаются честно (не плоским промптом) — это даёт более качественный

@@ -185,8 +185,14 @@ async def generate_message_text(s: dict) -> str:
     )
 
     try:
+        # Claude, если включён USE_ANTHROPIC (call_anthropic вернёт None при
+        # выключенном флаге); иначе и при пустом ответе — DeepSeek. Только если
+        # обе модели молчат, отдаём шаблон.
         from services.anthropic_client import call_anthropic
         text = await call_anthropic(prompt, max_tokens=300, temperature=0.7)
+        if not (text and isinstance(text, str) and len(text.strip()) > 30):
+            from services.ai_service import call_deepseek
+            text = await call_deepseek(prompt, max_tokens=300, temperature=0.7)
         if text and isinstance(text, str) and len(text.strip()) > 30:
             return text.strip()
     except Exception as e:

@@ -323,22 +323,25 @@ async def generate_custom_plan(db, skill_name: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"skill_generator: cache read failed for {key}: {e}")
 
-    # 2) Anthropic call
+    # 2) LLM call — Claude, если включён USE_ANTHROPIC; иначе (по умолчанию)
+    #    DeepSeek. На DeepSeek строгий JSON чуть менее стабилен, но _parse_and_
+    #    validate отбраковывает мусор, а удачный план кешируется навсегда.
     try:
-        from services.anthropic_client import call_anthropic, is_available
-        if not is_available():
-            logger.warning("skill_generator: ANTHROPIC_API_KEY missing")
-            return None
-
         prompt = _build_prompt(skill_name.strip())
         # Полная карточка тяжёлая: 9 элементов × ~80 слов + 21 день × ~50 слов + 5 переходов.
         # 4000 токенов с запасом, temperature низкая для стабильной структуры.
-        raw = await call_anthropic(prompt, max_tokens=4000, temperature=0.4)
+        raw = None
+        from services.anthropic_client import call_anthropic, is_available
+        if is_available():
+            raw = await call_anthropic(prompt, max_tokens=4000, temperature=0.4)
+        if not raw:
+            from services.ai_service import call_deepseek
+            raw = await call_deepseek(prompt, max_tokens=4000, temperature=0.4)
         if not raw:
             logger.warning(f"skill_generator: empty response for «{skill_name}»")
             return None
     except Exception as e:
-        logger.error(f"skill_generator: Anthropic call failed for «{skill_name}»: {e}")
+        logger.error(f"skill_generator: LLM call failed for «{skill_name}»: {e}")
         return None
 
     # 3) Parse + validate

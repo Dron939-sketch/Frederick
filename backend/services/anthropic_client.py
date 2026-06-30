@@ -20,6 +20,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+# Мастер-выключатель провайдера. По умолчанию OFF → весь Фреди работает на
+# DeepSeek, а Anthropic не вызывается НИГДЕ, даже если ANTHROPIC_API_KEY задан.
+# Чтобы вернуть Claude (входной чат с tool-use, генерация навыков-планов,
+# reengagement-сообщения, mode_enhancer для психолога/коуча/тренера) —
+# выставить USE_ANTHROPIC=1 и задать ANTHROPIC_API_KEY. Все потребители ходят
+# через is_available() / call_anthropic(), поэтому один флаг гасит их разом.
+_USE_ANTHROPIC = os.environ.get("USE_ANTHROPIC", "").strip().lower() in (
+    "1", "true", "yes", "on",
+)
 # Default to Sonnet 4.6 — better at the pattern-naming / inferential moves
 # the basic-mode preset asks for. Override with ANTHROPIC_MODEL env var.
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip()
@@ -37,7 +46,10 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 
 def is_available() -> bool:
-    return bool(ANTHROPIC_API_KEY)
+    """Anthropic «доступен» только если задан ключ И включён мастер-флаг
+    USE_ANTHROPIC. По умолчанию (флаг не задан) — False, и весь backend
+    использует DeepSeek."""
+    return bool(ANTHROPIC_API_KEY) and _USE_ANTHROPIC
 
 
 def pick_model(turn_index: Optional[int] = None) -> str:
@@ -89,7 +101,7 @@ async def call_anthropic(
     temperature: float = 0.8,
 ) -> Optional[str]:
     """Plain prompt → text. Single round-trip, no tools, no caching."""
-    if not ANTHROPIC_API_KEY:
+    if not is_available():
         return None
     try:
         payload = {
@@ -143,7 +155,7 @@ async def call_anthropic_with_tools(
       • exceeds max_tool_iterations (returns last text we got, if any);
       • API error / timeout (returns last text we got, or None).
     """
-    if not ANTHROPIC_API_KEY:
+    if not is_available():
         return None
 
     if cache_system and system_text:
