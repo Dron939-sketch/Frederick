@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 BasicMode - Fredi with Bikovic voice, memory, emotions.
-Primary LLM: Anthropic Claude. Fallback: DeepSeek.
+Primary LLM: DeepSeek. Anthropic Claude (с tool-use) — опционально,
+включается мастер-флагом USE_ANTHROPIC=1.
 """
 
 import re
@@ -171,7 +172,8 @@ class BasicMode(BaseMode):
         logger.info(f"BasicMode init user_id={user_id}, msgs={self.message_counter}")
 
     async def _call_llm(self, prompt: str, max_tokens: int = 150, temperature: float = 0.8) -> Optional[str]:
-        """Call Anthropic first, fallback to DeepSeek."""
+        """Плоский prompt → текст. По умолчанию DeepSeek; Claude — только при
+        USE_ANTHROPIC=1 (is_available учитывает флаг), с fallback на DeepSeek."""
         try:
             from services.anthropic_client import call_anthropic, is_available
             if is_available():
@@ -528,12 +530,13 @@ class BasicMode(BaseMode):
     # подаётся с cache_control=ephemeral (Anthropic prompt caching).
     # ----------------------------------------------------------------
 
-    def _build_system_for_anthropic(self) -> str:
-        """Статичный системный префикс, кешируемый Anthropic'ом.
+    def _build_system_prompt_block(self) -> str:
+        """Статичный системный префикс ответа BasicMode.
 
         Содержит пресет (current/jarvis/house) + memory_guard + few-shot
-        примеры — всё, что не меняется от хода к ходу. Чем стабильнее
-        этот текст, тем выше cache hit rate (и ниже латентность префикса)."""
+        примеры — всё, что не меняется от хода к ходу. Провайдер-агностичен:
+        используется и для DeepSeek (system-сообщение), и для Claude (где
+        дополнительно кешируется через cache_control для роста cache hit rate)."""
         few_shot = (
             "\nПРИМЕРЫ ХОРОШИХ ОТВЕТОВ (без открывашек, с называнием паттерна):\n\n"
             "Пользователь: Я застрял. Ничего не хочу делать.\n"
@@ -556,11 +559,11 @@ class BasicMode(BaseMode):
         )
         return self.get_system_prompt() + "\n\n" + few_shot
 
-    def _build_user_message_for_anthropic(self, question: str) -> str:
+    def _build_user_message_block(self, question: str) -> str:
         """Динамический контент — память, профиль, эмоция, история, вопрос.
 
         Меняется почти в каждом ходе, поэтому идёт в user-сообщение, а не
-        в кешируемый system."""
+        в статичный (кешируемый) system-префикс."""
         parts: List[str] = []
         # Дата/время первой строкой — иначе LLM галлюцинирует «сегодня 3 мая»,
         # хотя у юзера 2 мая. Берём из таймзоны юзера, не из серверного UTC.
@@ -694,11 +697,19 @@ class BasicMode(BaseMode):
     async def _call_llm_for_response(
         self, question: str, max_tokens: int = 400, temperature: float = 0.8
     ) -> Optional[str]:
-        """Основной ответ BasicMode: Anthropic c tool-use + кешированным
-        системным префиксом, fallback DeepSeek (плоский промпт, без тулов)."""
-        system_text = self._build_system_for_anthropic()
-        user_text = self._build_user_message_for_anthropic(question)
+        """Основной ответ BasicMode (входной чат «Фреди»).
 
+        По умолчанию — DeepSeek с system+user сплитом: сохраняет весь
+        промпт-инжиниринг BasicMode (пресет, few-shot, память, профиль,
+        эмоцию, историю) и роли сообщений. Claude на входном чате включается
+        ТОЛЬКО при USE_ANTHROPIC=1 — тогда работает путь с tool-use
+        (дата/погода/веб-поиск) и кешированным системным префиксом.
+        """
+        system_text = self._build_system_prompt_block()
+        user_text = self._build_user_message_block(question)
+
+        # Опциональный путь Claude — включается мастер-флагом USE_ANTHROPIC
+        # (см. anthropic_client.is_available). По умолчанию OFF → сразу DeepSeek.
         try:
             from services.anthropic_client import (
                 call_anthropic_with_tools,
@@ -727,7 +738,20 @@ class BasicMode(BaseMode):
         except Exception as e:
             logger.warning(f"Anthropic tool-use call failed: {e}")
 
-        # Fallback: DeepSeek без тулов. Склеиваем system+user в плоский промпт.
+        # Основной путь: DeepSeek с system+user сплитом. Роли и история
+        # передаются честно (не плоским промптом) — это даёт более качественный
+        # ответ, чем прежний flat-fallback.
+        try:
+            result = await self.ai_service._call_deepseek(
+                system_text, user_text, max_tokens=max_tokens, temperature=temperature
+            )
+            if result:
+                return result
+            logger.info("DeepSeek primary returned empty, trying flat fallback")
+        except Exception as e:
+            logger.error(f"DeepSeek primary call failed: {e}")
+
+        # Последний рубеж: плоский промпт через _simple_call.
         flat_prompt = system_text + "\n\n" + user_text
         try:
             return await self.ai_service._simple_call(

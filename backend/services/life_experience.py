@@ -105,12 +105,11 @@ async def run_daily_aggregation(max_dialogs: int = 30, max_msgs_per_dialog: int 
 
         prompt = _build_aggregation_prompt(rows)
 
-        from services.anthropic_client import call_anthropic, is_available
-        if not is_available():
-            logger.warning("life_experience: ANTHROPIC_API_KEY missing — abort")
-            return 0
-
-        raw = await call_anthropic(prompt, max_tokens=2000, temperature=0.3)
+        # Ночная агрегация — на DeepSeek (как и весь остальной Фреди). Anthropic
+        # для этого фонового джоба больше не требуется, поэтому ANTHROPIC_API_KEY
+        # можно держать незаданным.
+        from services.ai_service import call_deepseek
+        raw = await call_deepseek(prompt, max_tokens=2000, temperature=0.3)
         if not raw:
             logger.warning("life_experience: LLM returned empty")
             return 0
