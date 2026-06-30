@@ -462,6 +462,14 @@ app = FastAPI(
     websocket_max_size=50 * 1024 * 1024,
 )
 
+# Подключаем slowapi rate-limiter к приложению. Без этих двух строк декораторы
+# @limiter.limit(...) на login / forgot-pin / платежах НЕ работают: slowapi
+# требует app.state.limiter и обработчик RateLimitExceeded, иначе превышение
+# лимита либо вообще не применяется, либо отдаёт 500 вместо 429. Это
+# восстанавливает анти-брутфорс на входе (4-значный PIN) и тротлинг платежей.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Единый whitelist для CORSMiddleware и для ручных ответов из middleware
 # (например, 402 из meter_guard). meter_guard и log_requests добавлены
 # через @app.middleware(), который оборачивает приложение СНАРУЖИ
@@ -5445,7 +5453,12 @@ async def get_test_results(request: Request, user_id: int):
 
 
 @app.post("/api/tts")
+@limiter.limit("15/minute")
 async def tts_compat(request: Request, text: str = Form(...), mode: str = Form("psychologist")):
+    # Лимит против абьюза платного TTS: ручка без авторизации и не учитывается
+    # счётчиком, фронт Фреди её НЕ использует (озвучка идёт через /api/voice/*).
+    # 15/мин гасит массовый синтез, не ломая возможных легаси-вызовов. Если
+    # подтвердится, что её никто не использует — стоит закрыть admin-токеном.
     try:
         audio_base64 = await voice_service.text_to_speech(text, mode)
         if audio_base64:
@@ -5986,9 +5999,29 @@ async def push_subscribe(request: Request, data: PushSubscribeRequest):
         logger.error(f"Push subscribe error: {e}")
         return {"success": False, "error": str(e)}
 
+def _require_admin_token(request: Request):
+    """Гейт для админ-ручек: заголовок X-Admin-Token должен совпасть с env
+    ADMIN_TOKEN. Если ADMIN_TOKEN не задан — ручка СЧИТАЕТСЯ ВЫКЛЮЧЕННОЙ
+    (безопасный дефолт: закрыто, а не открыто всем). Вызывать ДО try-блока,
+    чтобы HTTPException не был проглочен generic-except и не превратился в 200.
+    """
+    import hmac
+    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+    token = (request.headers.get("X-Admin-Token") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail={"error": "admin_disabled",
+                            "message": "Админ-эндпоинты выключены: задайте ADMIN_TOKEN в env"})
+    if not token or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail={"error": "unauthorized"})
+
+
 @app.post("/api/push/send")
 async def push_send(request: Request, data: PushSendRequest):
-    """Отправить push конкретному пользователю"""
+    """Отправить push конкретному пользователю. ТОЛЬКО админ (X-Admin-Token):
+    раньше ручка была открыта всем → любой мог слать произвольный push любому
+    user_id (таргетированный фишинг). Внутренние уведомления приложения идут
+    через _push_notification, а не через этот HTTP-эндпоинт."""
+    _require_admin_token(request)
     try:
         if push_service:
             ok = await push_service.send_to_user(data.user_id, data.title, data.body, data.url)
@@ -6000,7 +6033,9 @@ async def push_send(request: Request, data: PushSendRequest):
 
 @app.post("/api/push/broadcast")
 async def push_broadcast(request: Request):
-    """Рассылка всем подписчикам (только для админа)"""
+    """Рассылка всем подписчикам. ТОЛЬКО админ (X-Admin-Token): раньше была
+    открыта всем → любой мог разослать произвольный push-фишинг всей базе."""
+    _require_admin_token(request)
     try:
         data = await request.json()
         title = data.get("title", "Фреди")
