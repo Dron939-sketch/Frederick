@@ -398,6 +398,228 @@ def register_analytics_routes(app, db):
             logger.error(f"analytics summary error: {e}")
             return {"error": "internal"}
 
+    @app.get("/api/analytics/product")
+    async def analytics_product(request: Request,
+                                x_admin_token: Optional[str] = Header(default=None)):
+        """Продуктовые метрики для решений «что дорабатывать»: когортное
+        удержание, активация первой сессии, влияние фич на возврат, глубина
+        сессий, завершение игр, paywall-воронка, здоровье клиента.
+
+        Когорта: пользователи, впервые появившиеся 8–38 дней назад — у каждого
+        есть минимум 7 полных дней на возврат, метрики честные. Закрыт X-Admin-Token."""
+        _check_admin(x_admin_token)
+        out: Dict[str, Any] = {}
+        try:
+            async with db.get_connection() as conn:
+                # ---------- 1. Когорта: D1 / Ret7 / активация первой сессии ----------
+                rows = await conn.fetch("""
+                    WITH firsts AS (
+                        SELECT user_id, MIN(created_at) AS first_seen
+                        FROM fredi_analytics
+                        WHERE user_id IS NOT NULL AND user_id > 0
+                        GROUP BY user_id
+                    ), cohort AS (
+                        SELECT user_id, first_seen FROM firsts
+                        WHERE first_seen >= NOW() - INTERVAL '38 days'
+                          AND first_seen <  NOW() - INTERVAL '8 days'
+                    )
+                    SELECT
+                        COUNT(*) AS cohort_size,
+                        COUNT(*) FILTER (WHERE EXISTS (
+                            SELECT 1 FROM fredi_analytics a
+                            WHERE a.user_id = c.user_id
+                              AND a.created_at >= c.first_seen + INTERVAL '20 hours'
+                              AND a.created_at <  c.first_seen + INTERVAL '48 hours'
+                        )) AS d1,
+                        COUNT(*) FILTER (WHERE EXISTS (
+                            SELECT 1 FROM fredi_analytics a
+                            WHERE a.user_id = c.user_id
+                              AND a.created_at >= c.first_seen + INTERVAL '20 hours'
+                              AND a.created_at <  c.first_seen + INTERVAL '8 days'
+                        )) AS ret7,
+                        COUNT(*) FILTER (WHERE EXISTS (
+                            SELECT 1 FROM fredi_analytics a
+                            WHERE a.user_id = c.user_id AND a.event = 'message_sent'
+                              AND a.created_at < c.first_seen + INTERVAL '60 minutes'
+                        )) AS sent_msg,
+                        COUNT(*) FILTER (WHERE (
+                            SELECT COUNT(*) FROM fredi_analytics a
+                            WHERE a.user_id = c.user_id AND a.event = 'message_sent'
+                              AND a.created_at < c.first_seen + INTERVAL '60 minutes'
+                        ) >= 3) AS sent_3plus,
+                        COUNT(*) FILTER (WHERE EXISTS (
+                            SELECT 1 FROM fredi_analytics a
+                            WHERE a.user_id = c.user_id AND a.event = 'game_round_start'
+                              AND a.created_at < c.first_seen + INTERVAL '24 hours'
+                        )) AS tried_game
+                    FROM cohort c
+                """)
+                r = rows[0] if rows else None
+                cohort_size = (r and r["cohort_size"]) or 0
+                def _pct(x):
+                    return round(100.0 * (x or 0) / cohort_size, 1) if cohort_size else None
+                out["cohort"] = {
+                    "size": cohort_size,
+                    "window": "первые визиты 8–38 дней назад",
+                    "d1_pct": _pct(r and r["d1"]),
+                    "ret7_pct": _pct(r and r["ret7"]),
+                    "activation": {
+                        "sent_message_pct": _pct(r and r["sent_msg"]),
+                        "sent_3plus_pct": _pct(r and r["sent_3plus"]),
+                        "tried_game_pct": _pct(r and r["tried_game"]),
+                    },
+                }
+
+                # ---------- 2. Фичи первой сессии → возврат за 7 дней ----------
+                # Среди когорты: кто открыл фичу X в первые 24 часа — какой % вернулся.
+                # Сравнение со средним по когорте = «lift» фичи.
+                feat_rows = await conn.fetch("""
+                    WITH firsts AS (
+                        SELECT user_id, MIN(created_at) AS first_seen
+                        FROM fredi_analytics
+                        WHERE user_id IS NOT NULL AND user_id > 0
+                        GROUP BY user_id
+                    ), cohort AS (
+                        SELECT user_id, first_seen FROM firsts
+                        WHERE first_seen >= NOW() - INTERVAL '38 days'
+                          AND first_seen <  NOW() - INTERVAL '8 days'
+                    ), used AS (
+                        SELECT DISTINCT c.user_id, c.first_seen,
+                               a.data->>'feature' AS feature
+                        FROM cohort c
+                        JOIN fredi_analytics a ON a.user_id = c.user_id
+                        WHERE a.event = 'feature_opened'
+                          AND a.created_at < c.first_seen + INTERVAL '24 hours'
+                          AND COALESCE(a.data->>'feature','') != ''
+                    )
+                    SELECT feature,
+                           COUNT(*) AS users,
+                           COUNT(*) FILTER (WHERE EXISTS (
+                               SELECT 1 FROM fredi_analytics b
+                               WHERE b.user_id = used.user_id
+                                 AND b.created_at >= used.first_seen + INTERVAL '20 hours'
+                                 AND b.created_at <  used.first_seen + INTERVAL '8 days'
+                           )) AS returned
+                    FROM used
+                    GROUP BY feature
+                    HAVING COUNT(*) >= 3
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 30
+                """)
+                out["feature_lift"] = [{
+                    "feature": fr["feature"],
+                    "users": fr["users"],
+                    "returned_pct": round(100.0 * fr["returned"] / fr["users"], 1) if fr["users"] else 0,
+                } for fr in feat_rows]
+
+                # ---------- 3. Глубина сессий (30 дней) ----------
+                depth = await conn.fetchrow("""
+                    WITH s AS (
+                        SELECT session_id,
+                               COUNT(*) FILTER (WHERE event = 'message_sent') AS msgs
+                        FROM fredi_analytics
+                        WHERE created_at > NOW() - INTERVAL '30 days'
+                          AND session_id IS NOT NULL AND session_id != ''
+                        GROUP BY session_id
+                    )
+                    SELECT COUNT(*) AS sessions,
+                           ROUND(100.0 * COUNT(*) FILTER (WHERE msgs = 0) / GREATEST(COUNT(*),1), 1) AS zero_msg_pct,
+                           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY msgs) AS median_msgs
+                    FROM s
+                """)
+                med_dur = await conn.fetchval("""
+                    SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (
+                        ORDER BY LEAST((data->>'duration_sec')::int, 3600))
+                    FROM fredi_analytics
+                    WHERE event = 'session_end'
+                      AND created_at > NOW() - INTERVAL '30 days'
+                      AND (data->>'duration_sec') ~ '^[0-9]+$'
+                """)
+                spu = await conn.fetch("""
+                    WITH u AS (
+                        SELECT user_id, COUNT(DISTINCT session_id) AS n
+                        FROM fredi_analytics
+                        WHERE created_at > NOW() - INTERVAL '30 days'
+                          AND user_id IS NOT NULL AND user_id > 0
+                          AND session_id IS NOT NULL AND session_id != ''
+                        GROUP BY user_id
+                    )
+                    SELECT
+                        COUNT(*) FILTER (WHERE n = 1)  AS one,
+                        COUNT(*) FILTER (WHERE n BETWEEN 2 AND 4) AS few,
+                        COUNT(*) FILTER (WHERE n >= 5) AS core,
+                        COUNT(*) AS total
+                    FROM u
+                """)
+                sp = spu[0] if spu else None
+                out["depth"] = {
+                    "sessions_30d": (depth and depth["sessions"]) or 0,
+                    "zero_msg_pct": float(depth["zero_msg_pct"]) if depth and depth["zero_msg_pct"] is not None else None,
+                    "median_msgs": float(depth["median_msgs"]) if depth and depth["median_msgs"] is not None else None,
+                    "median_duration_sec": int(med_dur) if med_dur is not None else None,
+                    "sessions_per_user": {
+                        "one": (sp and sp["one"]) or 0,
+                        "two_four": (sp and sp["few"]) or 0,
+                        "five_plus": (sp and sp["core"]) or 0,
+                        "total_users": (sp and sp["total"]) or 0,
+                    },
+                }
+
+                # ---------- 4. Игры: доигрываемость (30 дней) ----------
+                games = await conn.fetch("""
+                    SELECT COALESCE(data->>'feature','?') AS game,
+                           COUNT(*) FILTER (WHERE event = 'game_round_start')  AS starts,
+                           COUNT(*) FILTER (WHERE event = 'game_round_finish') AS finishes,
+                           ROUND(AVG((data->>'score')::numeric) FILTER (
+                               WHERE event = 'game_round_finish'
+                                 AND (data->>'score') ~ '^[0-9.]+$'), 1) AS avg_score
+                    FROM fredi_analytics
+                    WHERE created_at > NOW() - INTERVAL '30 days'
+                      AND event IN ('game_round_start','game_round_finish')
+                    GROUP BY 1
+                    HAVING COUNT(*) FILTER (WHERE event = 'game_round_start') > 0
+                    ORDER BY starts DESC
+                    LIMIT 30
+                """)
+                out["games"] = [{
+                    "game": g["game"],
+                    "starts": g["starts"],
+                    "finishes": g["finishes"],
+                    "completion_pct": round(100.0 * g["finishes"] / g["starts"], 1) if g["starts"] else 0,
+                    "avg_score": float(g["avg_score"]) if g["avg_score"] is not None else None,
+                } for g in games]
+
+                # ---------- 5. Paywall-воронка (30 дней, уникальные юзеры) ----------
+                pw = await conn.fetchrow("""
+                    SELECT
+                        COUNT(DISTINCT user_id) FILTER (WHERE event = 'meter_blocked_shown')     AS blocked,
+                        COUNT(DISTINCT user_id) FILTER (WHERE event = 'meter_subscribe_clicked') AS clicked,
+                        COUNT(DISTINCT user_id) FILTER (WHERE event = 'checkout_opened')         AS checkout
+                    FROM fredi_analytics
+                    WHERE created_at > NOW() - INTERVAL '30 days'
+                """)
+                out["paywall"] = {
+                    "blocked_users": (pw and pw["blocked"]) or 0,
+                    "subscribe_clicked": (pw and pw["clicked"]) or 0,
+                    "checkout_opened": (pw and pw["checkout"]) or 0,
+                }
+
+                # ---------- 6. Здоровье клиента (7 дней) ----------
+                health = await conn.fetch("""
+                    SELECT event, COUNT(*) AS cnt
+                    FROM fredi_analytics
+                    WHERE created_at > NOW() - INTERVAL '7 days'
+                      AND event IN ('js_error','error','promise_unhandled',
+                                    'api_network_error','api_aborted','ai_response_error')
+                    GROUP BY event ORDER BY cnt DESC
+                """)
+                out["health_7d"] = [{"event": h["event"], "count": h["cnt"]} for h in health]
+
+                return out
+        except Exception as e:
+            logger.error(f"analytics product error: {e}")
+            return {"error": "internal"}
+
     @app.get("/api/analytics/recent")
     async def analytics_recent(request: Request, limit: int = 100,
                                x_admin_token: Optional[str] = Header(default=None)):
