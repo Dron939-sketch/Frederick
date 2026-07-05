@@ -118,6 +118,28 @@ class PaymentService:
                     },
                 )
 
+                # Пока ЮKassa не включила автоплатежи для магазина,
+                # save_payment_method=true роняет создание платежа целиком
+                # («This store can't make recurring payments», code=forbidden).
+                # Фолбэк: повторяем без сохранения карты — подписка оформится
+                # как разовый месяц без автопродления. Когда автоплатежи
+                # включат, первый же платёж снова начнёт сохранять карту.
+                if resp.status_code != 200 and "recurring" in resp.text.lower():
+                    logger.warning("YooKassa: recurring not enabled for shop, retrying without save_payment_method")
+                    payment_data_once = dict(payment_data)
+                    payment_data_once.pop("save_payment_method", None)
+                    resp = await client.post(
+                        f"{YOOKASSA_API_URL}/payments",
+                        json=payment_data_once,
+                        headers={
+                            "Authorization": self._get_auth_header(),
+                            "Idempotence-Key": self._idempotence_key(
+                                user_id=user_id, op="subscription_first_once"
+                            ),
+                            "Content-Type": "application/json",
+                        },
+                    )
+
                 if resp.status_code != 200:
                     logger.error(f"YooKassa API error: {resp.status_code}")
                     logger.error(f"Response: {resp.text}")
