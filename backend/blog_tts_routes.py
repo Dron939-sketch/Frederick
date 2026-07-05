@@ -25,7 +25,7 @@ TTS_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
 # фирменный мужской голос Фреди из чата (~в 2-3 раза дороже на русском,
 # зато блог и приложение говорят одним голосом). При падении Fish
 # автоматически откатываемся на Яндекс.
-BLOG_TTS_PROVIDER = os.getenv("BLOG_TTS_PROVIDER", "yandex").lower()
+BLOG_TTS_PROVIDER = os.getenv("BLOG_TTS_PROVIDER", "fish").lower()
 BLOG_TTS_VOICE = os.getenv("BLOG_TTS_VOICE", "filipp")
 BLOG_TTS_SPEED = os.getenv("BLOG_TTS_SPEED", "1.0")
 SITE_BASE = os.getenv("BLOG_TTS_SITE", "https://meysternlp.ru")
@@ -158,7 +158,7 @@ async def _generate(slug: str) -> str:
     try:
         from services.api_usage import log_tts_usage
         asyncio.create_task(log_tts_usage(
-            provider="yandex", model=BLOG_TTS_VOICE,
+            provider=BLOG_TTS_PROVIDER, model=("fredi-voice" if BLOG_TTS_PROVIDER == "fish" else BLOG_TTS_VOICE),
             chars=len(text), feature="tts.blog_article",
         ))
     except Exception:
