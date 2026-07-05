@@ -9,9 +9,11 @@
 """
 import asyncio
 import html as html_mod
+import json
 import logging
 import os
 import re
+import time
 
 import httpx
 from fastapi import Request
@@ -33,7 +35,16 @@ SITE_BASE = os.getenv("BLOG_TTS_SITE", "https://meysternlp.ru")
 TTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "tts_blog")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,120}$")
 CHUNK_LIMIT = 4500          # лимит Yandex v1 — 5000 символов на запрос
+FISH_CHUNK_LIMIT = 1400     # Fish генерирует медленно: длинный кусок не успевает
+FISH_TIMEOUT = 120.0        # ...поэтому куски короче, а таймаут щедрее
 MAX_ARTICLE_CHARS = 60000   # предохранитель от аномально длинных страниц
+
+# Версия конвейера озвучки. Меняются голос/режиссёр/промт — поднимаем
+# на единицу, и закэшированные mp3 переозвучиваются при следующем запросе.
+TTS_CACHE_VERSION = 2
+# Если Fish был недоступен и лекцию озвучил Яндекс — отдаём этот файл,
+# но спустя это время при новом запросе пробуем вернуть голос Фреди.
+DEGRADED_RETRY_SECONDS = 6 * 3600
 
 # Блоки, которые не читаем вслух (виджеты, ссылки, служебное)
 _SKIP_BLOCK_RE = re.compile(
@@ -44,6 +55,8 @@ _SKIP_BLOCK_RE = re.compile(
 )
 
 _locks: dict = {}
+_gen_tasks: dict = {}   # slug -> asyncio.Task фоновой генерации
+_gen_errors: dict = {}  # slug -> текст последней ошибки генерации
 
 
 def _extract_text(page: str) -> str:
@@ -239,16 +252,16 @@ async def _prepare_speech(text: str, slug: str) -> str:
         return _plain_speech(text)
 
 
-def _chunks(text: str):
-    """Режет текст на куски ≤ CHUNK_LIMIT по границам предложений."""
+def _chunks(text: str, limit: int = CHUNK_LIMIT):
+    """Режет текст на куски ≤ limit по границам предложений."""
     out, cur = [], ""
     for sent in re.split(r"(?<=[.!?;]) +", text):
-        if len(cur) + len(sent) + 1 > CHUNK_LIMIT:
+        if len(cur) + len(sent) + 1 > limit:
             if cur:
                 out.append(cur)
-            while len(sent) > CHUNK_LIMIT:  # аномально длинное «предложение»
-                out.append(sent[:CHUNK_LIMIT])
-                sent = sent[CHUNK_LIMIT:]
+            while len(sent) > limit:  # аномально длинное «предложение»
+                out.append(sent[:limit])
+                sent = sent[limit:]
             cur = sent
         else:
             cur = (cur + " " + sent).strip()
@@ -257,17 +270,7 @@ def _chunks(text: str):
     return out
 
 
-async def _synth_chunk(client: httpx.AsyncClient, text: str) -> bytes:
-    if BLOG_TTS_PROVIDER == "fish":
-        try:
-            from services.fish_audio_service import synthesize_fish_audio
-            audio = await synthesize_fish_audio(text)
-            if audio:
-                return audio
-            logger.warning("blog-tts: fish returned empty, falling back to yandex")
-        except Exception as e:
-            logger.warning(f"blog-tts: fish failed ({e}), falling back to yandex")
-
+async def _synth_yandex(client: httpx.AsyncClient, text: str) -> bytes:
     resp = await client.post(
         TTS_URL,
         headers={"Authorization": f"Api-Key {YANDEX_API_KEY}"},
@@ -284,11 +287,60 @@ async def _synth_chunk(client: httpx.AsyncClient, text: str) -> bytes:
     return resp.content
 
 
+async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
+    """Озвучивает весь текст ОДНИМ голосом: сначала пробуем Fish (голос Фреди),
+    и если он споткнулся на любом куске — переозвучиваем всё Яндексом целиком,
+    чтобы голос не менялся посреди лекции. Возвращает (mp3, provider)."""
+    if BLOG_TTS_PROVIDER == "fish":
+        try:
+            from services.fish_audio_service import synthesize_fish_audio
+            parts = []
+            for ch in _chunks(speech, FISH_CHUNK_LIMIT):
+                audio = await synthesize_fish_audio(ch, timeout=FISH_TIMEOUT)
+                if not audio:
+                    raise RuntimeError("fish returned empty audio")
+                parts.append(audio)
+            return b"".join(parts), "fish"
+        except Exception as e:
+            logger.warning(f"blog-tts {slug}: fish failed ({e}), re-voicing whole article via yandex")
+
+    parts = [await _synth_yandex(client, ch) for ch in _chunks(speech, CHUNK_LIMIT)]
+    return b"".join(parts), "yandex"
+
+
+# ===== Кэш: mp3 + мета о том, чем и как он озвучен =====
+
+def _meta_path(slug: str) -> str:
+    return os.path.join(TTS_DIR, f"{slug}.meta.json")
+
+
+def _read_meta(slug: str) -> dict:
+    try:
+        with open(_meta_path(slug), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _cache_ok(slug: str) -> bool:
+    """Файл есть и озвучен текущим конвейером. Деградированный (Яндекс вместо
+    Фреди) файл считается годным DEGRADED_RETRY_SECONDS, потом пробуем заново."""
+    path = os.path.join(TTS_DIR, f"{slug}.mp3")
+    if not (os.path.exists(path) and os.path.getsize(path) > 1000):
+        return False
+    meta = _read_meta(slug)
+    if meta.get("v") != TTS_CACHE_VERSION or meta.get("wanted") != BLOG_TTS_PROVIDER:
+        return False
+    if meta.get("provider") != meta.get("wanted"):
+        return time.time() - meta.get("ts", 0) < DEGRADED_RETRY_SECONDS
+    return True
+
+
 async def _generate(slug: str) -> str:
     """Скачивает статью, синтезирует и кладёт mp3 в кэш. Возвращает путь."""
     os.makedirs(TTS_DIR, exist_ok=True)
     path = os.path.join(TTS_DIR, f"{slug}.mp3")
-    if os.path.exists(path) and os.path.getsize(path) > 1000:
+    if _cache_ok(slug):
         return path
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -307,27 +359,34 @@ async def _generate(slug: str) -> str:
         except Exception:
             pass
 
-        chunks = _chunks(speech)
-        logger.info(f"blog-tts {slug}: {len(speech)} chars speech, {len(chunks)} chunks")
-        audio = b""
-        for ch in chunks:
-            audio += await _synth_chunk(client, ch)
+        logger.info(f"blog-tts {slug}: {len(speech)} chars speech, provider={BLOG_TTS_PROVIDER}")
+        audio, used = await _synth_all(client, speech, slug)
 
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(audio)
     os.replace(tmp, path)
-
     try:
-        from services.api_usage import log_tts_usage
-        asyncio.create_task(log_tts_usage(
-            provider=BLOG_TTS_PROVIDER, model=("fredi-voice" if BLOG_TTS_PROVIDER == "fish" else BLOG_TTS_VOICE),
-            chars=len(text), feature="tts.blog_article",
-        ))
+        with open(_meta_path(slug), "w", encoding="utf-8") as mf:
+            json.dump({
+                "v": TTS_CACHE_VERSION, "provider": used, "wanted": BLOG_TTS_PROVIDER,
+                "ts": time.time(), "chars": len(speech),
+            }, mf)
     except Exception:
         pass
 
-    logger.info(f"blog-tts {slug}: saved {len(audio)} bytes")
+    if used != "fish":
+        # Fish логирует расход сам внутри synthesize_fish_audio
+        try:
+            from services.api_usage import log_tts_usage
+            asyncio.create_task(log_tts_usage(
+                provider="yandex", model=BLOG_TTS_VOICE,
+                chars=len(speech), feature="tts.blog_article",
+            ))
+        except Exception:
+            pass
+
+    logger.info(f"blog-tts {slug}: saved {len(audio)} bytes, voice={used}")
     return path
 
 
@@ -340,9 +399,15 @@ def register_blog_tts_routes(app, limiter):
             return JSONResponse({"enabled": False}, status_code=400)
         if not YANDEX_API_KEY:
             return {"enabled": False}
-        path = os.path.join(TTS_DIR, f"{slug}.mp3")
-        ready = os.path.exists(path) and os.path.getsize(path) > 1000
-        return {"enabled": True, "ready": ready, "url": f"/api/tts/blog/{slug}.mp3"}
+        # v меняется при переозвучке: фронт добавляет его к URL,
+        # чтобы браузер не играл вечно закэшированный старый голос
+        return {
+            "enabled": True, "ready": _cache_ok(slug),
+            "url": f"/api/tts/blog/{slug}.mp3",
+            "v": int(_read_meta(slug).get("ts", 0)),
+            "generating": slug in _gen_tasks,
+            "error": _gen_errors.get(slug),
+        }
 
     @app.get("/api/tts/blog/{slug}.mp3")
     @limiter.limit("20/minute")
@@ -353,18 +418,34 @@ def register_blog_tts_routes(app, limiter):
             return JSONResponse({"error": "tts disabled"}, status_code=503)
 
         path = os.path.join(TTS_DIR, f"{slug}.mp3")
-        if not (os.path.exists(path) and os.path.getsize(path) > 1000):
-            # один слуг — одна генерация: параллельные запросы ждут первую
-            lock = _locks.setdefault(slug, asyncio.Lock())
-            async with lock:
-                if not (os.path.exists(path) and os.path.getsize(path) > 1000):
-                    try:
-                        await _generate(slug)
-                    except FileNotFoundError:
-                        return JSONResponse({"error": "article not found"}, status_code=404)
-                    except Exception as e:
-                        logger.error(f"blog-tts {slug} failed: {e}")
-                        return JSONResponse({"error": "generation failed"}, status_code=502)
+        if not _cache_ok(slug):
+            # Генерация лекции (рерайт + синтез) занимает минуты — держать
+            # соединение столько нельзя. Запускаем фоном и отвечаем 202,
+            # фронт поллит /status и приходит за файлом, когда ready.
+            if _gen_errors.get(slug) and slug not in _gen_tasks:
+                err = _gen_errors.pop(slug)
+                code = 404 if "article" in err else 502
+                return JSONResponse({"error": err}, status_code=code)
+
+            async def _run():
+                lock = _locks.setdefault(slug, asyncio.Lock())
+                try:
+                    async with lock:
+                        if not _cache_ok(slug):
+                            await _generate(slug)
+                    _gen_errors.pop(slug, None)
+                except FileNotFoundError:
+                    _gen_errors[slug] = "article not found"
+                except Exception as e:
+                    logger.error(f"blog-tts {slug} failed: {e}")
+                    _gen_errors[slug] = "generation failed"
+                finally:
+                    _gen_tasks.pop(slug, None)
+
+            if slug not in _gen_tasks:
+                _gen_errors.pop(slug, None)
+                _gen_tasks[slug] = asyncio.create_task(_run())
+            return JSONResponse({"status": "generating"}, status_code=202)
 
         return FileResponse(
             path,
