@@ -64,15 +64,20 @@ def _extract_text(page: str) -> str:
     for _ in range(3):
         body = _SKIP_BLOCK_RE.sub(" ", body)
 
-    parts = [title + "."] if title else []
-    # подписи к схемам/иллюстрациям -> маркер для лектора
-    for cap in re.findall(r'<figcaption[^>]*>(.*?)</figcaption>', body, re.S):
-        c = re.sub(r"<[^>]+>", " ", cap)
+    # подписи к схемам/иллюстрациям -> маркер для лектора,
+    # оставленный на своём месте в потоке текста
+    def _cap_to_marker(cm):
+        c = re.sub(r"<[^>]+>", " ", cm.group(1))
         c = re.sub(r"\s+", " ", html_mod.unescape(c)).strip()
-        if c:
-            body = body.replace(cap, "")
-            parts.append("[СХЕМА: " + c + "]")
-    for tag_m in re.finditer(r"<(h2|h3|p|li)[^>]*>(.*?)</\1>", body, re.S):
+        return "<p>[СХЕМА: " + c + "]</p>" if c else " "
+
+    body = re.sub(r"<figcaption[^>]*>(.*?)</figcaption>", _cap_to_marker, body, flags=re.S)
+    # сами SVG-схемы диктору не нужны (и их <polygon>/<line> не должны
+    # ловиться регэкспом как <p>/<li>)
+    body = re.sub(r"<svg.*?</svg>", " ", body, flags=re.S)
+
+    parts = [title + "."] if title else []
+    for tag_m in re.finditer(r"<(h2|h3|p|li)(?=[\s>])[^>]*>(.*?)</\1>", body, re.S):
         tag = tag_m.group(1)
         t = re.sub(r"<[^>]+>", " ", tag_m.group(2))
         t = html_mod.unescape(t)
