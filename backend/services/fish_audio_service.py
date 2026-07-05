@@ -68,10 +68,12 @@ def _slow_audio_atempo(mp3_bytes: bytes, factor: float = 0.9) -> bytes:
         return mp3_bytes
 
 
-async def synthesize_fish_audio(text: str, mode: str = "psychologist") -> bytes | None:
+async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: float = 30) -> bytes | None:
     """
     Synthesize speech via Fish Audio API.
     Returns MP3 bytes or None if unavailable.
+    timeout: чат живёт с дефолтными 30с; длинные куски (озвучка лекций
+    блога) передают больше — Fish генерирует минуту речи дольше 30с.
     """
     if mode not in FISH_AUDIO_MODES:
         return None
@@ -95,7 +97,7 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist") -> bytes 
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 FISH_AUDIO_API_URL,
                 json=payload,
