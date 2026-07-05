@@ -348,6 +348,8 @@ async def lifespan(app: FastAPI):
         await _init_skill_plan()
         _init_test = register_test_routes(app, db, limiter)
         await _init_test()
+        from blog_tts_routes import register_blog_tts_routes
+        register_blog_tts_routes(app, limiter)
 
         # Reengagement (Phase 1 + полу-автомат). Подключаем routes
         # (публичные + админские) + bg-scheduler. EmailService getter
