@@ -119,6 +119,9 @@ def register_payment_routes(app, db, limiter):
             # Add email/phone columns for receipts (54-FZ)
             await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email TEXT")
             await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS phone TEXT")
+            # Отвязка карты обнуляет токен (требование ЮKassa) — колонка
+            # должна допускать NULL
+            await conn.execute("ALTER TABLE fredi_payment_methods ALTER COLUMN payment_method_id DROP NOT NULL")
         logger.info("Payment tables ready")
 
         # Стартуем фоновый поллинг pending-платежей здесь, чтобы не
@@ -273,8 +276,10 @@ def register_payment_routes(app, db, limiter):
             if not user_id:
                 return {"success": False, "error": "invalid user_id"}
             async with db.get_connection() as conn:
+                # Требование ЮKassa: при отвязке карты платёжный токен
+                # удаляется из нашей системы, а не просто деактивируется.
                 await conn.execute(
-                    "UPDATE fredi_payment_methods SET is_active = FALSE, updated_at = NOW() WHERE user_id = $1",
+                    "UPDATE fredi_payment_methods SET is_active = FALSE, payment_method_id = NULL, updated_at = NOW() WHERE user_id = $1",
                     user_id
                 )
                 await conn.execute(
