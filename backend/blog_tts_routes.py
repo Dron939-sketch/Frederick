@@ -21,7 +21,12 @@ logger = logging.getLogger(__name__)
 
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 TTS_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
-BLOG_TTS_VOICE = os.getenv("BLOG_TTS_VOICE", "alena")
+# Провайдер: 'yandex' (голос filipp, ~13 руб/статья) или 'fish' —
+# фирменный мужской голос Фреди из чата (~в 2-3 раза дороже на русском,
+# зато блог и приложение говорят одним голосом). При падении Fish
+# автоматически откатываемся на Яндекс.
+BLOG_TTS_PROVIDER = os.getenv("BLOG_TTS_PROVIDER", "yandex").lower()
+BLOG_TTS_VOICE = os.getenv("BLOG_TTS_VOICE", "filipp")
 BLOG_TTS_SPEED = os.getenv("BLOG_TTS_SPEED", "1.0")
 SITE_BASE = os.getenv("BLOG_TTS_SITE", "https://meysternlp.ru")
 
@@ -98,6 +103,16 @@ def _chunks(text: str):
 
 
 async def _synth_chunk(client: httpx.AsyncClient, text: str) -> bytes:
+    if BLOG_TTS_PROVIDER == "fish":
+        try:
+            from services.fish_audio_service import synthesize_fish_audio
+            audio = await synthesize_fish_audio(text)
+            if audio:
+                return audio
+            logger.warning("blog-tts: fish returned empty, falling back to yandex")
+        except Exception as e:
+            logger.warning(f"blog-tts: fish failed ({e}), falling back to yandex")
+
     resp = await client.post(
         TTS_URL,
         headers={"Authorization": f"Api-Key {YANDEX_API_KEY}"},
