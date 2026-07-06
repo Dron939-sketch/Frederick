@@ -19,6 +19,12 @@ FISH_AUDIO_API_URL = "https://api.fish.audio/v1/tts"
 # All modes use Fish Audio (Jarvis voice)
 FISH_AUDIO_MODES = {"psychologist", "coach", "trainer", "basic", "default"}
 
+
+def fish_configured() -> bool:
+    """Настроен ли Fish (есть ключ и id голоса Фреди). Если нет — озвучка
+    молча уходит в Яндекс-фолбэк, и голос перестаёт быть Фреди."""
+    return bool(FISH_AUDIO_API_KEY and FISH_AUDIO_VOICE_ID)
+
 # Скорость воспроизведения для Fish Audio. Сам API не даёт параметра
 # скорости, поэтому замедляем post-process'ом через ffmpeg atempo.
 # 0.90 = на 10% медленнее (просьба пользователя — Фреди говорит слишком быстро).

@@ -358,20 +358,34 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
     и если он споткнулся на любом куске — переозвучиваем всё Яндексом целиком,
     чтобы голос не менялся посреди лекции. Возвращает (mp3, provider)."""
     if BLOG_TTS_PROVIDER == "fish":
-        try:
-            from services.fish_audio_service import synthesize_fish_audio
-            parts = []
-            for ch in _chunks(speech, FISH_CHUNK_LIMIT):
-                # Метки оставляем только если они включены (S2/S2.1); иначе
-                # вырезаем, чтобы Fish случайно не прочитал их вслух.
-                ch_fish = ch if BLOG_TTS_FISH_TAGS else _strip_inline_tags(ch)
-                audio = await synthesize_fish_audio(ch_fish, timeout=FISH_TIMEOUT)
-                if not audio:
-                    raise RuntimeError("fish returned empty audio")
-                parts.append(audio)
-            return b"".join(parts), "fish"
-        except Exception as e:
-            logger.warning(f"blog-tts {slug}: fish failed ({e}), re-voicing whole article via yandex")
+        from services.fish_audio_service import synthesize_fish_audio, fish_configured
+        if not fish_configured():
+            # Нет ключа/голоса Фреди — не сыпем страшными варнингами на каждый
+            # кусок, честно уходим в Яндекс и пишем это один раз.
+            logger.warning(f"blog-tts {slug}: Fish не настроен (нет FISH_AUDIO_API_KEY/VOICE_ID), озвучиваю Яндексом")
+        else:
+            try:
+                parts = []
+                for ch in _chunks(speech, FISH_CHUNK_LIMIT):
+                    # Метки оставляем только если они включены (S2/S2.1); иначе
+                    # вырезаем, чтобы Fish случайно не прочитал их вслух.
+                    ch_fish = ch if BLOG_TTS_FISH_TAGS else _strip_inline_tags(ch)
+                    # Один повтор на кусок: раньше единичный таймаут Fish
+                    # ронял ВСЮ лекцию в Яндекс-голос. Повтор гасит случайные сбои.
+                    audio = None
+                    for attempt in range(2):
+                        audio = await synthesize_fish_audio(ch_fish, timeout=FISH_TIMEOUT)
+                        if audio:
+                            break
+                        if attempt == 0:
+                            logger.info(f"blog-tts {slug}: пустой ответ Fish, повтор куска через 2с")
+                            await asyncio.sleep(2)
+                    if not audio:
+                        raise RuntimeError("fish returned empty audio")
+                    parts.append(audio)
+                return b"".join(parts), "fish"
+            except Exception as e:
+                logger.warning(f"blog-tts {slug}: fish failed ({e}), re-voicing whole article via yandex")
 
     parts = [await _synth_yandex(client, ch) for ch in _chunks(speech, CHUNK_LIMIT)]
     return b"".join(parts), "yandex"
@@ -470,10 +484,21 @@ def register_blog_tts_routes(app, limiter):
             return {"enabled": False}
         # v меняется при переозвучке: фронт добавляет его к URL,
         # чтобы браузер не играл вечно закэшированный старый голос
+        meta = _read_meta(slug)
+        try:
+            from services.fish_audio_service import fish_configured
+            _fish = fish_configured()
+        except Exception:
+            _fish = False
+        # voice — каким голосом реально озвучен кэш: 'fish' (Фреди) или 'yandex'
+        # (запасной). degraded=True, если хотели Фреди, а вышел Яндекс.
         return {
             "enabled": True, "ready": _cache_ok(slug),
             "url": f"/api/tts/blog/{slug}.mp3",
-            "v": int(_read_meta(slug).get("ts", 0)),
+            "v": int(meta.get("ts", 0)),
+            "voice": meta.get("provider"),
+            "degraded": bool(meta) and meta.get("provider") not in (None, meta.get("wanted")),
+            "fish": _fish,
             "generating": slug in _gen_tasks,
             "error": _gen_errors.get(slug),
         }
