@@ -31,6 +31,11 @@ BLOG_TTS_PROVIDER = os.getenv("BLOG_TTS_PROVIDER", "fish").lower()
 BLOG_TTS_VOICE = os.getenv("BLOG_TTS_VOICE", "filipp")
 BLOG_TTS_SPEED = os.getenv("BLOG_TTS_SPEED", "1.0")
 SITE_BASE = os.getenv("BLOG_TTS_SITE", "https://meysternlp.ru")
+# Инлайн-метки Fish ([pause], [long pause]…) для тонкого контроля пауз/интонации.
+# Работают ТОЛЬКО на моделях Fish S2/S2.1 — иначе читаются вслух. Поэтому по
+# умолчанию выключено: включай BLOG_TTS_FISH_TAGS=1 лишь после того, как убедишься,
+# что голос Фреди работает на S2/S2.1. На Яндекс-ветке метки вырезаются всегда.
+BLOG_TTS_FISH_TAGS = os.getenv("BLOG_TTS_FISH_TAGS", "0").strip().lower() in ("1", "true", "yes", "on")
 
 TTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "tts_blog")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,120}$")
@@ -41,7 +46,7 @@ MAX_ARTICLE_CHARS = 60000   # предохранитель от аномальн
 
 # Версия конвейера озвучки. Меняются голос/режиссёр/промт — поднимаем
 # на единицу, и закэшированные mp3 переозвучиваются при следующем запросе.
-TTS_CACHE_VERSION = 3
+TTS_CACHE_VERSION = 4
 # Если Fish был недоступен и лекцию озвучил Яндекс — отдаём этот файл,
 # но спустя это время при новом запросе пробуем вернуть голос Фреди.
 DEGRADED_RETRY_SECONDS = 6 * 3600
@@ -134,7 +139,10 @@ _REWRITE_PROMPT = (
     "«как мы уже говорили». Списки перескажи связной речью с перечислительными связками.\n"
     "5) Пиши для уха, а не для глаза: предложения заметно короче письменных, одна мысль — "
     "одно предложение. Самые важные тезисы повторяй перефразом («Ещё раз, это важно: …»). "
-    "После ключевых мыслей и перед новым разделом ставь многоточие — это пауза для слушателя.\n"
+    "Пунктуация — твой инструмент темпа и интонации: запятые дают лёгкие паузы, тире — "
+    "паузу-акцент перед важной мыслью, многоточие — ощутимую паузу для осмысления, "
+    "вопросительный знак — вопросительную интонацию. Расставляй их осознанно, чтобы речь "
+    "дышала; после ключевых мыслей и перед новым разделом ставь многоточие.\n"
     "6) Обращайся к слушателю на «вы», добавляй живые связки и риторические вопросы, где уместно, — "
     "но без воды и без сюсюканья. Тон: тёплый увлечённый лектор, который любит свой предмет.\n"
     "7) Вопросы для самопроверки оформи как финальное обращение: «А теперь — вопросы, "
@@ -167,6 +175,16 @@ _CONTINUITY_NOTE = (
     "Продолжи ровно с этого места: НЕ здоровайся и НЕ представляйся заново, не повторяй уже "
     "сказанные связки и мысли, подхвати нить рассуждения естественно и веди дальше."
 )
+# Инлайн-метки Fish (модели S2/S2.1) — тонкий контроль пауз и интонации прямо
+# в тексте. Подключается только при BLOG_TTS_FISH_TAGS=1; на Яндекс-ветке метки
+# всё равно вырезаются, поэтому речь нигде не зачитает их вслух.
+_FISH_TAGS_NOTE = (
+    "\nМожешь ИЗРЕДКА, только в местах настоящих пауз и акцентов, вставлять управляющие "
+    "метки в квадратных скобках прямо в текст — строго из этого списка и только по-английски: "
+    "[pause] — короткая пауза, [long pause] — заметная пауза перед важной мыслью или новым "
+    "разделом, [thoughtful] — задумчивая интонация, [warm] — тёплая интонация. Не больше "
+    "нескольких меток на фрагмент, никогда не внутри слова, других меток не придумывай."
+)
 
 
 async def _deepseek_rewrite(
@@ -186,6 +204,8 @@ async def _deepseek_rewrite(
     # речь была цельной: без повторного приветствия и одинаковых связок.
     if prev_tail and position not in ("first", "only"):
         system += _CONTINUITY_NOTE.replace("{tail}", prev_tail.strip()[-400:])
+    if BLOG_TTS_FISH_TAGS:
+        system += _FISH_TAGS_NOTE
     resp = await client.post(
         "https://api.deepseek.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
@@ -305,7 +325,18 @@ def _chunks(text: str, limit: int = CHUNK_LIMIT):
     return out
 
 
+# Инлайн-метки Fish в квадратных скобках ([pause], [long pause], [warm]…).
+_INLINE_TAG_RE = re.compile(r"\[[^\]\n]{1,40}\]")
+
+
+def _strip_inline_tags(text: str) -> str:
+    """Убирает управляющие Fish-метки из текста. Обязательно перед синтезом
+    Яндексом (он бы прочитал их вслух) и на Fish-ветке, когда теги выключены."""
+    return re.sub(r"\s{2,}", " ", _INLINE_TAG_RE.sub(" ", text)).strip()
+
+
 async def _synth_yandex(client: httpx.AsyncClient, text: str) -> bytes:
+    text = _strip_inline_tags(text)
     resp = await client.post(
         TTS_URL,
         headers={"Authorization": f"Api-Key {YANDEX_API_KEY}"},
@@ -331,7 +362,10 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
             from services.fish_audio_service import synthesize_fish_audio
             parts = []
             for ch in _chunks(speech, FISH_CHUNK_LIMIT):
-                audio = await synthesize_fish_audio(ch, timeout=FISH_TIMEOUT)
+                # Метки оставляем только если они включены (S2/S2.1); иначе
+                # вырезаем, чтобы Fish случайно не прочитал их вслух.
+                ch_fish = ch if BLOG_TTS_FISH_TAGS else _strip_inline_tags(ch)
+                audio = await synthesize_fish_audio(ch_fish, timeout=FISH_TIMEOUT)
                 if not audio:
                     raise RuntimeError("fish returned empty audio")
                 parts.append(audio)
