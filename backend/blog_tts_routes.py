@@ -41,7 +41,7 @@ MAX_ARTICLE_CHARS = 60000   # предохранитель от аномальн
 
 # Версия конвейера озвучки. Меняются голос/режиссёр/промт — поднимаем
 # на единицу, и закэшированные mp3 переозвучиваются при следующем запросе.
-TTS_CACHE_VERSION = 2
+TTS_CACHE_VERSION = 3
 # Если Fish был недоступен и лекцию озвучил Яндекс — отдаём этот файл,
 # но спустя это время при новом запросе пробуем вернуть голос Фреди.
 DEGRADED_RETRY_SECONDS = 6 * 3600
@@ -142,6 +142,12 @@ _REWRITE_PROMPT = (
     "8) Пометки вида [СХЕМА: …] означают иллюстрацию на странице лекции: сошлись на неё "
     "естественно («если вы открыли лекцию на экране — взгляните на схему: …») и перескажи её суть "
     "словами, чтобы слушателю без экрана тоже было понятно.\n"
+    "9) Аббревиатуры (КПТ, НЛП, СДВГ, ЭИ, IQ) при первом упоминании расшифруй словами; если "
+    "расшифровка громоздкая — произнеси по буквам так, как это звучит вслух («ка-пэ-тэ»). "
+    "Латиницу и иностранные вкрапления (vs, etc., PhD, IQ) замени русским словом или транскрипцией — "
+    "в озвучке не должно остаться латинских букв.\n"
+    "10) Разнообразь переходы: не начинай разделы одной и той же связкой и не повторяй уже "
+    "сказанные обороты. Внутри лекции не здоровайся и не представляйся повторно.\n"
     "Выведи ТОЛЬКО готовый текст для озвучки: без markdown, без заголовков, без комментариев."
 )
 
@@ -155,9 +161,20 @@ _CLOSING_NOTE = (
     "поблагодари за внимание, скажи, что продолжение курса ждёт в лектории, и что обсудить "
     "услышанное можно со мной — с Фреди — в приложении. Без рекламного тона, по-человечески."
 )
+_CONTINUITY_NOTE = (
+    "\nЭто ПРОДОЛЖЕНИЕ уже идущей лекции, не первый фрагмент. Предыдущая часть закончилась так:\n"
+    "«…{tail}»\n"
+    "Продолжи ровно с этого места: НЕ здоровайся и НЕ представляйся заново, не повторяй уже "
+    "сказанные связки и мысли, подхвати нить рассуждения естественно и веди дальше."
+)
 
 
-async def _deepseek_rewrite(client: httpx.AsyncClient, segment: str, position: str = "") -> str:
+async def _deepseek_rewrite(
+    client: httpx.AsyncClient,
+    segment: str,
+    position: str = "",
+    prev_tail: str = "",
+) -> str:
     system = _REWRITE_PROMPT
     if position == "first":
         system += _OPENING_NOTE
@@ -165,6 +182,10 @@ async def _deepseek_rewrite(client: httpx.AsyncClient, segment: str, position: s
         system += _CLOSING_NOTE
     elif position == "only":
         system += _OPENING_NOTE + _CLOSING_NOTE
+    # Для не-первых кусков даём модели хвост предыдущего фрагмента, чтобы
+    # речь была цельной: без повторного приветствия и одинаковых связок.
+    if prev_tail and position not in ("first", "only"):
+        system += _CONTINUITY_NOTE.replace("{tail}", prev_tail.strip()[-400:])
     resp = await client.post(
         "https://api.deepseek.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
@@ -231,6 +252,7 @@ async def _prepare_speech(text: str, slug: str) -> str:
 
     try:
         out = []
+        prev_tail = ""
         async with httpx.AsyncClient(timeout=150) as client:
             for i, seg in enumerate(segments):
                 if len(segments) == 1:
@@ -241,10 +263,23 @@ async def _prepare_speech(text: str, slug: str) -> str:
                     pos = "last"
                 else:
                     pos = ""
-                out.append(await _deepseek_rewrite(client, seg, pos))
+                piece = await _deepseek_rewrite(client, seg, pos, prev_tail=prev_tail)
+                out.append(piece)
+                if piece:
+                    prev_tail = piece[-400:]
         speech = "\n\n".join(x for x in out if x)
         if len(speech) < len(text) * 0.4:
             raise ValueError("rewrite suspiciously short")
+        if len(speech) > len(text) * 2.5:
+            # Аномально длинный рерайт — признак «воды» или зацикливания.
+            raise ValueError("rewrite suspiciously long")
+        # Детерминированная страховка: даже после LLM прогоняем числа/единицы
+        # через normalize_numbers — ловим то, что модель оставила цифрами.
+        try:
+            from services.voice_service import normalize_numbers
+            speech = normalize_numbers(speech)
+        except Exception as e:
+            logger.warning(f"blog-tts {slug}: post-rewrite normalize_numbers unavailable: {e}")
         logger.info(f"blog-tts {slug}: lecture rewrite {len(text)} -> {len(speech)} chars, {len(segments)} segments")
         return speech
     except Exception as e:
