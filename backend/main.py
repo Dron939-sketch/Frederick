@@ -351,6 +351,10 @@ async def lifespan(app: FastAPI):
         from blog_tts_routes import register_blog_tts_routes
         register_blog_tts_routes(app, limiter)
 
+        from waitlist_routes import register_waitlist_routes
+        _init_waitlist = register_waitlist_routes(app, db, limiter)
+        await _init_waitlist()
+
         # Reengagement (Phase 1 + полу-автомат). Подключаем routes
         # (публичные + админские) + bg-scheduler. EmailService getter
         # — лямбда, чтобы admin-эндпоинты и шедулер всегда брали
