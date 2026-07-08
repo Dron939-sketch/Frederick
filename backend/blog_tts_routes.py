@@ -37,7 +37,16 @@ SITE_BASE = os.getenv("BLOG_TTS_SITE", "https://meysternlp.ru")
 # что голос Фреди работает на S2/S2.1. На Яндекс-ветке метки вырезаются всегда.
 BLOG_TTS_FISH_TAGS = os.getenv("BLOG_TTS_FISH_TAGS", "0").strip().lower() in ("1", "true", "yes", "on")
 
-TTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "tts_blog")
+# mp3 храним на постоянном диске (на Amvera он смонтирован в /data), чтобы
+# озвучка переживала редеплой контейнера и не переозвучивалась Fish заново —
+# кэш ключуется по slug, поэтому перерендер HTML файлы не сбрасывает. Локально
+# /data нет — откатываемся на каталог рядом с бэкендом. Путь переопределяется
+# через BLOG_TTS_DIR.
+_DEFAULT_TTS_DIR = (
+    "/data/tts_blog" if os.path.isdir("/data")
+    else os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "tts_blog")
+)
+TTS_DIR = os.getenv("BLOG_TTS_DIR", _DEFAULT_TTS_DIR)
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,120}$")
 CHUNK_LIMIT = 4500          # лимит Yandex v1 — 5000 символов на запрос
 FISH_CHUNK_LIMIT = 1400     # Fish генерирует медленно: длинный кусок не успевает
@@ -473,6 +482,61 @@ async def _generate(slug: str) -> str:
     return path
 
 
+# ===== Пакетная пре-генерация озвучки (админ) =====
+# Состояние последнего/текущего прогона: чтобы не запускать два разом и
+# отдавать прогресс. Ключуем по одному глобальному прогону — их не бывает
+# много параллельно.
+_pregen: dict = {"running": False, "total": 0, "done": 0, "generated": 0,
+                 "skipped": 0, "errors": [], "started": 0, "finished": 0}
+_LEKCIYA_RE = re.compile(r"/blog/(lekciya-[a-z0-9][a-z0-9-]{2,120})\.html")
+
+
+async def _discover_lecture_slugs() -> list:
+    """Собирает слаги всех лекций Лектория из sitemap сайта (lekciya-*)."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(f"{SITE_BASE}/sitemap.xml")
+        r.raise_for_status()
+        slugs = _LEKCIYA_RE.findall(r.text)
+    # уникализируем, сохраняя порядок
+    seen, out = set(), []
+    for s in slugs:
+        if s not in seen and SLUG_RE.match(s):
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+async def _pregenerate_run(slugs: list):
+    """Последовательно озвучивает список слагов, пропуская уже готовые.
+    Последовательно — чтобы не разгонять расход Fish и нагрузку на LLM."""
+    _pregen.update(running=True, total=len(slugs), done=0, generated=0,
+                   skipped=0, errors=[], started=time.time(), finished=0)
+    try:
+        for slug in slugs:
+            try:
+                if _cache_ok(slug):
+                    _pregen["skipped"] += 1
+                else:
+                    lock = _locks.setdefault(slug, asyncio.Lock())
+                    async with lock:
+                        if not _cache_ok(slug):
+                            await _generate(slug)
+                            _pregen["generated"] += 1
+                        else:
+                            _pregen["skipped"] += 1
+            except Exception as e:
+                logger.warning(f"blog-tts pregenerate {slug} failed: {e}")
+                _pregen["errors"].append({"slug": slug, "error": str(e)[:200]})
+            finally:
+                _pregen["done"] += 1
+    finally:
+        _pregen.update(running=False, finished=time.time())
+        logger.info(
+            "blog-tts pregenerate done: generated=%s skipped=%s errors=%s of %s",
+            _pregen["generated"], _pregen["skipped"], len(_pregen["errors"]), _pregen["total"],
+        )
+
+
 def register_blog_tts_routes(app, limiter):
 
     @app.get("/api/tts/blog/{slug}/status")
@@ -546,5 +610,54 @@ def register_blog_tts_routes(app, limiter):
             media_type="audio/mpeg",
             headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
+
+    @app.post("/api/tts/blog/pregenerate")
+    @limiter.limit("6/minute")
+    async def blog_tts_pregenerate(request: Request):
+        """Пакетно пре-генерирует и кэширует озвучку лекций (админ).
+
+        Защита: заголовок X-Admin-Token = env ADMIN_TOKEN.
+        Тело (необязательно): {"slugs": ["lekciya-...", ...]} — иначе берём
+        все лекции из sitemap. Идемпотентно: уже готовые пропускаются, так что
+        Fish не переплачивается. Работает в фоне; прогресс — GET того же пути.
+        """
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected:
+            return JSONResponse({"error": "admin disabled",
+                                 "message": "Задайте ADMIN_TOKEN в env"}, status_code=503)
+        if (request.headers.get("X-Admin-Token") or "").strip() != expected:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        if not YANDEX_API_KEY:
+            return JSONResponse({"error": "tts disabled"}, status_code=503)
+        if _pregen["running"]:
+            return JSONResponse({"status": "already_running", **_pregen}, status_code=409)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        slugs = payload.get("slugs") if isinstance(payload, dict) else None
+        if slugs:
+            slugs = [s for s in slugs if isinstance(s, str) and SLUG_RE.match(s)]
+        else:
+            try:
+                slugs = await _discover_lecture_slugs()
+            except Exception as e:
+                return JSONResponse({"error": "discover failed", "detail": str(e)[:200]},
+                                    status_code=502)
+        if not slugs:
+            return JSONResponse({"error": "no slugs"}, status_code=400)
+
+        asyncio.create_task(_pregenerate_run(slugs))
+        return {"status": "started", "total": len(slugs)}
+
+    @app.get("/api/tts/blog/pregenerate")
+    @limiter.limit("60/minute")
+    async def blog_tts_pregenerate_status(request: Request):
+        """Прогресс последней/текущей пакетной пре-генерации (админ)."""
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected or (request.headers.get("X-Admin-Token") or "").strip() != expected:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return dict(_pregen)
 
     logger.info("Blog TTS routes registered (voice=%s, enabled=%s)", BLOG_TTS_VOICE, bool(YANDEX_API_KEY))
