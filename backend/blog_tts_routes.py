@@ -415,17 +415,15 @@ def _read_meta(slug: str) -> dict:
 
 
 def _cache_ok(slug: str) -> bool:
-    """Файл есть и озвучен текущим конвейером. Деградированный (Яндекс вместо
-    Фреди) файл считается годным DEGRADED_RETRY_SECONDS, потом пробуем заново."""
+    """Есть готовый непустой mp3 — кэш валиден, НЕ переозвучиваем.
+    Главное правило: не платить Fish дважды за то, что уже озвучено. Раньше
+    расхождение версии пайплайна/провайдера или «деградированный» (Яндекс
+    вместо Фреди) файл спустя DEGRADED_RETRY_SECONDS заставляли синтез идти
+    заново — и это стоило денег на каждый апдейт. Теперь перегенерация — только
+    по явному запросу админа (force). Поля v/provider в мете остаются для
+    информации (их показывает статус), но сами перегенерацию не запускают."""
     path = os.path.join(TTS_DIR, f"{slug}.mp3")
-    if not (os.path.exists(path) and os.path.getsize(path) > 1000):
-        return False
-    meta = _read_meta(slug)
-    if meta.get("v") != TTS_CACHE_VERSION or meta.get("wanted") != BLOG_TTS_PROVIDER:
-        return False
-    if meta.get("provider") != meta.get("wanted"):
-        return time.time() - meta.get("ts", 0) < DEGRADED_RETRY_SECONDS
-    return True
+    return os.path.exists(path) and os.path.getsize(path) > 1000
 
 
 async def _generate(slug: str) -> str:
@@ -510,8 +508,9 @@ async def _pregenerate_run(slugs: list, force: bool = False):
     """Последовательно озвучивает список слагов, пропуская уже готовые.
     Последовательно — чтобы не разгонять расход Fish и нагрузку на LLM.
     force=True — переозвучить, даже если mp3 уже есть (кнопка «переозвучить»
-    у отдельной лекции): сбрасываем мету, чтобы _cache_ok перестал считать
-    файл годным, и генерируем заново."""
+    у отдельной лекции): удаляем сам mp3 и мету, чтобы _cache_ok перестал
+    считать файл годным (теперь он смотрит только на наличие mp3), и
+    генерируем заново. Без force готовые пропускаются и Fish не тратится."""
     _pregen.update(running=True, total=len(slugs), done=0, generated=0,
                    skipped=0, errors=[], started=time.time(), finished=0)
     try:
@@ -523,10 +522,12 @@ async def _pregenerate_run(slugs: list, force: bool = False):
                     lock = _locks.setdefault(slug, asyncio.Lock())
                     async with lock:
                         if force:
-                            try:
-                                os.remove(_meta_path(slug))
-                            except OSError:
-                                pass
+                            for _pth in (os.path.join(TTS_DIR, f"{slug}.mp3"),
+                                         _meta_path(slug)):
+                                try:
+                                    os.remove(_pth)
+                                except OSError:
+                                    pass
                         if force or not _cache_ok(slug):
                             await _generate(slug)
                             _pregen["generated"] += 1
