@@ -506,20 +506,28 @@ async def _discover_lecture_slugs() -> list:
     return out
 
 
-async def _pregenerate_run(slugs: list):
+async def _pregenerate_run(slugs: list, force: bool = False):
     """Последовательно озвучивает список слагов, пропуская уже готовые.
-    Последовательно — чтобы не разгонять расход Fish и нагрузку на LLM."""
+    Последовательно — чтобы не разгонять расход Fish и нагрузку на LLM.
+    force=True — переозвучить, даже если mp3 уже есть (кнопка «переозвучить»
+    у отдельной лекции): сбрасываем мету, чтобы _cache_ok перестал считать
+    файл годным, и генерируем заново."""
     _pregen.update(running=True, total=len(slugs), done=0, generated=0,
                    skipped=0, errors=[], started=time.time(), finished=0)
     try:
         for slug in slugs:
             try:
-                if _cache_ok(slug):
+                if _cache_ok(slug) and not force:
                     _pregen["skipped"] += 1
                 else:
                     lock = _locks.setdefault(slug, asyncio.Lock())
                     async with lock:
-                        if not _cache_ok(slug):
+                        if force:
+                            try:
+                                os.remove(_meta_path(slug))
+                            except OSError:
+                                pass
+                        if force or not _cache_ok(slug):
                             await _generate(slug)
                             _pregen["generated"] += 1
                         else:
@@ -637,6 +645,7 @@ def register_blog_tts_routes(app, limiter):
         except Exception:
             payload = {}
         slugs = payload.get("slugs") if isinstance(payload, dict) else None
+        force = bool(payload.get("force")) if isinstance(payload, dict) else False
         if slugs:
             slugs = [s for s in slugs if isinstance(s, str) and SLUG_RE.match(s)]
         else:
@@ -648,7 +657,7 @@ def register_blog_tts_routes(app, limiter):
         if not slugs:
             return JSONResponse({"error": "no slugs"}, status_code=400)
 
-        asyncio.create_task(_pregenerate_run(slugs))
+        asyncio.create_task(_pregenerate_run(slugs, force=force))
         return {"status": "started", "total": len(slugs)}
 
     @app.get("/api/tts/blog/pregenerate")
