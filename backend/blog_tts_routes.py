@@ -660,4 +660,69 @@ def register_blog_tts_routes(app, limiter):
             return JSONResponse({"error": "forbidden"}, status_code=403)
         return dict(_pregen)
 
+    @app.get("/api/tts/blog/list")
+    @limiter.limit("30/minute")
+    async def blog_tts_list(request: Request):
+        """Список лекций с состоянием озвучки (админ): что уже записано в mp3,
+        каким голосом, размер и дата — со ссылкой на прослушивание/скачивание.
+        Порядок — как в sitemap (по публикации); в конец добавляем «осиротевшие»
+        mp3, которых уже нет в sitemap, чтобы их было видно и можно было удалить.
+        """
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected or (request.headers.get("X-Admin-Token") or "").strip() != expected:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+
+        order = []
+        try:
+            order = await _discover_lecture_slugs()
+        except Exception as e:
+            logger.warning(f"blog-tts list: discover failed: {e}")
+        seen = set(order)
+        orphans = set()
+        try:
+            for fn in os.listdir(TTS_DIR):
+                if fn.endswith(".mp3"):
+                    s = fn[:-4]
+                    if s not in seen and SLUG_RE.match(s):
+                        seen.add(s)
+                        orphans.add(s)
+                        order.append(s)
+        except FileNotFoundError:
+            pass
+
+        items, ready_n, total_bytes = [], 0, 0
+        for slug in order:
+            path = os.path.join(TTS_DIR, f"{slug}.mp3")
+            exists = os.path.exists(path)
+            size = os.path.getsize(path) if exists else 0
+            meta = _read_meta(slug)
+            ok = _cache_ok(slug)
+            if ok:
+                ready_n += 1
+            total_bytes += size
+            items.append({
+                "slug": slug,
+                "ready": ok,
+                "exists": exists,
+                "orphan": slug in orphans,
+                "voice": meta.get("provider"),
+                "wanted": meta.get("wanted"),
+                "degraded": bool(meta) and meta.get("provider") not in (None, meta.get("wanted")),
+                "stale": exists and not ok,
+                "bytes": size,
+                "chars": meta.get("chars"),
+                "ts": meta.get("ts"),
+                "url": f"/api/tts/blog/{slug}.mp3",
+            })
+        return {
+            "dir": TTS_DIR,
+            "persistent": os.path.abspath(TTS_DIR).startswith("/data"),
+            "provider": BLOG_TTS_PROVIDER,
+            "total": len(items),
+            "ready": ready_n,
+            "bytes": total_bytes,
+            "running": _pregen["running"],
+            "items": items,
+        }
+
     logger.info("Blog TTS routes registered (voice=%s, enabled=%s)", BLOG_TTS_VOICE, bool(YANDEX_API_KEY))
