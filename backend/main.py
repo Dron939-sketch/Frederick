@@ -501,6 +501,15 @@ _CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://localhost:10000",
     "https://fredi-backend-flz2.onrender.com",
+    # Зеркало сайта на Reza (после переезда рендера). Если хостинг выдаст
+    # новый адрес — добавь его в CORS_EXTRA_ORIGINS, код менять не нужно.
+    "https://osnovnoi-dron939-7mam.onreza.app",
+]
+# Дополнительные origin'ы без правки кода: CORS_EXTRA_ORIGINS —
+# список доменов через запятую в env деплоя.
+_CORS_ALLOWED_ORIGINS += [
+    o.strip().rstrip("/") for o in os.environ.get("CORS_EXTRA_ORIGINS", "").split(",")
+    if o.strip()
 ]
 
 
