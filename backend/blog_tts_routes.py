@@ -735,4 +735,37 @@ def register_blog_tts_routes(app, limiter):
             "items": items,
         }
 
-    logger.info("Blog TTS routes registered (voice=%s, enabled=%s)", BLOG_TTS_VOICE, bool(YANDEX_API_KEY))
+    # Диагностика при старте: сразу видно, подхватит ли бэкенд готовые mp3
+    # (если TTS_DIR пуст или не тот — озвучка пойдёт заново и «не тем» голосом),
+    # и настроен ли Fish-голос Фреди (иначе фолбэк в Яндекс).
+    try:
+        _mp3_n = len([f for f in os.listdir(TTS_DIR) if f.endswith(".mp3")]) if os.path.isdir(TTS_DIR) else -1
+    except Exception:
+        _mp3_n = -1
+    try:
+        from services.fish_audio_service import fish_configured as _fc
+        _fish_ok = _fc()
+    except Exception:
+        _fish_ok = False
+    logger.info(
+        "Blog TTS routes registered (provider=%s, yandex_voice=%s, enabled=%s, "
+        "TTS_DIR=%s, saved_mp3=%s, fish_configured=%s)",
+        BLOG_TTS_PROVIDER, BLOG_TTS_VOICE, bool(YANDEX_API_KEY),
+        TTS_DIR, _mp3_n, _fish_ok,
+    )
+    if not YANDEX_API_KEY:
+        logger.warning(
+            "Blog TTS: НЕТ переменной YANDEX_API_KEY — /status отвечает "
+            "enabled=false на КАЖДУЮ лекцию, поэтому фронт по всему сайту "
+            "откатывается на браузерный синтез (робот-голос, не Фреди). "
+            "Готовые mp3 при этом не отдаются, даже если лежат в TTS_DIR. "
+            "Верни YANDEX_API_KEY в env деплоя — это же ключ голоса Фреди.")
+    if _mp3_n == 0:
+        logger.warning(
+            "Blog TTS: в TTS_DIR=%s НЕТ ни одного mp3 — готовые озвучки не видны "
+            "приложению, лекции будут озвучиваться заново. Проверь монтирование "
+            "постоянного диска (/data) и переменную BLOG_TTS_DIR.", TTS_DIR)
+    if BLOG_TTS_PROVIDER == "fish" and not _fish_ok:
+        logger.warning(
+            "Blog TTS: провайдер fish, но голос Фреди не настроен "
+            "(нет FISH_AUDIO_API_KEY/FISH_AUDIO_VOICE_ID) — озвучка уйдёт в Яндекс.")
