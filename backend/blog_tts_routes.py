@@ -487,21 +487,35 @@ async def _generate(slug: str) -> str:
 _pregen: dict = {"running": False, "total": 0, "done": 0, "generated": 0,
                  "skipped": 0, "errors": [], "started": 0, "finished": 0}
 _LEKCIYA_RE = re.compile(r"/blog/(lekciya-[a-z0-9][a-z0-9-]{2,120})\.html")
+_BLOG_RE = re.compile(r"/blog/([a-z0-9][a-z0-9-]{2,120})\.html")
 
 
-async def _discover_lecture_slugs() -> list:
-    """Собирает слаги всех лекций Лектория из sitemap сайта (lekciya-*)."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get(f"{SITE_BASE}/sitemap.xml")
-        r.raise_for_status()
-        slugs = _LEKCIYA_RE.findall(r.text)
-    # уникализируем, сохраняя порядок
+def _uniq_slugs(slugs: list) -> list:
+    """Уникализирует слаги, сохраняя порядок и отбрасывая невалидные."""
     seen, out = set(), []
     for s in slugs:
         if s not in seen and SLUG_RE.match(s):
             seen.add(s)
             out.append(s)
     return out
+
+
+async def _discover_sitemap_slugs() -> tuple:
+    """Читает sitemap сайта и возвращает (лекции, все статьи блога).
+    Озвучка кэшируется для любой статьи блога, не только для лекций, —
+    список в аналитике должен отличать «статью блога» от действительно
+    осиротевшего mp3, которого на сайте больше нет."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(f"{SITE_BASE}/sitemap.xml")
+        r.raise_for_status()
+        text = r.text
+    return _uniq_slugs(_LEKCIYA_RE.findall(text)), _uniq_slugs(_BLOG_RE.findall(text))
+
+
+async def _discover_lecture_slugs() -> list:
+    """Собирает слаги всех лекций Лектория из sitemap сайта (lekciya-*)."""
+    lectures, _ = await _discover_sitemap_slugs()
+    return lectures
 
 
 async def _pregenerate_run(slugs: list, force: bool = False):
@@ -682,23 +696,30 @@ def register_blog_tts_routes(app, limiter):
         if not expected or (request.headers.get("X-Admin-Token") or "").strip() != expected:
             return JSONResponse({"error": "forbidden"}, status_code=403)
 
-        order = []
+        order, site_slugs = [], set()
         try:
-            order = await _discover_lecture_slugs()
+            order, all_blog = await _discover_sitemap_slugs()
+            site_slugs = set(all_blog)
         except Exception as e:
             logger.warning(f"blog-tts list: discover failed: {e}")
         seen = set(order)
-        orphans = set()
+        articles, orphans = [], set()
         try:
             for fn in os.listdir(TTS_DIR):
                 if fn.endswith(".mp3"):
                     s = fn[:-4]
-                    if s not in seen and SLUG_RE.match(s):
-                        seen.add(s)
+                    if s in seen or not SLUG_RE.match(s):
+                        continue
+                    seen.add(s)
+                    # озвученная статья блога — полноценная запись кэша;
+                    # сирота — только mp3, которого в sitemap уже нет
+                    if s in site_slugs:
+                        articles.append(s)
+                    else:
                         orphans.add(s)
-                        order.append(s)
         except FileNotFoundError:
             pass
+        order += sorted(articles) + sorted(orphans)
 
         items, ready_n, total_bytes = [], 0, 0
         for slug in order:
@@ -715,6 +736,8 @@ def register_blog_tts_routes(app, limiter):
                 "ready": ok,
                 "exists": exists,
                 "orphan": slug in orphans,
+                "kind": ("lecture" if slug.startswith("lekciya-")
+                         else ("orphan" if slug in orphans else "article")),
                 "voice": meta.get("provider"),
                 "wanted": meta.get("wanted"),
                 "degraded": bool(meta) and meta.get("provider") not in (None, meta.get("wanted")),
