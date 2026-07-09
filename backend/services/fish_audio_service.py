@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 FISH_AUDIO_API_KEY = os.environ.get("FISH_AUDIO_API_KEY", "")
 FISH_AUDIO_VOICE_ID = os.environ.get("FISH_AUDIO_VOICE_ID", "")
 FISH_AUDIO_API_URL = "https://api.fish.audio/v1/tts"
+# Модель синтеза Fish (заголовок model: speech-1.5 / speech-1.6 / s1 / s2...).
+# Пусто — Fish берёт свою «модель по умолчанию», и когда они её меняют,
+# голос того же reference_id может «поплыть» (звучит не Фреди, а нейтральный
+# робот). Задай FISH_AUDIO_MODEL, чтобы закрепить модель, на которой голос
+# Фреди звучит правильно.
+FISH_AUDIO_MODEL = os.environ.get("FISH_AUDIO_MODEL", "").strip()
 
 # All modes use Fish Audio (Jarvis voice)
 FISH_AUDIO_MODES = {"psychologist", "coach", "trainer", "basic", "default"}
@@ -102,6 +108,8 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: 
             "Authorization": f"Bearer {FISH_AUDIO_API_KEY}",
             "Content-Type": "application/json",
         }
+        if FISH_AUDIO_MODEL:
+            headers["model"] = FISH_AUDIO_MODEL
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
