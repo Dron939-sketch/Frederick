@@ -27,6 +27,35 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+# Разбивка готового ответа на предложения для per-sentence TTS в голосовом
+# стриме (/api/voice/process_stream). Раньше BasicMode отдавал весь ответ
+# ОДНИМ куском → маршрут озвучивал его целиком → первый звук приходил только
+# после синтеза всего ответа (time-to-first-audio 16-34с, first_audio≈done).
+# Теперь отдаём по предложению: маршрут озвучивает первое предложение, пока
+# следующие ещё синтезируются. Текст и длина ответа НЕ меняются — только
+# гранулярность выдачи (сумма кусков = исходный ответ).
+_SENT_SPLIT_RE = re.compile(r'(?<=[.!?…])\s+')
+
+
+def _split_into_sentences(text: str) -> List[str]:
+    """Бьёт текст на предложения; слишком короткие хвосты (аббревиатуры
+    «т. е.», инициалы, одиночное «Да.») приклеивает к соседям, чтобы TTS
+    не плодил рваные паузы. Ничего не выбрасывает."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    out: List[str] = []
+    for part in _SENT_SPLIT_RE.split(text):
+        part = part.strip()
+        if not part:
+            continue
+        if out and (len(part) < 12 or len(out[-1]) < 12):
+            out[-1] = (out[-1] + " " + part).strip()
+        else:
+            out.append(part)
+    return out or [text]
+
+
 # ============================================================
 # Tool definitions for Anthropic tool-use.
 # Подключаются к основному ответу BasicMode, чтобы Фреди мог реально
@@ -885,7 +914,17 @@ class BasicMode(BaseMode):
         try:
             response = await self._call_llm_for_response(question, max_tokens=400, temperature=0.8)
             if response and response.strip():
-                yield self._simple_clean(response)
+                # Отдаём ответ ПО ПРЕДЛОЖЕНИЯМ, а не одним куском: голосовой
+                # маршрут озвучивает каждое отдельно, и первый звук приходит
+                # уже после первого предложения, а не после всего ответа.
+                # Содержание и длина ответа не меняются.
+                cleaned = self._simple_clean(response)
+                sentences = _split_into_sentences(cleaned)
+                if sentences:
+                    for _s in sentences:
+                        yield _s
+                else:
+                    yield cleaned
             else:
                 yield random.choice([
                     "Скажи ещё раз — что именно происходит?",
