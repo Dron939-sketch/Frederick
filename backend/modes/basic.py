@@ -56,6 +56,44 @@ def _split_into_sentences(text: str) -> List[str]:
     return out or [text]
 
 
+def _split_stream_buffer(buf: str):
+    """Инкрементальный вариант _split_into_sentences для стриминга.
+
+    Принимает накопленный буфер дельт, возвращает
+    (готовые_предложения, остаток_буфера). Последний сегмент считается
+    незавершённым (граница предложения ещё не подтверждена пробелом за
+    точкой) и остаётся в буфере до следующей дельты. Слишком короткие
+    завершённые куски («т.», «Да.») не отдаются в одиночку — они
+    переносятся вперёд (в следующий кусок или в остаток), чтобы TTS не
+    получал рваные обрывки. Ничего не теряется и не переставляется:
+    join(готовые) + остаток восстанавливает исходный буфер по смыслу."""
+    parts = _SENT_SPLIT_RE.split(buf)
+    if len(parts) <= 1:
+        return [], buf
+    # Хвост оставляем СЫРЫМ (без strip): re.split уже съел пробел-разделитель,
+    # и если затереть остаток стрипом, следующая дельта приклеится к нему без
+    # пробела («Привет.Как»). Пробел между предложениями сохраняем явно.
+    tail = parts[-1]
+    out = []
+    carry = ""
+    for p in parts[:-1]:
+        p = p.strip()
+        if carry:
+            p = (carry + " " + p).strip()
+            carry = ""
+        if not p:
+            continue
+        if len(p) < 12:
+            carry = p  # слишком коротко — приклеим к следующему
+        else:
+            out.append(p)
+    if carry:
+        # Короткое завершённое предложение не отдаём в одиночку — переносим
+        # в остаток с явным пробелом, чтобы не склеить со следующим текстом.
+        tail = carry + " " + tail
+    return out, tail
+
+
 # ============================================================
 # Tool definitions for Anthropic tool-use.
 # Подключаются к основному ответу BasicMode, чтобы Фреди мог реально
@@ -912,12 +950,24 @@ class BasicMode(BaseMode):
         # Главный путь: Anthropic с тулами (datetime/weather/web_search)
         # → DeepSeek fallback (no tools).
         try:
+            # 1) Токен-стриминг (DeepSeek, продовый горячий путь): предложения
+            #    уходят в TTS по мере генерации, первый звук приходит ещё
+            #    ДО конца генерации всего ответа. Промпт/длина не меняются.
+            streamed_any = False
+            async for _s in self._stream_llm_sentences(
+                question, max_tokens=400, temperature=0.8
+            ):
+                if _s:
+                    streamed_any = True
+                    yield _s
+            if streamed_any:
+                return
+
+            # 2) Фолбэк: блокирующий вызов + пост-нарезка на предложения.
+            #    Срабатывает, если стриминг ничего не отдал (нет ключа,
+            #    включён Anthropic tool-use, сетевой сбой на старте).
             response = await self._call_llm_for_response(question, max_tokens=400, temperature=0.8)
             if response and response.strip():
-                # Отдаём ответ ПО ПРЕДЛОЖЕНИЯМ, а не одним куском: голосовой
-                # маршрут озвучивает каждое отдельно, и первый звук приходит
-                # уже после первого предложения, а не после всего ответа.
-                # Содержание и длина ответа не меняются.
                 cleaned = self._simple_clean(response)
                 sentences = _split_into_sentences(cleaned)
                 if sentences:
@@ -938,6 +988,58 @@ class BasicMode(BaseMode):
                 "Маленький сбой. Повтори, пожалуйста.",
                 "Подожди секунду и попробуй ещё раз — я вернусь.",
             ])
+
+    async def _stream_llm_sentences(
+        self, question: str, max_tokens: int = 400, temperature: float = 0.8
+    ) -> AsyncGenerator[str, None]:
+        """Токен-стриминг ответа BasicMode по предложениям.
+
+        Тот же system+user промпт, что и у блокирующего _call_llm_for_response
+        (пресет, few-shot, память, профиль, эмоция, история) — НО через
+        стриминговый DeepSeek. Как только из дельт складывается целое
+        предложение, отдаём его; остаток копится дальше. Первый звук в
+        голосовом маршруте приходит после первого предложения, а не после
+        генерации всего ответа.
+
+        Ничего не отдаём (генератор пуст), если:
+          • включён путь Anthropic с tool-use (USE_ANTHROPIC=1) — там нужен
+            блокирующий вызов ради тулов, стриминг его не заменяет;
+          • нет DEEPSEEK_API_KEY / стрим упал в самом начале.
+        В этих случаях вызывающий откатывается на блокирующий путь.
+        """
+        # Anthropic tool-use несовместим с этим стримом — уступаем блокирующему.
+        try:
+            from services.anthropic_client import is_available as _anthropic_available
+            if _anthropic_available():
+                return
+        except Exception:
+            pass
+
+        system_text = self._build_system_prompt_block()
+        user_text = self._build_user_message_block(question)
+
+        buffer = ""
+        try:
+            async for delta in self.ai_service._call_deepseek_streaming(
+                system_text, user_text, max_tokens=max_tokens, temperature=temperature
+            ):
+                if not delta:
+                    continue
+                buffer += delta
+                ready, buffer = _split_stream_buffer(buffer)
+                for sent in ready:
+                    cleaned = self._simple_clean(sent)
+                    if cleaned:
+                        yield cleaned
+        except Exception as e:
+            logger.warning(f"BasicMode stream failed mid-way: {e}")
+
+        # Хвост: всё, что осталось в буфере после конца стрима.
+        tail = self._simple_clean(buffer)
+        if tail:
+            for sent in _split_into_sentences(tail):
+                if sent:
+                    yield sent
 
     async def _save_fact_bg(self, fact: str):
         try:
