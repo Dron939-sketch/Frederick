@@ -3109,11 +3109,14 @@ def register_vk_routes(app, db):
         return {"success": True, "deleted": deleted}
 
     @app.get("/api/admin/vk/drip/templates")
-    async def vk_drip_templates_get(x_admin_token: Optional[str] = Header(default=None)):
+    async def vk_drip_templates_get(
+        campaign: Optional[str] = None,
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
         _check_admin(x_admin_token)
         from drip_campaign import get_templates
         try:
-            info = await get_templates(db)
+            info = await get_templates(db, campaign)
         except Exception as e:
             logger.error(f"drip templates get error: {e}")
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
@@ -3127,10 +3130,11 @@ def register_vk_routes(app, db):
         _check_admin(x_admin_token)
         from drip_campaign import save_templates
         templates = body.get("templates")
+        campaign = body.get("campaign")
         if not isinstance(templates, dict):
             raise HTTPException(status_code=400, detail={"error": "bad_input", "message": "templates: dict required"})
         try:
-            await save_templates(db, templates)
+            await save_templates(db, templates, campaign)
         except ValueError as e:
             raise HTTPException(status_code=400, detail={"error": "validation", "message": str(e)})
         except Exception as e:
@@ -3139,15 +3143,51 @@ def register_vk_routes(app, db):
         return {"success": True}
 
     @app.post("/api/admin/vk/drip/templates/reset")
-    async def vk_drip_templates_reset(x_admin_token: Optional[str] = Header(default=None)):
+    async def vk_drip_templates_reset(
+        body: dict = Body(default={}),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
         _check_admin(x_admin_token)
         from drip_campaign import reset_templates_to_default
         try:
-            await reset_templates_to_default(db)
+            await reset_templates_to_default(db, (body or {}).get("campaign"))
         except Exception as e:
             logger.error(f"drip templates reset error: {e}")
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
         return {"success": True}
+
+    @app.get("/api/admin/vk/drip/campaign")
+    async def vk_drip_campaign_get(x_admin_token: Optional[str] = Header(default=None)):
+        """Какая кампания сейчас активна (какой набор шаблонов уходит)."""
+        _check_admin(x_admin_token)
+        from drip_campaign import get_active_campaign, CAMPAIGNS
+        try:
+            active = await get_active_campaign(db)
+        except Exception as e:
+            logger.error(f"drip campaign get error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, "active_campaign": active,
+                "campaigns": {k: v["name"] for k, v in CAMPAIGNS.items()}}
+
+    @app.post("/api/admin/vk/drip/campaign")
+    async def vk_drip_campaign_set(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Переключить активную кампанию: {campaign: 'warmup'|'lektorij'}."""
+        _check_admin(x_admin_token)
+        from drip_campaign import set_active_campaign, CAMPAIGNS
+        campaign = (body or {}).get("campaign")
+        if campaign not in CAMPAIGNS:
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_input",
+                "message": f"campaign must be one of {list(CAMPAIGNS.keys())}"})
+        try:
+            active = await set_active_campaign(db, campaign)
+        except Exception as e:
+            logger.error(f"drip campaign set error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, "active_campaign": active}
 
     @app.get("/api/admin/vk/drip/recent")
     async def vk_drip_recent(

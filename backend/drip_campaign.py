@@ -132,6 +132,93 @@ DRIP_TEMPLATES = {
     },
 }
 
+# Второй набор шаблонов — презентация Лектория (тот же 2-шаговый движок,
+# та же очередь VK-друзей; активная кампания переключается в админке).
+#   Д1: голос — рассказываю, что вышел бесплатный Лекторий, обещаю ссылку.
+#   Д2: текст со ссылкой на каталог курсов.
+DRIP_TEMPLATES_LEKTORIJ = {
+    "female": {
+        "d1": {
+            "voice_name": "{name}, привет... ",
+            "voice_body": (
+                "Это снова Фреди. Помнишь, мы знакомились? У Андрея "
+                "Мейстера появилось кое-что хорошее, и я захотела "
+                "рассказать тебе одной из первых. "
+                "Он собрал целый Лекторий — сорок девять бесплатных "
+                "курсов о том, чему не учат в школе: тревога и выгорание, "
+                "отношения, лень, сон, границы, самооценка. Простым, "
+                "человеческим языком, без воды и занудства. "
+                "И самое приятное — каждую лекцию можно не читать глазами, "
+                "а слушать. Моим голосом. Как подкаст: по дороге, на "
+                "прогулке, перед сном. "
+                "Завтра пришлю ссылку — загляни одним глазком, мне "
+                "кажется, тебе откликнется. Береги себя."
+            ),
+        },
+        "d2": {
+            "text": (
+                "{name}, как и обещала — вот он, Лекторий 👇\n\n"
+                "👉 https://meysternlp.ru/blog/lektorij/\n\n"
+                "Сорок девять бесплатных курсов от Андрея Мейстера о том, "
+                "чему не учили в школе: тревога, выгорание, отношения, "
+                "лень, сон, границы, самооценка. Человеческим языком, без "
+                "воды.\n\n"
+                "Каждую лекцию можно читать или слушать голосом — как "
+                "подкаст, по дороге или перед сном. Начни с любого курса, "
+                "который откликнется. Без регистрации и обязательств.\n\n"
+                "Фреди"
+            ),
+        },
+    },
+    "male": {
+        "d1": {
+            "voice_name": "{name}, привет... ",
+            "voice_body": (
+                "Это снова Фреди. Помнишь, мы знакомились? У Андрея "
+                "Мейстера появилось кое-что стоящее, и я захотел "
+                "рассказать тебе одному из первых. "
+                "Он собрал целый Лекторий — сорок девять бесплатных "
+                "курсов о том, чему не учат в школе: как устроены тревога "
+                "и выгорание, мотивация и лень, отношения, сон, "
+                "переговоры. Простым языком, без воды. "
+                "И главное — каждую лекцию можно не читать, а слушать. "
+                "Моим голосом. Как подкаст: за рулём, на пробежке, "
+                "вечером. "
+                "Завтра пришлю ссылку — глянешь одним глазом, думаю, тебе "
+                "зайдёт. До связи."
+            ),
+        },
+        "d2": {
+            "text": (
+                "{name}, как и обещал — вот он, Лекторий 👇\n\n"
+                "👉 https://meysternlp.ru/blog/lektorij/\n\n"
+                "Сорок девять бесплатных курсов от Андрея Мейстера о том, "
+                "чему не учили в школе: тревога, выгорание, мотивация и "
+                "лень, отношения, сон, переговоры. Человеческим языком, "
+                "без воды.\n\n"
+                "Каждую лекцию можно читать или слушать голосом — как "
+                "подкаст, за рулём или вечером. Начни с любого курса, "
+                "который зацепит. Без регистрации и обязательств.\n\n"
+                "Фреди"
+            ),
+        },
+    },
+}
+
+# Реестр кампаний: ключ → (человекочитаемое имя, дефолтные шаблоны).
+# active_campaign в конфиге указывает, какой набор сейчас уходит в отправку.
+CAMPAIGNS = {
+    "warmup": {"name": "Знакомство с Фреди", "defaults": DRIP_TEMPLATES},
+    "lektorij": {"name": "Презентация Лектория", "defaults": DRIP_TEMPLATES_LEKTORIJ},
+}
+DEFAULT_CAMPAIGN = "warmup"
+
+
+def _norm_campaign(campaign: Optional[str]) -> str:
+    """Приводит имя кампании к валидному ключу (иначе — дефолт)."""
+    c = (campaign or "").strip().lower()
+    return c if c in CAMPAIGNS else DEFAULT_CAMPAIGN
+
 # ===== Состояние scheduler-а (in-memory) =====
 class _DripState:
     paused = False  # глобальная пауза от админа
@@ -201,28 +288,61 @@ async def init_drip_tables(db) -> None:
                 CONSTRAINT fredi_drip_config_singleton CHECK (id = 1)
             )
         """)
+        # Какой набор шаблонов сейчас уходит в отправку (warmup | lektorij).
+        await conn.execute("""
+            ALTER TABLE fredi_drip_config
+            ADD COLUMN IF NOT EXISTS active_campaign TEXT NOT NULL DEFAULT 'warmup'
+        """)
+        # Шаблоны по кампаниям (новая таблица, ключ — имя кампании). Старая
+        # singleton-таблица fredi_drip_templates остаётся для переноса.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS fredi_drip_templates_c (
+                campaign TEXT PRIMARY KEY,
+                templates_json TEXT NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        """)
+        # Миграция: если админ раньше правил шаблоны знакомства (old id=1) —
+        # перенесём их в кампанию 'warmup', чтобы ничего не потерять.
+        await conn.execute("""
+            INSERT INTO fredi_drip_templates_c (campaign, templates_json)
+            SELECT 'warmup', templates_json FROM fredi_drip_templates WHERE id = 1
+            ON CONFLICT (campaign) DO NOTHING
+        """)
     logger.info("drip_campaign: tables ready")
 
 
-async def get_templates(db) -> Dict[str, Any]:
-    """Возвращает текущие шаблоны: из БД если сохранены, иначе дефолт.
-    Дефолты тоже отдаём всегда отдельно, чтобы фронт мог показать «вернуть как было»."""
+async def get_templates(db, campaign: Optional[str] = None) -> Dict[str, Any]:
+    """Возвращает шаблоны кампании: из БД если сохранены, иначе дефолт.
+    Дефолты отдаём отдельно, чтобы фронт мог показать «вернуть как было»."""
     import json
+    campaign = _norm_campaign(campaign)
+    defaults = CAMPAIGNS[campaign]["defaults"]
     saved = None
     try:
         async with db.get_connection() as conn:
-            row = await conn.fetchrow("SELECT templates_json FROM fredi_drip_templates WHERE id = 1")
+            row = await conn.fetchrow(
+                "SELECT templates_json FROM fredi_drip_templates_c WHERE campaign = $1",
+                campaign,
+            )
         if row and row["templates_json"]:
             saved = json.loads(row["templates_json"])
     except Exception as e:
         logger.warning(f"get_templates DB read failed: {e}")
-    current = saved if saved else DRIP_TEMPLATES
-    return {"current": current, "defaults": DRIP_TEMPLATES, "is_custom": saved is not None}
+    current = saved if saved else defaults
+    return {
+        "current": current,
+        "defaults": defaults,
+        "is_custom": saved is not None,
+        "campaign": campaign,
+        "campaign_name": CAMPAIGNS[campaign]["name"],
+    }
 
 
-async def save_templates(db, templates: Dict[str, Any]) -> None:
-    """UPSERT новых шаблонов. Минимальная валидация структуры (2 дня)."""
+async def save_templates(db, templates: Dict[str, Any], campaign: Optional[str] = None) -> None:
+    """UPSERT шаблонов кампании. Минимальная валидация структуры (2 дня)."""
     import json
+    campaign = _norm_campaign(campaign)
     # Валидация: ждём ключи 'female' и 'male', внутри 'd1' (voice_name, voice_body),
     # 'd2' (text). Поле text у d1 необязательное (теперь только голос).
     for sex in ("female", "male"):
@@ -239,22 +359,51 @@ async def save_templates(db, templates: Dict[str, Any]) -> None:
     js = json.dumps(templates, ensure_ascii=False)
     async with db.get_connection() as conn:
         await conn.execute("""
-            INSERT INTO fredi_drip_templates (id, templates_json, updated_at)
-            VALUES (1, $1, NOW())
-            ON CONFLICT (id) DO UPDATE SET
+            INSERT INTO fredi_drip_templates_c (campaign, templates_json, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (campaign) DO UPDATE SET
                 templates_json = EXCLUDED.templates_json,
                 updated_at = NOW()
-        """, js)
+        """, campaign, js)
 
 
-async def reset_templates_to_default(db) -> None:
+async def reset_templates_to_default(db, campaign: Optional[str] = None) -> None:
+    campaign = _norm_campaign(campaign)
     async with db.get_connection() as conn:
-        await conn.execute("DELETE FROM fredi_drip_templates WHERE id = 1")
+        await conn.execute("DELETE FROM fredi_drip_templates_c WHERE campaign = $1", campaign)
+
+
+async def get_active_campaign(db) -> str:
+    """Какой набор шаблонов сейчас активен для отправки."""
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow("SELECT active_campaign FROM fredi_drip_config WHERE id = 1")
+        if row and row["active_campaign"]:
+            return _norm_campaign(row["active_campaign"])
+    except Exception as e:
+        logger.warning(f"get_active_campaign failed: {e}")
+    return DEFAULT_CAMPAIGN
+
+
+async def set_active_campaign(db, campaign: str) -> str:
+    """Переключает активную кампанию (warmup | lektorij)."""
+    campaign = _norm_campaign(campaign)
+    async with db.get_connection() as conn:
+        await conn.execute("""
+            INSERT INTO fredi_drip_config (id, active_campaign, updated_at)
+            VALUES (1, $1, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                active_campaign = EXCLUDED.active_campaign,
+                updated_at = NOW()
+        """, campaign)
+    logger.info(f"drip: active campaign -> {campaign}")
+    return campaign
 
 
 async def _load_templates_or_default(db) -> Dict[str, Any]:
-    """Используется при отправке — кэшируется на время одного тика."""
-    info = await get_templates(db)
+    """Используется при отправке — берёт шаблоны АКТИВНОЙ кампании."""
+    campaign = await get_active_campaign(db)
+    info = await get_templates(db, campaign)
     return info["current"]
 
 
@@ -523,6 +672,8 @@ async def get_status(db) -> Dict[str, Any]:
         "fatal_errors": int(fatal_errors),
         "daily_cap": DAILY_CAP,
         "paused": _STATE.paused,
+        "active_campaign": await get_active_campaign(db),
+        "campaigns": {k: v["name"] for k, v in CAMPAIGNS.items()},
         "in_working_hours": _in_working_hours(),
         "flood_cooldown_until": _STATE.flood_until.isoformat() if _STATE.flood_until else None,
         "last_run_at": _STATE.last_run_at.isoformat() if _STATE.last_run_at else None,
