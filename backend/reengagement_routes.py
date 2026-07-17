@@ -71,7 +71,9 @@ def _check_admin(token: Optional[str]):
 # в /admin/d3-candidates И в /admin/d3-send (одинаковый фильтр —
 # одинаковая выборка).
 _D3_CANDIDATES_SQL = """
-    SELECT u.user_id, u.email, u.name, u.created_at, u.last_activity,
+    SELECT u.user_id, u.email,
+           COALESCE(uc.name, u.first_name) AS name,
+           u.created_at, u.last_activity,
            EXTRACT(EPOCH FROM (NOW() - u.last_activity)) / 86400.0 AS days_inactive,
            EXTRACT(EPOCH FROM (NOW() - u.created_at))   / 86400.0 AS days_since_signup,
            EXISTS (
@@ -80,6 +82,7 @@ _D3_CANDIDATES_SQL = """
                  AND COALESCE(m.is_active, TRUE) = TRUE
            ) AS has_max
     FROM fredi_users u
+    LEFT JOIN fredi_user_contexts uc ON uc.user_id = u.user_id
     WHERE u.created_at < NOW() - INTERVAL '3 days'
       AND u.last_activity < NOW() - INTERVAL '3 days'
       AND u.last_activity > NOW() - INTERVAL '14 days'

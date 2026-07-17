@@ -52,9 +52,15 @@ async def build_user_summary(db, user_id: int) -> dict:
     Это защита от ощущения слежки в reengagement-сообщениях.
     """
     # Профиль юзера
+    # Имя человека живёт в fredi_user_contexts.name (то, что он сам назвал
+    # Фреди); в fredi_users колонки name нет — берём с фолбэком на first_name.
     user = await db.fetchrow(
-        """SELECT user_id, name, email, created_at, last_activity
-           FROM fredi_users WHERE user_id = $1""",
+        """SELECT u.user_id,
+                  COALESCE(uc.name, u.first_name) AS name,
+                  u.email, u.created_at, u.last_activity
+           FROM fredi_users u
+           LEFT JOIN fredi_user_contexts uc ON uc.user_id = u.user_id
+           WHERE u.user_id = $1""",
         user_id
     )
     if not user:
