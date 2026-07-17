@@ -243,6 +243,65 @@ class AIService:
             logger.exception("Full traceback:")
             return None
 
+    async def _call_deepseek_streaming(
+        self, system_prompt: str, user_prompt: str,
+        max_tokens: int = 1000, temperature: float = 0.7,
+    ) -> AsyncGenerator[str, None]:
+        """Стриминговый близнец _call_deepseek: тот же system+user сплит и
+        те же параметры, но stream=True — отдаёт контент по дельтам, как
+        только модель их генерирует.
+
+        Нужен голосовому пайплайну: BasicMode собирает из дельт целые
+        предложения и отдаёт их в TTS по мере готовности, не дожидаясь
+        конца всей генерации. Промпт и содержание ответа не меняются —
+        меняется только гранулярность выдачи. Если ключа нет или запрос
+        падает, генератор просто завершится пустым, и вызывающий код
+        откатится на блокирующий путь."""
+        if not self.api_key:
+            return
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        data = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        try:
+            session = await self._get_session()
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers, json=data,
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                if response.status != 200:
+                    logger.error(f"❌ DeepSeek streaming error: {response.status}")
+                    return
+                async for line in response.content:
+                    if not line:
+                        continue
+                    line_str = line.decode('utf-8').strip()
+                    if not line_str.startswith('data: '):
+                        continue
+                    data_str = line_str[6:]
+                    if data_str == '[DONE]':
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    if chunk.get('choices'):
+                        content = chunk['choices'][0].get('delta', {}).get('content', '')
+                        if content:
+                            yield content
+        except asyncio.TimeoutError:
+            logger.error("❌ DeepSeek streaming timeout (60s)")
+        except Exception as e:
+            logger.error(f"❌ DeepSeek streaming error: {e}")
+
     # ============================================
     # ГЕНЕРАЦИЯ ОТВЕТА — главный метод (обновлён)
     # ============================================

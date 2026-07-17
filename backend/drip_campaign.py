@@ -142,6 +142,12 @@ class _DripState:
 
 _STATE = _DripState()
 
+# Глобальный локк тика: гарантирует, что фоновый scheduler и кнопка
+# «Отправить сейчас» (force_tick_now), а также случайный двойной клик
+# НИКОГДА не выполняют _tick одновременно. Без него два тика выбирают
+# одни и те же строки (day_status ещё не обновлён) и шлют дубли.
+_TICK_LOCK = asyncio.Lock()
+
 
 def _seconds_until_next_run() -> Optional[int]:
     """Сколько секунд осталось до следующего scheduler-цикла.
@@ -684,6 +690,17 @@ async def _tick(db, *, force: bool = False):
     _STATE.last_run_at = datetime.now(timezone.utc)
     _STATE.last_run_summary = summary
 
+    # Анти-дубль: если тик уже идёт (шедулер ↔ кнопка «Отправить сейчас»
+    # или двойной клик) — не запускаем второй. Иначе оба выберут одни и
+    # те же строки до UPDATE day_status и отправят повторно.
+    if _TICK_LOCK.locked():
+        summary["skipped_reason"] = "already_running"
+        return summary
+    async with _TICK_LOCK:
+        return await _tick_impl(db, force, summary)
+
+
+async def _tick_impl(db, force, summary):
     if not force:
         if _STATE.paused:
             summary["skipped_reason"] = "paused"
