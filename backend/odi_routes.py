@@ -440,6 +440,58 @@ def register_odi_routes(app, db, limiter, get_ai):
             raise
         return {"success": True, "stage": new_stage}
 
+    class OdiPlan(BaseModel):
+        code: str = Field(min_length=4, max_length=12)
+        token: str = Field(min_length=8, max_length=64)
+
+    @app.post("/api/odi/plan")
+    @limiter.limit("10/minute")
+    async def odi_plan(request: Request, data: OdiPlan):
+        """Отчёт после игры: пошаговая инструкция — как воспроизвести
+        принятые в игре решения в реальной жизни. Генерируется один раз,
+        дальше отдаётся из протокола."""
+        code = data.code.strip().upper()
+        g = await _game(code)
+        await _member(code, data.token)
+        if g["status"] != "finished":
+            raise HTTPException(status_code=409, detail="План доступен после завершения игры")
+        existing = await db.fetchrow(
+            "SELECT text FROM fredi_odi_messages WHERE code = $1 AND kind = 'plan' ORDER BY id DESC LIMIT 1", code)
+        if existing:
+            return {"success": True, "plan": existing["text"], "cached": True}
+        key = (code, "plan")
+        if key in _AI_BUSY:
+            raise HTTPException(status_code=409, detail="План уже готовится")
+        _AI_BUSY.add(key)
+        try:
+            transcript = await _transcript(code, limit_chars=9000)
+            prompt = (
+                "Ты — Фреди, игротехник завершённой оргдеятельностной игры (ОДИ). "
+                f"Тема: «{g['topic']}».\nПолный протокол игры:\n{transcript}\n\n"
+                "Составь ОТЧЁТ-ИНСТРУКЦИЮ: как участникам воспроизвести результат игры в реальной жизни. Структура:\n"
+                "1) Цель одним предложением — что решили достичь (из проекта игры, не выдумывай).\n"
+                "2) Пошаговый план: 5-9 шагов, каждый строкой «Шаг N. Что сделать — кто делает — когда — как понять, что шаг выполнен». "
+                "Бери ходы, принятые в игре, и доводи их до конкретики.\n"
+                "3) Первые 72 часа: 2-3 самых маленьких действия, с которых всё начинается.\n"
+                "4) Риски: 2-3 места, где план обычно умирает, и что делать в каждом.\n"
+                "5) Контрольная точка: когда и как собраться и сверить прогресс.\n"
+                "Пиши на «ты»/по именам, без воды и без markdown. Каждый пункт — отдельный абзац. "
+                "Абзацы разделяй строго символами || (двойная вертикальная черта)."
+            )
+            ai = get_ai()
+            result = None
+            try:
+                result = await ai._simple_call(prompt=prompt, max_tokens=1200, temperature=0.5)
+            except Exception as e:
+                logger.error(f"ОДИ: ошибка генерации плана: {e}")
+            if not result:
+                raise HTTPException(status_code=503, detail="Фреди не дотянулся до плана — попробуй ещё раз")
+            text = _fmt(result)
+            await _add_msg(code, None, "Фреди", "plan", g["stage"], text)
+            return {"success": True, "plan": text, "cached": False}
+        finally:
+            _AI_BUSY.discard(key)
+
     # для тестов и отладки: прямой доступ к генерации реплик ИИ-состава
     app.state.odi_ai_replies = _ai_replies
 
