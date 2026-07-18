@@ -394,6 +394,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"drip_campaign init failed: {e}")
 
+        # ОДИ — мультиплеерная оргдеятельностная игра с Фреди-игротехником.
+        # get_ai — лямбда, чтобы всегда брать актуальный ai_service.
+        try:
+            from odi_routes import register_odi_routes
+            _init_odi = register_odi_routes(app, db, limiter, lambda: ai_service)
+            await _init_odi()
+            logger.info("✅ ОДИ готова")
+        except Exception as e:
+            logger.warning(f"odi init failed: {e}")
+
         logger.info("✅ Таблицы готовы (включая платежи, auth и analytics)")
 
         logger.info("📦 Запуск фоновых задач...")
