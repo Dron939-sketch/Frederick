@@ -52,6 +52,17 @@ class OdiCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     topic_key: Optional[str] = None
     topic_custom: Optional[str] = Field(default=None, max_length=300)
+    solo: bool = False
+
+
+# Соло-режим: остальных участников играет ИИ. Три контрастные позиции,
+# чтобы игроку было обо что думать (конфликт версий — топливо ОДИ).
+AI_CAST = [
+    ("Марк", "прагматик-скептик: считает деньги, риски и сроки, не верит красивым словам, требует конкретики"),
+    ("Соня", "визионер: мыслит масштабом и образом будущего, зажигает, но склонна отрываться от земли"),
+    ("Пётр Сергеич", "опытный консерватор: за ним годы практики, говорит «мы это уже проходили», защищает работающее и не любит риск"),
+]
+_AI_BUSY = set()  # (code, stage) — защита от двойной генерации реплик
 
 
 class OdiJoin(BaseModel):
@@ -116,6 +127,8 @@ def register_odi_routes(app, db, limiter, get_ai):
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_odi_msg_code_id ON fredi_odi_messages(code, id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_odi_members_code ON fredi_odi_members(code)")
+        await db.execute("ALTER TABLE fredi_odi_games ADD COLUMN IF NOT EXISTS solo BOOLEAN NOT NULL DEFAULT FALSE")
+        await db.execute("ALTER TABLE fredi_odi_members ADD COLUMN IF NOT EXISTS is_ai BOOLEAN NOT NULL DEFAULT FALSE")
         logger.info("✅ ОДИ: таблицы готовы")
 
     # ---------- helpers ----------
@@ -135,7 +148,7 @@ def register_odi_routes(app, db, limiter, get_ai):
 
     async def _members(code: str):
         return await db.fetch(
-            "SELECT id, name, is_host, joined_at FROM fredi_odi_members WHERE code = $1 ORDER BY id", code)
+            "SELECT id, name, is_host, is_ai, joined_at FROM fredi_odi_members WHERE code = $1 ORDER BY id", code)
 
     async def _add_msg(code: str, member_id, author: str, kind: str, stage: int, text: str):
         await db.execute(
@@ -158,7 +171,9 @@ def register_odi_routes(app, db, limiter, get_ai):
             "Ты — Фреди, игротехник оргдеятельностной игры (ОДИ) по методологии Г.П. Щедровицкого. "
             "Твоя работа: держать содержание, вскрывать разрывы между ситуацией и целью, "
             "проблематизировать слабые версии (жёстко к идеям, бережно к людям), собирать схемы, "
-            "организовывать рефлексию. Говори на «ты», живо и по делу, без канцелярита. "
+            "организовывать рефлексию. Говори на «ты», живо и по делу, без канцелярита и наукообразия — "
+            "каждый абзац 1–3 предложения, как сильный ведущий, а не как методичка. "
+            "Если тема лёгкая или фантазийная — держи азартный игровой тон, но требования метода не снижай. "
             "Абзацы разделяй строго символами || (двойная вертикальная черта) — это перенос строки. "
             "Не используй markdown."
         )
@@ -249,6 +264,48 @@ def register_odi_routes(app, db, limiter, get_ai):
             )
         return _fmt(result)
 
+    async def _ai_replies(code: str, stage: int, topic: str):
+        """Соло-режим: три ИИ-участника отвечают на текущем этапе после
+        первого хода игрока. Один вызов ИИ на всех, формат ###Имя### текст."""
+        key = (code, stage)
+        if key in _AI_BUSY:
+            return
+        _AI_BUSY.add(key)
+        try:
+            transcript = await _transcript(code)
+            ask = STAGES.get(stage, {}).get("ask", "")
+            cast_desc = "\n".join(f"- {n}: {p}" for n, p in AI_CAST)
+            prompt = (
+                "Ты играешь ТРЁХ участников оргдеятельностной игры (ОДИ). Их характеры:\n" + cast_desc + "\n\n"
+                f"Тема игры: «{topic}».\nПротокол игры:\n{transcript}\n\n"
+                f"Сейчас этап «{STAGES.get(stage, {}).get('title', '')}», задание: «{ask}».\n"
+                "Напиши реплику каждого из трёх — строго в характере, со своей позиции, живым разговорным языком, "
+                "3-5 предложений на каждого. Они должны спорить друг с другом и с игроком, а не поддакивать. "
+                "Отвечай на то, что уже прозвучало (по именам). Без markdown.\n"
+                "ФОРМАТ СТРОГО: ###Марк### его реплика ###Соня### её реплика ###Пётр Сергеич### его реплика"
+            )
+            ai = get_ai()
+            result = None
+            try:
+                result = await ai._simple_call(prompt=prompt, max_tokens=900, temperature=0.8)
+            except Exception as e:
+                logger.error(f"ОДИ соло: AI ошибка: {e}")
+            if not result:
+                return
+            members = await _members(code)
+            by_name = {m["name"]: m for m in members if m["is_ai"]}
+            import re as _re
+            parts = _re.split(r"###\s*([^#]+?)\s*###", result)
+            # parts: ['', 'Марк', 'текст', 'Соня', 'текст', ...]
+            for i in range(1, len(parts) - 1, 2):
+                name = parts[i].strip()
+                text = parts[i + 1].strip()
+                m = by_name.get(name)
+                if m and text:
+                    await _add_msg(code, m["id"], name, "user", stage, text)
+        finally:
+            _AI_BUSY.discard(key)
+
     # ---------- endpoints ----------
 
     @app.post("/api/odi/create")
@@ -264,13 +321,22 @@ def register_odi_routes(app, db, limiter, get_ai):
         code = secrets.token_hex(3).upper()  # 6 hex-символов
         token = secrets.token_hex(16)
         await db.execute(
-            "INSERT INTO fredi_odi_games (code, topic) VALUES ($1, $2)", code, topic)
+            "INSERT INTO fredi_odi_games (code, topic, solo) VALUES ($1, $2, $3)", code, topic, bool(data.solo))
         row = await db.fetchrow(
             "INSERT INTO fredi_odi_members (code, token, name, is_host) VALUES ($1,$2,$3,TRUE) RETURNING id",
             code, token, data.name.strip())
-        await _add_msg(code, None, "Игра", "system", 0,
-                       f"{data.name.strip()} создал игру. Тема: «{topic}». Ждём участников.")
-        return {"success": True, "code": code, "token": token, "member_id": row["id"], "topic": topic}
+        if data.solo:
+            for ai_name, _persona in AI_CAST:
+                await db.fetchrow(
+                    "INSERT INTO fredi_odi_members (code, token, name, is_ai) VALUES ($1,$2,$3,TRUE) RETURNING id",
+                    code, secrets.token_hex(16), ai_name)
+            await _add_msg(code, None, "Игра", "system", 0,
+                           f"{data.name.strip()} начал соло-тренировку. Тема: «{topic}». "
+                           "За столом также Марк, Соня и Пётр Сергеич — их играет ИИ.")
+        else:
+            await _add_msg(code, None, "Игра", "system", 0,
+                           f"{data.name.strip()} создал игру. Тема: «{topic}». Ждём участников.")
+        return {"success": True, "code": code, "token": token, "member_id": row["id"], "topic": topic, "solo": bool(data.solo)}
 
     @app.post("/api/odi/join")
     @limiter.limit("20/minute")
@@ -279,6 +345,8 @@ def register_odi_routes(app, db, limiter, get_ai):
         g = await _game(code)
         if g["status"] == "finished":
             raise HTTPException(status_code=409, detail="Игра уже завершена")
+        if g["solo"]:
+            raise HTTPException(status_code=409, detail="Это соло-тренировка, в неё нельзя войти")
         members = await _members(code)
         if len(members) >= MAX_MEMBERS:
             raise HTTPException(status_code=409, detail="Игра заполнена")
@@ -308,11 +376,11 @@ def register_odi_routes(app, db, limiter, get_ai):
         return {
             "success": True,
             "game": {"code": code, "topic": g["topic"], "stage": g["stage"],
-                     "status": g["status"], "busy": g["busy"],
+                     "status": g["status"], "busy": g["busy"], "solo": g["solo"],
                      "stage_title": STAGES.get(g["stage"], {}).get("title", ""),
                      "stage_ask": STAGES.get(g["stage"], {}).get("ask", "")},
             "me": {"id": me["id"], "name": me["name"], "is_host": me["is_host"]},
-            "members": [{"id": m["id"], "name": m["name"], "is_host": m["is_host"]} for m in members],
+            "members": [{"id": m["id"], "name": m["name"], "is_host": m["is_host"], "is_ai": m["is_ai"]} for m in members],
             "answered": [r["member_id"] for r in answered],
             "messages": [{"id": r["id"], "member_id": r["member_id"], "author": r["author"],
                           "kind": r["kind"], "stage": r["stage"], "text": r["text"]} for r in msgs],
@@ -329,6 +397,14 @@ def register_odi_routes(app, db, limiter, get_ai):
         if g["stage"] < 1:
             raise HTTPException(status_code=409, detail="Игра ещё не началась")
         await _add_msg(code, me["id"], me["name"], "user", g["stage"], data.text.strip())
+        # Соло: после хода игрока ИИ-участники отвечают в фоне (один раз
+        # на этап — внутри _ai_replies стоит guard + проверка ниже).
+        if g["solo"] and 1 <= g["stage"] <= 5 and not me["is_ai"]:
+            existing_ai = await db.fetchval(
+                "SELECT COUNT(*) FROM fredi_odi_messages m JOIN fredi_odi_members u ON u.id = m.member_id "
+                "WHERE m.code = $1 AND m.stage = $2 AND u.is_ai = TRUE", code, g["stage"])
+            if not existing_ai:
+                asyncio.create_task(_ai_replies(code, g["stage"], g["topic"]))
         return {"success": True}
 
     @app.post("/api/odi/advance")
@@ -363,6 +439,9 @@ def register_odi_routes(app, db, limiter, get_ai):
             await db.execute("UPDATE fredi_odi_games SET busy = FALSE WHERE code = $1", code)
             raise
         return {"success": True, "stage": new_stage}
+
+    # для тестов и отладки: прямой доступ к генерации реплик ИИ-состава
+    app.state.odi_ai_replies = _ai_replies
 
     @app.get("/api/odi/topics")
     @limiter.limit("30/minute")
