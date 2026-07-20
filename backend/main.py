@@ -1144,36 +1144,12 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                     except Exception as e:
                         logger.warning(f"FreddyService voice error: {e}")
 
-                # Fallback на process_question_streaming (или основной путь для не-basic).
-                # PER-SENTENCE озвучка: как только LLM отдал предложение —
-                # синтезируем его и сразу шлём аудио (seq:true), не дожидаясь
-                # конца ответа. «Время до первого звука» падает в разы. Модель,
-                # голос и качество синтеза НЕ меняются — меняется только порядок:
-                # «дождись весь текст → озвучь весь» → «озвучивай по мере готовности».
-                # tts_pinned пинит провайдера (fish/yandex) на весь ответ, чтобы
-                # голос не менялся посередине.
-                streamed_audio = False
+                # Fallback на process_question_streaming (или основной путь для не-basic)
                 if not response_text:
-                    await websocket.send_json({"type": "status", "status": "speaking"})
-                    tts_pinned = None
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
-                        sentence = (chunk or "").strip()
-                        if not sentence:
-                            continue
-                        response_text += ((" " if response_text else "") + sentence)
-                        await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {sentence}"})
-                        try:
-                            audio_bytes, used_provider = await voice_service.text_to_speech_with_provider(
-                                sentence, mode_name, pin_provider=tts_pinned
-                            )
-                            if audio_bytes:
-                                if tts_pinned is None and used_provider:
-                                    tts_pinned = used_provider
-                                audio_base64 = base64.b64encode(audio_bytes).decode()
-                                await websocket.send_json({"type": "audio", "data": audio_base64, "is_final": False, "seq": True})
-                                streamed_audio = True
-                        except Exception as _tts_e:
-                            logger.warning(f"per-sentence TTS skip: {_tts_e}")
+                        if chunk:
+                            response_text += chunk
+                            await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {chunk}"})
 
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
@@ -1193,22 +1169,17 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                     except Exception as _e:
                         logger.warning(f"Не удалось сохранить basic_message_count: {_e}")
                 await _save_psychologist_state(user_id_for_db, context, mode_instance, mode_name)
+                await websocket.send_json({"type": "status", "status": "speaking"})
 
                 try:
-                    if streamed_audio:
-                        # Аудио уже отстримлено по предложениям — закрываем стрим.
-                        await websocket.send_json({"type": "audio", "data": "", "is_final": True, "seq": True})
-                        logger.info("✅ TTS streaming (per-sentence) complete")
-                    elif freddy_audio:
-                        # Голос Джарвиса от Freddy SDK (single-shot)
-                        await websocket.send_json({"type": "status", "status": "speaking"})
+                    if freddy_audio:
+                        # Голос Джарвиса от Freddy SDK
                         audio_base64 = base64.b64encode(freddy_audio).decode()
                         await websocket.send_json({"type": "audio", "data": audio_base64, "is_final": False})
                         await websocket.send_json({"type": "audio", "data": "", "is_final": True})
                         logger.info(f"✅ TTS complete (Freddy Jarvis)")
                     else:
-                        # Фоллбэк: per-sentence не дал аудио — озвучиваем весь текст.
-                        await websocket.send_json({"type": "status", "status": "speaking"})
+                        # Streaming TTS-чанков (Fish Audio или Yandex как fallback).
                         async for audio_chunk in voice_service.text_to_speech_streaming(
                             response_text, mode_name, chunk_size=32768
                         ):
