@@ -1103,12 +1103,15 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
 
         try:
             # ФИХ 2: используем speech_to_text_pcm (метод добавлен в voice_service)
+            _t_stt = time.time()
             recognized_text = await voice_service.speech_to_text_pcm(
                 bytes(audio_buffer), sample_rate=16000
             )
             recognized_text = _normalize_fredi_wake_word(recognized_text)
+            _stt_ms = int((time.time() - _t_stt) * 1000)
 
-            logger.info(f"📝 STT result: '{recognized_text}'")
+            logger.info(f"📝 STT result ({_stt_ms}ms): '{recognized_text}'")
+            logger.info(f"🎙️ VOICE_LAT[ws] stt={_stt_ms}ms bytes={len(audio_buffer)} chars={len(recognized_text or '')}")
 
             if recognized_text and len(recognized_text.strip()) > 0:
                 await websocket.send_json({"type": "text", "data": f"🎤 Вы: {recognized_text}"})
@@ -1148,44 +1151,97 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         logger.warning(f"FreddyService voice error: {e}")
 
                 # Fallback на process_question_streaming (или основной путь для не-basic).
-                #
-                # Аудио озвучивается ЦЕЛИКОМ — весь ответ одним запросом в TTS
-                # (ниже, ветка else через text_to_speech_streaming). Так не
-                # ломаются смысл, интонация и контекст фразы — особенно когда
-                # Фреди задаёт вопрос в конце ответа. Здесь мы только СОБИРАЕМ
-                # текст ответа и стримим его по предложениям (растущее сообщение
-                # на экране появляется сразу, не дожидаясь синтеза).
-                #
-                # process_question_streaming у психолога/коуча/тренера отдаёт
-                # СЫРЫЕ токен-дельты (часто под-словные), у basic — предложения.
-                # Склеиваем дельты в буфер и режем через _split_stream_buffer,
-                # чтобы текст шёл СЛОВАМИ, а не слогами в столбик.
+                # PER-SENTENCE озвучка: как только LLM отдал предложение —
+                # синтезируем его и сразу шлём аудио (seq:true), не дожидаясь
+                # конца ответа. «Время до первого звука» падает в разы. Модель,
+                # голос и качество синтеза НЕ меняются — меняется только порядок:
+                # «дождись весь текст → озвучь весь» → «озвучивай по мере готовности».
+                # tts_pinned пинит провайдера (fish/yandex) на весь ответ, чтобы
+                # голос не менялся посередине.
                 streamed_audio = False
                 if not response_text:
+                    # ВАЖНО: process_question_streaming у разных режимов отдаёт
+                    # РАЗНУЮ гранулярность. Психолог/коуч/тренер стримят СЫРЫЕ
+                    # токен-дельты LLM (" я", "слыш", "у"), и только basic —
+                    # уже готовые предложения. Поэтому склеиваем дельты в буфер
+                    # и сами режем на предложения через _split_stream_buffer —
+                    # тогда и текст идёт словами (а не слогами в столбик), и TTS
+                    # получает целую фразу (а не «по одной букве»).
                     from modes.basic import _split_stream_buffer
 
-                    async def _emit_text(sentence: str):
-                        """Добавить готовое предложение к ответу и стримить его текст."""
-                        nonlocal response_text
-                        s = (sentence or "").strip()
-                        if not s:
+                    # Инструментирование латентности голоса. По этим логам (греп
+                    # «VOICE_LAT») видно: время до первого звука, длину каждого
+                    # предложения, задержку TTS, провайдера, размер аудио,
+                    # паузу между готовностью предложений (=скорость DeepSeek).
+                    _t0 = time.time()            # старт генерации+озвучки
+                    _voice = {"t_prev": _t0, "pin": None, "idx": 0}
+
+                    await websocket.send_json({"type": "status", "status": "speaking"})
+
+                    async def _emit_sentence(sentence: str):
+                        """Отдать одно готовое предложение: текст → синтез → аудио (seq)."""
+                        nonlocal streamed_audio, response_text
+                        sentence = (sentence or "").strip()
+                        if not sentence:
                             return
-                        response_text += ((" " if response_text else "") + s)
+                        _voice["idx"] += 1
+                        _idx = _voice["idx"]
+                        _gap_ms = int((time.time() - _voice["t_prev"]) * 1000)  # ожидание фразы от LLM
+                        _voice["t_prev"] = time.time()
+                        response_text += ((" " if response_text else "") + sentence)
                         # Хвостовой пробел: фронт склеивает предложения в одно
                         # растущее сообщение, пробел разделяет их словами.
-                        await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {s} "})
+                        await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {sentence} "})
+                        _t_tts = time.time()
+                        try:
+                            audio_bytes, used_provider = await voice_service.text_to_speech_with_provider(
+                                sentence, mode_name, pin_provider=_voice["pin"]
+                            )
+                            _tts_ms = int((time.time() - _t_tts) * 1000)
+                            if audio_bytes:
+                                if _voice["pin"] is None and used_provider:
+                                    _voice["pin"] = used_provider
+                                audio_base64 = base64.b64encode(audio_bytes).decode()
+                                await websocket.send_json({"type": "audio", "data": audio_base64, "is_final": False, "seq": True})
+                                if not streamed_audio:
+                                    logger.info(
+                                        f"🎙️ VOICE_LAT first_audio={int((time.time()-_t0)*1000)}ms "
+                                        f"sent#1 chars={len(sentence)} llm_wait={_gap_ms}ms "
+                                        f"tts={_tts_ms}ms prov={used_provider} bytes={len(audio_bytes)}"
+                                    )
+                                else:
+                                    logger.info(
+                                        f"🎙️ VOICE_LAT sent#{_idx} chars={len(sentence)} "
+                                        f"llm_wait={_gap_ms}ms tts={_tts_ms}ms "
+                                        f"prov={used_provider or _voice['pin']} bytes={len(audio_bytes)}"
+                                    )
+                                streamed_audio = True
+                            else:
+                                logger.warning(
+                                    f"🎙️ VOICE_LAT sent#{_idx} chars={len(sentence)} "
+                                    f"tts={_tts_ms}ms NO_AUDIO (фоллбэк на озвучку целиком)"
+                                )
+                        except Exception as _tts_e:
+                            logger.warning(f"🎙️ VOICE_LAT sent#{_idx} TTS_ERR: {_tts_e}")
 
                     _buf = ""
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
                             continue
-                        _buf += chunk  # сырая склейка — пробелы токенов сохраняются
+                        _buf += chunk  # СЫРАЯ склейка — пробелы токенов сохраняются
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
-                            await _emit_text(_s)
+                            await _emit_sentence(_s)
                     # Флешим остаток буфера (последнее предложение без завершающего пробела)
                     if _buf.strip():
-                        await _emit_text(_buf)
+                        await _emit_sentence(_buf)
+
+                    if streamed_audio:
+                        logger.info(
+                            f"🎙️ VOICE_LAT done sentences={_voice['idx']} "
+                            f"total={int((time.time()-_t0)*1000)}ms chars={len(response_text)} "
+                            f"avg_sent_chars={len(response_text)//max(1,_voice['idx'])}"
+                        )
 
                 if not response_text:
                     response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
@@ -3448,14 +3504,75 @@ async def process_voice_stream(
                     user_data["basic_mode_preset"] = await get_basic_mode_preset()
                 mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
 
-                # Собираем ПОЛНЫЙ ответ, склеивая токен-дельты в предложения
-                # (у психолога/коуча/тренера стрим — сырые под-словные дельты,
-                # у basic — предложения). Озвучиваем ЦЕЛИКОМ одним запросом в
-                # TTS — чтобы не ломать смысл, интонацию и контекст фразы
-                # (особенно вопрос в конце ответа).
                 full_text_parts = []
+                # Какой TTS-провайдер озвучивает этот стрим. None = ещё не
+                # определился (первое предложение); после первой успешной
+                # синтезации фиксируется на весь остаток ответа, чтобы голос
+                # не менялся посередине (см. PR с фиксом TTS voice switching).
+                tts_pinned_provider: Optional[str] = None
                 if hasattr(mode_instance, 'process_question_streaming'):
+                    # Посегментная озвучка: первое готовое предложение (до точки)
+                    # сразу уходит в TTS, пока LLM дописывает остальное. Склеиваем
+                    # токен-дельты (у психолога/коуча/тренера — сырые под-словные)
+                    # в буфер и режем на предложения через _split_stream_buffer.
+                    #
+                    # Диагностика латентности (греп «VOICE_LAT»): first_audio —
+                    # время до первого звука; llm_wait — сколько ждали предложение
+                    # от LLM (= скорость генерации); tts — задержка синтеза;
+                    # done — итог по всему ответу.
                     from modes.basic import _split_stream_buffer
+                    from services.voice_service import text_to_speech_with_provider as _tts_wp
+
+                    _t0 = time.time()
+                    _lat = {"t_prev": _t0, "idx": 0, "first": False}
+
+                    async def _synth_sentence(sentence: str):
+                        """Синтез одного целого предложения. Возвращает (b64|None, text)."""
+                        nonlocal tts_pinned_provider
+                        sentence = (sentence or "").strip()
+                        if not sentence:
+                            return None, None
+                        _lat["idx"] += 1
+                        _idx = _lat["idx"]
+                        _gap_ms = int((time.time() - _lat["t_prev"]) * 1000)  # ожидание фразы от LLM
+                        _lat["t_prev"] = time.time()
+                        full_text_parts.append(sentence)
+                        # Пиним TTS-провайдера на весь стрим: если первое
+                        # предложение озвучил Fish, остальные тоже только Fish.
+                        # Иначе Fish-сбой посередине переключает на Yandex и
+                        # юзер слышит смену голоса в середине ответа.
+                        _t_tts = time.time()
+                        try:
+                            audio_bytes, used_provider = await _tts_wp(
+                                sentence, mode_name, pin_provider=tts_pinned_provider
+                            )
+                            _tts_ms = int((time.time() - _t_tts) * 1000)
+                            if audio_bytes is not None:
+                                if tts_pinned_provider is None and used_provider:
+                                    tts_pinned_provider = used_provider
+                                if not _lat["first"]:
+                                    _lat["first"] = True
+                                    logger.info(
+                                        f"🎙️ VOICE_LAT[http] first_audio={int((time.time()-_t0)*1000)}ms "
+                                        f"sent#1 chars={len(sentence)} llm_wait={_gap_ms}ms "
+                                        f"tts={_tts_ms}ms prov={used_provider} bytes={len(audio_bytes)}"
+                                    )
+                                else:
+                                    logger.info(
+                                        f"🎙️ VOICE_LAT[http] sent#{_idx} chars={len(sentence)} "
+                                        f"llm_wait={_gap_ms}ms tts={_tts_ms}ms "
+                                        f"prov={used_provider or tts_pinned_provider} bytes={len(audio_bytes)}"
+                                    )
+                                return base64.b64encode(audio_bytes).decode('ascii'), sentence
+                            else:
+                                logger.warning(
+                                    f"🎙️ VOICE_LAT[http] sent#{_idx} chars={len(sentence)} "
+                                    f"tts={_tts_ms}ms NO_AUDIO"
+                                )
+                        except Exception as _e:
+                            logger.warning(f"🎙️ VOICE_LAT[http] sent#{_idx} TTS_ERR ({_e}): «{sentence[:60]}»")
+                        return None, sentence
+
                     _buf = ""
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
@@ -3463,32 +3580,40 @@ async def process_voice_stream(
                         _buf += chunk  # сырая склейка — пробелы токенов сохраняются
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
-                            _s = _s.strip()
-                            if _s:
-                                full_text_parts.append(_s)
+                            _b64, _txt = await _synth_sentence(_s)
+                            if _b64:
+                                yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
+                    # Флешим остаток буфера (последнее предложение без завершающего пробела)
                     if _buf.strip():
-                        full_text_parts.append(_buf.strip())
+                        _b64, _txt = await _synth_sentence(_buf)
+                        if _b64:
+                            yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
+
+                    if _lat["first"]:
+                        logger.info(
+                            f"🎙️ VOICE_LAT[http] done sentences={_lat['idx']} "
+                            f"total={int((time.time()-_t0)*1000)}ms "
+                            f"chars={sum(len(p) for p in full_text_parts)}"
+                        )
 
                 if not full_text_parts:
                     # Fallback: process_question напрямую.
                     try:
                         result = mode_instance.process_question(recognized_text)
-                        _ft = (result.get("response", "") or "").strip()
+                        full_text = (result.get("response", "") or "").strip()
                     except Exception as _e:
                         logger.error(f"stream fallback process_question failed: {_e}")
-                        _ft = "Вопрос интересный. Расскажи подробнее, пожалуйста."
-                    if _ft:
-                        full_text_parts = [_ft]
+                        full_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+                    if full_text:
+                        full_text_parts = [full_text]
+                        try:
+                            audio_b64 = await voice_service.text_to_speech(full_text, mode_name)
+                            if audio_b64:
+                                yield json.dumps({"type": "audio", "b64": audio_b64, "text": full_text}, ensure_ascii=False) + "\n"
+                        except Exception as _e:
+                            logger.warning(f"TTS fallback failed: {_e}")
 
                 full_text = " ".join(full_text_parts).strip() or "Вопрос интересный. Расскажи подробнее, пожалуйста."
-
-                # ОЗВУЧКА ЦЕЛИКОМ: весь ответ одним запросом в TTS.
-                try:
-                    audio_b64 = await voice_service.text_to_speech(full_text, mode_name)
-                    if audio_b64:
-                        yield json.dumps({"type": "audio", "b64": audio_b64, "text": full_text}, ensure_ascii=False) + "\n"
-                except Exception as _e:
-                    logger.warning(f"TTS whole-response failed: {_e}")
 
                 # Persist + analytics.
                 if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
