@@ -1168,6 +1168,12 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                     # тогда и текст идёт словами (а не слогами в столбик), и TTS
                     # получает целую фразу (а не «по одной букве»).
                     from modes.basic import _split_stream_buffer
+                    # ВАЖНО: text_to_speech_with_provider — функция МОДУЛЯ
+                    # voice_service, а НЕ метод экземпляра. Раньше звали
+                    # voice_service.text_to_speech_with_provider(...) → каждое
+                    # предложение падало с AttributeError, посегментная озвучка
+                    # не срабатывала ни разу и всё скатывалось в фолбэк «целиком».
+                    from services.voice_service import text_to_speech_with_provider as _tts_wp
 
                     # Инструментирование латентности голоса. По этим логам (греп
                     # «VOICE_LAT») видно: время до первого звука, длину каждого
@@ -1194,7 +1200,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {sentence} "})
                         _t_tts = time.time()
                         try:
-                            audio_bytes, used_provider = await voice_service.text_to_speech_with_provider(
+                            audio_bytes, used_provider = await _tts_wp(
                                 sentence, mode_name, pin_provider=_voice["pin"]
                             )
                             _tts_ms = int((time.time() - _t_tts) * 1000)
