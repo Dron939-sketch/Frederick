@@ -8,6 +8,9 @@
   2. История диалога загружается перед get_mode()
   3. BasicMode.message_counter передаётся через context
   4. weather 'temp' → 'temperature' (в get_context_string через context_obj)
+
+Build marker: голос — посегментный TTS-стрим (буферизация токен-дельт
+в предложения в WS-эндпоинте). Строка нужна для форс-редеплоя Amvera.
 """
 
 import os
