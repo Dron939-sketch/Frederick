@@ -359,6 +359,18 @@ class AIService:
         if _user_block:
             final_system_prompt = f"{final_system_prompt}\n\n{_user_block}"
 
+        # Доступ к свежим данным из интернета (Tavily). Только на запросы,
+        # требующие актуальной информации (погода, курс, новости, «загугли…»),
+        # подмешиваем результаты веб-поиска в системный промпт. Обычные
+        # (терапевтические) сообщения не триггерят — скорость не страдает.
+        try:
+            from web_access import fetch_web_context
+            _web_block = await fetch_web_context(message)
+            if _web_block:
+                final_system_prompt = f"{final_system_prompt}\n\n{_web_block}"
+        except Exception as _e:
+            logger.debug(f"web_access skip: {_e}")
+
         # Строим сообщения для API
         messages = [{"role": "system", "content": final_system_prompt}]
 
@@ -462,6 +474,18 @@ class AIService:
         _user_block = self._build_user_facts_block(context, profile)
         if _user_block:
             final_system_prompt = f"{final_system_prompt}\n\n{_user_block}"
+
+        # Доступ к свежим данным из интернета (Tavily). Только на запросы,
+        # требующие актуальной информации (погода, курс, новости, «загугли…»),
+        # подмешиваем результаты веб-поиска в системный промпт. Обычные
+        # (терапевтические) сообщения не триггерят — скорость не страдает.
+        try:
+            from web_access import fetch_web_context
+            _web_block = await fetch_web_context(message)
+            if _web_block:
+                final_system_prompt = f"{final_system_prompt}\n\n{_web_block}"
+        except Exception as _e:
+            logger.debug(f"web_access skip: {_e}")
 
         # Строим сообщения для API
         messages = [{"role": "system", "content": final_system_prompt}]
