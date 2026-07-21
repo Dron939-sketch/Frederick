@@ -99,6 +99,16 @@ async def _save_psychologist_state(user_id, context_obj: dict, mode_instance, mo
     }
     if context_obj is None:
         context_obj = {}
+    # Сохраняем скользящий конспект (session_memo): его в этот же JSONB пишет
+    # фоновая задача session_memory. Без переноса мы бы затирали его каждый ход.
+    # Берём свежую версию из БД (фон уже мог обновить и сбросить кэш).
+    try:
+        latest = await context_repo.get(user_id) or {}
+        prev_psy = latest.get("psychologist_state") or {}
+    except Exception:
+        prev_psy = (context_obj or {}).get("psychologist_state") or {}
+    if isinstance(prev_psy, dict) and prev_psy.get("session_memo"):
+        state["session_memo"] = prev_psy["session_memo"]
     context_obj["psychologist_state"] = state
     try:
         await context_repo.save(user_id, context_obj)
