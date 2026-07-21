@@ -164,12 +164,17 @@ def _patch_mode(mode_cls):
 
         start = time.time()
 
-        # Load memory + detect emotion in parallel
-        await asyncio.gather(
-            _load_user_memory(self),
-            _detect_user_emotion(self, question),
-            return_exceptions=True
-        )
+        # Память нужна ДЛЯ текущего промпта — ждём (это быстрый DB-fetch).
+        # А детекция эмоции — это отдельный вызов DeepSeek ~2с, который
+        # раньше блокировал КАЖДЫЙ ответ (см. лог: до первого звука ~5с).
+        # Убираем с блокирующего пути: считаем эмоцию в фоне для СЛЕДУЮЩЕГО
+        # хода, а текущий ответ строим с эмоцией прошлой реплики (или neutral).
+        # Тон отстаёт на один ход — незаметно, зато −2с к первому слову.
+        try:
+            await _load_user_memory(self)
+        except Exception:
+            pass
+        asyncio.create_task(_detect_user_emotion(self, question))
 
         # Save fact in background
         asyncio.create_task(_extract_and_save_fact(self, question))
