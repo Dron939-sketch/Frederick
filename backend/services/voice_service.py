@@ -687,7 +687,12 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         return None
     audio_info = await check_audio_quality(audio_bytes, audio_format)
     logger.info(f"📊 Аудио параметры: {audio_info}")
-    if audio_format != "webm":
+    # Deepgram принимает wav/mp3/mp4/ogg/webm/flac НАПРЯМУЮ — конвертация в
+    # webm нужна только для экзотических форматов. Раньше конвертировали всё,
+    # кроме webm, включая wav (наш основной формат из PCM) — лишний ffmpeg-
+    # проход ~0.3–1с перед КАЖДЫМ распознаванием. Теперь wav уходит как есть.
+    _DEEPGRAM_NATIVE = ("webm", "wav", "mp3", "mp4", "m4a", "ogg", "flac")
+    if audio_format not in _DEEPGRAM_NATIVE:
         converted = await convert_to_webm(audio_bytes, audio_format)
         if converted:
             audio_bytes = converted
