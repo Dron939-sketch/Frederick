@@ -267,13 +267,26 @@ class PsychologistMode(BaseMode):
         # сводки прошлых сессий (если есть). Параллельно — фоновая задача
         # сcammarize прошлой сессии (если она «закрылась»).
         memory_block = ""
+        session_memo_block = ""
         try:
-            from session_memory import load_memory_block, schedule_summarize_in_background
+            from session_memory import (
+                load_memory_block, schedule_summarize_in_background,
+                load_session_memo_block, schedule_session_memo_refresh,
+            )
             memory_block = await load_memory_block(self.user_id)
             schedule_summarize_in_background(self.user_id)
+            # Скользящий конспект ТЕКУЩЕГО разговора: держит нить, когда ранние
+            # реплики уходят из окна истории (history[-10]). Обновляется в фоне
+            # адаптивно (по объёму новых реплик), хранится в psychologist_state.
+            session_memo_block = await load_session_memo_block(self.user_id)
+            schedule_session_memo_refresh(self.user_id)
         except Exception as e:
             logger.debug(f"session_memory load failed: {e}")
-        prompt_with_memory = (memory_block + method.system_prompt) if memory_block else method.system_prompt
+        prompt_with_memory = (
+            (memory_block + session_memo_block + method.system_prompt)
+            if (memory_block or session_memo_block)
+            else method.system_prompt
+        )
 
         # 5. Отправляем вступительное сообщение (если есть)
         if intro_or_notice:

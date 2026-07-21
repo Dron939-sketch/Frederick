@@ -374,6 +374,13 @@ class AIService:
                     messages.append({"role": role, "content": content})
             logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
 
+        # Тот же ФИКС off-by-one, что и в streaming-варианте: срезаем висячий
+        # user-ход в хвосте истории (вопрос без сохранённого ответа), иначе он
+        # склеится с текущим вопросом и модель ответит на предыдущий.
+        while len(messages) > 1 and messages[-1]["role"] == "user":
+            _d = messages.pop()
+            logger.info(f"🧭 MSG_ORDER (non-stream) dropped dangling user: «{(_d.get('content') or '')[:50]}»")
+
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
@@ -470,6 +477,20 @@ class AIService:
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
             logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
+
+        # ФИКС off-by-one «отвечает на предыдущий вопрос». В норме история
+        # заканчивается ответом ассистента. Но иногда последний ход — это user
+        # без сохранённого ответа (оборвалась связь, пустой ответ, юзер прервал).
+        # Тогда этот «висячий» вопрос склеивается с текущим в ДВЕ подряд
+        # user-реплики, и модель отвечает на старую. Срезаем висячие user-ходы
+        # из хвоста истории, чтобы текущий вопрос был единственным финальным.
+        _dropped = 0
+        while len(messages) > 1 and messages[-1]["role"] == "user":
+            _d = messages.pop()
+            _dropped += 1
+            logger.info(f"🧭 MSG_ORDER dropped dangling user: «{(_d['content'] or '')[:50]}»")
+        if _dropped:
+            logger.info(f"🧭 MSG_ORDER срезано висячих user-ходов: {_dropped}")
 
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
