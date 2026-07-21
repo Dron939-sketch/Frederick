@@ -316,10 +316,14 @@ def register_analytics_routes(app, db):
                     "AND data ? 'latency_ms' "
                     "AND created_at > NOW() - INTERVAL '7 days'"
                 )
-                # Счёт ошибок API за неделю
+                # Счёт клиентских ошибок за неделю.
+                # Набор событий совпадает с разбивкой health_7d ниже, чтобы
+                # плитка KPI была равна сумме разбивки (раньше здесь не хватало
+                # 'js_error' — самой частой ошибки — и цифра занижалась в разы).
                 api_err = await conn.fetchval(
                     "SELECT COUNT(*) FROM fredi_analytics "
-                    "WHERE event IN ('api_error','api_network_error','error','promise_unhandled') "
+                    "WHERE event IN ('js_error','error','promise_unhandled',"
+                    "'api_network_error','api_aborted','ai_response_error') "
                     "AND created_at > NOW() - INTERVAL '7 days'") or 0
                 # Сегментация по ключевым attrs
                 seg_device_rows = await conn.fetch(
