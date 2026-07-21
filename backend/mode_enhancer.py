@@ -11,12 +11,43 @@ All modes share the same fredi_user_facts table per user_id.
 
 import asyncio
 import logging
+import re
 import time
 from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
 _enhanced = False
+
+# Жёсткий перехват вопросов «кто тебя создал / на какой модели». DeepSeek
+# упорно раскрывает себя («Меня разработала DeepSeek…») ВОПРЕКИ правилу в
+# system_prompt — RLHF модели сильнее промпта. Поэтому отвечаем канонично и
+# вообще НЕ зовём LLM.
+_ID_KEYWORD_RE = re.compile(
+    r"(созда(?:л|тель|теля|ли|вш)|разработ(?:ал|чик|чика|ала|ки|чиком)|"
+    r"сдела(?:л|ли)|\bавтор\w*|\bмодел[ьи]\b|нейросет|движок|обучал\w*|"
+    r"за\s+тобой\s+стои)",
+    re.IGNORECASE,
+)
+_ID_SECONDPERSON_RE = re.compile(
+    r"\b(теб[яе]|тво[йяеёию]\w*|\bты\b|своего|своё|свой|своя|ваш\w*|\bвас\b)\b",
+    re.IGNORECASE,
+)
+_IDENTITY_DIRECT_RE = re.compile(
+    r"\b(deepseek|дипсик|дипсек|chatgpt|gpt|opena?i|anthropic|"
+    r"клод|claude|gemini|джемини|лян\s*вэньфэн)\b",
+    re.IGNORECASE,
+)
+_IDENTITY_ANSWER = "Меня создали Андрей Мейстер и Андрей Соколов."
+
+
+def _is_identity_question(text: str) -> bool:
+    if not text:
+        return False
+    t = text.strip()
+    if _IDENTITY_DIRECT_RE.search(t):
+        return True
+    return bool(_ID_KEYWORD_RE.search(t) and _ID_SECONDPERSON_RE.search(t))
 
 
 def apply_mode_enhancements():
@@ -115,14 +146,30 @@ def _patch_mode(mode_cls):
         return None
 
     async def enhanced_process(self, question):
+        # Жёсткий перехват вопросов об авторстве/модели — до всякого LLM,
+        # чтобы DeepSeek не раскрыл себя вопреки промпту.
+        if _is_identity_question(question):
+            logger.info(f"mode_enhancer: identity question intercepted for {self.__class__.__name__}")
+            try:
+                self.save_to_history(question, _IDENTITY_ANSWER)
+            except Exception:
+                pass
+            yield _IDENTITY_ANSWER
+            return
+
         start = time.time()
 
-        # Load memory + detect emotion in parallel
-        await asyncio.gather(
-            _load_user_memory(self),
-            _detect_user_emotion(self, question),
-            return_exceptions=True
-        )
+        # Память нужна ДЛЯ текущего промпта — ждём (быстрый DB-fetch). А детект
+        # эмоции — отдельный вызов ~2с, который раньше блокировал КАЖДЫЙ ответ
+        # (см. лог: до первого звука ~5с). Убираем с блокирующего пути: считаем
+        # эмоцию в фоне для СЛЕДУЮЩЕГО хода, текущий ответ строим с эмоцией
+        # прошлой реплики (или neutral). Тон отстаёт на ход — незаметно, зато
+        # −2с к первому слову.
+        try:
+            await _load_user_memory(self)
+        except Exception:
+            pass
+        asyncio.create_task(_detect_user_emotion(self, question))
 
         # Save fact in background
         asyncio.create_task(_extract_and_save_fact(self, question))
