@@ -585,6 +585,17 @@ _FREDI_WAKE_START = re.compile(
     re.IGNORECASE,
 )
 
+# DeepSeek иногда не ставит пробел после точки: «семью.Оставаться». Из-за
+# этого и разрезатель предложений не срабатывает (нет пробела после точки),
+# и текст с озвучкой слипаются. Вставляем пробел после .!?…;! если сразу идёт
+# заглавная буква (кириллица/латиница). Десятичные («3.14»), сокращения
+# («т.е.») не трогаются — после них не заглавная.
+_SENT_GLUE_FIX = re.compile(r"([.!?…;])([A-ZА-ЯЁ])")
+
+
+def _fix_sentence_glue(text: str) -> str:
+    return _SENT_GLUE_FIX.sub(r"\1 \2", text) if text else text
+
 def _normalize_fredi_wake_word(text: str) -> str:
     if not text:
         return text
@@ -1238,7 +1249,10 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
                             continue
-                        _buf += chunk  # СЫРАЯ склейка — пробелы токенов сохраняются
+                        # Сырая склейка + пробел после точки, если LLM его не
+                        # поставил («семью.Оставаться»): иначе и предложение не
+                        # режется, и текст с озвучкой слипаются.
+                        _buf = _fix_sentence_glue(_buf + chunk)
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
                             await _emit_sentence(_s)
@@ -3587,7 +3601,8 @@ async def process_voice_stream(
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
                             continue
-                        _buf += chunk  # сырая склейка — пробелы токенов сохраняются
+                        # + пробел после точки, если LLM его не поставил (см. WS).
+                        _buf = _fix_sentence_glue(_buf + chunk)
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
                             _b64, _txt = await _synth_sentence(_s)
