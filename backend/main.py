@@ -3508,32 +3508,54 @@ async def process_voice_stream(
                 # не менялся посередине (см. PR с фиксом TTS voice switching).
                 tts_pinned_provider: Optional[str] = None
                 if hasattr(mode_instance, 'process_question_streaming'):
-                    async for chunk in mode_instance.process_question_streaming(recognized_text):
-                        sentence = (chunk or "").strip()
+                    # ВАЖНО: process_question_streaming у психолога/коуча/тренера
+                    # отдаёт СЫРЫЕ токен-дельты — часто под-словные («при»,«ве»,
+                    # «ло»,«те»,«бя»), и только basic режет на предложения. Раньше
+                    # каждый такой фрагмент уходил в TTS отдельным запросом →
+                    # озвучка «по слогам». Склеиваем дельты в буфер и сами режем
+                    # на предложения (та же логика, что в basic и в WS-эндпоинте).
+                    from modes.basic import _split_stream_buffer
+                    from services.voice_service import text_to_speech_with_provider as _tts_wp
+
+                    async def _synth_sentence(sentence: str):
+                        """Синтез одного целого предложения. Возвращает (b64|None, text)."""
+                        nonlocal tts_pinned_provider
+                        sentence = (sentence or "").strip()
                         if not sentence:
-                            continue
+                            return None, None
                         full_text_parts.append(sentence)
                         # Пиним TTS-провайдера на весь стрим: если первое
                         # предложение озвучил Fish, остальные тоже только Fish.
-                        # Иначе Fish-сбой посередине ответа переключает на
-                        # Yandex и юзер слышит смену голоса в середине фразы.
+                        # Иначе Fish-сбой посередине переключает на Yandex и
+                        # юзер слышит смену голоса в середине ответа.
                         try:
-                            from services.voice_service import text_to_speech_with_provider as _tts_wp
                             audio_bytes, used_provider = await _tts_wp(
                                 sentence, mode_name, pin_provider=tts_pinned_provider
                             )
                             if audio_bytes is not None:
-                                audio_b64 = base64.b64encode(audio_bytes).decode('ascii')
                                 if tts_pinned_provider is None and used_provider:
                                     tts_pinned_provider = used_provider
                                     logger.info(f"🎤 TTS pinned to provider={used_provider} for this stream")
-                            else:
-                                audio_b64 = None
+                                return base64.b64encode(audio_bytes).decode('ascii'), sentence
                         except Exception as _e:
                             logger.warning(f"TTS skip sentence ({_e}): «{sentence[:60]}»")
-                            audio_b64 = None
-                        if audio_b64:
-                            yield json.dumps({"type": "audio", "b64": audio_b64, "text": sentence}, ensure_ascii=False) + "\n"
+                        return None, sentence
+
+                    _buf = ""
+                    async for chunk in mode_instance.process_question_streaming(recognized_text):
+                        if not chunk:
+                            continue
+                        _buf += chunk  # сырая склейка — пробелы токенов сохраняются
+                        ready, _buf = _split_stream_buffer(_buf)
+                        for _s in ready:
+                            _b64, _txt = await _synth_sentence(_s)
+                            if _b64:
+                                yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
+                    # Флешим остаток буфера (последнее предложение без завершающего пробела)
+                    if _buf.strip():
+                        _b64, _txt = await _synth_sentence(_buf)
+                        if _b64:
+                            yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
 
                 if not full_text_parts:
                     # Fallback: process_question напрямую.
