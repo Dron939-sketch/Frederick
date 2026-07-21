@@ -687,14 +687,24 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         return None
     audio_info = await check_audio_quality(audio_bytes, audio_format)
     logger.info(f"📊 Аудио параметры: {audio_info}")
-    if audio_format != "webm":
+    # Deepgram принимает большинство форматов НАПРЯМУЮ (wav, mp3, mp4, m4a,
+    # ogg, opus, flac, aac, webm). Гонять их через ffmpeg в webm не нужно —
+    # это лишний subprocess и +задержка на каждый запрос (в логе:
+    # «Конвертируем wav → webm» на входе, который уже WAV). Конвертируем
+    # ТОЛЬКО реально экзотический формат, который Deepgram не понимает.
+    _DEEPGRAM_NATIVE = {"webm", "wav", "mp3", "mp4", "m4a", "ogg", "opus", "flac", "aac"}
+    if audio_format not in _DEEPGRAM_NATIVE:
         converted = await convert_to_webm(audio_bytes, audio_format)
         if converted:
             audio_bytes = converted
             audio_format = "webm"
         else:
             logger.warning(f"⚠️ Не удалось конвертировать {audio_format}, пробуем оригинал")
-    mime_types = {"webm": "audio/webm", "ogg": "audio/ogg", "wav": "audio/wav", "mp3": "audio/mpeg", "mp4": "audio/mp4"}
+    mime_types = {
+        "webm": "audio/webm", "ogg": "audio/ogg", "wav": "audio/wav",
+        "mp3": "audio/mpeg", "mp4": "audio/mp4", "m4a": "audio/mp4",
+        "opus": "audio/opus", "flac": "audio/flac", "aac": "audio/aac",
+    }
     content_type = mime_types.get(audio_format, "audio/webm")
     headers = {"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": content_type}
     # keywords=<слово>:<вес> усиливает распознавание редких/специфичных слов.
