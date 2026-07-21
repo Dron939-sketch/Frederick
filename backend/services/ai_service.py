@@ -475,6 +475,20 @@ class AIService:
         user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
 
+        # Диагностика «отвечает на предыдущий вопрос» (off-by-one). Логируем
+        # хвост контекста: роль+начало каждого из последних сообщений истории и
+        # ТЕКУЩИЙ вопрос. Если Фреди отвечает не на то — по этому логу сразу
+        # видно, правильно ли собран порядок (последним всегда должен идти
+        # текущий вопрос пользователя) или дело в дрейфе модели.
+        try:
+            _tail = " | ".join(
+                f"{m['role']}:{(m['content'] or '')[:40].replace(chr(10), ' ')}"
+                for m in messages[-4:]
+            )
+            logger.info(f"🧭 MSG_ORDER cur=«{message[:60]}» tail=[{_tail}]")
+        except Exception:
+            pass
+
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {
             "model": "deepseek-chat",
