@@ -374,6 +374,14 @@ class AIService:
                     messages.append({"role": role, "content": content})
             logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
 
+        # ФИКС off-by-one «отвечает на предыдущий вопрос»: в норме история
+        # кончается ответом ассистента. Но при обрыве прошлого ответа (нет
+        # сохранённого assistant) последний ход — user, и он склеивается с
+        # текущим вопросом в две подряд user-реплики → модель отвечает на
+        # старую. Срезаем висячие user-ходы из хвоста истории.
+        while len(messages) > 1 and messages[-1]["role"] == "user":
+            messages.pop()
+
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
@@ -470,6 +478,14 @@ class AIService:
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
             logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
+
+        # ФИКС off-by-one «отвечает на предыдущий вопрос»: в норме история
+        # кончается ответом ассистента. Но при обрыве прошлого ответа (нет
+        # сохранённого assistant) последний ход — user, и он склеивается с
+        # текущим вопросом в две подряд user-реплики → модель отвечает на
+        # старую. Срезаем висячие user-ходы из хвоста истории.
+        while len(messages) > 1 and messages[-1]["role"] == "user":
+            messages.pop()
 
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
