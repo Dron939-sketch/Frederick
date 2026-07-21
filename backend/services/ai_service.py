@@ -359,18 +359,6 @@ class AIService:
         if _user_block:
             final_system_prompt = f"{final_system_prompt}\n\n{_user_block}"
 
-        # Доступ к свежим данным из интернета (Tavily). Только на запросы,
-        # требующие актуальной информации (погода, курс, новости, «загугли…»),
-        # подмешиваем результаты веб-поиска в системный промпт. Обычные
-        # (терапевтические) сообщения не триггерят — скорость не страдает.
-        try:
-            from web_access import fetch_web_context
-            _web_block = await fetch_web_context(message)
-            if _web_block:
-                final_system_prompt = f"{final_system_prompt}\n\n{_web_block}"
-        except Exception as _e:
-            logger.debug(f"web_access skip: {_e}")
-
         # Строим сообщения для API
         messages = [{"role": "system", "content": final_system_prompt}]
 
@@ -385,13 +373,6 @@ class AIService:
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
             logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
-
-        # Тот же ФИКС off-by-one, что и в streaming-варианте: срезаем висячий
-        # user-ход в хвосте истории (вопрос без сохранённого ответа), иначе он
-        # склеится с текущим вопросом и модель ответит на предыдущий.
-        while len(messages) > 1 and messages[-1]["role"] == "user":
-            _d = messages.pop()
-            logger.info(f"🧭 MSG_ORDER (non-stream) dropped dangling user: «{(_d.get('content') or '')[:50]}»")
 
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
@@ -475,18 +456,6 @@ class AIService:
         if _user_block:
             final_system_prompt = f"{final_system_prompt}\n\n{_user_block}"
 
-        # Доступ к свежим данным из интернета (Tavily). Только на запросы,
-        # требующие актуальной информации (погода, курс, новости, «загугли…»),
-        # подмешиваем результаты веб-поиска в системный промпт. Обычные
-        # (терапевтические) сообщения не триггерят — скорость не страдает.
-        try:
-            from web_access import fetch_web_context
-            _web_block = await fetch_web_context(message)
-            if _web_block:
-                final_system_prompt = f"{final_system_prompt}\n\n{_web_block}"
-        except Exception as _e:
-            logger.debug(f"web_access skip: {_e}")
-
         # Строим сообщения для API
         messages = [{"role": "system", "content": final_system_prompt}]
 
@@ -502,37 +471,9 @@ class AIService:
                     messages.append({"role": role, "content": content})
             logger.info(f"📚 История: {len(history[-10:])} сообщений добавлено в контекст")
 
-        # ФИКС off-by-one «отвечает на предыдущий вопрос». В норме история
-        # заканчивается ответом ассистента. Но иногда последний ход — это user
-        # без сохранённого ответа (оборвалась связь, пустой ответ, юзер прервал).
-        # Тогда этот «висячий» вопрос склеивается с текущим в ДВЕ подряд
-        # user-реплики, и модель отвечает на старую. Срезаем висячие user-ходы
-        # из хвоста истории, чтобы текущий вопрос был единственным финальным.
-        _dropped = 0
-        while len(messages) > 1 and messages[-1]["role"] == "user":
-            _d = messages.pop()
-            _dropped += 1
-            logger.info(f"🧭 MSG_ORDER dropped dangling user: «{(_d['content'] or '')[:50]}»")
-        if _dropped:
-            logger.info(f"🧭 MSG_ORDER срезано висячих user-ходов: {_dropped}")
-
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
-
-        # Диагностика «отвечает на предыдущий вопрос» (off-by-one). Логируем
-        # хвост контекста: роль+начало каждого из последних сообщений истории и
-        # ТЕКУЩИЙ вопрос. Если Фреди отвечает не на то — по этому логу сразу
-        # видно, правильно ли собран порядок (последним всегда должен идти
-        # текущий вопрос пользователя) или дело в дрейфе модели.
-        try:
-            _tail = " | ".join(
-                f"{m['role']}:{(m['content'] or '')[:40].replace(chr(10), ' ')}"
-                for m in messages[-4:]
-            )
-            logger.info(f"🧭 MSG_ORDER cur=«{message[:60]}» tail=[{_tail}]")
-        except Exception:
-            pass
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {

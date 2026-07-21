@@ -677,12 +677,6 @@ class BasicMode(BaseMode):
         if history_lines:
             parts.append("История:\n" + "\n".join(history_lines))
 
-        # Свежие данные из интернета (Tavily) — если вопрос их требует.
-        # Заполняется в process_question_streaming перед сборкой промпта.
-        web_block = (getattr(self, "_web_block", "") or "").strip()
-        if web_block:
-            parts.append(web_block)
-
         parts.append(f"Пользователь: {question}")
         parts.append(
             "Ответь без шаблонных открывашек. Объём — по теме: 2–3 предложения "
@@ -914,17 +908,6 @@ class BasicMode(BaseMode):
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
 
-        # Жёсткий перехват вопросов об авторстве/модели — до LLM, чтобы
-        # DeepSeek не раскрыл себя вопреки промпту (см. mode_enhancer).
-        try:
-            from mode_enhancer import _is_identity_question, _IDENTITY_ANSWER
-            if _is_identity_question(question):
-                self.conversation_history.append(f"Фреди: {_IDENTITY_ANSWER}")
-                yield _IDENTITY_ANSWER
-                return
-        except Exception as _e:
-            logger.debug(f"identity intercept skip: {_e}")
-
         if self.message_counter == 1:
             await self._load_memory()
             # Подтягиваем IANA-таймзону юзера из fredi_users.user_tz —
@@ -954,16 +937,6 @@ class BasicMode(BaseMode):
         except Exception as _e:
             logger.debug(f"intuition skip: {_e}")
             self._intuition_block = ""
-
-        # Доступ к свежим данным из интернета (Tavily): на запросы про погоду,
-        # курс, новости, «загугли…» подтягиваем веб-поиск в промпт. Обычные
-        # сообщения не триггерят (см. web_access.needs_fresh_info).
-        try:
-            from web_access import fetch_web_context
-            self._web_block = await fetch_web_context(question)
-        except Exception as _e:
-            logger.debug(f"web_access skip: {_e}")
-            self._web_block = ""
 
         # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убрали ВСЕ regex-ветки на «забудь»,
         # «тест уже прошёл», оффер теста на 4-м сообщении, согласие/отказ.

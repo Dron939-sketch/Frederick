@@ -472,17 +472,6 @@ def normalize_tts_text(text: str) -> str:
     text = re.sub(r'([.!?,;:])([^\s\d\)\]\}])', r'\1 \2', text)
     text = re.sub(r'([\u2014\u2013])([^\s])', r'\1 \2', text)
     text = re.sub(r'([\u0430-\u044f\u0451])([\u0410-\u042f\u0401])', r'\1 \2', text)
-    # \u0424\u0418\u0425 0\u0432: \u0433\u0440\u0430\u043d\u0438\u0446\u0430 \u0431\u0443\u043a\u0432\u0430<->\u0446\u0438\u0444\u0440\u0430 \u2014 DeepSeek \u043a\u043b\u0435\u0438\u0442 \u0441\u043b\u043e\u0432\u043e \u0441 \u0447\u0438\u0441\u043b\u043e\u043c.
-    # "\u043c\u0430\u0435\u043c2025" -> "\u043c\u0430\u0435\u043c 2025", "2025\u0433\u043e\u0434\u0430" -> "2025 \u0433\u043e\u0434\u0430". \u0414\u0435\u043b\u0430\u0435\u043c \u0414\u041e
-    # \u043d\u043e\u0440\u043c\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u0438 \u0447\u0438\u0441\u0435\u043b (\u043d\u0438\u0436\u0435), \u0447\u0442\u043e\u0431\u044b \u0447\u0438\u0441\u043b\u043e \u0440\u0430\u0441\u043f\u043e\u0437\u043d\u0430\u043b\u043e\u0441\u044c \u0438 \u043e\u0437\u0432\u0443\u0447\u0438\u043b\u043e\u0441\u044c
-    # \u0441\u043b\u043e\u0432\u0430\u043c\u0438. \u0422\u043e\u043b\u044c\u043a\u043e \u043a\u0438\u0440\u0438\u043b\u043b\u0438\u0446\u0430 \u2014 \u043b\u0430\u0442\u044b\u043d\u044c (COVID19) \u043d\u0435 \u0442\u0440\u043e\u0433\u0430\u0435\u043c. \u0414\u0435\u0441\u044f\u0442\u0438\u0447\u043d\u044b\u0435
-    # "3,14"/"3.14" \u043d\u0435 \u0437\u0430\u0434\u0435\u0442\u044b: \u043f\u0435\u0440\u0435\u0434 \u0442\u043e\u0447\u043a\u043e\u0439/\u0437\u0430\u043f\u044f\u0442\u043e\u0439 \u0442\u0430\u043c \u0446\u0438\u0444\u0440\u0430, \u0430 \u043d\u0435 \u0431\u0443\u043a\u0432\u0430.
-    text = re.sub(r'([\u0430-\u044f\u0451\u0410-\u042f\u0401])(\d)', r'\1 \2', text)
-    text = re.sub(r'(\d)([\u0430-\u044f\u0451\u0410-\u042f\u0401])', r'\1 \2', text)
-    # \u0411\u0443\u043a\u0432\u0430+\u043f\u0443\u043d\u043a\u0442\u0443\u0430\u0446\u0438\u044f+\u0446\u0438\u0444\u0440\u0430 ("\u041a\u043e\u043b\u043e\u043c\u043d\u044b,40" -> "\u041a\u043e\u043b\u043e\u043c\u043d\u044b, 40"): \u043f\u0440\u043e\u0431\u0435\u043b \u043f\u0435\u0440\u0435\u0434
-    # \u0447\u0438\u0441\u043b\u043e\u043c, \u0435\u0441\u043b\u0438 \u043f\u0443\u043d\u043a\u0442\u0443\u0430\u0446\u0438\u044e \u043f\u043e\u0441\u0442\u0430\u0432\u0438\u043b\u0438 \u0441\u0440\u0430\u0437\u0443 \u043f\u043e\u0441\u043b\u0435 \u0441\u043b\u043e\u0432\u0430. "3,14" \u043d\u0435 match \u2014
-    # \u043f\u0435\u0440\u0435\u0434 \u0437\u0430\u043f\u044f\u0442\u043e\u0439 \u0442\u0430\u043c \u0446\u0438\u0444\u0440\u0430, \u0430 \u043d\u0435 \u0431\u0443\u043a\u0432\u0430.
-    text = re.sub(r'([\u0430-\u044f\u0451\u0410-\u042f\u0401][.,;:!?])(\d)', r'\1 \2', text)
     emoji_pattern = re.compile(
         "["
         "\U0001F600-\U0001F64F"
@@ -698,12 +687,7 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "webm") -> Opti
         return None
     audio_info = await check_audio_quality(audio_bytes, audio_format)
     logger.info(f"📊 Аудио параметры: {audio_info}")
-    # Deepgram принимает wav/mp3/mp4/ogg/webm/flac НАПРЯМУЮ — конвертация в
-    # webm нужна только для экзотических форматов. Раньше конвертировали всё,
-    # кроме webm, включая wav (наш основной формат из PCM) — лишний ffmpeg-
-    # проход ~0.3–1с перед КАЖДЫМ распознаванием. Теперь wav уходит как есть.
-    _DEEPGRAM_NATIVE = ("webm", "wav", "mp3", "mp4", "m4a", "ogg", "flac")
-    if audio_format not in _DEEPGRAM_NATIVE:
+    if audio_format != "webm":
         converted = await convert_to_webm(audio_bytes, audio_format)
         if converted:
             audio_bytes = converted

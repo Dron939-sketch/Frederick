@@ -99,16 +99,6 @@ async def _save_psychologist_state(user_id, context_obj: dict, mode_instance, mo
     }
     if context_obj is None:
         context_obj = {}
-    # Сохраняем скользящий конспект (session_memo): его в этот же JSONB пишет
-    # фоновая задача session_memory. Без переноса мы бы затирали его каждый ход.
-    # Берём свежую версию из БД (фон уже мог обновить и сбросить кэш).
-    try:
-        latest = await context_repo.get(user_id) or {}
-        prev_psy = latest.get("psychologist_state") or {}
-    except Exception:
-        prev_psy = (context_obj or {}).get("psychologist_state") or {}
-    if isinstance(prev_psy, dict) and prev_psy.get("session_memo"):
-        state["session_memo"] = prev_psy["session_memo"]
     context_obj["psychologist_state"] = state
     try:
         await context_repo.save(user_id, context_obj)
@@ -579,42 +569,17 @@ _FREDI_WAKE_VARIANTS = re.compile(
     r"фр[ае]йз[иы]|фр[ае]зи(?:я|и)?|фр[ае]йди(?:к)?|фрейи|"
     r"фред(?:дер)?ик|фредд?ик|"
     r"фразия|фрайди|фризи|фрэди|"
-    r"пр[ое]йди|пр[ое]йдик|"
-    # Не-словесные искажения имени из голоса — безопасно заменять везде,
-    # т.к. в обычной русской речи это не встречается.
-    r"фрезе|фрезя|фрэзе|бэдди|бадди|бедди|фредди"
+    r"пр[ое]йди|пр[ое]йдик"
     r")\b",
     re.IGNORECASE,
 )
-# Обычные русские слова, которыми STT подменяет имя «Фреди» (ради, свеча,
-# скар, эльф, вроде...). Нормализуем ТОЛЬКО когда слово стоит как обращение:
-# первым словом перед запятой/тире/вопросом («Ради, привет» → «Фреди, привет»).
-# Так «ради тебя» / «свеча на столе» в середине фразы не ломаются.
+# «Вроде» / «Эльф» — частые ложные распознавания в самом начале реплики,
+# но это обычные слова — нормализуем только если стоят как первое слово
+# перед запятой/тире/вопросом, т.е. в роли обращения.
 _FREDI_WAKE_START = re.compile(
-    r"^\s*(?:вроде|эльф\s+вроде|эльф|ради|св[еэ]ча|скар|шкар|фрезе|бэдди)\s*([,:\-–—.!?])",
+    r"^\s*(?:вроде|эльф\s+вроде|эльф)\s*([,:\-–—.!?])",
     re.IGNORECASE,
 )
-
-# DeepSeek иногда не ставит пробел после точки: «семью.Оставаться». Из-за
-# этого и разрезатель предложений не срабатывает (нет пробела после точки),
-# и текст с озвучкой слипаются. Вставляем пробел после .!?…;! если сразу идёт
-# заглавная буква (кириллица/латиница). Десятичные («3.14»), сокращения
-# («т.е.») не трогаются — после них не заглавная.
-_SENT_GLUE_FIX = re.compile(r"([.!?…;])([A-ZА-ЯЁ])")
-
-
-def _fix_sentence_glue(text: str) -> str:
-    return _SENT_GLUE_FIX.sub(r"\1 \2", text) if text else text
-
-
-# Голос = разговор вслух: длинные ответы утомляют и долго синтезируются.
-# Промпт просит короткий ЗАКОНЧЕННЫЙ ответ (3–5 фраз с завершающим вопросом).
-# Этот лимит — ПРЕДОХРАНИТЕЛЬ на случай, когда DeepSeek игнорирует промпт и
-# разгоняется до 8–11 фраз. Раньше стоял 5 и рубил нормальные цельные ответы
-# на полу-мысли («резанность»); подняли до 7 — обычный ответ завершается сам,
-# а режется только явный перебор (на границе фразы, не на полуслове).
-# Текстовый чат этим лимитом не тронут.
-_MAX_VOICE_SENTENCES = 7
 
 def _normalize_fredi_wake_word(text: str) -> str:
     if not text:
@@ -1266,28 +1231,16 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                             logger.warning(f"🎙️ VOICE_LAT sent#{_idx} TTS_ERR: {_tts_e}")
 
                     _buf = ""
-                    _capped = False
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
                             continue
-                        # Сырая склейка + пробел после точки, если LLM его не
-                        # поставил («семью.Оставаться»): иначе и предложение не
-                        # режется, и текст с озвучкой слипаются.
-                        _buf = _fix_sentence_glue(_buf + chunk)
+                        _buf += chunk  # СЫРАЯ склейка — пробелы токенов сохраняются
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
                             await _emit_sentence(_s)
-                            if _voice["idx"] >= _MAX_VOICE_SENTENCES:
-                                _capped = True
-                                break
-                        if _capped:
-                            break
-                    # Флешим остаток буфера (последнее предложение без завершающего
-                    # пробела) — только если не упёрлись в лимит предложений.
-                    if not _capped and _buf.strip():
+                    # Флешим остаток буфера (последнее предложение без завершающего пробела)
+                    if _buf.strip():
                         await _emit_sentence(_buf)
-                    if _capped:
-                        logger.info(f"🎙️ VOICE_LAT capped at {_MAX_VOICE_SENTENCES} sentences (voice brevity)")
 
                     if streamed_audio:
                         logger.info(
@@ -3627,24 +3580,17 @@ async def process_voice_stream(
                         return None, sentence
 
                     _buf = ""
-                    _capped = False
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
                             continue
-                        # + пробел после точки, если LLM его не поставил (см. WS).
-                        _buf = _fix_sentence_glue(_buf + chunk)
+                        _buf += chunk  # сырая склейка — пробелы токенов сохраняются
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
                             _b64, _txt = await _synth_sentence(_s)
                             if _b64:
                                 yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
-                            if _lat["idx"] >= _MAX_VOICE_SENTENCES:
-                                _capped = True
-                                break
-                        if _capped:
-                            break
-                    # Флешим остаток буфера — только если не упёрлись в лимит.
-                    if not _capped and _buf.strip():
+                    # Флешим остаток буфера (последнее предложение без завершающего пробела)
+                    if _buf.strip():
                         _b64, _txt = await _synth_sentence(_buf)
                         if _b64:
                             yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
