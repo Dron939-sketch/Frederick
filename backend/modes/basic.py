@@ -908,6 +908,17 @@ class BasicMode(BaseMode):
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
 
+        # Жёсткий перехват вопросов об авторстве/модели — до LLM, чтобы
+        # DeepSeek не раскрыл себя вопреки промпту (см. mode_enhancer).
+        try:
+            from mode_enhancer import _is_identity_question, _IDENTITY_ANSWER
+            if _is_identity_question(question):
+                self.conversation_history.append(f"Фреди: {_IDENTITY_ANSWER}")
+                yield _IDENTITY_ANSWER
+                return
+        except Exception as _e:
+            logger.debug(f"identity intercept skip: {_e}")
+
         if self.message_counter == 1:
             await self._load_memory()
             # Подтягиваем IANA-таймзону юзера из fredi_users.user_tz —
