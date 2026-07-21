@@ -570,9 +570,11 @@ def register_analytics_routes(app, db):
                     SELECT COALESCE(data->>'feature','?') AS game,
                            COUNT(*) FILTER (WHERE event = 'game_round_start')  AS starts,
                            COUNT(*) FILTER (WHERE event = 'game_round_finish') AS finishes,
-                           ROUND(AVG((data->>'score')::numeric) FILTER (
-                               WHERE event = 'game_round_finish'
-                                 AND (data->>'score') ~ '^[0-9.]+$'), 1) AS avg_score
+                           ROUND(AVG(CASE
+                               WHEN event = 'game_round_finish'
+                                AND (data->>'score') ~ '^[0-9]+(\\.[0-9]+)?$'
+                               THEN (data->>'score')::numeric
+                           END), 1) AS avg_score
                     FROM fredi_analytics
                     WHERE created_at > NOW() - INTERVAL '30 days'
                       AND event IN ('game_round_start','game_round_finish')
@@ -617,8 +619,10 @@ def register_analytics_routes(app, db):
 
                 return out
         except Exception as e:
-            logger.error(f"analytics product error: {e}")
-            return {"error": "internal"}
+            # Эндпоинт под X-Admin-Token — можно вернуть текст ошибки, чтобы
+            # в дашборде было видно ПРИЧИНУ, а не глухое «internal».
+            logger.error(f"analytics product error: {type(e).__name__}: {e}")
+            return {"error": f"{type(e).__name__}: {str(e)[:300]}"}
 
     @app.get("/api/analytics/recent")
     async def analytics_recent(request: Request, limit: int = 100,
