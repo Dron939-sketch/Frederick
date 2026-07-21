@@ -596,6 +596,13 @@ _SENT_GLUE_FIX = re.compile(r"([.!?…;])([A-ZА-ЯЁ])")
 def _fix_sentence_glue(text: str) -> str:
     return _SENT_GLUE_FIX.sub(r"\1 \2", text) if text else text
 
+
+# Голос = разговор вслух: длинные ответы утомляют и долго синтезируются.
+# Промпт просит 2–4 предложения, но DeepSeek местами разгоняется до 8–11.
+# Жёстко ограничиваем ОЗВУЧКУ первыми N предложениями (на границе фразы —
+# без обрыва на полуслове). Текстовый чат этим лимитом не тронут.
+_MAX_VOICE_SENTENCES = 5
+
 def _normalize_fredi_wake_word(text: str) -> str:
     if not text:
         return text
@@ -1246,6 +1253,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                             logger.warning(f"🎙️ VOICE_LAT sent#{_idx} TTS_ERR: {_tts_e}")
 
                     _buf = ""
+                    _capped = False
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
                             continue
@@ -1256,9 +1264,17 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
                             await _emit_sentence(_s)
-                    # Флешим остаток буфера (последнее предложение без завершающего пробела)
-                    if _buf.strip():
+                            if _voice["idx"] >= _MAX_VOICE_SENTENCES:
+                                _capped = True
+                                break
+                        if _capped:
+                            break
+                    # Флешим остаток буфера (последнее предложение без завершающего
+                    # пробела) — только если не упёрлись в лимит предложений.
+                    if not _capped and _buf.strip():
                         await _emit_sentence(_buf)
+                    if _capped:
+                        logger.info(f"🎙️ VOICE_LAT capped at {_MAX_VOICE_SENTENCES} sentences (voice brevity)")
 
                     if streamed_audio:
                         logger.info(
@@ -3598,6 +3614,7 @@ async def process_voice_stream(
                         return None, sentence
 
                     _buf = ""
+                    _capped = False
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
                             continue
@@ -3608,8 +3625,13 @@ async def process_voice_stream(
                             _b64, _txt = await _synth_sentence(_s)
                             if _b64:
                                 yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
-                    # Флешим остаток буфера (последнее предложение без завершающего пробела)
-                    if _buf.strip():
+                            if _lat["idx"] >= _MAX_VOICE_SENTENCES:
+                                _capped = True
+                                break
+                        if _capped:
+                            break
+                    # Флешим остаток буфера — только если не упёрлись в лимит.
+                    if not _capped and _buf.strip():
                         _b64, _txt = await _synth_sentence(_buf)
                         if _b64:
                             yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
