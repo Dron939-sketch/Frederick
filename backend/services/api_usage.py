@@ -37,6 +37,14 @@ logger = logging.getLogger(__name__)
 # ============================================================
 PRICING: Dict[str, Dict[str, Dict[str, float]]] = {
     "deepseek": {
+        "deepseek-v4-pro": {
+            "input_per_mtok": 0.27,
+            "output_per_mtok": 1.10,
+        },
+        "deepseek-v4-flash": {
+            "input_per_mtok": 0.14,
+            "output_per_mtok": 0.55,
+        },
         "deepseek-chat": {
             "input_per_mtok": 0.27,
             "output_per_mtok": 1.10,

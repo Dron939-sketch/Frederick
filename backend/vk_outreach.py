@@ -37,7 +37,7 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger(__name__)
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_MODEL = "deepseek-chat"
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
 TIMEOUT_S = 60.0
 
 FREDI_LANDING = "https://meysternlp.ru/fredi/"
@@ -240,7 +240,7 @@ async def draft_message(
         from services.api_usage import log_llm_usage, extract_deepseek_tokens
         tk = extract_deepseek_tokens(body)
         _aio.create_task(log_llm_usage(
-            provider="deepseek", model="deepseek-chat",
+            provider="deepseek", model=DEEPSEEK_MODEL,
             tokens_in=tk["tokens_in"], tokens_out=tk["tokens_out"],
             feature="outreach.draft",
         ))

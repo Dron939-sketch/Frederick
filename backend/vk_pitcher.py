@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_MODEL = "deepseek-chat"
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
 TIMEOUT_S = 60.0
 
 FREDI_DEMO = "https://meysternlp.ru/fredi/"
