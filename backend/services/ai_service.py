@@ -16,6 +16,11 @@ from typing import Optional, Dict, Any, List, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
+# Модель DeepSeek. API убрал алиас "deepseek-chat" (теперь только v4-*),
+# поэтому имя вынесено в env: DEEPSEEK_MODEL (по умолчанию deepseek-v4-pro;
+# можно переключить на deepseek-v4-flash для дешёвых/быстрых вызовов).
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
+
 
 async def call_deepseek(prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
     service = AIService()
@@ -76,7 +81,7 @@ class AIService:
         try:
             session = await self._get_session()
             request_body = {
-                "model": "deepseek-chat",
+                "model": DEEPSEEK_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": temperature,
                 "max_tokens": max_tokens
@@ -129,7 +134,7 @@ class AIService:
             return
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {
-            "model": "deepseek-chat",
+            "model": DEEPSEEK_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -172,7 +177,7 @@ class AIService:
         try:
             session = await self._get_session()
             request_body = {
-                "model": "deepseek-chat",
+                "model": DEEPSEEK_MODEL,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -261,7 +266,7 @@ class AIService:
             return
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {
-            "model": "deepseek-chat",
+            "model": DEEPSEEK_MODEL,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -392,7 +397,7 @@ class AIService:
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "deepseek-chat",
+                    "model": DEEPSEEK_MODEL,
                     "messages": messages,
                     "temperature": temperature,
                     "max_tokens": max_tokens,
@@ -493,7 +498,7 @@ class AIService:
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {
-            "model": "deepseek-chat",
+            "model": DEEPSEEK_MODEL,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,

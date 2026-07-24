@@ -131,6 +131,7 @@ def _extract_text(page: str) -> str:
 # ===== Подготовка речи: из текста статьи — в устную лекцию =====
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
 # off | lectures (только lekciya-*) | all
 BLOG_TTS_REWRITE = os.getenv("BLOG_TTS_REWRITE", "lectures").lower()
 
@@ -219,7 +220,7 @@ async def _deepseek_rewrite(
         "https://api.deepseek.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
         json={
-            "model": "deepseek-chat",
+            "model": DEEPSEEK_MODEL,
             "temperature": 0.4,
             "messages": [
                 {"role": "system", "content": system},
@@ -235,7 +236,7 @@ async def _deepseek_rewrite(
         from services.api_usage import log_llm_usage, extract_deepseek_tokens
         tk = extract_deepseek_tokens(body)
         asyncio.create_task(log_llm_usage(
-            provider="deepseek", model="deepseek-chat",
+            provider="deepseek", model=DEEPSEEK_MODEL,
             input_tokens=tk[0], output_tokens=tk[1],
             feature="tts.lecture_rewrite",
         ))
