@@ -354,6 +354,11 @@ async def lifespan(app: FastAPI):
         from blog_tts_routes import register_blog_tts_routes
         register_blog_tts_routes(app, limiter)
 
+        # Видео-озвучка Лектория (голос Фреди, admin-гейт). Источник правды по
+        # озвучке для видео-«завода» (репо 999): ключ Fish не покидает сервер.
+        from video_tts_routes import register_video_tts_routes
+        register_video_tts_routes(app, limiter)
+
         from waitlist_routes import register_waitlist_routes
         _init_waitlist = register_waitlist_routes(app, db, limiter)
         await _init_waitlist()
