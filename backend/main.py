@@ -2957,6 +2957,54 @@ async def get_profile_interpretation(request: Request, user_id: int):
 
 
 # ---------- ЧАТ ----------
+async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
+    """Спросить режим, предпочитая асинхронные методы синхронному.
+
+    У BasicMode и PsychologistMode реально работает только асинхронный путь
+    (process_question_full / process_question_streaming); синхронный
+    process_question у них — заглушка. Голосовые эндпоинты давно ходят по
+    асинхронной цепочке, а текстовый чат вызывал синхронный метод напрямую —
+    из-за чего BasicMode отвечал служебной строкой вместо ответа.
+    """
+    tools_used: List[str] = []
+    response_text = None
+
+    if hasattr(mode_instance, "process_question_full"):
+        try:
+            response_text = await mode_instance.process_question_full(question)
+        except Exception as e:
+            logger.warning(f"process_question_full failed: {e}")
+            response_text = None
+
+    if (not response_text or not response_text.strip()) and hasattr(mode_instance, "process_question_streaming"):
+        try:
+            chunks = []
+            async for chunk in mode_instance.process_question_streaming(question):
+                chunks.append(chunk)
+            response_text = "".join(chunks)
+            response_text = re.sub(r"([.!?,;:])([^\s\d\)\]\}])", r"\1 \2", response_text)
+            response_text = re.sub(r"([—–])([^\s])", r"\1 \2", response_text)
+            response_text = re.sub(r"([а-яё])([А-ЯЁ])", r"\1 \2", response_text)
+            response_text = re.sub(r"\s+", " ", response_text).strip()
+        except Exception as e:
+            logger.warning(f"process_question_streaming failed: {e}")
+            response_text = None
+
+    if not response_text or not response_text.strip():
+        try:
+            result = mode_instance.process_question(question)
+            response_text = (result or {}).get("response", "")
+            tools_used = (result or {}).get("tools_used", []) or []
+        except Exception as e:
+            logger.error(f"All mode methods failed: {e}")
+            response_text = ""
+
+    if not response_text or not response_text.strip():
+        response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
+
+    return {"response": response_text, "tools_used": tools_used}
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat(request: Request, data: ChatRequest):
@@ -3059,9 +3107,9 @@ async def chat(request: Request, data: ChatRequest):
                 result = {"response": freddy_reply, "tools_used": ["freddy_sdk"]}
             else:
                 logger.info(f"FreddyService unavailable, falling back to BasicMode for user {data.user_id}")
-                result = mode_instance.process_question(data.message)
+                result = await _ask_mode(mode_instance, data.message)
         else:
-            result = mode_instance.process_question(data.message)
+            result = await _ask_mode(mode_instance, data.message)
 
         # Persist test_offered for BasicMode after processing
         if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):

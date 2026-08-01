@@ -1133,7 +1133,19 @@ class BasicMode(BaseMode):
         return text.strip()
 
     def process_question(self, question: str):
-        return {"response": "Basic mode works", "tools_used": []}
+        """Синхронная заглушка: реальная работа идёт в process_question_streaming.
+
+        Возвращаемый текст всё равно может попасть пользователю, если
+        асинхронный путь упал, поэтому здесь человеческая фраза, а не
+        служебная строка."""
+        logger.warning(
+            "BasicMode.process_question вызван синхронно — рабочий путь "
+            "process_question_streaming недоступен"
+        )
+        return {
+            "response": "Я здесь. Расскажите, что происходит?",
+            "tools_used": ["fallback"],
+        }
 
     def __repr__(self):
         return f"<BasicMode(msgs={self.message_counter}, rules={len(self.rules)})>"
