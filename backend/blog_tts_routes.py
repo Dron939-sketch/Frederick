@@ -99,6 +99,48 @@ def _extract_text(page: str) -> str:
         return "<p>[СХЕМА: " + c + "]</p>" if c else " "
 
     body = re.sub(r"<figcaption[^>]*>(.*?)</figcaption>", _cap_to_marker, body, flags=re.S)
+
+    # Таблицы: диктору достаётся только <h2|h3|p|li>, поэтому раньше содержимое
+    # таблиц пропадало из озвучки целиком — а в статьях блога это часто ядро
+    # материала (сравнения «было/стало», типологии). Разворачиваем таблицу в
+    # прозу: шапка запоминается, каждая строка читается как «ячейка шапки —
+    # значение», строки разделяются точкой с запятой.
+    def _table_to_prose(tm):
+        raw = tm.group(0)
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", raw, flags=re.S)
+        if not rows:
+            return " "
+
+        def _cells(row, tag):
+            out = []
+            for c in re.findall(r"<%s[^>]*>(.*?)</%s>" % (tag, tag), row, flags=re.S):
+                c = re.sub(r"<[^>]+>", " ", c)
+                c = re.sub(r"\s+", " ", html_mod.unescape(c)).strip()
+                out.append(c)
+            return out
+
+        header, lines = [], []
+        for row in rows:
+            th = _cells(row, "th")
+            if th and not header:
+                header = th
+                continue
+            td = _cells(row, "td")
+            if not td:
+                continue
+            if header and len(header) == len(td):
+                # первая колонка обычно — название строки, она и есть подлежащее
+                subj = td[0]
+                pairs = ["%s: %s" % (header[i], td[i]) for i in range(1, len(td)) if td[i]]
+                lines.append("%s — %s" % (subj, "; ".join(pairs)) if pairs else subj)
+            else:
+                lines.append(" — ".join(x for x in td if x))
+        if not lines:
+            return " "
+        return "<p>" + " ".join(l.rstrip(".") + ". " for l in lines) + "</p>"
+
+    body = re.sub(r"<table.*?</table>", _table_to_prose, body, flags=re.S)
+
     # сами SVG-схемы диктору не нужны (и их <polygon>/<line> не должны
     # ловиться регэкспом как <p>/<li>)
     body = re.sub(r"<svg.*?</svg>", " ", body, flags=re.S)
