@@ -56,9 +56,20 @@ MAX_ARTICLE_CHARS = 60000   # предохранитель от аномальн
 # Версия конвейера озвучки. Меняются голос/режиссёр/промт — поднимаем
 # на единицу, и закэшированные mp3 переозвучиваются при следующем запросе.
 TTS_CACHE_VERSION = 4
-# Если Fish был недоступен и лекцию озвучил Яндекс — отдаём этот файл,
-# но спустя это время при новом запросе пробуем вернуть голос Фреди.
-DEGRADED_RETRY_SECONDS = 6 * 3600
+
+
+def _tts_available() -> bool:
+    """Есть ли чем озвучивать. Раньше здесь проверялся только ключ Яндекса —
+    и при работе на одном Fish (провайдер по умолчанию!) вся озвучка блога
+    отвечала «tts disabled», хотя голос Фреди был настроен."""
+    if BLOG_TTS_PROVIDER == "fish":
+        try:
+            from services.fish_audio_service import fish_configured
+            if fish_configured():
+                return True
+        except Exception:
+            pass
+    return bool(YANDEX_API_KEY)
 
 # Блоки, которые не читаем вслух (виджеты, ссылки, служебное)
 _SKIP_BLOCK_RE = re.compile(
@@ -461,7 +472,7 @@ def _cache_ok(slug: str) -> bool:
     """Есть готовый непустой mp3 — кэш валиден, НЕ переозвучиваем.
     Главное правило: не платить Fish дважды за то, что уже озвучено. Раньше
     расхождение версии пайплайна/провайдера или «деградированный» (Яндекс
-    вместо Фреди) файл спустя DEGRADED_RETRY_SECONDS заставляли синтез идти
+    вместо Фреди) файл спустя несколько часов заставляли синтез идти
     заново — и это стоило денег на каждый апдейт. Теперь перегенерация — только
     по явному запросу админа (force). Поля v/provider в мете остаются для
     информации (их показывает статус), но сами перегенерацию не запускают."""
@@ -561,6 +572,15 @@ async def _discover_lecture_slugs() -> list:
     return lectures
 
 
+def _is_degraded(slug: str) -> bool:
+    """Озвучено не тем голосом: хотели Фреди (Fish), а вышел Яндекс.
+    Определяется по мете рядом с mp3; без меты судить не берёмся."""
+    meta = _read_meta(slug)
+    if not meta:
+        return False
+    return meta.get("wanted") == "fish" and meta.get("provider") not in (None, "fish")
+
+
 async def _pregenerate_run(slugs: list, force: bool = False):
     """Последовательно озвучивает список слагов, пропуская уже готовые.
     Последовательно — чтобы не разгонять расход Fish и нагрузку на LLM.
@@ -610,7 +630,7 @@ def register_blog_tts_routes(app, limiter):
     async def blog_tts_status(request: Request, slug: str):
         if not SLUG_RE.match(slug or ""):
             return JSONResponse({"enabled": False}, status_code=400)
-        if not YANDEX_API_KEY:
+        if not _tts_available():
             return {"enabled": False}
         # v меняется при переозвучке: фронт добавляет его к URL,
         # чтобы браузер не играл вечно закэшированный старый голос
@@ -638,7 +658,7 @@ def register_blog_tts_routes(app, limiter):
     async def blog_tts_audio(request: Request, slug: str):
         if not SLUG_RE.match(slug or ""):
             return JSONResponse({"error": "bad slug"}, status_code=400)
-        if not YANDEX_API_KEY:
+        if not _tts_available():
             return JSONResponse({"error": "tts disabled"}, status_code=503)
 
         path = os.path.join(TTS_DIR, f"{slug}.mp3")
@@ -693,7 +713,7 @@ def register_blog_tts_routes(app, limiter):
                                  "message": "Задайте ADMIN_TOKEN в env"}, status_code=503)
         if (request.headers.get("X-Admin-Token") or "").strip() != expected:
             return JSONResponse({"error": "forbidden"}, status_code=403)
-        if not YANDEX_API_KEY:
+        if not _tts_available():
             return JSONResponse({"error": "tts disabled"}, status_code=503)
         if _pregen["running"]:
             return JSONResponse({"status": "already_running", **_pregen}, status_code=409)
@@ -704,14 +724,24 @@ def register_blog_tts_routes(app, limiter):
             payload = {}
         slugs = payload.get("slugs") if isinstance(payload, dict) else None
         force = bool(payload.get("force")) if isinstance(payload, dict) else False
+        # only_degraded: переозвучить только то, что ушло в Яндекс вместо Фреди.
+        # Дешевле force: уже правильно озвученное Fish не трогаем.
+        only_degraded = bool(payload.get("only_degraded")) if isinstance(payload, dict) else False
         if slugs:
             slugs = [s for s in slugs if isinstance(s, str) and SLUG_RE.match(s)]
         else:
             try:
-                slugs = await _discover_lecture_slugs()
+                if only_degraded:
+                    lectures, blog = await _discover_sitemap_slugs()
+                    slugs = _uniq_slugs(list(lectures) + list(blog))
+                else:
+                    slugs = await _discover_lecture_slugs()
             except Exception as e:
                 return JSONResponse({"error": "discover failed", "detail": str(e)[:200]},
                                     status_code=502)
+        if only_degraded:
+            slugs = [s for s in slugs if _is_degraded(s)]
+            force = True   # иначе готовый mp3 будет пропущен как валидный
         if not slugs:
             return JSONResponse({"error": "no slugs"}, status_code=400)
 
