@@ -141,7 +141,8 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: 
                         import asyncio as _aio
                         from services.api_usage import log_tts_usage
                         _aio.create_task(log_tts_usage(
-                            provider="fishaudio", model="default",
+                            provider="fishaudio",
+                            model=FISH_AUDIO_MODEL or "default",
                             chars=len(text or ""),
                             feature=f"tts.{mode}",
                         ))

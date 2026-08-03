@@ -512,10 +512,15 @@ async def _generate(slug: str) -> str:
     os.replace(tmp, path)
     try:
         with open(_meta_path(slug), "w", encoding="utf-8") as mf:
-            json.dump({
+            meta_out = {
                 "v": TTS_CACHE_VERSION, "provider": used, "wanted": BLOG_TTS_PROVIDER,
                 "ts": time.time(), "chars": len(speech),
-            }, mf)
+            }
+            if used == "fish":
+                # какой моделью синтезировано: пусто = «модель Fish по
+                # умолчанию», а она у них меняется, и голос вместе с ней
+                meta_out["fish_model"] = os.getenv("FISH_AUDIO_MODEL", "").strip() or "default"
+            json.dump(meta_out, mf)
     except Exception:
         pass
 
@@ -647,6 +652,7 @@ def register_blog_tts_routes(app, limiter):
             "url": f"/api/tts/blog/{slug}.mp3",
             "v": int(meta.get("ts", 0)),
             "voice": meta.get("provider"),
+            "fish_model": meta.get("fish_model"),
             "degraded": bool(meta) and meta.get("provider") not in (None, meta.get("wanted")),
             "fish": _fish,
             "generating": slug in _gen_tasks,
@@ -812,6 +818,7 @@ def register_blog_tts_routes(app, limiter):
                 "kind": ("lecture" if slug.startswith("lekciya-")
                          else ("orphan" if slug in orphans else "article")),
                 "voice": meta.get("provider"),
+                "fish_model": meta.get("fish_model"),
                 "wanted": meta.get("wanted"),
                 "degraded": bool(meta) and meta.get("provider") not in (None, meta.get("wanted")),
                 "stale": exists and not ok,
