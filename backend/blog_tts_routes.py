@@ -53,9 +53,13 @@ FISH_CHUNK_LIMIT = 1400     # Fish генерирует медленно: дли
 FISH_TIMEOUT = 120.0        # ...поэтому куски короче, а таймаут щедрее
 MAX_ARTICLE_CHARS = 60000   # предохранитель от аномально длинных страниц
 
-# Версия конвейера озвучки. Меняются голос/режиссёр/промт — поднимаем
-# на единицу, и закэшированные mp3 переозвучиваются при следующем запросе.
-TTS_CACHE_VERSION = 4
+# Версия конвейера озвучки. Меняются голос, режиссёр, промт или разбор
+# страницы — поднимаем на единицу. Сама по себе перегенерацию она не
+# запускает (см. _cache_ok: за уже озвученное Fish дважды не платим), но
+# записывается в мету и позволяет отличить файлы, сделанные старым
+# конвейером, и переозвучить их точечно через pregenerate?force=1.
+# 5: разбор страницы перестал терять текст на служебных блоках.
+TTS_CACHE_VERSION = 5
 
 
 def _tts_available() -> bool:
@@ -72,12 +76,49 @@ def _tts_available() -> bool:
     return bool(YANDEX_API_KEY)
 
 # Блоки, которые не читаем вслух (виджеты, ссылки, служебное)
-_SKIP_BLOCK_RE = re.compile(
-    r'<div class="(?:selfcheck|fredi-ask-box|game-link-box|related-articles|'
-    r'author-block|author-box|cta-block|toc-box)".*?</div>\s*</div>|'
-    r'<div class="(?:selfcheck|fredi-ask-box|game-link-box|toc-box)".*?</div>',
-    re.S,
+_SKIP_CLASSES = ("selfcheck", "fredi-ask-box", "game-link-box", "related-articles",
+                 "author-block", "author-box", "cta-block", "toc-box")
+
+# Открывающий тег любого контейнера, у которого в class есть служебный класс.
+# Ищем не только div: оглавление на большей части статей размечено как <nav>.
+_SKIP_OPEN_RE = re.compile(
+    r'<(div|nav|section|aside)\b[^>]*\bclass="[^"]*\b(?:%s)\b[^"]*"[^>]*>'
+    % "|".join(_SKIP_CLASSES),
+    re.I,
 )
+
+
+def _drop_skip_blocks(body: str) -> str:
+    """Убирает служебные блоки вместе с содержимым, считая вложенность.
+
+    Раньше это делал один регэксп вида «открывающий тег ... до `</div></div>`».
+    Он молча съедал статью целиком, если у блока не оказывалось двух закрывающих
+    тегов подряд: непожадный поиск уезжал вперёд до ближайшей такой пары —
+    то есть на середину следующего раздела. На страницах с блоком самопроверки
+    и на лекциях, где оглавление размечено как <div>, в озвучку уходило
+    восемь-двадцать процентов текста: вступление и хвост, а вся суть пропадала.
+    Считаем границы блока по вложенности — промахнуться уже нельзя.
+    """
+    out, pos = [], 0
+    while True:
+        m = _SKIP_OPEN_RE.search(body, pos)
+        if not m:
+            break
+        tag = m.group(1).lower()
+        depth, i = 1, m.end()
+        step = re.compile(r"<(/?)%s\b" % tag, re.I)
+        while depth and i < len(body):
+            t = step.search(body, i)
+            if not t:
+                i = len(body)
+                break
+            depth += -1 if t.group(1) else 1
+            i = body.find(">", t.end())
+            i = len(body) if i < 0 else i + 1
+        out.append(body[pos:m.start()])
+        pos = i
+    out.append(body[pos:])
+    return " ".join(out)
 
 _locks: dict = {}
 _gen_tasks: dict = {}   # slug -> asyncio.Task фоновой генерации
@@ -99,8 +140,7 @@ def _extract_text(page: str) -> str:
     # выкидываем скрипты/стили и нечитаемые блоки
     body = re.sub(r"<script.*?</script>", " ", body, flags=re.S)
     body = re.sub(r"<style.*?</style>", " ", body, flags=re.S)
-    for _ in range(3):
-        body = _SKIP_BLOCK_RE.sub(" ", body)
+    body = _drop_skip_blocks(body)
 
     # подписи к схемам/иллюстрациям -> маркер для лектора,
     # оставленный на своём месте в потоке текста
