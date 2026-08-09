@@ -5,6 +5,7 @@
 ВЕРСИЯ 3.4 — поддержка кастомного system_prompt для многоавторской архитектуры
 """
 
+import time
 import aiohttp
 import asyncio
 import json
@@ -275,6 +276,14 @@ class AIService:
             "max_tokens": max_tokens,
             "stream": True,
         }
+        # Замер: сколько модель молчит до первого токена (TTFT) и сколько
+        # потом занимает генерация. Греп «DEEPSEEK_LAT». Нужно, чтобы
+        # отличать «тяжёлый промпт» от «провайдер тормозит»: снаружи оба
+        # выглядят одинаково — человек просто ждёт.
+        _t0 = time.time()
+        _ttft = None
+        _chars = 0
+        _prompt_chars = len(system_prompt or "") + len(user_prompt or "")
         try:
             session = await self._get_session()
             async with session.post(
@@ -283,7 +292,16 @@ class AIService:
                 timeout=aiohttp.ClientTimeout(total=60),
             ) as response:
                 if response.status != 200:
-                    logger.error(f"❌ DeepSeek streaming error: {response.status}")
+                    body = ""
+                    try:
+                        body = (await response.text())[:300]
+                    except Exception:
+                        pass
+                    # Раньше писали только код. Тело ответа тут важнее: на
+                    # 400 в нём лежит причина (слишком длинный контекст,
+                    # неизвестная модель), без которой отладка слепая.
+                    logger.error("❌ DeepSeek streaming error: %s prompt_chars=%d body=%s"
+                                 % (response.status, _prompt_chars, body))
                     return
                 async for line in response.content:
                     if not line:
@@ -301,11 +319,23 @@ class AIService:
                     if chunk.get('choices'):
                         content = chunk['choices'][0].get('delta', {}).get('content', '')
                         if content:
+                            if _ttft is None:
+                                _ttft = time.time() - _t0
+                            _chars += len(content)
                             yield content
         except asyncio.TimeoutError:
-            logger.error("❌ DeepSeek streaming timeout (60s)")
+            logger.error("❌ DeepSeek streaming timeout (60s) prompt_chars=%d" % _prompt_chars)
         except Exception as e:
             logger.error(f"❌ DeepSeek streaming error: {e}")
+        finally:
+            _total = time.time() - _t0
+            logger.info(
+                "⏱️ DEEPSEEK_LAT ttft=%s генерация=%dms всего=%dms "
+                "промпт=%d знаков ответ=%d знаков model=%s"
+                % ("%dms" % (_ttft * 1000) if _ttft is not None else "НЕТ ТОКЕНОВ",
+                   (_total - (_ttft or 0)) * 1000, _total * 1000,
+                   _prompt_chars, _chars, DEEPSEEK_MODEL)
+            )
 
     # ============================================
     # ГЕНЕРАЦИЯ ОТВЕТА — главный метод (обновлён)

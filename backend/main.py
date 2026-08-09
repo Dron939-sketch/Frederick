@@ -3114,8 +3114,14 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
 async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
                             response_text: str, mode_name: str,
                             tools_used: Optional[List[str]] = None,
-                            streamed: bool = False) -> None:
-    """Сохранение хода: состояние режима, обе реплики, событие аналитики."""
+                            streamed: bool = False,
+                            timings: Optional[Dict[str, int]] = None) -> None:
+    """Сохранение хода: состояние режима, обе реплики, событие аналитики.
+
+    timings попадают в fredi_events и потому видны в админке. Логи
+    приложения снаружи не читаются, а без чисел спор о том, где именно
+    человек ждёт свои пятнадцать секунд, ведётся вслепую.
+    """
     context_obj = prep["context_obj"]
     mode_instance = prep["mode_instance"]
 
@@ -3131,9 +3137,11 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
     await log_event(user_id, "chat", {
         "mode": mode_name,
         "message_length": len(message),
+        "reply_length": len(response_text or ""),
         "tools_used": tools_used or [],
         "has_profile": prep["has_profile"],
         "streamed": streamed,
+        **(timings or {}),
     })
 
 
@@ -3219,11 +3227,14 @@ async def chat_stream(request: Request, data: ChatRequest):
     """
     async def event_stream():
         full_text = ""
+        _t0 = time.time()
+        _t_prep = _t_first = None
         try:
             prep = await _prepare_chat_turn(data.user_id, data.message, data.mode)
             mode_instance = prep["mode_instance"]
             mode_name = prep["mode_name"]
             tools_used: List[str] = []
+            _t_prep = time.time()
 
             yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n"
 
@@ -3252,6 +3263,8 @@ async def chat_stream(request: Request, data: ChatRequest):
                         # может потребовать пробел перед уже показанным знаком
                         safe = shown[:-1]
                         if len(safe) > sent:
+                            if _t_first is None:
+                                _t_first = time.time()
                             yield json.dumps({"type": "delta", "text": safe[sent:]},
                                              ensure_ascii=False) + "\n"
                             sent = len(safe)
@@ -3275,12 +3288,30 @@ async def chat_stream(request: Request, data: ChatRequest):
                 yield json.dumps({"type": "delta", "text": full_text},
                                  ensure_ascii=False) + "\n"
 
+            _now = time.time()
+            timings = {
+                "prep_ms": int((_t_prep - _t0) * 1000),
+                "first_delta_ms": int(((_t_first or _now) - _t0) * 1000),
+                "total_ms": int((_now - _t0) * 1000),
+            }
+            # Режим раскладывает своё ожидание подробнее: сколько ушло на
+            # походы в БД за памятью и сколько молчала модель.
+            timings.update(getattr(mode_instance, "last_timings", None) or {})
+            logger.info(
+                "⏱️ CHAT_LAT подготовка=%dms первая_дельта=%dms всего=%dms "
+                "знаков=%d mode=%s uid=%s"
+                % (timings["prep_ms"], timings["first_delta_ms"],
+                   timings["total_ms"], len(full_text), mode_name, data.user_id)
+            )
+
             await _finish_chat_turn(prep, data.user_id, data.message,
-                                    full_text, mode_name, tools_used, streamed=True)
+                                    full_text, mode_name, tools_used,
+                                    streamed=True, timings=timings)
 
             yield json.dumps({"type": "done", "full_text": full_text,
                               "mode_used": mode_name,
-                              "reflection": prep["reflection"]},
+                              "reflection": prep["reflection"],
+                              "timings": timings},
                              ensure_ascii=False) + "\n"
 
         except Exception as e:
