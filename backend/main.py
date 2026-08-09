@@ -3239,7 +3239,7 @@ async def chat_stream(request: Request, data: ChatRequest):
     async def event_stream():
         full_text = ""
         _t0 = time.time()
-        _t_prep = _t_first = None
+        _t_prep = _t_first = _t_gen = _t_chunk = None
         try:
             prep = await _prepare_chat_turn(data.user_id, data.message, data.mode)
             mode_instance = prep["mode_instance"]
@@ -3268,8 +3268,16 @@ async def chat_stream(request: Request, data: ChatRequest):
 
             if not streamed_ok and hasattr(mode_instance, "process_question_streaming"):
                 acc, sent = "", 0
+                # Две отсечки вокруг генератора режима. После правки с двойной
+                # генерацией между подготовкой (30 мс) и первой дельтой всё ещё
+                # оставалось около 9,6 секунды, не объяснённых ни одним замером,
+                # — а замеры режима идут от его собственного начала и этот
+                # разрыв не покрывают. Ставим границу ровно здесь.
+                _t_gen = time.time()
                 try:
                     async for chunk in mode_instance.process_question_streaming(data.message):
+                        if _t_chunk is None:
+                            _t_chunk = time.time()
                         if not chunk:
                             continue
                         acc += chunk
@@ -3312,6 +3320,17 @@ async def chat_stream(request: Request, data: ChatRequest):
             # Режим раскладывает своё ожидание подробнее: сколько ушло на
             # походы в БД за памятью и сколько молчала модель.
             timings.update(getattr(mode_instance, "last_timings", None) or {})
+            if _t_gen is not None:
+                # до входа в генератор и до первого чанка ИЗ него — этими
+                # двумя отсечками закрывается последний неучтённый участок
+                timings["gen_start_ms"] = int((_t_gen - _t0) * 1000)
+                if _t_chunk is not None:
+                    timings["gen_first_chunk_ms"] = int((_t_chunk - _t0) * 1000)
+            timings.update(
+                {"llm_" + k: v
+                 for k, v in (getattr(getattr(mode_instance, "ai_service", None),
+                                      "last_stream_usage", None) or {}).items()}
+            )
             logger.info(
                 "⏱️ CHAT_LAT подготовка=%dms первая_дельта=%dms всего=%dms "
                 "знаков=%d mode=%s uid=%s"
