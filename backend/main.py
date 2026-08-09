@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 from db import Database
 from cache import RedisCache
-from services.ai_service import AIService
+from services.ai_service import AIService, TECH_FAIL_REPLY
 from services.weather_service import WeatherService
 from services.weekend_planner import WeekendPlanner
 from repositories.user_repo import UserRepository
@@ -1264,7 +1264,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         )
 
                 if not response_text:
-                    response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
+                    response_text = TECH_FAIL_REPLY
 
                 response_text = response_text.strip()
                 logger.info(f"💬 AI response ({len(response_text)} chars): {repr(response_text[:150])}")
@@ -3019,7 +3019,7 @@ async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
             response_text = ""
 
     if not response_text or not response_text.strip():
-        response_text = "Вопрос интересный. Расскажите подробнее, пожалуйста."
+        response_text = TECH_FAIL_REPLY
 
     return {"response": response_text, "tools_used": tools_used}
 
@@ -3636,10 +3636,10 @@ async def process_voice(
                 response_text = result.get("response", "")
             except Exception as e:
                 logger.error(f"All methods failed: {e}")
-                response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+                response_text = TECH_FAIL_REPLY
 
         if not response_text or not response_text.strip():
-            response_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+            response_text = TECH_FAIL_REPLY
 
         # Persist test_offered for BasicMode after processing
         if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
@@ -3884,7 +3884,7 @@ async def process_voice_stream(
                         full_text = (result.get("response", "") or "").strip()
                     except Exception as _e:
                         logger.error(f"stream fallback process_question failed: {_e}")
-                        full_text = "Вопрос интересный. Расскажи подробнее, пожалуйста."
+                        full_text = TECH_FAIL_REPLY
                     if full_text:
                         full_text_parts = [full_text]
                         try:
@@ -3894,7 +3894,7 @@ async def process_voice_stream(
                         except Exception as _e:
                             logger.warning(f"TTS fallback failed: {_e}")
 
-                full_text = " ".join(full_text_parts).strip() or "Вопрос интересный. Расскажи подробнее, пожалуйста."
+                full_text = " ".join(full_text_parts).strip() or TECH_FAIL_REPLY
 
                 # Persist + analytics.
                 if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):

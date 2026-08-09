@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Dict, Any, AsyncGenerator, List, Optional
 
 from modes.base_mode import BaseMode
-from services.ai_service import AIService, DEEPSEEK_FAST_MODEL
+from services.ai_service import AIService, DEEPSEEK_FAST_MODEL, TECH_FAIL_REPLY
 
 # Поведенческие правила Фреди — общие для всех режимов. В BasicMode профиль
 # юзера ещё не пройден, но запреты на шаблонные открывашки, переадресацию
@@ -1062,18 +1062,13 @@ class BasicMode(BaseMode):
                 else:
                     yield cleaned
             else:
-                yield random.choice([
-                    "Скажи ещё раз — что именно происходит?",
-                    "Расскажи подробнее, я хочу понять точно.",
-                    "Уточни, на чём конкретно зацепило?",
-                ])
+                # Модель не вернула текст — почти всегда это сетевой сбой
+                # до провайдера. Говорим правду, а не «уточни»: просьба
+                # уточнить при неработающей модели гоняет человека по кругу.
+                yield TECH_FAIL_REPLY
         except Exception as e:
             logger.error(f"BasicMode error: {e}")
-            yield random.choice([
-                "Что-то пошло не так на моей стороне. Скажешь ещё раз?",
-                "Маленький сбой. Повтори, пожалуйста.",
-                "Подожди секунду и попробуй ещё раз — я вернусь.",
-            ])
+            yield TECH_FAIL_REPLY
 
     async def _stream_llm_sentences(
         self, question: str, max_tokens: int = ANSWER_MAX_TOKENS, temperature: float = 0.8
