@@ -7,6 +7,7 @@ Primary LLM: DeepSeek. Anthropic Claude (с tool-use) — опционально
 """
 
 import re
+import time
 import logging
 import random
 import asyncio
@@ -905,6 +906,13 @@ class BasicMode(BaseMode):
         )
 
     async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
+        # Замер латентности. Греп «BASIC_LAT» в логах разложит ожидание
+        # человека на слагаемые: сколько заняли наши походы в БД до модели
+        # и сколько сама модель думала до первого предложения. Без этого
+        # спор «тяжёлый промпт или медленный провайдер» неразрешим — снаружи
+        # видны только суммарные 15-18 секунд.
+        _t0 = time.time()
+
         self.message_counter += 1
         self.conversation_history.append(f"Пользователь: {question}")
 
@@ -920,15 +928,23 @@ class BasicMode(BaseMode):
             logger.debug(f"identity intercept skip: {_e}")
 
         if self.message_counter == 1:
-            await self._load_memory()
-            # Подтягиваем IANA-таймзону юзера из fredi_users.user_tz —
-            # фронт шлёт её при первой загрузке через POST /api/user/tz.
-            # Это перекрывает дефолт «Europe/Moscow» в __init__ для тех,
-            # кто не из MSK. Влияет на дату в user_message и greeting.
-            await self._load_user_tz_from_db()
-            # Кросс-сессионная память: подмешиваем сводки прошлых сессий и
-            # в фоне суммаризуем закрытую сессию (если такая есть).
-            await self._load_cross_session_memory()
+            # Три независимых похода в БД: факты о человеке, его таймзона
+            # (fredi_users.user_tz — фронт шлёт её через POST /api/user/tz,
+            # она перекрывает дефолт «Europe/Moscow» для тех, кто не из MSK,
+            # и влияет на дату в промпте) и сводки прошлых сессий. Друг от
+            # друга они ничего не ждут, а шли по очереди — задержки просто
+            # складывались. Запускаем разом.
+            #
+            # Важно понимать: инстанс режима создаётся на КАЖДЫЙ HTTP-запрос
+            # (см. get_mode в modes/__init__), поэтому message_counter здесь
+            # всегда 1 и блок выполняется на каждом сообщении, а не только
+            # на первом, как читается по названию условия.
+            await asyncio.gather(
+                self._load_memory(),
+                self._load_user_tz_from_db(),
+                self._load_cross_session_memory(),
+            )
+        _t_mem = time.time()
 
         # === LATENCY: pre-LLM работа разделена на блокирующую и фоновую. ===
         # Раньше тут блокирующе ждали 4 параллельных задачи (emotion+rule+
@@ -948,6 +964,7 @@ class BasicMode(BaseMode):
         except Exception as _e:
             logger.debug(f"intuition skip: {_e}")
             self._intuition_block = ""
+        _t_prellm = time.time()
 
         # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убрали ВСЕ regex-ветки на «забудь»,
         # «тест уже прошёл», оффер теста на 4-м сообщении, согласие/отказ.
@@ -969,10 +986,33 @@ class BasicMode(BaseMode):
                 question, max_tokens=400, temperature=0.8
             ):
                 if _s:
+                    if not streamed_any:
+                        # Раскладка ожидания. Кладём и в лог, и на сам объект:
+                        # логи приложения снаружи не читаются, а из
+                        # last_timings их подберёт /api/chat/stream и положит
+                        # в событие аналитики, видимое в админке.
+                        self.last_timings = {
+                            "mem_ms": int((_t_mem - _t0) * 1000),
+                            "prellm_ms": int((_t_prellm - _t_mem) * 1000),
+                            "model_ttfs_ms": int((time.time() - _t_prellm) * 1000),
+                        }
+                        logger.info(
+                            "⏱️ BASIC_LAT stream first_sentence=%dms "
+                            "(память=%dms, pre-LLM=%dms, модель=%dms) chars=%d"
+                            % ((time.time() - _t0) * 1000,
+                               self.last_timings["mem_ms"],
+                               self.last_timings["prellm_ms"],
+                               self.last_timings["model_ttfs_ms"],
+                               len(_s))
+                        )
                     streamed_any = True
                     yield _s
             if streamed_any:
+                logger.info("⏱️ BASIC_LAT stream done=%dms"
+                            % ((time.time() - _t0) * 1000))
                 return
+            logger.info("⏱️ BASIC_LAT stream отдал пусто за %dms — уходим "
+                        "на блокирующий вызов" % ((time.time() - _t0) * 1000))
 
             # 2) Фолбэк: блокирующий вызов + пост-нарезка на предложения.
             #    Срабатывает, если стриминг ничего не отдал (нет ключа,
