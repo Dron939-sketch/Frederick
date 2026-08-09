@@ -275,6 +275,13 @@ class AIService:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            # Последним чанком просим статистику по токенам. Без этого в
+            # стриминге usage не приходит вовсе, а именно там лежит ответ на
+            # главный вопрос: пересчитывается ли системный промпт заново на
+            # каждом сообщении или попадает в кэш провайдера. Он у всех
+            # пользователей побайтово одинаковый (12 994 знака), то есть
+            # кэшироваться обязан.
+            "stream_options": {"include_usage": True},
         }
         # Замер: сколько модель молчит до первого токена (TTFT) и сколько
         # потом занимает генерация. Греп «DEEPSEEK_LAT». Нужно, чтобы
@@ -283,6 +290,7 @@ class AIService:
         _t0 = time.time()
         _ttft = None
         _chars = 0
+        _usage = {}
         _prompt_chars = len(system_prompt or "") + len(user_prompt or "")
         try:
             session = await self._get_session()
@@ -316,6 +324,11 @@ class AIService:
                         chunk = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+                    # Статистика приходит отдельным чанком в самом конце,
+                    # у него choices пустой — поэтому читаем её до проверки
+                    # на choices, иначе потеряем.
+                    if chunk.get('usage'):
+                        _usage = chunk['usage']
                     if chunk.get('choices'):
                         content = chunk['choices'][0].get('delta', {}).get('content', '')
                         if content:
@@ -329,13 +342,28 @@ class AIService:
             logger.error(f"❌ DeepSeek streaming error: {e}")
         finally:
             _total = time.time() - _t0
+            _hit = _usage.get("prompt_cache_hit_tokens")
+            _miss = _usage.get("prompt_cache_miss_tokens")
             logger.info(
                 "⏱️ DEEPSEEK_LAT ttft=%s генерация=%dms всего=%dms "
-                "промпт=%d знаков ответ=%d знаков model=%s"
+                "промпт=%d знаков (%s токенов, кэш: %s попало / %s мимо) "
+                "ответ=%d знаков model=%s"
                 % ("%dms" % (_ttft * 1000) if _ttft is not None else "НЕТ ТОКЕНОВ",
                    (_total - (_ttft or 0)) * 1000, _total * 1000,
-                   _prompt_chars, _chars, DEEPSEEK_MODEL)
+                   _prompt_chars, _usage.get("prompt_tokens", "?"),
+                   _hit if _hit is not None else "?",
+                   _miss if _miss is not None else "?",
+                   _chars, DEEPSEEK_MODEL)
             )
+            # Отдаём наружу, чтобы режим положил числа в событие аналитики:
+            # логи приложения снаружи не читаются, события — читаются.
+            self.last_stream_usage = {
+                "ttft_ms": int((_ttft or 0) * 1000),
+                "gen_ms": int((_total - (_ttft or 0)) * 1000),
+                "prompt_tokens": _usage.get("prompt_tokens"),
+                "cache_hit_tokens": _hit,
+                "cache_miss_tokens": _miss,
+            }
 
     # ============================================
     # ГЕНЕРАЦИЯ ОТВЕТА — главный метод (обновлён)
