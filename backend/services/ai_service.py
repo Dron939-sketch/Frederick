@@ -96,11 +96,29 @@ class AIService:
                 if response.status == 200:
                     data = await response.json()
                     result = data['choices'][0]['message']['content']
-                    
-                    logger.info("=" * 80)
-                    logger.info("🔴 RAW RESPONSE FROM DEEPSEEK (first 300 chars):")
-                    logger.info(repr(result[:300]))
-                    logger.info("=" * 80)
+
+                    # finish_reason и usage — единственный способ отличить
+                    # «модель закончила мысль» от «бюджет токенов кончился
+                    # и текст обрубило на полуслове». Второе наблюдалось в
+                    # проде: ответы по 16 и 65 знаков, оборванные посреди
+                    # слова. Если reason='length' при завышенном max_tokens,
+                    # значит бюджет съедают невидимые рассуждения модели.
+                    _fin = (data['choices'][0].get('finish_reason') or '?')
+                    _u = data.get('usage') or {}
+                    logger.info(
+                        "🔴 DEEPSEEK_CALL finish=%s знаков=%d токены: промпт=%s "
+                        "ответ=%s кэш(попало/мимо)=%s/%s"
+                        % (_fin, len(result or ''), _u.get('prompt_tokens', '?'),
+                           _u.get('completion_tokens', '?'),
+                           _u.get('prompt_cache_hit_tokens', '?'),
+                           _u.get('prompt_cache_miss_tokens', '?'))
+                    )
+                    if _fin == 'length':
+                        logger.warning(
+                            "✂️ Ответ обрублен по лимиту токенов: max_tokens=%s, "
+                            "видимого текста %d знаков"
+                            % (request_body.get('max_tokens'), len(result or ''))
+                        )
                     
                     # Только нормализация пробелов — НЕ склеиваем слова!
                     result = re.sub(r'\s+', ' ', result).strip()
@@ -291,6 +309,7 @@ class AIService:
         _ttft = None
         _chars = 0
         _usage = {}
+        _finish = None
         _prompt_chars = len(system_prompt or "") + len(user_prompt or "")
         try:
             session = await self._get_session()
@@ -330,6 +349,9 @@ class AIService:
                     if chunk.get('usage'):
                         _usage = chunk['usage']
                     if chunk.get('choices'):
+                        _fr = chunk['choices'][0].get('finish_reason')
+                        if _fr:
+                            _finish = _fr
                         content = chunk['choices'][0].get('delta', {}).get('content', '')
                         if content:
                             if _ttft is None:
@@ -347,13 +369,13 @@ class AIService:
             logger.info(
                 "⏱️ DEEPSEEK_LAT ttft=%s генерация=%dms всего=%dms "
                 "промпт=%d знаков (%s токенов, кэш: %s попало / %s мимо) "
-                "ответ=%d знаков model=%s"
+                "ответ=%d знаков finish=%s model=%s"
                 % ("%dms" % (_ttft * 1000) if _ttft is not None else "НЕТ ТОКЕНОВ",
                    (_total - (_ttft or 0)) * 1000, _total * 1000,
                    _prompt_chars, _usage.get("prompt_tokens", "?"),
                    _hit if _hit is not None else "?",
                    _miss if _miss is not None else "?",
-                   _chars, DEEPSEEK_MODEL)
+                   _chars, _finish or '?', DEEPSEEK_MODEL)
             )
             # Отдаём наружу, чтобы режим положил числа в событие аналитики:
             # логи приложения снаружи не читаются, события — читаются.
@@ -363,6 +385,7 @@ class AIService:
                 "prompt_tokens": _usage.get("prompt_tokens"),
                 "cache_hit_tokens": _hit,
                 "cache_miss_tokens": _miss,
+                "finish": _finish,
             }
 
     # ============================================
