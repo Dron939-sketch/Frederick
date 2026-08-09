@@ -33,6 +33,25 @@ DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
 # DEEPSEEK_MODEL — чат не сломается, в логе будет DEEPSEEK_FALLBACK.
 DEEPSEEK_FAST_MODEL = os.environ.get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
 
+# Режим размышления. Обе модели DeepSeek по умолчанию думают перед
+# ответом — и flash тоже, вопреки ожиданию. Именно это, а не выбор
+# модели, давало 8-29 секунд молчания и finish=length в шести случаях
+# из восьми: бюджет токенов уходил в невидимую часть.
+#
+# Формат — как у Anthropic: {"thinking": {"type": "enabled"|"disabled"}}.
+# Для реплики в четыре предложения размышление не нужно; для разбора,
+# теста и толкования оно остаётся включённым (там параметр не шлём и
+# работает провайдерский дефолт).
+_THINKING_OFF = {"type": "disabled"}
+
+
+def _apply_thinking(body: dict, thinking: Optional[bool]) -> dict:
+    """thinking=False — выключить размышление. None — не трогать."""
+    if thinking is False:
+        body["thinking"] = _THINKING_OFF
+    return body
+
+
 
 async def call_deepseek(prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
     service = AIService()
@@ -202,7 +221,8 @@ class AIService:
 
     async def _call_deepseek(self, system_prompt: str, user_prompt: str,
                               max_tokens: int = 1000, temperature: float = 0.7,
-                              model: Optional[str] = None) -> Optional[str]:
+                              model: Optional[str] = None,
+                              thinking: Optional[bool] = None) -> Optional[str]:
         """model=None — обычная модель. Входной чат передаёт быструю.
 
         Если переданная модель неизвестна провайдеру (400), запрос
@@ -223,6 +243,7 @@ class AIService:
                 "temperature": temperature,
                 "max_tokens": max_tokens
             }
+            _apply_thinking(request_body, thinking)
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
@@ -255,14 +276,15 @@ class AIService:
                     logger.error(f"❌ DeepSeek 400 error! model={_model}")
                     logger.error(f"   Response body: {error_text}")
                     logger.error(f"   Request body (first 500 chars): {json.dumps(request_body, ensure_ascii=False)[:500]}")
-                    if _model != DEEPSEEK_MODEL:
+                    if _model != DEEPSEEK_MODEL or thinking is not None:
                         logger.warning(
-                            "↩️ DEEPSEEK_FALLBACK: модель %s не принята, "
-                            "повторяю на %s" % (_model, DEEPSEEK_MODEL))
+                            "↩️ DEEPSEEK_FALLBACK: отказ на model=%s thinking=%s, "
+                            "повторяю на %s без параметра размышления"
+                            % (_model, thinking, DEEPSEEK_MODEL))
                         return await self._call_deepseek(
                             system_prompt, user_prompt,
                             max_tokens=max_tokens, temperature=temperature,
-                            model=DEEPSEEK_MODEL)
+                            model=DEEPSEEK_MODEL, thinking=None)
                     return None
                     
                 elif response.status == 401:
@@ -297,7 +319,7 @@ class AIService:
     async def _call_deepseek_streaming(
         self, system_prompt: str, user_prompt: str,
         max_tokens: int = 1000, temperature: float = 0.7,
-        model: Optional[str] = None,
+        model: Optional[str] = None, thinking: Optional[bool] = None,
     ) -> AsyncGenerator[str, None]:
         """Стриминговый близнец _call_deepseek: тот же system+user сплит и
         те же параметры, но stream=True — отдаёт контент по дельтам, как
@@ -330,6 +352,7 @@ class AIService:
             # кэшироваться обязан.
             "stream_options": {"include_usage": True},
         }
+        _apply_thinking(data, thinking)
         # Замер: сколько модель молчит до первого токена (TTFT) и сколько
         # потом занимает генерация. Греп «DEEPSEEK_LAT». Нужно, чтобы
         # отличать «тяжёлый промпт» от «провайдер тормозит»: снаружи оба
@@ -358,13 +381,18 @@ class AIService:
                     # неизвестная модель), без которой отладка слепая.
                     logger.error("❌ DeepSeek streaming error: %s model=%s prompt_chars=%d body=%s"
                                  % (response.status, _model, _prompt_chars, body))
-                    if _model != DEEPSEEK_MODEL:
+                    # Повтор «как раньше»: обычная модель и без параметра
+                    # размышления. Неизвестное имя модели или неподдержанный
+                    # ключ не должны оставлять человека без ответа.
+                    if _model != DEEPSEEK_MODEL or thinking is not None:
                         logger.warning(
-                            "↩️ DEEPSEEK_FALLBACK: модель %s не принята в стриме, "
-                            "повторяю на %s" % (_model, DEEPSEEK_MODEL))
+                            "↩️ DEEPSEEK_FALLBACK: отказ на model=%s thinking=%s, "
+                            "повторяю на %s без параметра размышления"
+                            % (_model, thinking, DEEPSEEK_MODEL))
                         async for _d in self._call_deepseek_streaming(
                                 system_prompt, user_prompt, max_tokens=max_tokens,
-                                temperature=temperature, model=DEEPSEEK_MODEL):
+                                temperature=temperature, model=DEEPSEEK_MODEL,
+                                thinking=None):
                             yield _d
                     return
                 async for line in response.content:

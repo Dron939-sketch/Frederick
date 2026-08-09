@@ -846,7 +846,7 @@ class BasicMode(BaseMode):
         try:
             result = await self.ai_service._call_deepseek(
                 system_text, user_text, max_tokens=max_tokens,
-                temperature=temperature, model=ANSWER_MODEL
+                temperature=temperature, model=ANSWER_MODEL, thinking=False
             )
             if result:
                 return result
@@ -1108,7 +1108,7 @@ class BasicMode(BaseMode):
         try:
             async for delta in self.ai_service._call_deepseek_streaming(
                 system_text, user_text, max_tokens=max_tokens,
-                temperature=temperature, model=ANSWER_MODEL
+                temperature=temperature, model=ANSWER_MODEL, thinking=False
             ):
                 if not delta:
                     continue
