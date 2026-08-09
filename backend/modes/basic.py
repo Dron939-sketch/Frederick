@@ -27,6 +27,28 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# Бюджет токенов на ответ BasicMode.
+#
+# Стояло 400 — и это ломало ответы. Модель тратит часть бюджета на
+# невидимые рассуждения, и когда их оказывается много, на текст не
+# остаётся ничего: стрим отдаёт ноль токенов, finish_reason='length',
+# BasicMode уходит на блокирующий фолбэк и генерирует ответ заново.
+#
+# Замерено на живом (шесть подряд, один и тот же вопрос):
+#   finish=stop   — первое слово через 5,7-5,9 с, ответ 77-504 знака
+#   finish=length — первое слово через 13,6-21,2 с, ответ 38-399 знаков,
+#                   обрублен на полуслове, и это вторая генерация подряд
+#
+# То есть «пятнадцать секунд ожидания» — не скорость модели, а вторая
+# попытка после того, как первая упёрлась в лимит. При достаточном
+# бюджете рассуждения умещаются, видимый текст дописывается целиком,
+# фолбэк не нужен — и ответ приходит за шесть секунд.
+#
+# Дороже это не выходит: сейчас мы платим и за сожжённые впустую 400
+# токенов, и за полную вторую генерацию.
+ANSWER_MAX_TOKENS = 1500
+
+
 
 # Разбивка готового ответа на предложения для per-sentence TTS в голосовом
 # стриме (/api/voice/process_stream). Раньше BasicMode отдавал весь ответ
@@ -763,7 +785,7 @@ class BasicMode(BaseMode):
             return f"Поиск недоступен: {e}"
 
     async def _call_llm_for_response(
-        self, question: str, max_tokens: int = 400, temperature: float = 0.8
+        self, question: str, max_tokens: int = ANSWER_MAX_TOKENS, temperature: float = 0.8
     ) -> Optional[str]:
         """Основной ответ BasicMode (входной чат «Фреди»).
 
@@ -983,7 +1005,7 @@ class BasicMode(BaseMode):
             #    ДО конца генерации всего ответа. Промпт/длина не меняются.
             streamed_any = False
             async for _s in self._stream_llm_sentences(
-                question, max_tokens=400, temperature=0.8
+                question, max_tokens=ANSWER_MAX_TOKENS, temperature=0.8
             ):
                 if _s:
                     if not streamed_any:
@@ -1017,7 +1039,7 @@ class BasicMode(BaseMode):
             # 2) Фолбэк: блокирующий вызов + пост-нарезка на предложения.
             #    Срабатывает, если стриминг ничего не отдал (нет ключа,
             #    включён Anthropic tool-use, сетевой сбой на старте).
-            response = await self._call_llm_for_response(question, max_tokens=400, temperature=0.8)
+            response = await self._call_llm_for_response(question, max_tokens=ANSWER_MAX_TOKENS, temperature=0.8)
             if response and response.strip():
                 cleaned = self._simple_clean(response)
                 sentences = _split_into_sentences(cleaned)
@@ -1041,7 +1063,7 @@ class BasicMode(BaseMode):
             ])
 
     async def _stream_llm_sentences(
-        self, question: str, max_tokens: int = 400, temperature: float = 0.8
+        self, question: str, max_tokens: int = ANSWER_MAX_TOKENS, temperature: float = 0.8
     ) -> AsyncGenerator[str, None]:
         """Токен-стриминг ответа BasicMode по предложениям.
 
