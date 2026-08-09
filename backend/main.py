@@ -963,12 +963,21 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                     await websocket.send_json({
                         "type": "meter_blocked",
                         "reason": st.get("reason") or "limit_reached",
+                        "block_reason": st.get("block_reason"),
                         "is_premium": bool(st.get("is_premium")),
                         "free_days_used": st.get("free_days_used", 0),
                         "remaining_minutes": st.get("remaining_minutes", 0),
+                        "remaining_trial_minutes": st.get("remaining_trial_minutes"),
+                        # Дневной лимит и общий запас — разные новости:
+                        # в первом случае человек вернётся завтра, во втором
+                        # ему нужен пакет. Один текст на оба вводил в
+                        # заблуждение тех, у кого просто кончился день.
                         "message": (
-                            "Дневной лимит исчерпан — оформи подписку "
+                            "Бесплатные минуты закончились — оформи подписку, "
                             "чтобы продолжить голосовое общение."
+                            if st.get("block_reason") == "trial" else
+                            "На сегодня лимит исчерпан. Завтра снова будут "
+                            "бесплатные минуты."
                         ),
                     })
                 except Exception:
@@ -2957,6 +2966,20 @@ async def get_profile_interpretation(request: Request, user_id: int):
 
 
 # ---------- ЧАТ ----------
+def _normalize_reply(text: str) -> str:
+    """Починка склейки токенов у стримингового ответа.
+
+    LLM отдаёт под-словные дельты, и после конкатенации в тексте пропадают
+    пробелы после знаков препинания и на стыке предложений. Вынесено в
+    отдельную функцию, потому что этим пользуются оба пути — и обычный
+    /api/chat, и потоковый /api/chat/stream.
+    """
+    text = re.sub(r"([.!?,;:])([^\s\d\)\]\}])", r"\1 \2", text or "")
+    text = re.sub(r"([—–])([^\s])", r"\1 \2", text)
+    text = re.sub(r"([а-яё])([А-ЯЁ])", r"\1 \2", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
     """Спросить режим, предпочитая асинхронные методы синхронному.
 
@@ -2981,11 +3004,7 @@ async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
             chunks = []
             async for chunk in mode_instance.process_question_streaming(question):
                 chunks.append(chunk)
-            response_text = "".join(chunks)
-            response_text = re.sub(r"([.!?,;:])([^\s\d\)\]\}])", r"\1 \2", response_text)
-            response_text = re.sub(r"([—–])([^\s])", r"\1 \2", response_text)
-            response_text = re.sub(r"([а-яё])([А-ЯЁ])", r"\1 \2", response_text)
-            response_text = re.sub(r"\s+", " ", response_text).strip()
+            response_text = _normalize_reply("".join(chunks))
         except Exception as e:
             logger.warning(f"process_question_streaming failed: {e}")
             response_text = None
@@ -3005,138 +3024,276 @@ async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
     return {"response": response_text, "tools_used": tools_used}
 
 
+async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) -> Dict[str, Any]:
+    """Подготовка хода диалога: профиль, режим, история, инстанс режима.
+
+    Общая для обычного /api/chat и потокового /api/chat/stream. Вынесено
+    именно ради этого: два пути с продублированной подготовкой разъезжаются
+    в поведении при первой же правке одного из них.
+    """
+    context_obj = await context_repo.get(user_id) or {}
+    profile = await user_repo.get_profile(user_id) or {}
+
+    has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
+
+    if not has_profile:
+        mode_name = "basic"
+        logger.info(f"🎭 User {user_id} has no profile → BasicMode")
+    else:
+        mode_name = context_obj.get("communication_mode", requested_mode)
+    # Premium-gate: без активной подписки premium-роли понижаются до basic.
+    mode_name = await _enforce_premium_mode(user_id, mode_name)
+
+    # ФИХ 3: Загружаем историю диалога из БД
+    try:
+        history_rows = await message_repo.get_history(user_id, limit=10)
+        history = [{'role': m['role'], 'content': m['content']} for m in reversed(history_rows)]
+    except Exception as e:
+        logger.warning(f"Failed to load history: {e}")
+        history = []
+
+    # ФИХ 4: Счётчик сообщений BasicMode через context
+    if not has_profile:
+        msg_count = context_obj.get('_basic_msg_count', 0) + 1
+        context_obj['_basic_msg_count'] = msg_count
+        await context_repo.save(user_id, context_obj)
+    else:
+        msg_count = 0
+
+    user_data = {
+        "profile_data": profile.get("profile_data", {}),
+        "perception_type": profile.get("perception_type", "не определен"),
+        "thinking_level": profile.get("thinking_level", 5),
+        "deep_patterns": profile.get("deep_patterns", {}),
+        "behavioral_levels": profile.get("behavioral_levels", {}),
+        "dilts_counts": profile.get("dilts_counts", {}),
+        "confinement_model": profile.get("confinement_model"),
+        "history": history,           # ФИХ 3: реальная история
+        "message_count": msg_count,   # ФИХ 4: счётчик BasicMode
+        "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
+    }
+
+    class SimpleContext:
+        def __init__(self, data):
+            self.name = data.get("name", "друг")
+            self.gender = data.get("gender")
+            self.age = data.get("age")
+            self.city = data.get("city")
+            self.weather_cache = data.get("weather_cache")
+            self.communication_mode = data.get("communication_mode", "psychologist")
+
+    simple_context = SimpleContext(context_obj)
+    _merge_psychologist_state(user_data, context_obj)
+    if mode_name == "basic":
+        user_data["basic_mode_preset"] = await get_basic_mode_preset()
+    mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
+
+    reflection = None
+    if has_profile and user_data.get("confinement_model"):
+        try:
+            from confinement.confinement_model import ConfinementModel9 as ConfinementModel
+            from confinement.question_analyzer import QuestionContextAnalyzer
+            analyzer = QuestionContextAnalyzer(
+                ConfinementModel.from_dict(user_data["confinement_model"]),
+                simple_context.name or "друг"
+            )
+            reflection = analyzer.get_reflection_text(message)
+        except Exception as e:
+            logger.warning(f"Error in question analysis: {e}")
+
+    return {
+        "context_obj": context_obj,
+        "has_profile": has_profile,
+        "history": history,
+        "mode_name": mode_name,
+        "mode_instance": mode_instance,
+        "reflection": reflection,
+    }
+
+
+async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
+                            response_text: str, mode_name: str,
+                            tools_used: Optional[List[str]] = None,
+                            streamed: bool = False) -> None:
+    """Сохранение хода: состояние режима, обе реплики, событие аналитики."""
+    context_obj = prep["context_obj"]
+    mode_instance = prep["mode_instance"]
+
+    # Persist test_offered for BasicMode after processing
+    if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
+        context_obj["basic_test_offered"] = mode_instance.test_offered
+        await context_repo.save(user_id, context_obj)
+    await _save_psychologist_state(user_id, context_obj, mode_instance, mode_name)
+
+    await message_repo.save(user_id, "user", message, {"mode": mode_name})
+    await message_repo.save(user_id, "assistant", response_text, {"mode": mode_name})
+
+    await log_event(user_id, "chat", {
+        "mode": mode_name,
+        "message_length": len(message),
+        "tools_used": tools_used or [],
+        "has_profile": prep["has_profile"],
+        "streamed": streamed,
+    })
+
+
+async def _freddy_or_mode(prep: Dict[str, Any], user_id: int, message: str) -> Dict[str, Any]:
+    """Ответ через FreddyService, если тот доступен, иначе через режим.
+
+    ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убран авто-оффер теста после 4-го сообщения
+    и его accept/decline-обработчики. Они слишком часто ломали разговор:
+    «да» в любой длинной фразе открывало тест, «забудь смартфон» залипало
+    в шаблонных «понял, стираю». Теперь тест запускается ТОЛЬКО явным
+    действием юзера через UI (кнопка «📊 Психологический тест» в левом меню).
+    """
+    if prep["has_profile"]:
+        result = await _ask_mode(prep["mode_instance"], message)
+        return {"mode_name": prep["mode_name"], **result}
+
+    freddy_reply = None
+    try:
+        freddy = get_freddy_service()
+        freddy_result = await freddy.chat(
+            user_id=user_id,
+            message=message,
+            history=prep["history"],
+        )
+        if freddy_result.get("reply"):
+            freddy_reply = freddy_result["reply"]
+            logger.info(f"FreddyService replied for user {user_id}, model={freddy_result.get('model')}")
+    except Exception as e:
+        logger.warning(f"FreddyService failed for user {user_id}: {e}")
+
+    if freddy_reply:
+        return {"mode_name": "freddy", "response": freddy_reply, "tools_used": ["freddy_sdk"]}
+
+    logger.info(f"FreddyService unavailable, falling back to BasicMode for user {user_id}")
+    result = await _ask_mode(prep["mode_instance"], message)
+    return {"mode_name": prep["mode_name"], **result}
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat(request: Request, data: ChatRequest):
     try:
-        context_obj = await context_repo.get(data.user_id) or {}
-        profile = await user_repo.get_profile(data.user_id) or {}
+        prep = await _prepare_chat_turn(data.user_id, data.message, data.mode)
+        result = await _freddy_or_mode(prep, data.user_id, data.message)
+        mode_name = result["mode_name"]
 
-        has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
-
-        if not has_profile:
-            mode_name = "basic"
-            logger.info(f"🎭 User {data.user_id} has no profile → BasicMode")
-        else:
-            mode_name = context_obj.get("communication_mode", data.mode)
-        # Premium-gate: без активной подписки premium-роли понижаются до basic.
-        mode_name = await _enforce_premium_mode(data.user_id, mode_name)
-
-        # ФИХ 3: Загружаем историю диалога из БД
-        try:
-            history_rows = await message_repo.get_history(data.user_id, limit=10)
-            history = [{'role': m['role'], 'content': m['content']} for m in reversed(history_rows)]
-        except Exception as e:
-            logger.warning(f"Failed to load history: {e}")
-            history = []
-
-        # ФИХ 4: Счётчик сообщений BasicMode через context
-        if not has_profile:
-            msg_count = context_obj.get('_basic_msg_count', 0) + 1
-            context_obj['_basic_msg_count'] = msg_count
-            await context_repo.save(data.user_id, context_obj)
-        else:
-            msg_count = 0
-
-        user_data = {
-            "profile_data": profile.get("profile_data", {}),
-            "perception_type": profile.get("perception_type", "не определен"),
-            "thinking_level": profile.get("thinking_level", 5),
-            "deep_patterns": profile.get("deep_patterns", {}),
-            "behavioral_levels": profile.get("behavioral_levels", {}),
-            "dilts_counts": profile.get("dilts_counts", {}),
-            "confinement_model": profile.get("confinement_model"),
-            "history": history,           # ФИХ 3: реальная история
-            "message_count": msg_count,   # ФИХ 4: счётчик BasicMode
-            "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
-        }
-
-        class SimpleContext:
-            def __init__(self, data):
-                self.name = data.get("name", "друг")
-                self.gender = data.get("gender")
-                self.age = data.get("age")
-                self.city = data.get("city")
-                self.weather_cache = data.get("weather_cache")
-                self.communication_mode = data.get("communication_mode", "psychologist")
-
-        simple_context = SimpleContext(context_obj)
-        _merge_psychologist_state(user_data, context_obj)
-        if mode_name == "basic":
-            user_data["basic_mode_preset"] = await get_basic_mode_preset()
-        mode_instance = get_mode(mode_name, data.user_id, user_data, simple_context)
-
-        reflection = None
-        if has_profile and user_data.get("confinement_model"):
-            try:
-                from confinement.confinement_model import ConfinementModel9 as ConfinementModel
-                from confinement.question_analyzer import QuestionContextAnalyzer
-                analyzer = QuestionContextAnalyzer(
-                    ConfinementModel.from_dict(user_data["confinement_model"]),
-                    simple_context.name or "друг"
-                )
-                reflection = analyzer.get_reflection_text(data.message)
-            except Exception as e:
-                logger.warning(f"Error in question analysis: {e}")
-
-        # --- Freddy SDK: для пользователей без теста ---
-        if not has_profile:
-            # ВАЖНОЕ ИЗМЕНЕНИЕ (05.2026): убран авто-оффер теста после 4-го
-            # сообщения и его accept/decline-обработчики. Они слишком часто
-            # ломали разговор: «да» в любой длинной фразе открывало тест,
-            # «забудь смартфон» залипало в шаблонных «понял, стираю».
-            # Теперь тест запускается ТОЛЬКО явным действием юзера через UI
-            # (кнопка «📊 Психологический тест» в левом меню).
-            # Пробуем FreddyService, fallback на BasicMode
-            freddy_reply = None
-            try:
-                freddy = get_freddy_service()
-                freddy_result = await freddy.chat(
-                    user_id=data.user_id,
-                    message=data.message,
-                    history=history,
-                )
-                if freddy_result.get("reply"):
-                    freddy_reply = freddy_result["reply"]
-                    mode_name = "freddy"
-                    logger.info(f"FreddyService replied for user {data.user_id}, model={freddy_result.get('model')}")
-            except Exception as e:
-                logger.warning(f"FreddyService failed for user {data.user_id}: {e}")
-
-            if freddy_reply:
-                result = {"response": freddy_reply, "tools_used": ["freddy_sdk"]}
-            else:
-                logger.info(f"FreddyService unavailable, falling back to BasicMode for user {data.user_id}")
-                result = await _ask_mode(mode_instance, data.message)
-        else:
-            result = await _ask_mode(mode_instance, data.message)
-
-        # Persist test_offered for BasicMode after processing
-        if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
-            context_obj["basic_test_offered"] = mode_instance.test_offered
-            await context_repo.save(data.user_id, context_obj)
-        await _save_psychologist_state(data.user_id, context_obj, mode_instance, mode_name)
-
-        await message_repo.save(data.user_id, "user", data.message, {"mode": mode_name})
-        await message_repo.save(data.user_id, "assistant", result["response"], {"mode": mode_name})
-
-        await log_event(data.user_id, "chat", {
-            "mode": mode_name,
-            "message_length": len(data.message),
-            "tools_used": result.get("tools_used", []),
-            "has_profile": has_profile
-        })
+        await _finish_chat_turn(prep, data.user_id, data.message,
+                                result["response"], mode_name,
+                                result.get("tools_used"))
 
         return {
             "success": True,
             "response": result["response"],
             "mode_used": mode_name,
-            "reflection": reflection
+            "reflection": prep["reflection"],
         }
 
     except Exception as e:
         logger.error(f"Error in chat for user {data.user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/stream")
+@limiter.limit("20/minute")
+async def chat_stream(request: Request, data: ChatRequest):
+    """Тот же диалог, но ответ идёт дельтами по мере генерации (NDJSON).
+
+    Зачем. Ответ модели пишется 15–20 секунд, и всё это время в обычном
+    /api/chat человек смотрит в пустоту: по аналитике до конца ожидания
+    доходят единицы. Здесь первые слова появляются через секунду-полторы,
+    а дальше текст дописывается на глазах.
+
+    Формат — построчный JSON, как у /api/voice/process_stream:
+      {"type":"start"}                        — поток открыт, генерация пошла
+      {"type":"delta","text":"…"}             — кусок ответа
+      {"type":"done","full_text":…,"mode_used":…,"reflection":…}
+      {"type":"error","message":…}
+
+    Дельты нормализуются на лету: модель отдаёт под-словные токены, и без
+    починки пробелов текст на экране слипается. Последний символ каждый раз
+    придерживается — правило может вставить пробел ровно на стыке, и уже
+    показанный кусок не должен меняться задним числом.
+    """
+    async def event_stream():
+        full_text = ""
+        try:
+            prep = await _prepare_chat_turn(data.user_id, data.message, data.mode)
+            mode_instance = prep["mode_instance"]
+            mode_name = prep["mode_name"]
+            tools_used: List[str] = []
+
+            yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n"
+
+            streamed_ok = False
+            if not prep["has_profile"]:
+                # FreddyService — заглушка, но если её включат обратно,
+                # ответ придёт целиком: отдаём одной дельтой.
+                fr = await _freddy_or_mode(prep, data.user_id, data.message)
+                if fr["mode_name"] == "freddy":
+                    full_text = fr["response"]
+                    mode_name = "freddy"
+                    tools_used = fr.get("tools_used", [])
+                    streamed_ok = True
+                    yield json.dumps({"type": "delta", "text": full_text},
+                                     ensure_ascii=False) + "\n"
+
+            if not streamed_ok and hasattr(mode_instance, "process_question_streaming"):
+                acc, sent = "", 0
+                try:
+                    async for chunk in mode_instance.process_question_streaming(data.message):
+                        if not chunk:
+                            continue
+                        acc += chunk
+                        shown = _normalize_reply(acc)
+                        # придерживаем хвост в один символ: следующая дельта
+                        # может потребовать пробел перед уже показанным знаком
+                        safe = shown[:-1]
+                        if len(safe) > sent:
+                            yield json.dumps({"type": "delta", "text": safe[sent:]},
+                                             ensure_ascii=False) + "\n"
+                            sent = len(safe)
+                    full_text = _normalize_reply(acc)
+                    if len(full_text) > sent:
+                        yield json.dumps({"type": "delta", "text": full_text[sent:]},
+                                         ensure_ascii=False) + "\n"
+                    streamed_ok = bool(full_text.strip())
+                except Exception as e:
+                    logger.warning(f"chat stream failed for user {data.user_id}: {e}")
+                    streamed_ok = False
+
+            if not streamed_ok:
+                # Стриминг не поехал — добираем ответ обычным путём и отдаём
+                # целиком. Для юзера это тот же старый /api/chat, но он хотя
+                # бы получит ответ, а не пустой пузырь.
+                fallback = await _freddy_or_mode(prep, data.user_id, data.message)
+                mode_name = fallback["mode_name"]
+                tools_used = fallback.get("tools_used", [])
+                full_text = fallback["response"]
+                yield json.dumps({"type": "delta", "text": full_text},
+                                 ensure_ascii=False) + "\n"
+
+            await _finish_chat_turn(prep, data.user_id, data.message,
+                                    full_text, mode_name, tools_used, streamed=True)
+
+            yield json.dumps({"type": "done", "full_text": full_text,
+                              "mode_used": mode_name,
+                              "reflection": prep["reflection"]},
+                             ensure_ascii=False) + "\n"
+
+        except Exception as e:
+            logger.error(f"Error in chat stream for user {data.user_id}: {e}", exc_info=True)
+            yield json.dumps({"type": "error", "message": str(e)[:200]},
+                             ensure_ascii=False) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        # без этого nginx/Amvera буферизуют ответ и весь смысл стрима пропадает
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/chat/history/{user_id}")

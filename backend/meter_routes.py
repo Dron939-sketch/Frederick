@@ -55,10 +55,15 @@ def register_meter_routes(app, db, limiter):
                 ("last_cooldown_started_at", "TIMESTAMP WITH TIME ZONE", None),
                 ("cooldown_ends_at", "TIMESTAMP WITH TIME ZONE", None),
                 ("subscription_reminded_at", "TIMESTAMP WITH TIME ZONE", None),
-                # Trial: считаем, сколько ДНЕЙ юзер реально пользовался free.
-                # Пропуск дня НЕ списывает trial — счётчик растёт только
-                # на активных днях (см. record_usage в subscription_meter.py).
+                # Сколько ДНЕЙ юзер пользовался free. С 08.2026 больше не
+                # блокирует — метрика возвращаемости (см. subscription_meter).
                 ("free_days_used", "INTEGER", "0"),
+                # Общий израсходованный бесплатный запас. Именно он теперь
+                # ограничивает: 30 минут разговора вместо трёх заходов.
+                # Всем существующим юзерам колонка ставится в 0, то есть
+                # запас начинается заново — тем, кого прежняя механика
+                # заблокировала, не потратив их минут, это и причиталось.
+                ("total_usage_seconds", "INTEGER", "0"),
             ]:
                 default_clause = f" DEFAULT {default}" if default else ""
                 try:
@@ -117,43 +122,56 @@ def register_meter_routes(app, db, limiter):
                 "limit_minutes": status.get("limit_minutes"),
                 "used_minutes_today": status.get("used_minutes_today"),
                 "remaining_minutes": status.get("remaining_minutes"),
-                # Trial: фронт показывает «День 2 из 3» в бадж-таймере
-                # и paywall «купить пакет», когда trial_exhausted=True.
+                # Остаток по каждому из двух ограничений отдельно: фронту
+                # нужно различать «на сегодня всё, приходите завтра» и
+                # «бесплатный запас кончился, нужен пакет».
+                "remaining_today_minutes": status.get("remaining_today_minutes"),
+                "remaining_trial_minutes": status.get("remaining_trial_minutes"),
+                "trial_limit_minutes": status.get("trial_limit_minutes"),
+                "trial_used_minutes": status.get("trial_used_minutes"),
+                "block_reason": status.get("block_reason"),
                 "free_days_used": status.get("free_days_used", 0),
                 "free_days_left": status.get("free_days_left"),
                 "trial_exhausted": status.get("trial_exhausted", False),
             }
             if not can_send:
-                # Когда лимит исчерпан — даём фронту понять, что reset в полночь UTC.
-                from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-                now = _dt.now(_tz.utc)
-                next_midnight = (now + _td(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-                result["reset_at"] = next_midnight.isoformat()
-                result["minutes_until_reset"] = int((next_midnight - now).total_seconds() / 60)
+                # Дневной лимит отпустит в полночь UTC, общий запас — нет.
+                # Раньше reset_at отдавался в обоих случаях, и человек с
+                # исчерпанным trial ждал полуночи впустую.
+                if status.get("block_reason") != "trial":
+                    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                    now = _dt.now(_tz.utc)
+                    next_midnight = (now + _td(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                    result["reset_at"] = next_midnight.isoformat()
+                    result["minutes_until_reset"] = int((next_midnight - now).total_seconds() / 60)
                 # Backward-compat поля.
                 result["is_on_cooldown"] = False
                 result["remaining_cooldown_minutes"] = 0
             else:
-                # Warning срабатывает при ≥70% использованного лимита —
-                # синхронно с фронтовым _showWarningToast. Раньше был
-                # фиксированный «remaining ≤ 5 мин», который не зависел
-                # от размера лимита и не попадал в воронку при изменении
-                # FREE_DAILY_MINUTES.
-                remaining = status.get("remaining_minutes")
-                used = status.get("used_minutes_today")
-                limit_min = status.get("limit_minutes")
-                if (limit_min and limit_min > 0
-                        and used is not None
-                        and not status.get("is_premium")
-                        and (used / limit_min) >= 0.70):
+                # Warning при ≥70% израсходованного — по тому из двух
+                # ограничений, которое ближе. Считать только дневной процент
+                # нельзя: к концу общего запаса человек может открыть день
+                # с нулевым расходом, получить «использовано 0%» и упереться
+                # в paywall через минуту разговора.
+                used_day = status.get("used_minutes_today")
+                lim_day = status.get("limit_minutes")
+                used_trial = status.get("trial_used_minutes")
+                lim_trial = status.get("trial_limit_minutes")
+
+                def _pct(used, lim):
+                    return (used / lim) if (lim and lim > 0 and used is not None) else 0.0
+
+                pct = max(_pct(used_day, lim_day), _pct(used_trial, lim_trial))
+                if pct >= 0.70 and not status.get("is_premium"):
                     result["warning"] = True
                     try:
                         from analytics_routes import log_server_event
                         await log_server_event(int(user_id), "meter_warning_server", {
-                            "remaining_minutes": float(remaining or 0),
-                            "used_minutes": float(used),
-                            "limit_minutes": float(limit_min),
-                            "used_pct": round((used / limit_min) * 100, 1),
+                            "remaining_minutes": float(status.get("remaining_minutes") or 0),
+                            "remaining_trial_minutes": float(status.get("remaining_trial_minutes") or 0),
+                            "used_minutes": float(used_day or 0),
+                            "limit_minutes": float(lim_day or 0),
+                            "used_pct": round(pct * 100, 1),
                         })
                     except Exception:
                         pass
