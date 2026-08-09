@@ -6196,7 +6196,15 @@ async def admin_recent_users(request: Request):
 
 @app.get("/api/admin/logs")
 async def admin_logs(request: Request, limit: int = 50):
-    """Последние события/ошибки из таблицы events"""
+    """Последние события/ошибки из таблицы events. ТОЛЬКО админ.
+
+    Ручка была открыта всем без единой проверки и отдавала user_id вместе с
+    содержимым событий — то есть кто угодно мог читать, кто и что делает в
+    приложении. Проверено запросом без заголовков: возвращались реальные
+    записи. Гейт тот же, что у остальных админ-ручек: X-Admin-Token против
+    env ADMIN_TOKEN, при незаданном ADMIN_TOKEN ручка закрыта.
+    """
+    _require_admin_token(request)
     try:
         async with db.get_connection() as conn:
             rows = await conn.fetch("""

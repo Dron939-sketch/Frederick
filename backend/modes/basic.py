@@ -928,15 +928,22 @@ class BasicMode(BaseMode):
             logger.debug(f"identity intercept skip: {_e}")
 
         if self.message_counter == 1:
-            await self._load_memory()
-            # Подтягиваем IANA-таймзону юзера из fredi_users.user_tz —
-            # фронт шлёт её при первой загрузке через POST /api/user/tz.
-            # Это перекрывает дефолт «Europe/Moscow» в __init__ для тех,
-            # кто не из MSK. Влияет на дату в user_message и greeting.
-            await self._load_user_tz_from_db()
-            # Кросс-сессионная память: подмешиваем сводки прошлых сессий и
-            # в фоне суммаризуем закрытую сессию (если такая есть).
-            await self._load_cross_session_memory()
+            # Три независимых похода в БД: факты о человеке, его таймзона
+            # (fredi_users.user_tz — фронт шлёт её через POST /api/user/tz,
+            # она перекрывает дефолт «Europe/Moscow» для тех, кто не из MSK,
+            # и влияет на дату в промпте) и сводки прошлых сессий. Друг от
+            # друга они ничего не ждут, а шли по очереди — задержки просто
+            # складывались. Запускаем разом.
+            #
+            # Важно понимать: инстанс режима создаётся на КАЖДЫЙ HTTP-запрос
+            # (см. get_mode в modes/__init__), поэтому message_counter здесь
+            # всегда 1 и блок выполняется на каждом сообщении, а не только
+            # на первом, как читается по названию условия.
+            await asyncio.gather(
+                self._load_memory(),
+                self._load_user_tz_from_db(),
+                self._load_cross_session_memory(),
+            )
         _t_mem = time.time()
 
         # === LATENCY: pre-LLM работа разделена на блокирующую и фоновую. ===
