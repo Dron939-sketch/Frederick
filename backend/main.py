@@ -3145,6 +3145,33 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
     })
 
 
+async def _try_freddy(prep: Dict[str, Any], user_id: int, message: str) -> Optional[str]:
+    """Спросить FreddyService. Возвращает ответ или None — без фолбэков.
+
+    Отдельно от _freddy_or_mode нарочно: потоковому эндпоинту нужно узнать
+    «есть ли готовый ответ от Фредди», НЕ запуская при этом генерацию в
+    режиме. Раньше он звал _freddy_or_mode, а тот при пустом Фредди
+    молча догонял полным блокирующим ответом — и стрим потом генерировал
+    всё заново. Человек ждал две генерации вместо одной; в замерах это
+    было видно как 9 лишних секунд между подготовкой и первой дельтой.
+    """
+    if prep["has_profile"]:
+        return None
+    try:
+        freddy = get_freddy_service()
+        freddy_result = await freddy.chat(
+            user_id=user_id,
+            message=message,
+            history=prep["history"],
+        )
+        if freddy_result.get("reply"):
+            logger.info(f"FreddyService replied for user {user_id}, model={freddy_result.get('model')}")
+            return freddy_result["reply"]
+    except Exception as e:
+        logger.warning(f"FreddyService failed for user {user_id}: {e}")
+    return None
+
+
 async def _freddy_or_mode(prep: Dict[str, Any], user_id: int, message: str) -> Dict[str, Any]:
     """Ответ через FreddyService, если тот доступен, иначе через режим.
 
@@ -3154,28 +3181,12 @@ async def _freddy_or_mode(prep: Dict[str, Any], user_id: int, message: str) -> D
     в шаблонных «понял, стираю». Теперь тест запускается ТОЛЬКО явным
     действием юзера через UI (кнопка «📊 Психологический тест» в левом меню).
     """
-    if prep["has_profile"]:
-        result = await _ask_mode(prep["mode_instance"], message)
-        return {"mode_name": prep["mode_name"], **result}
-
-    freddy_reply = None
-    try:
-        freddy = get_freddy_service()
-        freddy_result = await freddy.chat(
-            user_id=user_id,
-            message=message,
-            history=prep["history"],
-        )
-        if freddy_result.get("reply"):
-            freddy_reply = freddy_result["reply"]
-            logger.info(f"FreddyService replied for user {user_id}, model={freddy_result.get('model')}")
-    except Exception as e:
-        logger.warning(f"FreddyService failed for user {user_id}: {e}")
-
+    freddy_reply = await _try_freddy(prep, user_id, message)
     if freddy_reply:
         return {"mode_name": "freddy", "response": freddy_reply, "tools_used": ["freddy_sdk"]}
 
-    logger.info(f"FreddyService unavailable, falling back to BasicMode for user {user_id}")
+    if not prep["has_profile"]:
+        logger.info(f"FreddyService unavailable, falling back to BasicMode for user {user_id}")
     result = await _ask_mode(prep["mode_instance"], message)
     return {"mode_name": prep["mode_name"], **result}
 
@@ -3239,17 +3250,21 @@ async def chat_stream(request: Request, data: ChatRequest):
             yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n"
 
             streamed_ok = False
-            if not prep["has_profile"]:
-                # FreddyService — заглушка, но если её включат обратно,
-                # ответ придёт целиком: отдаём одной дельтой.
-                fr = await _freddy_or_mode(prep, data.user_id, data.message)
-                if fr["mode_name"] == "freddy":
-                    full_text = fr["response"]
-                    mode_name = "freddy"
-                    tools_used = fr.get("tools_used", [])
-                    streamed_ok = True
-                    yield json.dumps({"type": "delta", "text": full_text},
-                                     ensure_ascii=False) + "\n"
+            # FreddyService сейчас заглушка и отвечает пусто, но если её
+            # включат обратно — ответ придёт целиком, отдаём одной дельтой.
+            # Спрашиваем ТОЛЬКО его: _freddy_or_mode здесь звать нельзя, он
+            # при пустом Фредди догоняет полной блокирующей генерацией, а
+            # стрим ниже генерирует всё заново. Человек ждал две генерации
+            # подряд — в замерах ровно те 9 секунд, что не сходились между
+            # подготовкой (48 мс) и первой дельтой (19,4 с).
+            freddy_reply = await _try_freddy(prep, data.user_id, data.message)
+            if freddy_reply:
+                full_text = freddy_reply
+                mode_name = "freddy"
+                tools_used = ["freddy_sdk"]
+                streamed_ok = True
+                yield json.dumps({"type": "delta", "text": full_text},
+                                 ensure_ascii=False) + "\n"
 
             if not streamed_ok and hasattr(mode_instance, "process_question_streaming"):
                 acc, sent = "", 0
