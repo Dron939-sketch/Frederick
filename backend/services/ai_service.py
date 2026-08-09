@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 # можно переключить на deepseek-v4-flash для дешёвых/быстрых вызовов).
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
 
+# Быстрая модель для входного чата. Рассуждающая модель думает перед
+# ответом — на разборе и тесте это оправдано, а на реплике в четыре
+# предложения обходится в 8-20 секунд молчания и упирается в лимит
+# токенов (замерено: finish=length в шести случаях из восьми, медиана
+# первого слова 14,4 с). Остальные вызовы остаются на DEEPSEEK_MODEL.
+#
+# Имя вынесено в env, чтобы менять и откатывать без деплоя. Если модели
+# с таким именем не существует, вызов автоматически повторится на
+# DEEPSEEK_MODEL — чат не сломается, в логе будет DEEPSEEK_FALLBACK.
+DEEPSEEK_FAST_MODEL = os.environ.get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
+
 
 async def call_deepseek(prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
     service = AIService()
@@ -190,13 +201,21 @@ class AIService:
             yield ""
 
     async def _call_deepseek(self, system_prompt: str, user_prompt: str,
-                              max_tokens: int = 1000, temperature: float = 0.7) -> Optional[str]:
+                              max_tokens: int = 1000, temperature: float = 0.7,
+                              model: Optional[str] = None) -> Optional[str]:
+        """model=None — обычная модель. Входной чат передаёт быструю.
+
+        Если переданная модель неизвестна провайдеру (400), запрос
+        повторяется на DEEPSEEK_MODEL: неверное имя в env не должно
+        оставлять людей без ответа.
+        """
         if not self.api_key:
             return None
+        _model = model or DEEPSEEK_MODEL
         try:
             session = await self._get_session()
             request_body = {
-                "model": DEEPSEEK_MODEL,
+                "model": _model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -233,9 +252,17 @@ class AIService:
                     
                 elif response.status == 400:
                     error_text = await response.text()
-                    logger.error(f"❌ DeepSeek 400 error!")
+                    logger.error(f"❌ DeepSeek 400 error! model={_model}")
                     logger.error(f"   Response body: {error_text}")
                     logger.error(f"   Request body (first 500 chars): {json.dumps(request_body, ensure_ascii=False)[:500]}")
+                    if _model != DEEPSEEK_MODEL:
+                        logger.warning(
+                            "↩️ DEEPSEEK_FALLBACK: модель %s не принята, "
+                            "повторяю на %s" % (_model, DEEPSEEK_MODEL))
+                        return await self._call_deepseek(
+                            system_prompt, user_prompt,
+                            max_tokens=max_tokens, temperature=temperature,
+                            model=DEEPSEEK_MODEL)
                     return None
                     
                 elif response.status == 401:
@@ -270,6 +297,7 @@ class AIService:
     async def _call_deepseek_streaming(
         self, system_prompt: str, user_prompt: str,
         max_tokens: int = 1000, temperature: float = 0.7,
+        model: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Стриминговый близнец _call_deepseek: тот же system+user сплит и
         те же параметры, но stream=True — отдаёт контент по дельтам, как
@@ -283,9 +311,10 @@ class AIService:
         откатится на блокирующий путь."""
         if not self.api_key:
             return
+        _model = model or DEEPSEEK_MODEL
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {
-            "model": DEEPSEEK_MODEL,
+            "model": _model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -327,8 +356,16 @@ class AIService:
                     # Раньше писали только код. Тело ответа тут важнее: на
                     # 400 в нём лежит причина (слишком длинный контекст,
                     # неизвестная модель), без которой отладка слепая.
-                    logger.error("❌ DeepSeek streaming error: %s prompt_chars=%d body=%s"
-                                 % (response.status, _prompt_chars, body))
+                    logger.error("❌ DeepSeek streaming error: %s model=%s prompt_chars=%d body=%s"
+                                 % (response.status, _model, _prompt_chars, body))
+                    if _model != DEEPSEEK_MODEL:
+                        logger.warning(
+                            "↩️ DEEPSEEK_FALLBACK: модель %s не принята в стриме, "
+                            "повторяю на %s" % (_model, DEEPSEEK_MODEL))
+                        async for _d in self._call_deepseek_streaming(
+                                system_prompt, user_prompt, max_tokens=max_tokens,
+                                temperature=temperature, model=DEEPSEEK_MODEL):
+                            yield _d
                     return
                 async for line in response.content:
                     if not line:
@@ -375,7 +412,7 @@ class AIService:
                    _prompt_chars, _usage.get("prompt_tokens", "?"),
                    _hit if _hit is not None else "?",
                    _miss if _miss is not None else "?",
-                   _chars, _finish or '?', DEEPSEEK_MODEL)
+                   _chars, _finish or '?', _model)
             )
             # Отдаём наружу, чтобы режим положил числа в событие аналитики:
             # логи приложения снаружи не читаются, события — читаются.

@@ -6,6 +6,7 @@ Primary LLM: DeepSeek. Anthropic Claude (с tool-use) — опционально
 включается мастер-флагом USE_ANTHROPIC=1.
 """
 
+import os
 import re
 import time
 import logging
@@ -15,7 +16,7 @@ from datetime import datetime
 from typing import Dict, Any, AsyncGenerator, List, Optional
 
 from modes.base_mode import BaseMode
-from services.ai_service import AIService
+from services.ai_service import AIService, DEEPSEEK_FAST_MODEL
 
 # Поведенческие правила Фреди — общие для всех режимов. В BasicMode профиль
 # юзера ещё не пройден, но запреты на шаблонные открывашки, переадресацию
@@ -47,6 +48,17 @@ logger = logging.getLogger(__name__)
 # Дороже это не выходит: сейчас мы платим и за сожжённые впустую 400
 # токенов, и за полную вторую генерацию.
 ANSWER_MAX_TOKENS = 1500
+
+# Модель входного чата. Быстрая — потому что рассуждающая думает перед
+# каждой репликой: замерено 8-29 секунд до первого слова и finish=length
+# в шести случаях из восьми. На разборе, тесте и глубоком анализе
+# рассуждения оправданы, и там модель остаётся прежняя.
+#
+# Переопределяется через env BASIC_CHAT_MODEL, а если имя не принято
+# провайдером — вызов сам повторится на обычной модели (см.
+# DEEPSEEK_FALLBACK в ai_service). То есть неверная настройка замедлит
+# чат, но не оставит людей без ответа.
+ANSWER_MODEL = os.environ.get("BASIC_CHAT_MODEL", DEEPSEEK_FAST_MODEL)
 
 
 
@@ -833,7 +845,8 @@ class BasicMode(BaseMode):
         # ответ, чем прежний flat-fallback.
         try:
             result = await self.ai_service._call_deepseek(
-                system_text, user_text, max_tokens=max_tokens, temperature=temperature
+                system_text, user_text, max_tokens=max_tokens,
+                temperature=temperature, model=ANSWER_MODEL
             )
             if result:
                 return result
@@ -1094,7 +1107,8 @@ class BasicMode(BaseMode):
         buffer = ""
         try:
             async for delta in self.ai_service._call_deepseek_streaming(
-                system_text, user_text, max_tokens=max_tokens, temperature=temperature
+                system_text, user_text, max_tokens=max_tokens,
+                temperature=temperature, model=ANSWER_MODEL
             ):
                 if not delta:
                     continue
