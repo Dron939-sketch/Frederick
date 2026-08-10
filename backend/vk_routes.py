@@ -2929,6 +2929,7 @@ def register_vk_routes(app, db):
                 city_id=(int(city_id) if city_id > 0 else None),
                 active_only=bool((body or {}).get("active_only", True)),
                 active_inactivity_days=int((body or {}).get("active_inactivity_days") or 90),
+                check_can_write=bool((body or {}).get("check_can_write", False)),
             )
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail={
