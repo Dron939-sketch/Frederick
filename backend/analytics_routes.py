@@ -67,6 +67,37 @@ def _sanitize_attrs(attrs: Any) -> Dict[str, Any]:
     return safe
 
 
+# Одна сессия — один session_end.
+#
+# tracker.js снимает флаг завершения, когда человек возвращается на
+# вкладку (fredi/tracker.js, visibilitychange), поэтому один заход
+# присылает несколько session_end подряд: ушёл — вернулся — ушёл. Все
+# они несут один session_id и растущее duration_sec, а среднее по всем
+# строкам считало один и тот же заход по нескольку раз, причём
+# оборванные куски тянули его вниз. Отсюда «десктоп 30 с» при мобильных
+# 11 минутах — разрыв в 23 раза, которого в поведении нет.
+#
+# Берём по одной строке на сессию — с наибольшим накопленным временем.
+# У старых клиентов session_id пустой: там каждая строка сама себе
+# сессия, как и было.
+def last_session_end(days: int = 7) -> str:
+    """CTE last_end: по одной строке session_end на сессию."""
+    return """
+    WITH last_end AS (
+        SELECT DISTINCT ON (COALESCE(NULLIF(session_id, ''), id::text)) id
+        FROM fredi_analytics
+        WHERE event = 'session_end'
+          AND created_at > NOW() - INTERVAL '%d days'
+          AND (data->>'duration_sec') ~ '^[0-9]+$'
+        ORDER BY COALESCE(NULLIF(session_id, ''), id::text),
+                 (data->>'duration_sec')::int DESC
+    )
+""" % int(days)
+
+
+LAST_SESSION_END = last_session_end(7)
+
+
 async def log_server_event(
     user_id: Optional[int],
     event: str,
@@ -249,11 +280,10 @@ def register_analytics_routes(app, db):
                 # доходить до нескольких часов (вкладка оставлена открытой).
                 # Без кэпа среднее превращается в artifact.
                 avg_dur = await conn.fetchval(
+                    LAST_SESSION_END +
                     "SELECT AVG(LEAST((data->>'duration_sec')::int, 3600)) "
                     "FROM fredi_analytics "
-                    "WHERE event = 'session_end' "
-                    "AND created_at > NOW() - INTERVAL '7 days' "
-                    "AND (data->>'duration_sec') ~ '^[0-9]+$'"
+                    "WHERE id IN (SELECT id FROM last_end)"
                 )
                 # Daily active users за 7 дней (день + уникальные user_id)
                 dau_rows = await conn.fetch(
@@ -265,23 +295,27 @@ def register_analytics_routes(app, db):
                 )
                 dau = [{"day": r["day"].isoformat(), "users": r["users"],
                         "events": r["events"]} for r in dau_rows]
-                # Воронка meter → subscribe
-                mws = await conn.fetchval(
-                    "SELECT COUNT(*) FROM fredi_analytics "
-                    "WHERE event IN ('meter_warning_server','meter_warning_shown') "
-                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
-                mbs = await conn.fetchval(
-                    "SELECT COUNT(*) FROM fredi_analytics "
-                    "WHERE event = 'meter_blocked_shown' "
-                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
-                msc = await conn.fetchval(
-                    "SELECT COUNT(*) FROM fredi_analytics "
-                    "WHERE event = 'meter_subscribe_clicked' "
-                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
-                sub_act = await conn.fetchval(
-                    "SELECT COUNT(*) FROM fredi_analytics "
-                    "WHERE event = 'subscription_activated' "
-                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
+                # Воронка meter → subscribe. Считаем ЛЮДЕЙ, а не события:
+                # шаг воронки отвечает на вопрос «сколько человек сюда
+                # дошло», а одному человеку и предупреждение, и стена
+                # показываются по многу раз.
+                #
+                # Клиент шлёт 'meter_warning' (fredi/meter.js), сервер —
+                # 'meter_warning_server'. Имени 'meter_warning_shown' не
+                # эмитит никто: оно стояло здесь с прежнего названия и
+                # молча давало ноль, из-за чего клиентские предупреждения
+                # в воронку вообще не попадали.
+                async def _step_users(*events):
+                    return await conn.fetchval(
+                        "SELECT COUNT(DISTINCT user_id) FROM fredi_analytics "
+                        "WHERE event = ANY($1::text[]) "
+                        "AND created_at > NOW() - INTERVAL '7 days'",
+                        list(events)) or 0
+
+                mws = await _step_users("meter_warning_server", "meter_warning")
+                mbs = await _step_users("meter_blocked_shown")
+                msc = await _step_users("meter_subscribe_clicked")
+                sub_act = await _step_users("subscription_activated")
                 funnel = {
                     "meter_warning": mws,
                     "meter_blocked_shown": mbs,
@@ -327,10 +361,12 @@ def register_analytics_routes(app, db):
                     "AND created_at > NOW() - INTERVAL '7 days'") or 0
                 # Сегментация по ключевым attrs
                 seg_device_rows = await conn.fetch(
+                    LAST_SESSION_END +
                     "SELECT COALESCE(attrs->>'device','unknown') AS seg, "
                     "COUNT(DISTINCT user_id) AS users, "
                     "COUNT(*) AS events, "
-                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER (WHERE event='session_end' AND (data->>'duration_sec') ~ '^[0-9]+$') AS avg_sec "
+                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER "
+                    "(WHERE id IN (SELECT id FROM last_end)) AS avg_sec "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
                     "GROUP BY seg ORDER BY users DESC NULLS LAST"
@@ -343,12 +379,14 @@ def register_analytics_routes(app, db):
                 } for r in seg_device_rows]
 
                 seg_plan_rows = await conn.fetch(
+                    LAST_SESSION_END +
                     "SELECT "
                     "CASE WHEN (attrs->>'is_premium')::boolean THEN 'premium' "
                     "ELSE 'free' END AS seg, "
                     "COUNT(DISTINCT user_id) AS users, "
                     "COUNT(*) AS events, "
-                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER (WHERE event='session_end' AND (data->>'duration_sec') ~ '^[0-9]+$') AS avg_sec "
+                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER "
+                    "(WHERE id IN (SELECT id FROM last_end)) AS avg_sec "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
                     "AND attrs ? 'is_premium' "
@@ -362,12 +400,14 @@ def register_analytics_routes(app, db):
                 } for r in seg_plan_rows]
 
                 seg_authed_rows = await conn.fetch(
+                    LAST_SESSION_END +
                     "SELECT "
                     "CASE WHEN (attrs->>'is_authed')::boolean THEN 'authed' "
                     "ELSE 'anon' END AS seg, "
                     "COUNT(DISTINCT user_id) AS users, "
                     "COUNT(*) AS events, "
-                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER (WHERE event='session_end' AND (data->>'duration_sec') ~ '^[0-9]+$') AS avg_sec "
+                    "AVG(LEAST((data->>'duration_sec')::int, 3600)) FILTER "
+                    "(WHERE id IN (SELECT id FROM last_end)) AS avg_sec "
                     "FROM fredi_analytics "
                     "WHERE created_at > NOW() - INTERVAL '7 days' "
                     "AND attrs ? 'is_authed' "
@@ -564,13 +604,12 @@ def register_analytics_routes(app, db):
                                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY msgs) AS median_msgs
                         FROM s
                     """, timeout=Q_TIMEOUT)
-                    med_dur = await conn.fetchval("""
+                    med_dur = await conn.fetchval(
+                        last_session_end(30) + """
                         SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (
                             ORDER BY LEAST((data->>'duration_sec')::int, 3600))
                         FROM fredi_analytics
-                        WHERE event = 'session_end'
-                          AND created_at > NOW() - INTERVAL '30 days'
-                          AND (data->>'duration_sec') ~ '^[0-9]+$'
+                        WHERE id IN (SELECT id FROM last_end)
                     """, timeout=Q_TIMEOUT)
                     spu = await conn.fetch("""
                         WITH u AS (

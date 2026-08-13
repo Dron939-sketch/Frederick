@@ -110,6 +110,22 @@ def register_meter_routes(app, db, limiter):
             logger.error(f"meter record error: {e}")
             return {"success": False, "error": str(e)}
 
+    async def _warned_today(user_id: int) -> bool:
+        """Писали ли уже сегодня meter_warning_server этому человеку.
+
+        Сутки — от полуночи UTC, ровно как дневной лимит в
+        SubscriptionMeter: предупреждение живёт в том же такте, что и
+        запас, который оно предсказывает.
+        """
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT 1 FROM fredi_analytics "
+                "WHERE user_id = $1 AND event = 'meter_warning_server' "
+                "AND created_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') "
+                "LIMIT 1",
+                user_id)
+            return row is not None
+
     @app.get("/api/meter/can-send/{user_id}")
     @limiter.limit("120/minute")
     async def can_send_message(request: Request, user_id: int):
@@ -164,6 +180,17 @@ def register_meter_routes(app, db, limiter):
                 pct = max(_pct(used_day, lim_day), _pct(used_trial, lim_trial))
                 if pct >= 0.70 and not status.get("is_premium"):
                     result["warning"] = True
+                    # Событие — только на первое пересечение порога за сутки.
+                    # /api/meter/check дёргает бадж таймера раз в 60 секунд
+                    # (fredi/meter.js), и раньше каждый такой опрос писал
+                    # строку в аналитику. Один человек с открытой вкладкой
+                    # давал 43 «предупреждения» за 43 минуты, и первый шаг
+                    # воронки показывал опросы вместо людей.
+                    try:
+                        if await _warned_today(int(user_id)):
+                            return result
+                    except Exception:
+                        pass
                     try:
                         from analytics_routes import log_server_event
                         await log_server_event(int(user_id), "meter_warning_server", {
