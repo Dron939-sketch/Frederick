@@ -95,6 +95,11 @@ class AIService:
         self.cache = cache
         self.session: Optional[aiohttp.ClientSession] = None
         self.base_url = "https://api.deepseek.com/v1"
+        # Причина последнего неудачного _simple_call. Раньше все отказы —
+        # нет ключа, 400, 401, таймаут, пустой ответ — сваливались в
+        # один None, и на фронте выглядели одинаковым «AI не вернул
+        # ответ». Разобрать по такому сообщению, что случилось, нельзя.
+        self.last_error = ""
         self._initialized = True
 
         self.russell_quotes = [
@@ -118,8 +123,11 @@ class AIService:
             )
         return self.session
 
-    async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Optional[str]:
+    async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7,
+                           _retry_budget: bool = True) -> Optional[str]:
+        self.last_error = ""
         if not self.api_key:
+            self.last_error = "нет ключа DEEPSEEK_API_KEY"
             return None
         try:
             session = await self._get_session()
@@ -164,11 +172,28 @@ class AIService:
                     
                     # Только нормализация пробелов — НЕ склеиваем слова!
                     result = re.sub(r'\s+', ' ', result).strip()
-                    
+
+                    # Пустой видимый ответ при finish_reason='length' —
+                    # это модель с рассуждениями съела весь бюджет токенов
+                    # на невидимую часть. Один раз пробуем с утроенным
+                    # бюджетом: клиенту это стоит того же одного запроса.
+                    if not result:
+                        if _fin == 'length' and _retry_budget:
+                            bigger = min(max(int(max_tokens) * 3, 900), 4000)
+                            logger.warning(
+                                "🔁 Пустой ответ при finish_reason=length, повтор с max_tokens=%d "
+                                "(было %s)" % (bigger, max_tokens))
+                            return await self._simple_call(prompt, bigger, temperature,
+                                                           _retry_budget=False)
+                        self.last_error = ("модель вернула пустой ответ (finish_reason=%s, "
+                                           "бюджет %s токенов)" % (_fin, max_tokens))
+                        return None
+
                     logger.info(f"💬 Ответ ИИ после очистки: {len(result)} символов")
                     return result
                     
                 elif response.status == 400:
+                    self.last_error = "DeepSeek 400: запрос отклонён"
                     error_text = await response.text()
                     logger.error(f"❌ DeepSeek 400 error!")
                     logger.error(f"   Response body: {error_text}")
@@ -176,16 +201,20 @@ class AIService:
                     return None
                     
                 elif response.status == 401:
+                    self.last_error = "DeepSeek 401: неверный ключ"
                     logger.error("❌ DeepSeek 401 error: Invalid API key")
                     return None
                     
                 else:
+                    self.last_error = "DeepSeek ответил %s" % response.status
                     logger.error(f"❌ DeepSeek error: {response.status}")
                     return None
         except asyncio.TimeoutError:
+            self.last_error = "модель не ответила за 30 секунд"
             logger.error("❌ DeepSeek timeout")
             return None
         except Exception as e:
+            self.last_error = "сбой запроса: %s" % str(e)[:120]
             logger.error(f"❌ DeepSeek error: {e}")
             return None
 

@@ -3390,7 +3390,13 @@ async def ai_generate(request: Request, data: AIGenerateRequest):
         if result:
             return {"success": True, "content": result}
         else:
-            return {"success": False, "error": "AI не вернул ответ"}
+            # Причину отдаём наружу: без неё все отказы выглядят на фронте
+            # одинаково, и разобрать, что случилось — кончился бюджет
+            # токенов, отвалился ключ, был таймаут — по логам клиента
+            # невозможно. Модули пишут её в аналитику.
+            reason = getattr(ai_service, "last_error", "") or "AI не вернул ответ"
+            logger.warning("ai_generate: пусто для user %s — %s", data.user_id, reason)
+            return {"success": False, "error": reason}
     except Exception as e:
         logger.error(f"AI generate error for user {data.user_id}: {e}")
         return {"success": False, "error": str(e)}
