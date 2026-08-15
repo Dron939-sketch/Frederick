@@ -124,6 +124,7 @@ class AIService:
         return self.session
 
     async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7,
+                           thinking: Optional[bool] = None,
                            _retry_budget: bool = True) -> Optional[str]:
         self.last_error = ""
         if not self.api_key:
@@ -137,6 +138,11 @@ class AIService:
                 "temperature": temperature,
                 "max_tokens": max_tokens
             }
+            # Раньше этот путь размышление не выключал вообще: параметр
+            # сюда просто не был проведён, хотя _call_deepseek его умеет.
+            # Отсюда и брались пустые ответы у модулей, которые ходят
+            # через /api/ai/generate.
+            _apply_thinking(request_body, thinking)
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
@@ -184,6 +190,7 @@ class AIService:
                                 "🔁 Пустой ответ при finish_reason=length, повтор с max_tokens=%d "
                                 "(было %s)" % (bigger, max_tokens))
                             return await self._simple_call(prompt, bigger, temperature,
+                                                           thinking=thinking,
                                                            _retry_budget=False)
                         self.last_error = ("модель вернула пустой ответ (finish_reason=%s, "
                                            "бюджет %s токенов)" % (_fin, max_tokens))

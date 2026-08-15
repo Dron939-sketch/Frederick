@@ -3382,10 +3382,17 @@ async def ai_generate(request: Request, data: AIGenerateRequest):
     practices, relationships, skill_choice, strategy, tales.
     """
     try:
+        # Размышление выключено намеренно. Через этот эндпоинт ходят
+        # игры и тренажёры: им нужен короткий размеченный ответ, а не
+        # рассуждение. С включённым размышлением бюджет max_tokens уходил
+        # в невидимую часть, ответ приходил пустым, и на экране человек видел
+        # «AI не вернул ответ». Ровно это уже чинили для чата в
+        # modes/basic.py — сюда параметр просто не был проведён.
         result = await ai_service._simple_call(
             prompt=data.prompt,
             max_tokens=data.max_tokens,
-            temperature=data.temperature
+            temperature=data.temperature,
+            thinking=False
         )
         if result:
             return {"success": True, "content": result}
