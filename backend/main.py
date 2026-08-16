@@ -880,31 +880,53 @@ async def meter_guard_middleware(request: Request, call_next):
             f"used={status.get('used_minutes_today')} "
             f"limit={status.get('limit_minutes')}"
         )
+        # Почему заблокировали — часть ответа. Раньше 402 отсюда шёл без
+        # block_reason и trial-полей, и фронт (showFatigueModal) по
+        # fallback'у показывал экран дневного лимита «возвращайся в
+        # полночь» даже тому, у кого кончился весь бесплатный запас —
+        # человек ждал полуночи впустую. /api/meter/can-send эти поля уже
+        # отдаёт; middleware должен отдавать те же.
+        _reason = status.get("block_reason") or "daily"
         # Аналитика: server-side fire-and-forget
         try:
             await log_server_event(user_id, "meter_blocked_server", {
                 "path": path,
+                "block_reason": _reason,
                 "used_minutes": status.get("used_minutes_today", 0),
                 "limit_minutes": status.get("limit_minutes", 15),
+                "trial_used_minutes": status.get("trial_used_minutes", 0),
                 "minutes_until_reset": _minutes_until_reset,
             })
         except Exception:
             pass
+        _content = {
+            "success": False,
+            "error": "METER_BLOCKED",
+            "can_send": False,
+            "block_reason": _reason,
+            "trial_exhausted": status.get("trial_exhausted", False),
+            "trial_used_minutes": status.get("trial_used_minutes"),
+            "trial_limit_minutes": status.get("trial_limit_minutes"),
+            "remaining_trial_minutes": status.get("remaining_trial_minutes"),
+            "limit_minutes": status.get("limit_minutes", 15),
+            "used_minutes_today": status.get("used_minutes_today", 0),
+            # Backward-compat — старые билды могут читать.
+            "is_on_cooldown": False,
+            "remaining_cooldown_minutes": 0,
+        }
+        if _reason == "trial":
+            _content["message"] = ("Бесплатные минуты закончились. "
+                                   "Чтобы продолжить без лимитов, открой Premium.")
+        else:
+            # Дневной лимит отпустит в полночь UTC — таймер уместен
+            # только здесь: общий запас полночь не вернёт.
+            _content["message"] = ("Фреди отдыхает — мы наговорили дневной лимит. "
+                                   "Возвращайся в полночь или открой Premium.")
+            _content["reset_at"] = _next_midnight.isoformat()
+            _content["minutes_until_reset"] = _minutes_until_reset
         return JSONResponse(
             status_code=402,
-            content={
-                "success": False,
-                "error": "METER_BLOCKED",
-                "can_send": False,
-                "limit_minutes": status.get("limit_minutes", 15),
-                "used_minutes_today": status.get("used_minutes_today", 0),
-                "minutes_until_reset": _minutes_until_reset,
-                "reset_at": _next_midnight.isoformat(),
-                # Backward-compat — старые билды могут читать.
-                "is_on_cooldown": False,
-                "remaining_cooldown_minutes": 0,
-                "message": "Фреди отдыхает — мы наговорили дневной лимит. Возвращайся в полночь или открой Premium.",
-            },
+            content=_content,
             # CORS вручную: этот ответ возвращается из middleware ВЫШЕ
             # CORSMiddleware, поэтому без явных заголовков браузер режет
             # его как cross-origin до того, как фронт увидит status=402,
