@@ -3046,6 +3046,72 @@ async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
     return {"response": response_text, "tools_used": tools_used}
 
 
+# ---------- Схлопывание повторов одного вопроса ----------
+#
+# Фронт мог отправить один и тот же текст несколько раз: композер на
+# главной ставил защёлку после сетевой проверки лимита, и каждый тап по
+# «отправить» уходил отдельной генерацией. В истории от 17.08 один вопрос
+# лежит пятнадцатью парами реплик с пятнадцатью разными ответами — человек
+# видел, как Фреди сам себе противоречит и считает повторы наугад.
+#
+# Клиент починен, но повтор придёт и без него: двойной тап, ретрай прокси,
+# перезапрос на плохой сети. Поэтому вторая линия защиты стоит здесь.
+# Правил два, и они разные по смыслу:
+#   • пока ответ ещё генерируется — любой одинаковый запрос ждёт и получает
+#     тот же ответ (это заведомо двойное нажатие);
+#   • после ответа — повтор в пределах короткого окна отдаётся из памяти.
+# Окно нарочно короткое: «да» или «нет» человек может повторить осмысленно
+# через полминуты, и такой повтор должен получить свой ответ.
+CHAT_DEDUP_WINDOW_SEC = 10.0
+_chat_inflight: Dict[tuple, Any] = {}
+_chat_recent: Dict[tuple, tuple] = {}
+
+
+def _chat_dedup_key(user_id: int, message: str) -> tuple:
+    norm = " ".join((message or "").split()).lower()
+    return (int(user_id), hashlib.sha1(norm.encode("utf-8")).hexdigest())
+
+
+async def _chat_dedup_claim(key: tuple):
+    """Заявка на генерацию ответа.
+
+    Возвращает (answer, mode_name, future):
+      • answer не None — это повтор, генерировать не нужно;
+      • future не None — генерируем мы и обязаны закрыть заявку в finally.
+    """
+    now = time.time()
+    for stale in [k for k, v in _chat_recent.items() if now - v[0] > CHAT_DEDUP_WINDOW_SEC]:
+        _chat_recent.pop(stale, None)
+
+    hit = _chat_recent.get(key)
+    if hit:
+        return hit[1], hit[2], None
+
+    fut = _chat_inflight.get(key)
+    if fut is not None and not fut.done():
+        try:
+            answer, mode_name = await asyncio.wait_for(asyncio.shield(fut), timeout=90)
+            if answer:
+                return answer, mode_name, None
+        except Exception:
+            pass
+        # первый ход упал или не уложился — отвечаем сами
+        return None, None, None
+
+    fut = asyncio.get_event_loop().create_future()
+    _chat_inflight[key] = fut
+    return None, None, fut
+
+
+def _chat_dedup_finish(key: tuple, fut, answer: str, mode_name: Optional[str]) -> None:
+    if fut is not None and not fut.done():
+        fut.set_result((answer or "", mode_name))
+    if _chat_inflight.get(key) is fut:
+        _chat_inflight.pop(key, None)
+    if answer:
+        _chat_recent[key] = (time.time(), answer, mode_name)
+
+
 async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) -> Dict[str, Any]:
     """Подготовка хода диалога: профиль, режим, история, инстанс режима.
 
@@ -3216,18 +3282,34 @@ async def _freddy_or_mode(prep: Dict[str, Any], user_id: int, message: str) -> D
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat(request: Request, data: ChatRequest):
+    dedup_key = _chat_dedup_key(data.user_id, data.message)
+    dup_answer, dup_mode, dedup_fut = await _chat_dedup_claim(dedup_key)
+    if dup_answer:
+        # Повтор того же вопроса: отдаём готовый ответ и НЕ пишем историю
+        # второй раз — иначе одна реплика человека размножается парами.
+        logger.info(f"↩️ chat: повтор вопроса от {data.user_id}, отдан прежний ответ")
+        return {
+            "success": True,
+            "response": dup_answer,
+            "mode_used": dup_mode or data.mode,
+            "reflection": None,
+            "duplicate": True,
+        }
+
+    answer, mode_name = "", None
     try:
         prep = await _prepare_chat_turn(data.user_id, data.message, data.mode)
         result = await _freddy_or_mode(prep, data.user_id, data.message)
         mode_name = result["mode_name"]
+        answer = result["response"]
 
         await _finish_chat_turn(prep, data.user_id, data.message,
-                                result["response"], mode_name,
+                                answer, mode_name,
                                 result.get("tools_used"))
 
         return {
             "success": True,
-            "response": result["response"],
+            "response": answer,
             "mode_used": mode_name,
             "reflection": prep["reflection"],
         }
@@ -3235,6 +3317,8 @@ async def chat(request: Request, data: ChatRequest):
     except Exception as e:
         logger.error(f"Error in chat for user {data.user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _chat_dedup_finish(dedup_key, dedup_fut, answer, mode_name)
 
 
 @app.post("/api/chat/stream")
@@ -3262,7 +3346,24 @@ async def chat_stream(request: Request, data: ChatRequest):
         full_text = ""
         _t0 = time.time()
         _t_prep = _t_first = _t_gen = _t_chunk = None
+        dedup_key = _chat_dedup_key(data.user_id, data.message)
+        dedup_fut = None
+        dedup_mode = None
         try:
+            dup_answer, dup_mode, dedup_fut = await _chat_dedup_claim(dedup_key)
+            if dup_answer:
+                # Тот же вопрос уже отвечен (или отвечается прямо сейчас):
+                # отдаём готовый текст одной дельтой и не трогаем историю.
+                logger.info(f"↩️ chat/stream: повтор вопроса от {data.user_id}, отдан прежний ответ")
+                yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n"
+                yield json.dumps({"type": "delta", "text": dup_answer},
+                                 ensure_ascii=False) + "\n"
+                yield json.dumps({"type": "done", "full_text": dup_answer,
+                                  "mode_used": dup_mode or data.mode,
+                                  "reflection": None, "duplicate": True},
+                                 ensure_ascii=False) + "\n"
+                return
+
             prep = await _prepare_chat_turn(data.user_id, data.message, data.mode)
             mode_instance = prep["mode_instance"]
             mode_name = prep["mode_name"]
@@ -3363,6 +3464,7 @@ async def chat_stream(request: Request, data: ChatRequest):
             await _finish_chat_turn(prep, data.user_id, data.message,
                                     full_text, mode_name, tools_used,
                                     streamed=True, timings=timings)
+            dedup_mode = mode_name
 
             yield json.dumps({"type": "done", "full_text": full_text,
                               "mode_used": mode_name,
@@ -3374,6 +3476,10 @@ async def chat_stream(request: Request, data: ChatRequest):
             logger.error(f"Error in chat stream for user {data.user_id}: {e}", exc_info=True)
             yield json.dumps({"type": "error", "message": str(e)[:200]},
                              ensure_ascii=False) + "\n"
+        finally:
+            # Заявку закрываем всегда: иначе одинаковый вопрос, пришедший
+            # следом, будет вечно ждать ответа от упавшего хода.
+            _chat_dedup_finish(dedup_key, dedup_fut, full_text, dedup_mode)
 
     return StreamingResponse(
         event_stream(),
