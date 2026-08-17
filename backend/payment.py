@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 YOOKASSA_API_URL = "https://api.yookassa.ru/v3"
-SUBSCRIPTION_AMOUNT = "690.00"
+SUBSCRIPTION_AMOUNT = "990.00"
 SUBSCRIPTION_CURRENCY = "RUB"
 SUBSCRIPTION_PERIOD_DAYS = 30
 
