@@ -80,7 +80,7 @@ def register_payment_routes(app, db, limiter):
                     id BIGSERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     yookassa_id TEXT UNIQUE NOT NULL,
-                    amount NUMERIC(10,2) NOT NULL DEFAULT 690.00,
+                    amount NUMERIC(10,2) NOT NULL DEFAULT 990.00,
                     status TEXT NOT NULL DEFAULT 'pending',
                     payment_type TEXT NOT NULL DEFAULT 'subscription_first',
                     description TEXT,
