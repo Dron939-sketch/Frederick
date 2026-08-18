@@ -3204,6 +3204,48 @@ def register_vk_routes(app, db):
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
         return {"success": True, "items": items}
 
+    @app.post("/api/admin/vk/experts/preview")
+    async def vk_experts_preview(
+        body: dict = Body(default={}),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Разбор собственного списка друзей под предложение о странице
+        в справочнике: кому она нужна и кто захочет ей заниматься.
+
+        Отличается от drip/preview тем, что читает не только пол и возраст.
+        friends.get отдаёт лишь имя, пол, возраст и признак «можно ли писать»
+        — по этим полям видно «женщина 34 года», но не видно, мастер это с
+        частной практикой или бухгалтер в найме. Здесь второй проход через
+        users.get с occupation, career, site, about, status.
+
+        Ничего не отправляет и не ставит в очередь: возвращает список с двумя
+        оценками и объяснением, дальше человек решает сам.
+
+        Body: {min_nado?=2, min_hochet?=1, limit?=300}
+        """
+        _check_admin(x_admin_token)
+        from expert_scout import find_experts
+
+        def _int(key, default, lo, hi):
+            try:
+                return max(lo, min(int(body.get(key) or default), hi))
+            except (TypeError, ValueError):
+                return default
+
+        try:
+            result = await find_experts(
+                db,
+                min_nado=_int("min_nado", 2, 0, 3),
+                min_hochet=_int("min_hochet", 1, 0, 9),
+                limit=_int("limit", 300, 1, 1000),
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={"error": "vk_api", "message": str(e)})
+        except Exception as e:
+            logger.error(f"experts preview error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **result}
+
     @app.post("/api/admin/vk/drip/preview")
     async def vk_drip_preview(
         body: dict = Body(default={}),
