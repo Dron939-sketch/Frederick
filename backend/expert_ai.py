@@ -60,9 +60,24 @@ async def ensure_table(db) -> None:
 
 
 async def _llm(prompt: str, *, max_tokens: int = 1800, temperature: float = 0.4) -> str:
-    from services.ai_service import call_deepseek
-    out = await call_deepseek(prompt, max_tokens=max_tokens, temperature=temperature)
-    return (out or "").strip()
+    """Вызов модели с выключённым размышлением.
+
+    call_deepseek() размышление не выключает, а deepseek-v4-pro тратит на него
+    бюджет токенов молча: видимого текста не остаётся, ответ приходит пустым
+    или обрубленным на полуслове. В этом репозитории такое уже чинили для
+    /api/ai/generate — здесь та же болезнь, поэтому идём напрямую в
+    _simple_call с thinking=False.
+
+    Пустой ответ поднимаем исключением с причиной из last_error: молча
+    вернуть пустую строку — значит потом гадать, почему «разобрано 0».
+    """
+    from services.ai_service import AIService
+    service = AIService()
+    out = await service._simple_call(prompt, max_tokens, temperature, thinking=False)
+    out = (out or "").strip()
+    if not out:
+        raise RuntimeError(getattr(service, "last_error", "") or "модель вернула пустой ответ")
+    return out
 
 
 def _json_block(raw: str) -> Any:
@@ -154,6 +169,7 @@ async def ai_rank(db, candidates: List[Dict[str, Any]], *,
                 len(candidates), len(known), len(todo))
 
     fresh: Dict[int, Dict[str, Any]] = {}
+    errors: List[str] = []
     for i in range(0, len(todo), BATCH):
         chunk = todo[i:i + BATCH]
         payload = json.dumps([_digest(c) for c in chunk], ensure_ascii=False, indent=1)
@@ -161,6 +177,7 @@ async def ai_rank(db, candidates: List[Dict[str, Any]], *,
             data = _json_block(await _llm(RANK_PROMPT % payload))
         except Exception as e:
             logger.error("expert ai: пачка %d не разобрана (%s)", i // BATCH, e)
+            errors.append(str(e)[:200])
             continue
         for item in (data if isinstance(data, list) else []):
             try:
@@ -189,6 +206,9 @@ async def ai_rank(db, candidates: List[Dict[str, Any]], *,
                 """, vk_id, v["fit"], v["segment"], v["hook"], v["why"])
 
     known.update(fresh)
+    if errors:
+        # Прицепляем к результату, чтобы run_pipeline мог показать причину.
+        known["_errors"] = errors[:3]
     return known
 
 
@@ -327,6 +347,7 @@ async def run_pipeline(db, *, min_nado: int = 2, min_hochet: int = 0,
     queue_left = max(0, len(queue) - len([c for c in portion if c["vk_id"] not in seen]))
 
     verdicts = await ai_rank(db, portion, refresh=refresh)
+    ai_errors = verdicts.pop("_errors", [])
 
     for c in cands:
         v = verdicts.get(c["vk_id"]) or {}
@@ -355,5 +376,5 @@ async def run_pipeline(db, *, min_nado: int = 2, min_hochet: int = 0,
         "total": len(cands),
         "hot": sum(1 for c in cands if c["fit"] >= 8),
         "ai": {"ranked": len(verdicts), "written": written, "min_fit": min_fit,
-               "queue_left": queue_left},
+               "queue_left": queue_left, "errors": ai_errors},
     }
