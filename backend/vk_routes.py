@@ -3246,6 +3246,79 @@ def register_vk_routes(app, db):
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
         return {"success": True, **result}
 
+    @app.post("/api/admin/vk/experts/ai")
+    async def vk_experts_ai(
+        body: dict = Body(default={}),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Вся цепочка одной кнопкой: сбор друзей → предфильтр → разбор
+        моделью → готовые письма для верхушки списка.
+
+        Регулярный предфильтр оставлен сознательно: он бесплатен и снимает с
+        модели тех, у кого в профиле пусто. Дальше решает модель — она видит
+        разницу между «я мастер маникюра» и «ищу мастера маникюра», отличает
+        частную практику от работы на ставке и достаёт из профиля зацепку для
+        первой строки письма. Придумать такие зацепки на триста человек руками
+        невозможно, а без них ВК считает отправку рассылкой.
+
+        Body: {min_nado?=2, min_hochet?=0, min_fit?=6, write_top?=20, refresh?=false}
+        """
+        _check_admin(x_admin_token)
+        from expert_ai import run_pipeline
+
+        def _int(key, default, lo, hi):
+            try:
+                return max(lo, min(int(body.get(key) or default), hi))
+            except (TypeError, ValueError):
+                return default
+
+        try:
+            result = await run_pipeline(
+                db,
+                min_nado=_int("min_nado", 2, 0, 3),
+                min_hochet=_int("min_hochet", 0, 0, 9),
+                min_fit=_int("min_fit", 6, 0, 10),
+                write_top=_int("write_top", 20, 0, 100),
+                refresh=bool(body.get("refresh")),
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail={"error": "vk_api", "message": str(e)})
+        except Exception as e:
+            logger.error(f"experts ai error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, **result}
+
+    @app.post("/api/admin/vk/experts/ai-message")
+    async def vk_experts_ai_message(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Написать (или переписать) письмо под одного человека.
+
+        Body: {vk_id, name?, occupation?, city?, hook?, refresh?=true}
+        """
+        _check_admin(x_admin_token)
+        from expert_ai import ai_message
+
+        try:
+            vk_id = int((body or {}).get("vk_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={
+                "error": "vk_id_required", "message": "vk_id обязателен"})
+        try:
+            text = await ai_message(
+                db,
+                {"vk_id": vk_id, "name": body.get("name") or "",
+                 "occupation": body.get("occupation") or "",
+                 "city": body.get("city") or ""},
+                hook=body.get("hook") or "",
+                refresh=bool(body.get("refresh", True)),
+            )
+        except Exception as e:
+            logger.error(f"experts ai-message error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+        return {"success": True, "text": text}
+
     @app.post("/api/admin/vk/experts/send")
     async def vk_experts_send(
         body: dict = Body(...),
