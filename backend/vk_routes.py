@@ -3261,7 +3261,14 @@ def register_vk_routes(app, db):
         первой строки письма. Придумать такие зацепки на триста человек руками
         невозможно, а без них ВК считает отправку рассылкой.
 
-        Body: {min_nado?=2, min_hochet?=0, min_fit?=6, write_top?=20, refresh?=false}
+        Идёт порциями: за один заход модель разбирает rank_top профилей и
+        пишет write_top писем. Это не экономия, а условие работоспособности —
+        триста профилей это пятнадцать последовательных запросов к модели
+        плюс письма, и прокси рвёт соединение задолго до конца. Повторное
+        нажатие продвигает очередь дальше: разобранные лежат в кэше.
+
+        Body: {min_nado?=2, min_hochet?=0, min_fit?=6, rank_top?=80,
+               write_top?=10, refresh?=false}
         """
         _check_admin(x_admin_token)
         from expert_ai import run_pipeline
@@ -3278,7 +3285,8 @@ def register_vk_routes(app, db):
                 min_nado=_int("min_nado", 2, 0, 3),
                 min_hochet=_int("min_hochet", 0, 0, 9),
                 min_fit=_int("min_fit", 6, 0, 10),
-                write_top=_int("write_top", 20, 0, 100),
+                rank_top=_int("rank_top", 80, 10, 300),
+                write_top=_int("write_top", 10, 0, 60),
                 refresh=bool(body.get("refresh")),
             )
         except RuntimeError as e:

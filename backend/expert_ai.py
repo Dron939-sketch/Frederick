@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 
 LINK = "https://lichnosty.ru/type/eksperty/"
 BATCH = 20                     # профилей в одном запросе на разбор
-MSG_TOP_DEFAULT = 20           # для скольких сразу писать текст
+MSG_TOP_DEFAULT = 10           # для скольких сразу писать текст
+RANK_TOP_DEFAULT = 80          # сколько профилей отдавать модели за заход
 SEGMENTS = ("master", "expert", "founder", "skip")
 
 
@@ -277,7 +278,8 @@ async def ai_message(db, candidate: Dict[str, Any], *,
 
 
 async def run_pipeline(db, *, min_nado: int = 2, min_hochet: int = 0,
-                       min_fit: int = 6, write_top: int = MSG_TOP_DEFAULT,
+                       min_fit: int = 6, rank_top: int = RANK_TOP_DEFAULT,
+                       write_top: int = MSG_TOP_DEFAULT,
                        refresh: bool = False) -> Dict[str, Any]:
     """Вся цепочка одной кнопкой: сбор → предфильтр → разбор → тексты.
 
@@ -285,15 +287,34 @@ async def run_pipeline(db, *, min_nado: int = 2, min_hochet: int = 0,
     модели тех, у кого в профиле пусто. Дальше решает модель — и её оценка
     выше по приоритету, потому что она видит разницу между «я мастер» и
     «ищу мастера».
+
+    rank_top ограничивает, сколько профилей уходит в модель за один заход, и
+    это не экономия, а условие работоспособности. Разбор трёхсот профилей —
+    пятнадцать последовательных запросов к модели, плюс письма; всё вместе
+    занимает минуты, а прокси рвёт соединение задолго до конца, и человек
+    видит «Failed to fetch» вместо результата. Восемьдесят профилей — четыре
+    запроса, около минуты. Остальных добирают повторным нажатием: разобранные
+    лежат в кэше и второй раз не оплачиваются.
     """
     from expert_scout import find_experts
 
     base = await find_experts(db, min_nado=min_nado, min_hochet=min_hochet, limit=1000)
     cands = base["candidates"]
     if not cands:
-        return {**base, "ai": {"ranked": 0, "written": 0}}
+        return {**base, "ai": {"ranked": 0, "written": 0, "queue_left": 0}}
 
-    verdicts = await ai_rank(db, cands, refresh=refresh)
+    # Сначала те, кого модель ещё не видела: повторное нажатие продвигает
+    # очередь дальше, а не перемалывает одних и тех же.
+    async with db.get_connection() as conn:
+        seen_rows = await conn.fetch(
+            "SELECT vk_id FROM fredi_expert_ai WHERE vk_id = ANY($1::bigint[])",
+            [c["vk_id"] for c in cands]) if cands else []
+    seen = {int(r["vk_id"]) for r in seen_rows}
+    queue = [c for c in cands if c["vk_id"] not in seen]
+    portion = (queue + [c for c in cands if c["vk_id"] in seen])[:max(1, int(rank_top))]
+    queue_left = max(0, len(queue) - len([c for c in portion if c["vk_id"] not in seen]))
+
+    verdicts = await ai_rank(db, portion, refresh=refresh)
 
     for c in cands:
         v = verdicts.get(c["vk_id"]) or {}
@@ -321,5 +342,6 @@ async def run_pipeline(db, *, min_nado: int = 2, min_hochet: int = 0,
         "candidates": cands,
         "total": len(cands),
         "hot": sum(1 for c in cands if c["fit"] >= 8),
-        "ai": {"ranked": len(verdicts), "written": written, "min_fit": min_fit},
+        "ai": {"ranked": len(verdicts), "written": written, "min_fit": min_fit,
+               "queue_left": queue_left},
     }
