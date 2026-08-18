@@ -298,6 +298,12 @@ async def run_pipeline(db, *, min_nado: int = 2, min_hochet: int = 0,
     """
     from expert_scout import find_experts
 
+    # Таблицу создаём здесь, а не полагаемся на ai_rank: ниже мы читаем из неё
+    # очередь ещё до того, как ai_rank будет вызван. Пока разбор шёл одним
+    # куском, порядок был обратный и это не всплывало — на свежей базе первый
+    # же прогон падал с «relation fredi_expert_ai does not exist».
+    await ensure_table(db)
+
     base = await find_experts(db, min_nado=min_nado, min_hochet=min_hochet, limit=1000)
     cands = base["candidates"]
     if not cands:
@@ -305,11 +311,17 @@ async def run_pipeline(db, *, min_nado: int = 2, min_hochet: int = 0,
 
     # Сначала те, кого модель ещё не видела: повторное нажатие продвигает
     # очередь дальше, а не перемалывает одних и тех же.
-    async with db.get_connection() as conn:
-        seen_rows = await conn.fetch(
-            "SELECT vk_id FROM fredi_expert_ai WHERE vk_id = ANY($1::bigint[])",
-            [c["vk_id"] for c in cands]) if cands else []
-    seen = {int(r["vk_id"]) for r in seen_rows}
+    try:
+        async with db.get_connection() as conn:
+            seen_rows = await conn.fetch(
+                "SELECT vk_id FROM fredi_expert_ai WHERE vk_id = ANY($1::bigint[])",
+                [c["vk_id"] for c in cands])
+        seen = {int(r["vk_id"]) for r in seen_rows}
+    except Exception as e:
+        # Не знать, кого уже разбирали, — не повод не работать: в худшем
+        # случае модель пересмотрит тех же людей.
+        logger.warning("expert ai: очередь не прочиталась (%s)", e)
+        seen = set()
     queue = [c for c in cands if c["vk_id"] not in seen]
     portion = (queue + [c for c in cands if c["vk_id"] in seen])[:max(1, int(rank_top))]
     queue_left = max(0, len(queue) - len([c for c in portion if c["vk_id"] not in seen]))
