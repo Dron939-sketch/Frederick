@@ -3246,6 +3246,41 @@ def register_vk_routes(app, db):
             raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
         return {"success": True, **result}
 
+    @app.post("/api/admin/vk/experts/send")
+    async def vk_experts_send(
+        body: dict = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        """Отправить предложение одному кандидату и отметить его.
+
+        Текст приходит с фронта уже отредактированным: в интерфейсе он
+        показывается целиком и правится перед отправкой. Шаблон здесь не
+        подставляется намеренно — одинаковые сообщения и есть то, на что
+        срабатывает антиспам ВК.
+
+        Body: {vk_id, text}
+        """
+        _check_admin(x_admin_token)
+        from expert_scout import send_offer
+
+        try:
+            vk_id = int((body or {}).get("vk_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail={
+                "error": "vk_id_required", "message": "vk_id обязателен"})
+
+        try:
+            return {"success": True, **await send_offer(db, vk_id=vk_id, text=(body or {}).get("text") or "")}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail={"error": "bad_text", "message": str(e)})
+        except RuntimeError as e:
+            # Сюда же приходит превышение дневного лимита — 429 честнее 500.
+            code = 429 if "лимит" in str(e).lower() else 502
+            raise HTTPException(status_code=code, detail={"error": "vk_api", "message": str(e)})
+        except Exception as e:
+            logger.error(f"experts send error: {e}")
+            raise HTTPException(status_code=500, detail={"error": "internal", "message": str(e)})
+
     @app.post("/api/admin/vk/drip/preview")
     async def vk_drip_preview(
         body: dict = Body(default={}),

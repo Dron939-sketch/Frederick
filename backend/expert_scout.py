@@ -193,6 +193,71 @@ async def fetch_friends_enriched(max_count: int = 10000) -> Tuple[List[Dict[str,
     return out, skipped
 
 
+OUTREACH_CATEGORY = "lichnosty"
+# Потолок на сутки. ВК режет серии одинаковых сообщений со ссылками, и
+# аккаунт теряется целиком, а не по одному адресату. Пятнадцать — то, что
+# проходит незаметно; у прогрева стоит сорок, но там разнесено по времени
+# планировщиком, а здесь человек жмёт кнопки подряд.
+DAILY_CAP = int(os.environ.get("EXPERTS_DAILY_CAP") or 15)
+
+
+async def sent_today(db) -> int:
+    """Сколько предложений уже ушло за сегодня."""
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT COUNT(*) AS n FROM fredi_vk_b2b_outreach "
+                "WHERE category = $1 AND marked_at >= date_trunc('day', NOW())",
+                OUTREACH_CATEGORY)
+        return int(row["n"] if row else 0)
+    except Exception as e:
+        logger.warning("expert scout: счётчик за сутки недоступен (%s)", e)
+        return 0
+
+
+async def send_offer(db, *, vk_id: int, text: str) -> Dict[str, Any]:
+    """Отправить предложение одному человеку и отметить его.
+
+    Текст приходит с фронта уже отредактированным: заготовка там показывается
+    целиком и правится перед отправкой. Готовый шаблон не подставляется здесь
+    намеренно — одинаковые сообщения и есть то, на что срабатывает антиспам.
+    """
+    text = (text or "").strip()
+    if len(text) < 40:
+        raise ValueError("Текст слишком короткий — похоже, его не дописали")
+    if len(text) > 4000:
+        raise ValueError("Текст длиннее 4000 знаков, ВК его не примет")
+
+    used = await sent_today(db)
+    if used >= DAILY_CAP:
+        raise RuntimeError(
+            "На сегодня лимит: %d из %d. Остальное завтра — так аккаунт доживёт "
+            "до конца акции." % (used, DAILY_CAP))
+
+    from drip_campaign import _send_text_only
+    result = await _send_text_only(int(vk_id), text)
+
+    try:
+        async with db.get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO fredi_vk_b2b_outreach (vk_id, status, note, category)
+                VALUES ($1, 'sent', $2, $3)
+                ON CONFLICT (vk_id) DO UPDATE SET
+                    status = 'sent', note = EXCLUDED.note,
+                    category = EXCLUDED.category, marked_at = NOW()
+                """,
+                int(vk_id), text[:500], OUTREACH_CATEGORY)
+    except Exception as e:
+        # Сообщение уже ушло — падать поздно, но в лог это обязано попасть,
+        # иначе человек напишет тому же адресату второй раз.
+        logger.error("expert scout: отправлено %s, но отметка не легла: %s", vk_id, e)
+
+    used += 1
+    return {"message_id": result.get("message_id"), "sent_today": used,
+            "daily_cap": DAILY_CAP, "left_today": max(0, DAILY_CAP - used)}
+
+
 async def find_experts(db, *, min_nado: int = 2, min_hochet: int = 1,
                        limit: int = 300) -> Dict[str, Any]:
     """Ранжированный список кандидатов с пометкой «уже писали».
@@ -248,9 +313,13 @@ async def find_experts(db, *, min_nado: int = 2, min_hochet: int = 1,
                 r["contacted_status"] = ""
 
     hot = sum(1 for r in rows if r["nado"] >= 3 and r["hochet"] >= 3)
+    used = await sent_today(db)
     return {
         "total": len(rows),
         "hot": hot,
         "skipped": skipped,
         "candidates": rows,
+        "sent_today": used,
+        "daily_cap": DAILY_CAP,
+        "left_today": max(0, DAILY_CAP - used),
     }
