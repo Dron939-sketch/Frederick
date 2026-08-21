@@ -584,7 +584,8 @@ async def _generate(slug: str) -> str:
 # отдавать прогресс. Ключуем по одному глобальному прогону — их не бывает
 # много параллельно.
 _pregen: dict = {"running": False, "total": 0, "done": 0, "generated": 0,
-                 "skipped": 0, "errors": [], "started": 0, "finished": 0}
+                 "skipped": 0, "errors": [], "started": 0, "finished": 0,
+                 "cancel": False, "cancelled": False}
 _LEKCIYA_RE = re.compile(r"/blog/(lekciya-[a-z0-9][a-z0-9-]{2,120})\.html")
 _BLOG_RE = re.compile(r"/blog/([a-z0-9][a-z0-9-]{2,120})\.html")
 
@@ -634,9 +635,18 @@ async def _pregenerate_run(slugs: list, force: bool = False):
     считать файл годным (теперь он смотрит только на наличие mp3), и
     генерируем заново. Без force готовые пропускаются и Fish не тратится."""
     _pregen.update(running=True, total=len(slugs), done=0, generated=0,
-                   skipped=0, errors=[], started=time.time(), finished=0)
+                   skipped=0, errors=[], started=time.time(), finished=0,
+                   cancel=False, cancelled=False)
     try:
         for slug in slugs:
+            if _pregen["cancel"]:
+                # Пакет на восемьсот лекций идёт сутками и всё это время
+                # держит очередь занятой. Кнопка «остановить» нужна, чтобы
+                # админ мог вклиниться и озвучить нужную лекцию сейчас.
+                _pregen["cancelled"] = True
+                logger.info("blog-tts pregenerate cancelled at %s/%s",
+                            _pregen["done"], _pregen["total"])
+                break
             try:
                 if _cache_ok(slug) and not force:
                     _pregen["skipped"] += 1
@@ -666,6 +676,49 @@ async def _pregenerate_run(slugs: list, force: bool = False):
             "blog-tts pregenerate done: generated=%s skipped=%s errors=%s of %s",
             _pregen["generated"], _pregen["skipped"], len(_pregen["errors"]), _pregen["total"],
         )
+
+
+def _start_single(slug: str, force: bool = False) -> str:
+    """Ставит на озвучку одну лекцию — в обход пакетной очереди.
+
+    Раньше кнопка «Сгенерировать» в админке била в pregenerate, а тот
+    отвечает 409, пока идёт пакет. Пакет на все неозвученные лекции идёт
+    сутками — значит одиночная озвучка была недоступна всё это время, хотя
+    технически ничто не мешало: у каждой лекции свой замок, и параллельная
+    генерация одной статьи пакету не мешает.
+
+    Возвращает «generating», если эта лекция уже озвучивается, иначе
+    «started». Ошибки кладутся в _gen_errors и видны в /status.
+    """
+    if slug in _gen_tasks:
+        return "generating"
+
+    async def _run():
+        lock = _locks.setdefault(slug, asyncio.Lock())
+        try:
+            async with lock:
+                if force:
+                    # _cache_ok смотрит только на наличие mp3 — чтобы
+                    # переозвучить, файл надо убрать вместе с метой
+                    for _pth in (os.path.join(TTS_DIR, f"{slug}.mp3"), _meta_path(slug)):
+                        try:
+                            os.remove(_pth)
+                        except OSError:
+                            pass
+                if force or not _cache_ok(slug):
+                    await _generate(slug)
+            _gen_errors.pop(slug, None)
+        except FileNotFoundError:
+            _gen_errors[slug] = "article not found"
+        except Exception as e:
+            logger.error(f"blog-tts {slug} failed: {e}")
+            _gen_errors[slug] = "generation failed"
+        finally:
+            _gen_tasks.pop(slug, None)
+
+    _gen_errors.pop(slug, None)
+    _gen_tasks[slug] = asyncio.create_task(_run())
+    return "started"
 
 
 def register_blog_tts_routes(app, limiter):
@@ -717,24 +770,7 @@ def register_blog_tts_routes(app, limiter):
                 code = 404 if "article" in err else 502
                 return JSONResponse({"error": err}, status_code=code)
 
-            async def _run():
-                lock = _locks.setdefault(slug, asyncio.Lock())
-                try:
-                    async with lock:
-                        if not _cache_ok(slug):
-                            await _generate(slug)
-                    _gen_errors.pop(slug, None)
-                except FileNotFoundError:
-                    _gen_errors[slug] = "article not found"
-                except Exception as e:
-                    logger.error(f"blog-tts {slug} failed: {e}")
-                    _gen_errors[slug] = "generation failed"
-                finally:
-                    _gen_tasks.pop(slug, None)
-
-            if slug not in _gen_tasks:
-                _gen_errors.pop(slug, None)
-                _gen_tasks[slug] = asyncio.create_task(_run())
+            _start_single(slug)
             return JSONResponse({"status": "generating"}, status_code=202)
 
         return FileResponse(
@@ -742,6 +778,50 @@ def register_blog_tts_routes(app, limiter):
             media_type="audio/mpeg",
             headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
+
+    @app.post("/api/tts/blog/{slug}/generate")
+    @limiter.limit("30/minute")
+    async def blog_tts_generate_one(request: Request, slug: str):
+        """Озвучить одну лекцию прямо сейчас, не дожидаясь пакета (админ).
+
+        Тело (необязательно): {"force": true} — переозвучить, даже если mp3
+        уже есть. Отвечает сразу: синтез идёт в фоне, прогресс — в /status.
+        """
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected:
+            return JSONResponse({"error": "admin disabled",
+                                 "message": "Задайте ADMIN_TOKEN в env"}, status_code=503)
+        if (request.headers.get("X-Admin-Token") or "").strip() != expected:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        if not SLUG_RE.match(slug or ""):
+            return JSONResponse({"error": "bad slug"}, status_code=400)
+        if not _tts_available():
+            return JSONResponse({"error": "tts disabled"}, status_code=503)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        force = bool(payload.get("force")) if isinstance(payload, dict) else False
+        if _cache_ok(slug) and not force:
+            return {"status": "ready"}
+        return JSONResponse({"status": _start_single(slug, force=force)}, status_code=202)
+
+    @app.post("/api/tts/blog/pregenerate/stop")
+    @limiter.limit("10/minute")
+    async def blog_tts_pregenerate_stop(request: Request):
+        """Остановить пакетную озвучку после текущей лекции (админ).
+
+        Уже озвученное остаётся: пакет идемпотентен, повторный запуск
+        продолжит с того места, где остановились.
+        """
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected or (request.headers.get("X-Admin-Token") or "").strip() != expected:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        if not _pregen["running"]:
+            return {"status": "idle", **_pregen}
+        _pregen["cancel"] = True
+        return {"status": "stopping", **_pregen}
 
     @app.post("/api/tts/blog/pregenerate")
     @limiter.limit("6/minute")
