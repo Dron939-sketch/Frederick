@@ -631,7 +631,9 @@ async def _synth_yandex(client: httpx.AsyncClient, text: str) -> bytes:
 async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
     """Озвучивает весь текст ОДНИМ голосом: сначала пробуем Fish (голос Фреди),
     и если он споткнулся на любом куске — переозвучиваем всё Яндексом целиком,
-    чтобы голос не менялся посреди лекции. Возвращает (mp3, provider).
+    чтобы голос не менялся посреди лекции.
+    Возвращает (mp3, provider, fish_error) — третье поле заполнено, когда
+    хотели Fish, а не вышло: причина последнего отказа для меты и статуса.
 
     Метки [ПАУЗА N] не доходят ни до одного синтезатора: речь режется по ним, а
     на их место встаёт настоящая тишина. Синтезаторы паузами не управляют — они
@@ -643,40 +645,58 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
     if pauses:
         logger.info("blog-tts %s: пауз %d, тишины %d сек", slug, pauses, quiet)
 
+    fish_err = None
     if BLOG_TTS_PROVIDER == "fish":
+        from services import fish_audio_service as fish_svc
         from services.fish_audio_service import synthesize_fish_audio, fish_configured
         if not fish_configured():
             # Нет ключа/голоса Фреди — не сыпем страшными варнингами на каждый
             # кусок, честно уходим в Яндекс и пишем это один раз.
             logger.warning(f"blog-tts {slug}: Fish не настроен (нет FISH_AUDIO_API_KEY/VOICE_ID), озвучиваю Яндексом")
+            fish_err = "not_configured"
         else:
+            # Считаем куски заранее: лекция в 12 тысяч знаков — это ~9 кусков,
+            # и вероятность «хотя бы один не выйдет» растёт с длиной. Именно
+            # длинные лекции и падали в Яндекс — по одному невезучему куску.
+            chunks_total = sum(
+                1 for kind, val in pieces if kind == "text"
+                for _ in _chunks(val, FISH_CHUNK_LIMIT)
+            )
             try:
-                parts = []
+                parts, chunk_no = [], 0
                 for kind, val in pieces:
                     if kind == "pause":
                         parts.append(_silence_mp3(val))
                         continue
                     for ch in _chunks(val, FISH_CHUNK_LIMIT):
+                        chunk_no += 1
                         # Метки оставляем только если они включены (S2/S2.1); иначе
                         # вырезаем, чтобы Fish случайно не прочитал их вслух.
                         ch_fish = ch if BLOG_TTS_FISH_TAGS else _strip_inline_tags(ch)
                         if not ch_fish.strip():
                             continue
-                        # Один повтор на кусок: раньше единичный таймаут Fish
-                        # ронял ВСЮ лекцию в Яндекс-голос. Повтор гасит случайные сбои.
+                        # Случайный сбой (таймаут, 5xx) гасим повторами с
+                        # нарастающей паузой. Безнадёжный (нет баланса) не
+                        # мучаем: сразу в Яндекс, деньги Fish не жжём.
                         audio = None
-                        for attempt in range(2):
+                        for attempt, wait in enumerate((0, 3, 10, 25)):
+                            if wait:
+                                logger.info(
+                                    f"blog-tts {slug}: Fish не ответил на кусок "
+                                    f"{chunk_no}/{chunks_total} ({fish_svc.last_fail}), "
+                                    f"попытка {attempt + 1} через {wait}с")
+                                await asyncio.sleep(wait)
                             audio = await synthesize_fish_audio(ch_fish, timeout=FISH_TIMEOUT)
-                            if audio:
+                            if audio or fish_svc.last_fail == "no_balance":
                                 break
-                            if attempt == 0:
-                                logger.info(f"blog-tts {slug}: пустой ответ Fish, повтор куска через 2с")
-                                await asyncio.sleep(2)
                         if not audio:
-                            raise RuntimeError("fish returned empty audio")
+                            fish_err = fish_svc.last_fail or "empty_audio"
+                            raise RuntimeError(
+                                f"кусок {chunk_no}/{chunks_total}: {fish_err}")
                         parts.append(audio)
-                return b"".join(parts), "fish"
+                return b"".join(parts), "fish", None
             except Exception as e:
+                fish_err = fish_err or f"error: {str(e)[:120]}"
                 logger.warning(f"blog-tts {slug}: fish failed ({e}), re-voicing whole article via yandex")
 
     parts = []
@@ -687,7 +707,7 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
         for ch in _chunks(val, CHUNK_LIMIT):
             if ch.strip():
                 parts.append(await _synth_yandex(client, ch))
-    return b"".join(parts), "yandex"
+    return b"".join(parts), "yandex", fish_err
 
 
 # ===== Кэш: mp3 + мета о том, чем и как он озвучен =====
@@ -740,7 +760,7 @@ async def _generate(slug: str) -> str:
             pass
 
         logger.info(f"blog-tts {slug}: {len(speech)} chars speech, provider={BLOG_TTS_PROVIDER}")
-        audio, used = await _synth_all(client, speech, slug)
+        audio, used, fish_err = await _synth_all(client, speech, slug)
 
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
@@ -756,6 +776,10 @@ async def _generate(slug: str) -> str:
                 # какой моделью синтезировано: пусто = «модель Fish по
                 # умолчанию», а она у них меняется, и голос вместе с ней
                 meta_out["fish_model"] = os.getenv("FISH_AUDIO_MODEL", "").strip() or "default"
+            elif fish_err:
+                # почему НЕ Фреди: без этого деградацию видно, а причину — нет,
+                # и каждый раз приходится гадать между балансом и таймаутом
+                meta_out["fish_error"] = fish_err
             json.dump(meta_out, mf)
     except Exception:
         pass
@@ -943,6 +967,7 @@ def register_blog_tts_routes(app, limiter):
             "voice": meta.get("provider"),
             "fish_model": meta.get("fish_model"),
             "degraded": bool(meta) and meta.get("provider") not in (None, meta.get("wanted")),
+            "fish_error": meta.get("fish_error"),
             "fish": _fish,
             "generating": slug in _gen_tasks,
             "error": _gen_errors.get(slug),
@@ -1137,6 +1162,7 @@ def register_blog_tts_routes(app, limiter):
                 "fish_model": meta.get("fish_model"),
                 "wanted": meta.get("wanted"),
                 "degraded": bool(meta) and meta.get("provider") not in (None, meta.get("wanted")),
+                "fish_error": meta.get("fish_error"),
                 "stale": exists and not ok,
                 "bytes": size,
                 "chars": meta.get("chars"),

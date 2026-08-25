@@ -31,6 +31,13 @@ def fish_configured() -> bool:
     молча уходит в Яндекс-фолбэк, и голос перестаёт быть Фреди."""
     return bool(FISH_AUDIO_API_KEY and FISH_AUDIO_VOICE_ID)
 
+
+# Почему НЕ получилось в последний раз. Возврат synthesize_fish_audio остаётся
+# bytes|None (сигнатуру ждут чат и озвучка блога), а вызывающему коду нужно
+# отличать «кончился баланс» (повторять бессмысленно) от таймаута (повторить
+# стоит) — иначе лекция уходит в запасной голос из-за одного случайного сбоя.
+last_fail: str | None = None
+
 # Скорость воспроизведения для Fish Audio. Сам API не даёт параметра
 # скорости, поэтому замедляем post-process'ом через ffmpeg atempo.
 # 0.90 = на 10% медленнее (просьба пользователя — Фреди говорит слишком быстро).
@@ -87,11 +94,14 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: 
     timeout: чат живёт с дефолтными 30с; длинные куски (озвучка лекций
     блога) передают больше — Fish генерирует минуту речи дольше 30с.
     """
+    global last_fail
     if mode not in FISH_AUDIO_MODES:
+        last_fail = "bad_mode"
         return None
 
     if not FISH_AUDIO_API_KEY or not FISH_AUDIO_VOICE_ID:
         logger.debug("Fish Audio not configured, skipping")
+        last_fail = "not_configured"
         return None
 
     try:
@@ -148,20 +158,26 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: 
                         ))
                     except Exception as _e:
                         logger.warning(f"api_usage skip: {_e}")
+                    last_fail = None
                     return audio_bytes
                 else:
                     logger.warning(f"Fish Audio returned too small response: {len(audio_bytes)} bytes")
+                    last_fail = "small_response"
                     return None
             elif resp.status_code == 402:
                 logger.warning("Fish Audio: no balance (402), falling back")
+                last_fail = "no_balance"
                 return None
             else:
                 logger.warning(f"Fish Audio error: {resp.status_code} {resp.text[:200]}")
+                last_fail = f"http_{resp.status_code}"
                 return None
 
     except httpx.TimeoutException:
         logger.warning("Fish Audio timeout, falling back")
+        last_fail = "timeout"
         return None
     except Exception as e:
         logger.error(f"Fish Audio error: {e}")
+        last_fail = f"error: {str(e)[:120]}"
         return None
