@@ -61,7 +61,9 @@ MAX_ARTICLE_CHARS = 60000   # предохранитель от аномальн
 # 5: разбор страницы перестал терять текст на служебных блоках.
 # 6: настоящие паузы тишиной по метке [ПАУЗА N]; литература больше не
 #    зачитывается; прощание без приглашения в приложение.
-TTS_CACHE_VERSION = 6
+# 7: метки пауз защищены от normalize_numbers — раньше «[ПАУЗА 6]»
+#    превращалась в «[ПАУЗА шесть]» и вся тишина молча пропадала.
+TTS_CACHE_VERSION = 7
 
 
 def _tts_available() -> bool:
@@ -401,15 +403,45 @@ async def _deepseek_rewrite(
     return out
 
 
+def _shield_pauses(text: str) -> str:
+    """Прячет метки пауз от нормализации чисел.
+
+    normalize_numbers переводит в слова ВСЕ цифры подряд — включая цифру
+    внутри метки: «[ПАУЗА 6]» превращалась в «[ПАУЗА шесть]». Такой маркер
+    разрезка пауз уже не узнаёт, а чистильщик инлайн-меток молча вырезает —
+    и все паузы исчезали из озвучки без единой ошибки в логах. Ровно это
+    случилось при первой же переозвучке лекции с авторскими паузами.
+
+    Плейсхолдер без цифр и скобок: секунды закодированы числом букв «х».
+    """
+    def enc(m):
+        try:
+            sec = int(m.group(1)) if m.group(1) else PAUSE_DEFAULT
+        except (TypeError, ValueError):
+            sec = PAUSE_DEFAULT
+        sec = max(PAUSE_MIN, min(PAUSE_MAX, sec))
+        return "\x00пауза" + "х" * sec + "\x00"
+    return _PAUSE_RE.sub(enc, text)
+
+
+def _unshield_pauses(text: str) -> str:
+    return re.sub("\x00пауза(х+)\x00",
+                  lambda m: "[ПАУЗА %d]" % len(m.group(1)), text)
+
+
 def _plain_speech(text: str) -> str:
     """Фолбэк без LLM: заголовки — в связки с паузами, числа — словами."""
     text = re.sub(r"\n?§ ([^\n]+)\n?", r". … \1 … ", text)
+    # Метки пауз прячем до любых замен: replace("]", "") ниже отрезал бы
+    # им скобку, а normalize_numbers — превратил бы секунды в слова.
+    text = _shield_pauses(text)
     text = text.replace("[СХЕМА: ", "На странице лекции есть схема: ").replace("]", "")
     try:
         from services.voice_service import normalize_numbers
         text = normalize_numbers(text)
     except Exception as e:
         logger.warning(f"blog-tts: normalize_numbers unavailable: {e}")
+    text = _unshield_pauses(text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -461,9 +493,11 @@ async def _prepare_speech(text: str, slug: str) -> str:
             raise ValueError("rewrite suspiciously long")
         # Детерминированная страховка: даже после LLM прогоняем числа/единицы
         # через normalize_numbers — ловим то, что модель оставила цифрами.
+        # Метки пауз на это время прячем: иначе «[ПАУЗА 6]» становилась
+        # «[ПАУЗА шесть]», разрезка её не узнавала — и вся тишина пропадала.
         try:
             from services.voice_service import normalize_numbers
-            speech = normalize_numbers(speech)
+            speech = _unshield_pauses(normalize_numbers(_shield_pauses(speech)))
         except Exception as e:
             logger.warning(f"blog-tts {slug}: post-rewrite normalize_numbers unavailable: {e}")
         logger.info(f"blog-tts {slug}: lecture rewrite {len(text)} -> {len(speech)} chars, {len(segments)} segments")
