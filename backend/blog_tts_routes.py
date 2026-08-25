@@ -133,10 +133,20 @@ def _extract_text(page: str) -> str:
     m = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
     title = re.sub(r"<[^>]+>", "", m.group(1)).strip() if m else ""
 
+    # Тело статьи размечено по-разному: на большинстве страниц это <div>, а на
+    # десяти лекциях курса «Переход» — <article>. Жёсткий поиск по <div> там не
+    # срабатывал, и диктору уходила вся страница целиком. Обошлось: в шапке и
+    # подвале этих страниц нет текста в тегах, которые вообще попадают в
+    # озвучку, — но держаться на таком совпадении нельзя, любая правка вёрстки
+    # его сломает. Принимаем любой контейнер.
     body = page
-    mc = re.search(r'<div class="article-content">(.*)</div>\s*\n*<div class="cta-block">', page, re.S)
+    _open = r'<(?:div|article|section|main) class="article-content">'
+    mc = re.search(_open + r'(.*)</(?:div|article|section|main)>\s*\n*<div class="cta-block">',
+                   page, re.S)
     if not mc:
-        mc = re.search(r'<div class="article-content">(.*?)<div class="related-articles">', page, re.S)
+        mc = re.search(_open + r'(.*?)<div class="related-articles">', page, re.S)
+    if not mc:
+        mc = re.search(_open + r'(.*?)</(?:div|article|section|main)>\s*$', page, re.S)
     if mc:
         body = mc.group(1)
 
