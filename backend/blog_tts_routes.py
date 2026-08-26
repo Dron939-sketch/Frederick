@@ -17,7 +17,7 @@ import time
 
 import httpx
 from fastapi import Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -610,6 +610,119 @@ def _strip_inline_tags(text: str) -> str:
     return re.sub(r"\s{2,}", " ", _INLINE_TAG_RE.sub(" ", text)).strip()
 
 
+# ===== Санитария склеенного mp3 =====
+# Файл лекции — склейка кусков синтеза и кадров тишины. Каждый кусок Fish
+# проходит через ffmpeg (замедление atempo) и несёт свой ID3-тег и Info-кадр.
+# Первый Info в файле объявляет плееру длительность ПЕРВОГО куска: на
+# 13-минутную лекцию — «1 мин 35 с». Плееры, верящие заголовку (iOS в том
+# числе), видят обрубок. Поэтому после склейки файл пересобирается: весь
+# метамусор вычищается, впереди встаёт один Xing-кадр на весь файл — с точным
+# числом кадров и таблицей перемотки.
+
+_MP3_BR = {1: 32, 2: 40, 3: 48, 4: 56, 5: 64, 6: 80, 7: 96, 8: 112,
+           9: 128, 10: 160, 11: 192, 12: 224, 13: 256, 14: 320}
+_MP3_SR = {0: 44100, 1: 48000, 2: 32000}
+# Версия санитарии в мете: файлы без неё лечатся лениво при первой отдаче.
+MP3_SAN_VERSION = 1
+
+
+def _mp3_frames(data: bytes) -> list:
+    """Разбирает поток на звуковые кадры MPEG Layer III: [(offset, size), …].
+    ID3-теги, Xing/Info-кадры и прочий не-кадровый мусор пропускает."""
+    out, i, n = [], 0, len(data)
+    while i + 4 <= n:
+        # ID3v2: 'ID3' + версия(2) + флаги(1) + synchsafe-длина(4)
+        if data[i:i + 3] == b"ID3" and i + 10 <= n:
+            sz = ((data[i + 6] & 0x7F) << 21 | (data[i + 7] & 0x7F) << 14 |
+                  (data[i + 8] & 0x7F) << 7 | (data[i + 9] & 0x7F))
+            i += 10 + sz
+            continue
+        if data[i:i + 3] == b"TAG" and n - i == 128:   # ID3v1 в хвосте
+            break
+        if data[i] != 0xFF or (data[i + 1] & 0xE0) != 0xE0:
+            i += 1
+            continue
+        h1, h2 = data[i + 1], data[i + 2]
+        if (h1 & 0x06) != 0x02:                        # только Layer III
+            i += 1
+            continue
+        br_i, sr_i, pad = h2 >> 4, (h2 >> 2) & 3, (h2 >> 1) & 1
+        if br_i in (0, 15) or sr_i == 3:
+            i += 1
+            continue
+        mpeg1 = (h1 & 0x18) == 0x18
+        sr = _MP3_SR[sr_i] if mpeg1 else _MP3_SR[sr_i] // 2
+        size = (144 if mpeg1 else 72) * _MP3_BR[br_i] * 1000 // sr + pad
+        if size < 24 or i + size > n:
+            i += 1
+            continue
+        # Xing/Info-кадр: валидный кадр, но внутри метаданные, не звук.
+        # Магия стоит сразу после side info, чей размер зависит от моно/стерео.
+        mono = (data[i + 3] >> 6) == 3
+        side = (17 if mono else 32) if mpeg1 else (9 if mono else 17)
+        magic = data[i + 4 + side:i + 4 + side + 4]
+        if magic in (b"Xing", b"Info"):
+            i += size
+            continue
+        out.append((i, size))
+        i += size
+    return out
+
+
+def _build_xing(template: bytes, n_frames: int, total_bytes: int,
+                offsets: list) -> bytes:
+    """Собирает Xing-кадр по образцу первого звукового кадра: та же версия,
+    частота и режим каналов, чтобы декодер не увидел смены формата."""
+    h1 = template[1]
+    mpeg1 = (h1 & 0x18) == 0x18
+    sr_i = (template[2] >> 2) & 3
+    sr = _MP3_SR[sr_i] if mpeg1 else _MP3_SR[sr_i] // 2
+    mono = (template[3] >> 6) == 3
+    side = (17 if mono else 32) if mpeg1 else (9 if mono else 17)
+    need = 4 + side + 4 + 4 + 4 + 4 + 100
+    # Битрейт кадра-заголовка подбираем так, чтобы всё влезло.
+    br_i = template[2] >> 4
+    while (144 if mpeg1 else 72) * _MP3_BR[br_i] * 1000 // sr < need and br_i < 14:
+        br_i += 1
+    size = (144 if mpeg1 else 72) * _MP3_BR[br_i] * 1000 // sr
+    frame = bytearray(size)
+    frame[0] = 0xFF
+    frame[1] = h1
+    frame[2] = (br_i << 4) | (sr_i << 2)               # без padding/private
+    frame[3] = template[3]
+    pos = 4 + side
+    frame[pos:pos + 4] = b"Xing"
+    frame[pos + 4:pos + 8] = (7).to_bytes(4, "big")     # frames + bytes + TOC
+    frame[pos + 8:pos + 12] = n_frames.to_bytes(4, "big")
+    frame[pos + 12:pos + 16] = (total_bytes + size).to_bytes(4, "big")
+    total = total_bytes + size
+    for k in range(100):
+        idx = min(n_frames - 1, n_frames * k // 100)
+        off = size + offsets[idx]
+        frame[pos + 16 + k] = min(255, off * 256 // total)
+    return bytes(frame)
+
+
+def _sanitize_mp3(data: bytes) -> bytes:
+    """Пересобирает склейку в честный поток: только звуковые кадры и один
+    правильный Xing впереди. При любой странности возвращает исходные байты —
+    хуже, чем было, не сделает."""
+    try:
+        frames = _mp3_frames(data)
+        if len(frames) < 10:
+            return data
+        chunks, offsets, acc = [], [], 0
+        for off, size in frames:
+            chunks.append(data[off:off + size])
+            offsets.append(acc)
+            acc += size
+        xing = _build_xing(chunks[0][:4], len(frames), acc, offsets)
+        return xing + b"".join(chunks)
+    except Exception as e:
+        logger.warning(f"mp3 sanitize failed: {e}")
+        return data
+
+
 async def _synth_yandex(client: httpx.AsyncClient, text: str) -> bytes:
     text = _strip_inline_tags(text)
     resp = await client.post(
@@ -761,6 +874,7 @@ async def _generate(slug: str) -> str:
 
         logger.info(f"blog-tts {slug}: {len(speech)} chars speech, provider={BLOG_TTS_PROVIDER}")
         audio, used, fish_err = await _synth_all(client, speech, slug)
+        audio = await asyncio.to_thread(_sanitize_mp3, audio)
 
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
@@ -770,7 +884,7 @@ async def _generate(slug: str) -> str:
         with open(_meta_path(slug), "w", encoding="utf-8") as mf:
             meta_out = {
                 "v": TTS_CACHE_VERSION, "provider": used, "wanted": BLOG_TTS_PROVIDER,
-                "ts": time.time(), "chars": len(speech),
+                "ts": time.time(), "chars": len(speech), "san": MP3_SAN_VERSION,
             }
             if used == "fish":
                 # какой моделью синтезировано: пусто = «модель Fish по
@@ -994,11 +1108,67 @@ def register_blog_tts_routes(app, limiter):
             _start_single(slug)
             return JSONResponse({"status": "generating"}, status_code=202)
 
-        return FileResponse(
-            path,
-            media_type="audio/mpeg",
-            headers={"Cache-Control": "public, max-age=31536000, immutable"},
-        )
+        # Файлы, склеенные до санитарии, лечим при первой отдаче: вычищаем
+        # ID3/Info-мусор кусков и ставим честный Xing. Дёшево (без синтеза),
+        # одноразово (метка san в мете). Гонка двух запросов безвредна:
+        # результат детерминирован, os.replace атомарен.
+        meta = _read_meta(slug)
+        if meta and meta.get("san") != MP3_SAN_VERSION:
+            try:
+                with open(path, "rb") as f:
+                    raw = f.read()
+                fixed = await asyncio.to_thread(_sanitize_mp3, raw)
+                tmp = path + ".san"
+                with open(tmp, "wb") as f:
+                    f.write(fixed)
+                os.replace(tmp, path)
+                meta["san"] = MP3_SAN_VERSION
+                # ts двигаем: v в URL меняется, браузеры перестают играть
+                # закэшированную битую склейку с immutable-заголовком
+                meta["ts"] = time.time()
+                with open(_meta_path(slug), "w", encoding="utf-8") as mf:
+                    json.dump(meta, mf)
+                logger.info(f"blog-tts {slug}: mp3 пересобран ({len(raw)}→{len(fixed)} байт)")
+            except Exception as e:
+                logger.warning(f"blog-tts {slug}: санитария не удалась: {e}")
+
+        common = {"Cache-Control": "public, max-age=31536000, immutable",
+                  "Accept-Ranges": "bytes"}
+        size = os.path.getsize(path)
+        # Range обязателен: iOS Safari не начинает играть аудио с сервера,
+        # который не умеет 206 (fastapi 0.104 / starlette 0.27 не умеют).
+        rng = request.headers.get("range")
+        m = re.match(r"bytes=(\d*)-(\d*)\s*$", rng) if rng else None
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else size - 1
+            else:                       # bytes=-N: последние N байт
+                start = max(0, size - int(m.group(2)))
+                end = size - 1
+            end = min(end, size - 1)
+            if start > end or start >= size:
+                return Response(status_code=416, headers={
+                    **common, "Content-Range": f"bytes */{size}"})
+
+            def _slice(p=path, a=start, b=end):
+                with open(p, "rb") as f:
+                    f.seek(a)
+                    left = b - a + 1
+                    while left > 0:
+                        chunk = f.read(min(256 * 1024, left))
+                        if not chunk:
+                            break
+                        left -= len(chunk)
+                        yield chunk
+
+            return StreamingResponse(
+                _slice(), status_code=206, media_type="audio/mpeg",
+                headers={**common,
+                         "Content-Range": f"bytes {start}-{end}/{size}",
+                         "Content-Length": str(end - start + 1)})
+
+        return FileResponse(path, media_type="audio/mpeg", headers=common)
 
     @app.post("/api/tts/blog/{slug}/generate")
     @limiter.limit("30/minute")
