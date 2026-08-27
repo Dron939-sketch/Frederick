@@ -8,6 +8,9 @@
 и фронт откатывается на браузерный синтез.
 """
 import asyncio
+import binascii
+import hashlib
+import hmac
 import html as html_mod
 import json
 import logging
@@ -868,6 +871,93 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
 
 # ===== Кэш: mp3 + мета о том, чем и как он озвучен =====
 
+# ---------------------------------------------------------------------------
+# Подписанные ссылки на mp3
+#
+# Раньше адрес озвучки был угадываемым: /api/tts/blog/<slug>.mp3 — его можно
+# было скопировать из инспектора, открыть в новой вкладке и сохранить файл,
+# а заодно вставить на чужой сайт. Теперь ссылка живёт ограниченное время и
+# подписана HMAC от slug.
+#
+# Срок не «от момента выдачи», а по временнОму окну (bucket): внутри окна
+# адрес не меняется, поэтому браузер по-прежнему берёт mp3 из кэша, а не
+# качает его заново на каждое открытие страницы. Скопированная ссылка умирает
+# максимум через 2×LINK_TTL.
+LINK_TTL = 6 * 3600
+# Хосты, с которых аудио разрешено играть. Ссылка, открытая прямо в адресной
+# строке, Referer не шлёт — такой запрос без подписи не проходит.
+ALLOWED_REFERERS = ("meysternlp.ru", "www.meysternlp.ru", "localhost", "127.0.0.1")
+# Пока по сайту гуляет старый закэшированный listen.js, запрос без подписи, но
+# с нашего домена, пропускаем. Выключается BLOG_TTS_LINK_GRACE=0.
+LINK_GRACE = os.getenv("BLOG_TTS_LINK_GRACE", "1").strip().lower() in ("1", "true", "yes", "on")
+
+_link_secret_cache = None
+
+
+def _link_secret() -> bytes:
+    """Ключ подписи. Берём из env, иначе заводим случайный и кладём на диск
+    рядом с mp3 — иначе после каждого редеплоя все выданные ссылки сгорали бы,
+    а вместе с ними и проигрывание у тех, кто слушает прямо сейчас."""
+    global _link_secret_cache
+    if _link_secret_cache:
+        return _link_secret_cache
+    env = (os.getenv("BLOG_TTS_LINK_SECRET") or "").strip()
+    if env:
+        _link_secret_cache = env.encode()
+        return _link_secret_cache
+    path = os.path.join(TTS_DIR, ".link_secret")
+    try:
+        with open(path, "rb") as f:
+            data = f.read().strip()
+        if len(data) >= 32:
+            _link_secret_cache = data
+            return data
+    except Exception:
+        pass
+    data = binascii.hexlify(os.urandom(32))
+    try:
+        os.makedirs(TTS_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        os.chmod(path, 0o600)
+    except Exception as e:
+        logger.warning(f"blog-tts: ключ подписи ссылок не сохранён ({e}), "
+                       f"ссылки сгорят при рестарте")
+    _link_secret_cache = data
+    return data
+
+
+def _link_sign(slug: str, exp: int) -> str:
+    mac = hmac.new(_link_secret(), f"{slug}|{exp}".encode(), hashlib.sha256)
+    return mac.hexdigest()[:24]
+
+
+def _link_params(slug: str) -> tuple:
+    """(exp, sig) для текущего окна."""
+    exp = (int(time.time()) // LINK_TTL + 2) * LINK_TTL
+    return exp, _link_sign(slug, exp)
+
+
+def _link_ok(slug: str, exp: str, sig: str) -> bool:
+    try:
+        e = int(exp)
+    except (TypeError, ValueError):
+        return False
+    now = int(time.time())
+    if not (now < e <= now + 2 * LINK_TTL):
+        return False
+    return hmac.compare_digest(_link_sign(slug, e), (sig or "").strip())
+
+
+def _from_site(request: Request) -> bool:
+    """Запрос пришёл со страницы сайта, а не из адресной строки/качалки."""
+    src = request.headers.get("origin") or request.headers.get("referer") or ""
+    if not src:
+        return False
+    host = re.sub(r"^\w+://", "", src).split("/")[0].split(":")[0].lower()
+    return host in ALLOWED_REFERERS
+
+
 def _meta_path(slug: str) -> str:
     return os.path.join(TTS_DIR, f"{slug}.meta.json")
 
@@ -1115,11 +1205,15 @@ def register_blog_tts_routes(app, limiter):
             _fish = fish_configured()
         except Exception:
             _fish = False
+        # Адрес mp3 выдаётся только здесь и только подписанным: угадать его
+        # нельзя, скопированный перестаёт работать через несколько часов.
+        exp, sig = _link_params(slug)
         # voice — каким голосом реально озвучен кэш: 'fish' (Фреди) или 'yandex'
         # (запасной). degraded=True, если хотели Фреди, а вышел Яндекс.
         return {
             "enabled": True, "ready": _cache_ok(slug),
-            "url": f"/api/tts/blog/{slug}.mp3",
+            "url": f"/api/tts/blog/{slug}.mp3?e={exp}&s={sig}",
+            "e": exp, "s": sig,
             "v": int(meta.get("ts", 0)),
             "voice": meta.get("provider"),
             "fish_model": meta.get("fish_model"),
@@ -1132,11 +1226,16 @@ def register_blog_tts_routes(app, limiter):
 
     @app.get("/api/tts/blog/{slug}.mp3")
     @limiter.limit("20/minute")
-    async def blog_tts_audio(request: Request, slug: str):
+    async def blog_tts_audio(request: Request, slug: str, e: str = "", s: str = ""):
         if not SLUG_RE.match(slug or ""):
             return JSONResponse({"error": "bad slug"}, status_code=400)
         if not _tts_available():
             return JSONResponse({"error": "tts disabled"}, status_code=503)
+        # Играть можно только по подписи, выданной /status минуты назад.
+        # Ссылка, открытая в адресной строке или вставленная на чужой сайт,
+        # сюда не доходит: подписи нет, Referer чужой или отсутствует.
+        if not _link_ok(slug, e, s) and not (LINK_GRACE and _from_site(request)):
+            return JSONResponse({"error": "link expired"}, status_code=403)
 
         path = os.path.join(TTS_DIR, f"{slug}.mp3")
         if not _cache_ok(slug):
@@ -1175,7 +1274,11 @@ def register_blog_tts_routes(app, limiter):
             except Exception as e:
                 logger.warning(f"blog-tts {slug}: санитария не удалась: {e}")
 
-        common = {"Cache-Control": "public, max-age=31536000, immutable",
+        # private: подписанный адрес не должен оседать в общих кэшах провайдеров.
+        # inline — чтобы браузер играл, а не предлагал «Сохранить как».
+        common = {"Cache-Control": "private, max-age=31536000, immutable",
+                  "Content-Disposition": "inline",
+                  "X-Robots-Tag": "noindex, noimageindex",
                   "Accept-Ranges": "bytes"}
         size = os.path.getsize(path)
         # Range обязателен: iOS Safari не начинает играть аудио с сервера,
