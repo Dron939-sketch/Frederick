@@ -350,10 +350,11 @@ def register_analytics_routes(app, db):
                     "AND data ? 'latency_ms' "
                     "AND created_at > NOW() - INTERVAL '7 days'"
                 )
-                # Счёт клиентских ошибок за неделю.
-                # Набор событий совпадает с разбивкой health_7d ниже, чтобы
-                # плитка KPI была равна сумме разбивки (раньше здесь не хватало
-                # 'js_error' — самой частой ошибки — и цифра занижалась в разы).
+                # Счёт клиентских ошибок за неделю — только НАШИХ.
+                # js_error_external (скрипты, влитые в страницу расширениями
+                # браузера: пустой filename, строка 1:1) в плитку не идёт,
+                # иначе она показывает поломки, которых у нас нет. В разбивке
+                # health_7d ниже он есть — видеть их полезно, считать своими нет.
                 api_err = await conn.fetchval(
                     "SELECT COUNT(*) FROM fredi_analytics "
                     "WHERE event IN ('js_error','error','promise_unhandled',"
@@ -700,7 +701,8 @@ def register_analytics_routes(app, db):
                         FROM fredi_analytics
                         WHERE created_at > NOW() - INTERVAL '7 days'
                           AND event IN ('js_error','error','promise_unhandled',
-                                        'api_network_error','api_aborted','ai_response_error')
+                                        'api_network_error','api_aborted','ai_response_error',
+                                        'js_error_external')
                         GROUP BY event ORDER BY cnt DESC
                     """, timeout=Q_TIMEOUT)
                     out["health_7d"] = [{"event": h["event"], "count": h["cnt"]} for h in health]
