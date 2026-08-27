@@ -277,12 +277,25 @@ def _extract_text(page: str) -> str:
 # Хвост заголовка — до конца строки: «Литература к лекции», «Литература и куда
 # дальше», «Литература — что читать после курса» (55 лекций) со старым шаблоном
 # не совпадали и уходили в озвучку целиком.
-_BIBLIO_RE = re.compile(r"\n§ (?:Литератур\w*|Что почитать|Источник\w*)[^\n]*\n", re.I)
+_BIBLIO_RE = re.compile(r"\n§ (?:Литератур\w*|Что почитать)[^\n]*\n", re.I)
+# «Источники» — заодно и обычное слово: лекция «Устойчивость» курса
+# «Стресс-менеджмент» несла раздел «Источники устойчивости» и теряла на нём
+# 72% озвучки (три минуты вместо одиннадцати). Поэтому по «Источникам» режем
+# только тогда, когда за ними и правда список литературы: короткий хвост
+# в конце лекции, а не половина материала.
+_BIBLIO_SRC_RE = re.compile(r"\n§ Источник\w*[^\n]*\n", re.I)
+_BIBLIO_TAIL_MAX = 0.25
 
 
 def _drop_bibliography(text: str) -> str:
     m = _BIBLIO_RE.search(text)
-    return text[:m.start()].rstrip() if m else text
+    if m:
+        return text[:m.start()].rstrip()
+    for sm in _BIBLIO_SRC_RE.finditer(text):
+        tail = _drop_faq(text[sm.end():])
+        if len(tail) <= len(text) * _BIBLIO_TAIL_MAX:
+            return text[:sm.start()].rstrip()
+    return text
 
 
 # FAQ в озвучке — повтор уже сказанного другими словами. Прогон курса через
