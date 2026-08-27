@@ -354,6 +354,12 @@ async def lifespan(app: FastAPI):
         from blog_tts_routes import register_blog_tts_routes
         register_blog_tts_routes(app, limiter)
 
+        # Живой счётчик Лектория: токен Метрики даёт доступ ко всей
+        # статистике сайта, поэтому в браузер он не попадает — наружу
+        # уходит одно число.
+        from metrika_routes import register_metrika_routes
+        register_metrika_routes(app, limiter)
+
         # Видео-озвучка Лектория (голос Фреди, admin-гейт). Источник правды по
         # озвучке для видео-«завода» (репо 999): ключ Fish не покидает сервер.
         from video_tts_routes import register_video_tts_routes
