@@ -635,16 +635,59 @@ RESUME_LINE = ("Если нужно ещё время, остановите за
 PAUSE_LIMIT = 14
 PAUSE_TOTAL_MAX = 150
 
-# Кадр MPEG1 Layer III, 128 кбит/с, 44100 Гц, моно — ровно тот формат, в котором
-# отдаёт Fish (проверено на готовых лекциях). Обнулённый side info означает
-# part2_3_length = 0: данных нет, декодер выдаёт тишину. Резервуар бит не
-# задействован, поэтому кадр самодостаточен и встаёт в любое место потока.
+# Кадр MPEG1 Layer III, 128 кбит/с, 44100 Гц, моно. Обнулённый side info
+# означает part2_3_length = 0: данных нет, декодер выдаёт тишину. Резервуар бит
+# не задействован, поэтому кадр самодостаточен.
+#
+# ВАЖНО: этот кадр — только запасной. Формат тишины обязан совпадать с форматом
+# соседней речи, иначе на стыке меняется частота дискретизации, и декодер
+# браузера не переживает смену посреди потока: воспроизведение встаёт ровно там,
+# где начинается пауза, и голос уже не возвращается. Проверено в Chromium:
+# однородный файл играет до конца, файл со сменой 48000 → 44100 останавливается
+# на стыке и отдаёт media error. Синтез отдаёт 48000 Гц, а кадр ниже — 44100,
+# поэтому пауза ломала лекцию ровно в том месте, ради которого её ставили.
 _SILENT_FRAME = bytes([0xFF, 0xFB, 0x90, 0xC0]) + bytes(417 - 4)
 _FRAME_SECONDS = 1152.0 / 44100.0
 
 
-def _silence_mp3(seconds: float) -> bytes:
-    """Тишина заданной длины в том же формате, что и синтезированная речь."""
+def _frame_geometry(header: bytes):
+    """(частота, размер кадра, секунд в кадре) по четырём байтам заголовка."""
+    h1, h2 = header[1], header[2]
+    mpeg1 = (h1 & 0x18) == 0x18
+    br_i, sr_i = h2 >> 4, (h2 >> 2) & 3
+    if br_i in (0, 15) or sr_i == 3:
+        raise ValueError("битый заголовок кадра")
+    sr = _MP3_SR[sr_i] if mpeg1 else _MP3_SR[sr_i] // 2
+    size = (144 if mpeg1 else 72) * _MP3_BR[br_i] * 1000 // sr
+    samples = 1152 if mpeg1 else 576
+    return sr, size, samples / float(sr)
+
+
+def _silence_like(header: bytes, seconds: float) -> bytes:
+    """Тишина в том же формате, что и переданный кадр речи.
+
+    Копируется всё, что декодер считает форматом потока: версия, слой,
+    частота, режим каналов и битрейт. Меняется только содержимое — нули,
+    то есть молчание.
+    """
+    try:
+        _, size, per_frame = _frame_geometry(header)
+    except Exception:
+        return _SILENT_FRAME * max(1, int(round(seconds / _FRAME_SECONDS)))
+    frame = bytes(header[:3]) + bytes([header[3]]) + bytes(size - 4)
+    return frame * max(1, int(round(seconds / per_frame)))
+
+
+def _first_frame_header(data: bytes) -> bytes:
+    """Заголовок первого звукового кадра куска синтеза."""
+    frames = _mp3_frames(data)
+    return data[frames[0][0]:frames[0][0] + 4] if frames else b""
+
+
+def _silence_mp3(seconds: float, like: bytes = b"") -> bytes:
+    """Тишина заданной длины. like — заголовок кадра соседней речи."""
+    if like:
+        return _silence_like(like, seconds)
     return _SILENT_FRAME * max(1, int(round(seconds / _FRAME_SECONDS)))
 
 
@@ -701,7 +744,7 @@ _MP3_BR = {1: 32, 2: 40, 3: 48, 4: 56, 5: 64, 6: 80, 7: 96, 8: 112,
            9: 128, 10: 160, 11: 192, 12: 224, 13: 256, 14: 320}
 _MP3_SR = {0: 44100, 1: 48000, 2: 32000}
 # Версия санитарии в мете: файлы без неё лечатся лениво при первой отдаче.
-MP3_SAN_VERSION = 1
+MP3_SAN_VERSION = 2
 
 
 def _mp3_frames(data: bytes) -> list:
@@ -781,20 +824,71 @@ def _build_xing(template: bytes, n_frames: int, total_bytes: int,
     return bytes(frame)
 
 
+def _split_frames(data: bytes) -> list:
+    """Режет кусок обратно на отдельные кадры: _retune_silence возвращает
+    целые пачки тишины, а Xing считает кадры и смещения поштучно."""
+    return [data[off:off + size] for off, size in _mp3_frames(data)]
+
+
+def _fmt_key(header: bytes):
+    """То, что декодер считает форматом потока: версия, слой, частота, каналы.
+    Битрейт сюда не входит — его смену внутри mp3 декодеры переносят спокойно."""
+    return (header[1] & 0x1E, (header[2] >> 2) & 3, header[3] >> 6)
+
+
+def _is_silent_frame(chunk: bytes) -> bool:
+    """Кадр-тишина: заголовок и дальше нули — ни side info, ни данных."""
+    return not any(chunk[4:])
+
+
+def _retune_silence(chunks: list) -> list:
+    """Переписывает кадры тишины в формат остальной лекции.
+
+    Тишину когда-то вклеивали жёстко заданным кадром на 44100 Гц, а синтез
+    отдаёт 48000. Для декодера это смена формата посреди потока: лекция
+    встаёт ровно на паузе, и голос уже не возвращается. Здесь такие кадры
+    заменяются на тишину той же длины в господствующем формате файла —
+    поэтому уже записанные лекции чинятся при первой же отдаче, без
+    переозвучки.
+    """
+    speech = [c for c in chunks if not _is_silent_frame(c)]
+    if not speech:
+        return chunks
+    main = collections.Counter(_fmt_key(c) for c in speech).most_common(1)[0][0]
+    ref = next(c for c in speech if _fmt_key(c) == main)
+    out, bad, sec = [], 0, 0.0
+    for c in chunks:
+        if _is_silent_frame(c) and _fmt_key(c) != main:
+            bad += 1
+            sec += _frame_geometry(c[:4])[2]
+            continue
+        if bad:
+            out.append(_silence_like(ref[:4], sec))
+            bad, sec = 0, 0.0
+        out.append(c)
+    if bad:
+        out.append(_silence_like(ref[:4], sec))
+    return out
+
+
 def _sanitize_mp3(data: bytes) -> bytes:
-    """Пересобирает склейку в честный поток: только звуковые кадры и один
-    правильный Xing впереди. При любой странности возвращает исходные байты —
-    хуже, чем было, не сделает."""
+    """Пересобирает склейку в честный поток: только звуковые кадры, тишина в
+    формате речи и один правильный Xing впереди. При любой странности
+    возвращает исходные байты — хуже, чем было, не сделает."""
     try:
         frames = _mp3_frames(data)
         if len(frames) < 10:
             return data
-        chunks, offsets, acc = [], [], 0
-        for off, size in frames:
-            chunks.append(data[off:off + size])
+        chunks = [data[off:off + size] for off, size in frames]
+        # Тишину чужого формата перекладываем в формат речи, и только потом
+        # считаем смещения: длина файла после этого меняется.
+        chunks = _retune_silence(chunks)
+        chunks = [c for part in chunks for c in _split_frames(part)]
+        offsets, acc = [], 0
+        for c in chunks:
             offsets.append(acc)
-            acc += size
-        xing = _build_xing(chunks[0][:4], len(frames), acc, offsets)
+            acc += len(c)
+        xing = _build_xing(chunks[0][:4], len(chunks), acc, offsets)
         return xing + b"".join(chunks)
     except Exception as e:
         logger.warning(f"mp3 sanitize failed: {e}")
@@ -817,6 +911,35 @@ async def _synth_yandex(client: httpx.AsyncClient, text: str) -> bytes:
     )
     resp.raise_for_status()
     return resp.content
+
+
+def _join_parts(parts: list) -> bytes:
+    """Склеивает куски синтеза, подставляя тишину в формате соседней речи.
+
+    Паузы приходят сюда метками ("pause", секунды), потому что их формат
+    известен только когда собраны куски вокруг: тишина обязана совпадать с
+    речью по частоте и режиму каналов. Берём формат предыдущего куска, а для
+    паузы в самом начале — следующего.
+    """
+    heads = [_first_frame_header(p) if isinstance(p, bytes) else b""
+             for p in parts]
+    out = []
+    for i, part in enumerate(parts):
+        if isinstance(part, bytes):
+            out.append(part)
+            continue
+        like = b""
+        for j in range(i - 1, -1, -1):
+            if heads[j]:
+                like = heads[j]
+                break
+        if not like:
+            for j in range(i + 1, len(parts)):
+                if heads[j]:
+                    like = heads[j]
+                    break
+        out.append(_silence_mp3(part[1], like))
+    return b"".join(out)
 
 
 async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
@@ -857,7 +980,10 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
                 parts, chunk_no = [], 0
                 for kind, val in pieces:
                     if kind == "pause":
-                        parts.append(_silence_mp3(val))
+                        # Формат тишины подставим потом, когда будет известен
+                        # формат соседней речи: несовпадение частоты роняет
+                        # декодер ровно на стыке.
+                        parts.append(("pause", val))
                         continue
                     for ch in _chunks(val, FISH_CHUNK_LIMIT):
                         chunk_no += 1
@@ -885,7 +1011,7 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
                             raise RuntimeError(
                                 f"кусок {chunk_no}/{chunks_total}: {fish_err}")
                         parts.append(audio)
-                return b"".join(parts), "fish", None
+                return _join_parts(parts), "fish", None
             except Exception as e:
                 fish_err = fish_err or f"error: {str(e)[:120]}"
                 logger.warning(f"blog-tts {slug}: fish failed ({e}), re-voicing whole article via yandex")
@@ -893,12 +1019,12 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
     parts = []
     for kind, val in pieces:
         if kind == "pause":
-            parts.append(_silence_mp3(val))
+            parts.append(("pause", val))
             continue
         for ch in _chunks(val, CHUNK_LIMIT):
             if ch.strip():
                 parts.append(await _synth_yandex(client, ch))
-    return b"".join(parts), "yandex", fish_err
+    return _join_parts(parts), "yandex", fish_err
 
 
 # ===== Кэш: mp3 + мета о том, чем и как он озвучен =====
