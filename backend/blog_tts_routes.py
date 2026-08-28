@@ -54,6 +54,16 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,120}$")
 CHUNK_LIMIT = 4500          # лимит Yandex v1 — 5000 символов на запрос
 FISH_CHUNK_LIMIT = 1400     # Fish генерирует медленно: длинный кусок не успевает
 FISH_TIMEOUT = 120.0        # ...поэтому куски короче, а таймаут щедрее
+
+# Модель Fish именно для озвучки блога. Пусто — берётся глобальная
+# FISH_AUDIO_MODEL, то есть поведение ровно как раньше.
+#
+# Переменная заведена, чтобы статьи можно было озвучивать одной моделью,
+# а диалоги — другой. У бесплатных моделей Fish в условиях написано, что
+# запросы могут идти на дообучение: тексты статей и так опубликованы, отдать
+# их не жалко, а разговор пользователя с Фреди отдавать нельзя. Глобальной
+# FISH_AUDIO_MODEL так не сделать — она одна на все режимы сразу.
+BLOG_TTS_FISH_MODEL = os.getenv("BLOG_TTS_FISH_MODEL", "").strip()
 MAX_ARTICLE_CHARS = 60000   # предохранитель от аномально длинных страниц
 
 # Версия конвейера озвучки. Меняются голос, режиссёр, промт или разбор
@@ -1003,7 +1013,11 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
                                     f"{chunk_no}/{chunks_total} ({fish_svc.last_fail}), "
                                     f"попытка {attempt + 1} через {wait}с")
                                 await asyncio.sleep(wait)
-                            audio = await synthesize_fish_audio(ch_fish, timeout=FISH_TIMEOUT)
+                            audio = await synthesize_fish_audio(
+                                ch_fish,
+                                timeout=FISH_TIMEOUT,
+                                model=BLOG_TTS_FISH_MODEL or None,
+                            )
                             if audio or fish_svc.last_fail == "no_balance":
                                 break
                         if not audio:
@@ -1179,8 +1193,15 @@ async def _generate(slug: str) -> str:
             }
             if used == "fish":
                 # какой моделью синтезировано: пусто = «модель Fish по
-                # умолчанию», а она у них меняется, и голос вместе с ней
-                meta_out["fish_model"] = os.getenv("FISH_AUDIO_MODEL", "").strip() or "default"
+                # умолчанию», а она у них меняется, и голос вместе с ней.
+                # Порядок тот же, что в самом вызове: сначала блоговая
+                # переменная, потом глобальная. Иначе в метаданных окажется
+                # одна модель, а озвучено будет другой.
+                meta_out["fish_model"] = (
+                    BLOG_TTS_FISH_MODEL
+                    or os.getenv("FISH_AUDIO_MODEL", "").strip()
+                    or "default"
+                )
             elif fish_err:
                 # почему НЕ Фреди: без этого деградацию видно, а причину — нет,
                 # и каждый раз приходится гадать между балансом и таймаутом

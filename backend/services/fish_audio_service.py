@@ -87,12 +87,24 @@ def _slow_audio_atempo(mp3_bytes: bytes, factor: float = 0.9) -> bytes:
         return mp3_bytes
 
 
-async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: float = 30) -> bytes | None:
+async def synthesize_fish_audio(
+    text: str,
+    mode: str = "psychologist",
+    timeout: float = 30,
+    model: str | None = None,
+) -> bytes | None:
     """
     Synthesize speech via Fish Audio API.
     Returns MP3 bytes or None if unavailable.
     timeout: чат живёт с дефолтными 30с; длинные куски (озвучка лекций
     блога) передают больше — Fish генерирует минуту речи дольше 30с.
+
+    model: перекрыть модель синтеза для одного вызова. Нужно, чтобы озвучка
+    блога могла идти на другой модели, чем диалоги. Разделение не косметика:
+    у бесплатных моделей Fish в условиях прямо написано, что запросы могут
+    уходить на дообучение, и статьи блога отдать туда не жалко, а разговор
+    пользователя с Фреди — жалко. None = взять глобальную FISH_AUDIO_MODEL,
+    то есть прежнее поведение.
     """
     global last_fail
     if mode not in FISH_AUDIO_MODES:
@@ -118,8 +130,9 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: 
             "Authorization": f"Bearer {FISH_AUDIO_API_KEY}",
             "Content-Type": "application/json",
         }
-        if FISH_AUDIO_MODEL:
-            headers["model"] = FISH_AUDIO_MODEL
+        used_model = (model or FISH_AUDIO_MODEL or "").strip()
+        if used_model:
+            headers["model"] = used_model
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
@@ -152,7 +165,7 @@ async def synthesize_fish_audio(text: str, mode: str = "psychologist", timeout: 
                         from services.api_usage import log_tts_usage
                         _aio.create_task(log_tts_usage(
                             provider="fishaudio",
-                            model=FISH_AUDIO_MODEL or "default",
+                            model=used_model or "default",
                             chars=len(text or ""),
                             feature=f"tts.{mode}",
                         ))
