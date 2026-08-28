@@ -952,7 +952,8 @@ def _join_parts(parts: list) -> bytes:
     return b"".join(out)
 
 
-async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
+async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str,
+                     model: str | None = None):
     """Озвучивает весь текст ОДНИМ голосом: сначала пробуем Fish (голос Фреди),
     и если он споткнулся на любом куске — переозвучиваем всё Яндексом целиком,
     чтобы голос не менялся посреди лекции.
@@ -1016,7 +1017,7 @@ async def _synth_all(client: httpx.AsyncClient, speech: str, slug: str):
                             audio = await synthesize_fish_audio(
                                 ch_fish,
                                 timeout=FISH_TIMEOUT,
-                                model=BLOG_TTS_FISH_MODEL or None,
+                                model=model or BLOG_TTS_FISH_MODEL or None,
                             )
                             if audio or fish_svc.last_fail == "no_balance":
                                 break
@@ -1154,8 +1155,11 @@ def _cache_ok(slug: str) -> bool:
     return os.path.exists(path) and os.path.getsize(path) > 1000
 
 
-async def _generate(slug: str) -> str:
-    """Скачивает статью, синтезирует и кладёт mp3 в кэш. Возвращает путь."""
+async def _generate(slug: str, model: str | None = None) -> str:
+    """Скачивает статью, синтезирует и кладёт mp3 в кэш. Возвращает путь.
+
+    model — модель Fish только для этого вызова (пакет «переозвучить всё
+    бесплатной моделью» из админки); None — обычный порядок из env."""
     os.makedirs(TTS_DIR, exist_ok=True)
     path = os.path.join(TTS_DIR, f"{slug}.mp3")
     if _cache_ok(slug):
@@ -1178,7 +1182,7 @@ async def _generate(slug: str) -> str:
             pass
 
         logger.info(f"blog-tts {slug}: {len(speech)} chars speech, provider={BLOG_TTS_PROVIDER}")
-        audio, used, fish_err = await _synth_all(client, speech, slug)
+        audio, used, fish_err = await _synth_all(client, speech, slug, model=model)
         audio = await asyncio.to_thread(_sanitize_mp3, audio)
 
     tmp = path + ".tmp"
@@ -1198,7 +1202,8 @@ async def _generate(slug: str) -> str:
                 # переменная, потом глобальная. Иначе в метаданных окажется
                 # одна модель, а озвучено будет другой.
                 meta_out["fish_model"] = (
-                    BLOG_TTS_FISH_MODEL
+                    model
+                    or BLOG_TTS_FISH_MODEL
                     or os.getenv("FISH_AUDIO_MODEL", "").strip()
                     or "default"
                 )
@@ -1231,7 +1236,7 @@ async def _generate(slug: str) -> str:
 # много параллельно.
 _pregen: dict = {"running": False, "total": 0, "done": 0, "generated": 0,
                  "skipped": 0, "errors": [], "started": 0, "finished": 0,
-                 "cancel": False, "cancelled": False}
+                 "cancel": False, "cancelled": False, "model": ""}
 _LEKCIYA_RE = re.compile(r"/blog/(lekciya-[a-z0-9][a-z0-9-]{2,120})\.html")
 _BLOG_RE = re.compile(r"/blog/([a-z0-9][a-z0-9-]{2,120})\.html")
 
@@ -1273,7 +1278,8 @@ def _is_degraded(slug: str) -> bool:
     return meta.get("wanted") == "fish" and meta.get("provider") not in (None, "fish")
 
 
-async def _pregenerate_run(slugs: list, force: bool = False):
+async def _pregenerate_run(slugs: list, force: bool = False,
+                           model: str | None = None):
     """Последовательно озвучивает список слагов, пропуская уже готовые.
     Последовательно — чтобы не разгонять расход Fish и нагрузку на LLM.
     force=True — переозвучить, даже если mp3 уже есть (кнопка «переозвучить»
@@ -1282,7 +1288,7 @@ async def _pregenerate_run(slugs: list, force: bool = False):
     генерируем заново. Без force готовые пропускаются и Fish не тратится."""
     _pregen.update(running=True, total=len(slugs), done=0, generated=0,
                    skipped=0, errors=[], started=time.time(), finished=0,
-                   cancel=False, cancelled=False)
+                   cancel=False, cancelled=False, model=model or "")
     try:
         for slug in slugs:
             if _pregen["cancel"]:
@@ -1307,7 +1313,7 @@ async def _pregenerate_run(slugs: list, force: bool = False):
                                 except OSError:
                                     pass
                         if force or not _cache_ok(slug):
-                            await _generate(slug)
+                            await _generate(slug, model=model)
                             _pregen["generated"] += 1
                         else:
                             _pregen["skipped"] += 1
@@ -1566,6 +1572,14 @@ def register_blog_tts_routes(app, limiter):
             payload = {}
         slugs = payload.get("slugs") if isinstance(payload, dict) else None
         force = bool(payload.get("force")) if isinstance(payload, dict) else False
+        # model — модель Fish только для этого пакета (кнопка «переозвучить
+        # всё бесплатной моделью»). Значение уходит в HTTP-заголовок model,
+        # поэтому валидируем жёстко, а не доверяем строке как есть.
+        model = payload.get("model") if isinstance(payload, dict) else None
+        if model is not None:
+            model = str(model).strip()
+            if not re.fullmatch(r"[A-Za-z0-9._-]{1,40}", model):
+                return JSONResponse({"error": "bad model"}, status_code=400)
         # only_degraded: переозвучить только то, что ушло в Яндекс вместо Фреди.
         # Дешевле force: уже правильно озвученное Fish не трогаем.
         only_degraded = bool(payload.get("only_degraded")) if isinstance(payload, dict) else False
@@ -1587,8 +1601,8 @@ def register_blog_tts_routes(app, limiter):
         if not slugs:
             return JSONResponse({"error": "no slugs"}, status_code=400)
 
-        asyncio.create_task(_pregenerate_run(slugs, force=force))
-        return {"status": "started", "total": len(slugs)}
+        asyncio.create_task(_pregenerate_run(slugs, force=force, model=model))
+        return {"status": "started", "total": len(slugs), "model": model or ""}
 
     @app.get("/api/tts/blog/pregenerate")
     @limiter.limit("60/minute")
