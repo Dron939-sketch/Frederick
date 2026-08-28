@@ -959,6 +959,156 @@ class AIService:
     # ГЕНЕРАЦИЯ ПРОФИЛЯ, МЫСЛЕЙ, ЦЕЛЕЙ
     # ============================================
 
+    # Каталог для рекомендаций после теста. AI выбирает ТОЛЬКО из него
+    # и возвращает id — ссылки собирает сервер, чтобы модель не могла
+    # выдумать несуществующий адрес. «who» — подсказка модели, кому это.
+    TEST_REC_CATALOG = {
+        # Курсы Лектория
+        'trevoga': ('course', 'Курс «Тревога»', '/blog/lektorij/trevoga/',
+                    'постоянное беспокойство, катастрофы в голове, замирание под давлением'),
+        'stress-menedzhment': ('course', 'Курс «Стресс-менеджмент»', '/blog/lektorij/stress-menedzhment/',
+                    'выгорание, перегрузки, срывы под давлением'),
+        'samoregulyaciya': ('course', 'Курс «Саморегуляция»', '/blog/lektorij/samoregulyaciya/',
+                    'эмоции захлёстывают, вспышки гнева, трудно вернуться в покой'),
+        'lichnye-granicy': ('course', 'Курс «Личные границы»', '/blog/lektorij/lichnye-granicy/',
+                    'соглашается против воли, не умеет отказывать, внешне спокоен ценой себя'),
+        'samoocenka': ('course', 'Курс «Самооценка»', '/blog/lektorij/samoocenka/',
+                    'самоедство, зависимость от чужой оценки, «я недостаточно хорош»'),
+        'kpt-samostoyatelno': ('course', 'Курс «КПТ самостоятельно»', '/blog/lektorij/kpt-samostoyatelno/',
+                    'руминации, автоматические негативные мысли, хочет рабочий метод'),
+        'prokrastinaciya-i-motivaciya': ('course', 'Курс «Прокрастинация и мотивация»', '/blog/lektorij/prokrastinaciya-i-motivaciya/',
+                    'откладывает, не доводит до конца, мотивация рывками'),
+        'dengi-i-psihologiya': ('course', 'Курс «Деньги и психология»', '/blog/lektorij/dengi-i-psihologiya/',
+                    'низкий денежный вектор: «деньги как повезёт», страх считать'),
+        'svoya-koleya': ('course', 'Курс «Своя колея»', '/blog/lektorij/svoya-koleya/',
+                    'живёт чужими решениями и ожиданиями, нет своего курса'),
+        'kriticheskoe-myshlenie': ('course', 'Курс «Критическое мышление»', '/blog/lektorij/kriticheskoe-myshlenie/',
+                    'верит на слово, картина мира из чужих мнений, тянет к заговорам'),
+        'myshlenie': ('course', 'Курс «Мышление и когнитивные искажения»', '/blog/lektorij/myshlenie/',
+                    'хочет думать точнее, ловить свои ошибки мышления'),
+        'prinyatie-reshenij': ('course', 'Курс «Принятие решений»', '/blog/lektorij/prinyatie-reshenij/',
+                    'мечется между вариантами, откладывает выборы, потом жалеет'),
+        'konflikty': ('course', 'Курс «Конфликты»', '/blog/lektorij/konflikty/',
+                    'один и тот же круг ссор с одними и теми же людьми'),
+        'emocionalnyj-intellekt': ('course', 'Курс «Эмоциональный интеллект»', '/blog/lektorij/emocionalnyj-intellekt/',
+                    'плохо распознаёт свои и чужие чувства, сильная привязанность или отстранённость'),
+        'peregovory': ('course', 'Курс «Переговоры»', '/blog/lektorij/peregovory/',
+                    'гнётся под напором, уступает в спорах о деньгах и условиях'),
+        'odinochestvo': ('course', 'Курс «Одиночество»', '/blog/lektorij/odinochestvo/',
+                    'мало близких связей, тяжело сближаться'),
+        # Игры-тренажёры Фреди (deep-link /fredi/?m=...)
+        'perehod': ('game', 'Симулятор «Переход»', '/fredi/?m=perehod',
+                    'месяц из десяти решений: увидеть, чьи решения на самом деле исполняешь'),
+        'parus': ('game', 'Тренажёр «Парус»', '/fredi/?m=parus',
+                    'перегрузки: всё разом навалилось, не разобрать потоки'),
+        'spiral': ('game', 'Симулятор дня «Спираль»', '/fredi/?m=spiral',
+                    'упадок сил, апатия, день не собирается'),
+        'mysl': ('game', 'Игра «Мысль под допросом»', '/fredi/?m=mysl',
+                    'разбор тревожной мысли по КПТ на практике'),
+        'skazhinet': ('game', 'Тренажёр «Скажи нет»', '/fredi/?m=skazhinet',
+                    'тренировка отказа: границы в безопасной песочнице'),
+        'chuvstva': ('game', 'Игра «Чувства»', '/fredi/?m=chuvstva',
+                    'эмоциональный словарь: учиться называть, что чувствуешь'),
+        'delo': ('game', 'Бизнес-симулятор «Своё дело»', '/fredi/?m=delo',
+                    'денежное мышление в деле: решения, риск, счёт'),
+        'kalibr': ('game', 'Игра «Калибровка»', '/fredi/?m=kalibr',
+                    'проверка самоуверенности: насколько твоя уверенность совпадает с правотой'),
+        'advokat': ('game', 'Игра «Адвокат дьявола»', '/fredi/?m=advokat',
+                    'гибкость убеждений: защитить позицию, с которой не согласен'),
+        'korka': ('game', 'Игра «Короли и капуста»', '/fredi/?m=korka',
+                    'чтение людей и связи: нетворкинг без фальши'),
+        # Живой формат
+        'treningi': ('trening', 'Живые тренинги Андрея Мейстера', '/treningi/',
+                    'когда нужен живой формат, группа и обратная связь от ведущего'),
+    }
+
+    def _rec_items(self, ids_with_reasons):
+        items = []
+        for rec_id, reason in ids_with_reasons:
+            entry = self.TEST_REC_CATALOG.get(rec_id)
+            if not entry:
+                continue
+            items.append({'id': rec_id, 'type': entry[0], 'title': entry[1],
+                          'url': entry[2], 'reason': reason})
+        return items
+
+    def _get_recommendations_fallback(self, profile: Dict) -> List[Dict]:
+        """Без AI: курс и игра по самому слабому вектору плюс «Переход»."""
+        scores = {}
+        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+            levels = profile.get('behavioral_levels', {}).get(k, [])
+            scores[k] = sum(levels) / len(levels) if levels else 3.0
+        weakest = min(scores, key=scores.get)
+        by_vector = {
+            'СБ': [('trevoga', 'Твой самый уязвимый вектор — поведение под давлением. Этот курс разбирает его по шагам.'),
+                   ('mysl', 'Тренажёр, где тревожная мысль разбирается по косточкам — прямо на твоих примерах.')],
+            'ТФ': [('dengi-i-psihologiya', 'Денежный вектор у тебя самый слабый — курс про то, как мышление держит доход.'),
+                   ('delo', 'Симулятор, где денежные решения можно тренировать без риска для кошелька.')],
+            'УБ': [('kriticheskoe-myshlenie', 'Твой слабый вектор — картина мира. Курс учит проверять то, во что веришь.'),
+                   ('kalibr', 'Игра покажет, где твоя уверенность обгоняет твою правоту.')],
+            'ЧВ': [('konflikty', 'Вектор отношений у тебя проседает — курс про повторяющиеся круги ссор.'),
+                   ('chuvstva', 'Тренажёр эмоционального словаря: называть чувства точнее — половина навыка.')],
+        }
+        picks = list(by_vector.get(weakest, by_vector['СБ']))
+        if not any(pid == 'perehod' for pid, _ in picks):
+            picks.append(('perehod', 'Месяц из десяти решений: увидишь, чьи решения ты на самом деле исполняешь.'))
+        return self._rec_items(picks)
+
+    async def generate_test_recommendations(self, user_id: int, profile: Dict) -> List[Dict]:
+        """Три персональных шага после теста: курс, игра и третье по нужде.
+
+        AI выбирает только id из каталога — ссылки и названия собирает
+        сервер. Любой сбой генерации или разбора — rule-based fallback,
+        человек без рекомендаций не остаётся.
+        """
+        if not self.api_key:
+            return self._get_recommendations_fallback(profile)
+
+        catalog_lines = '\n'.join(
+            f'- {rid} [{entry[0]}] {entry[1]} — {entry[3]}'
+            for rid, entry in self.TEST_REC_CATALOG.items())
+
+        system_prompt = f"""Ты — психолог Фреди. По профилю пользователя выбери ровно 3 рекомендации из каталога: один курс [course], одну игру [game], третью — что нужнее (course/game/trening).
+
+КАТАЛОГ (выбирать ТОЛЬКО отсюда, по id):
+{catalog_lines}
+
+Ответ — СТРОГО JSON-массив без пояснений:
+[{{"id": "...", "reason": "..."}}, ...]
+
+reason — 1-2 предложения на «ты»: почему именно ему, с опорой на его профиль. Без общих слов «это полезно каждому»."""
+
+        behavioral_levels = profile.get('behavioral_levels', {})
+        scores = {}
+        for k in ['СБ', 'ТФ', 'УБ', 'ЧВ']:
+            levels = behavioral_levels.get(k, [])
+            scores[k] = sum(levels) / len(levels) if levels else 3.0
+        profile_data = profile.get('profile_data', {})
+        user_prompt = f"""
+Тип восприятия: {profile.get('perception_type', 'не определен')}
+Уровень мышления: {profile.get('thinking_level', 5)}/9
+Профиль: {profile_data.get('display_name', 'не определен')}
+СБ (под давлением): {scores.get('СБ', 3):.1f}/6  ТФ (деньги): {scores.get('ТФ', 3):.1f}/6
+УБ (картина мира): {scores.get('УБ', 3):.1f}/6  ЧВ (отношения): {scores.get('ЧВ', 3):.1f}/6
+Паттерны: {self._format_deep_patterns(profile.get('deep_patterns', {}))}
+"""
+        response = await self._call_deepseek(system_prompt, user_prompt,
+                                             max_tokens=700, temperature=0.4)
+        if response:
+            try:
+                m = re.search(r'\[.*\]', response, re.DOTALL)
+                if m:
+                    raw = json.loads(m.group())
+                    if isinstance(raw, list):
+                        pairs = [(str(r.get('id', '')), str(r.get('reason', '')).strip())
+                                 for r in raw if isinstance(r, dict)]
+                        items = self._rec_items([p for p in pairs if p[0] in self.TEST_REC_CATALOG and p[1]])
+                        if len(items) >= 2:
+                            return items[:3]
+            except (json.JSONDecodeError, AttributeError, TypeError):
+                pass
+        return self._get_recommendations_fallback(profile)
+
     async def generate_ai_profile(self, user_id: int, profile: Dict) -> Optional[str]:
         if not self.api_key:
             return self._get_profile_fallback(profile)
