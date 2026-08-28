@@ -6078,6 +6078,32 @@ async def tts_compat(request: Request, text: str = Form(...), mode: str = Form("
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
+@app.get("/api/test/recommendations/{user_id}")
+@limiter.limit("20/minute")
+async def get_test_recommendations(request: Request, user_id: int):
+    """Три персональных шага после теста: курс, игра, третье по нужде.
+
+    AI выбирает по профилю только из серверного каталога (ссылки собирает
+    сервер, модель не может выдумать адрес); без ключа или при сбое — тот
+    же формат из rule-based fallback. Результат кэшируется в профиле:
+    рекомендации после одного теста не должны меняться от захода к заходу.
+    """
+    try:
+        profile = await user_repo.get_profile(user_id) or {}
+        if not profile.get('profile_data'):
+            return {"success": False, "status": "no_profile", "items": []}
+        cached = profile.get('test_recommendations')
+        if isinstance(cached, list) and cached:
+            return {"success": True, "status": "ready", "items": cached}
+        items = await ai_service.generate_test_recommendations(user_id, profile)
+        if items:
+            await user_repo.update_profile_field(user_id, 'test_recommendations', items)
+        return {"success": True, "status": "ready", "items": items or []}
+    except Exception as e:
+        logger.error(f"Error getting test recommendations for user {user_id}: {e}")
+        return {"success": False, "error": str(e), "items": []}
+
+
 @app.get("/api/generated-profile/{user_id}")
 @limiter.limit("30/minute")
 async def get_generated_profile(request: Request, user_id: int):
