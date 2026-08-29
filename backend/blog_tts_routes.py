@@ -1245,6 +1245,36 @@ async def _generate(slug: str, model: str | None = None,
 _pregen: dict = {"running": False, "total": 0, "done": 0, "generated": 0,
                  "skipped": 0, "errors": [], "started": 0, "finished": 0,
                  "cancel": False, "cancelled": False, "model": ""}
+
+# Очередь пакета переживает перезапуск. Задача жила только в памяти
+# процесса: любой передеплой (а они идут при каждой правке бэкенда) убивал
+# её без следа — в админке это выглядело как «пакет запустили, а озвучка
+# не идёт», причём статус обнулялся и понять, что прогон умер, было нечем.
+# Пакет на тысячу лекций идёт сутками и переживает несколько деплоев,
+# поэтому очередь пишем на постоянный диск рядом с mp3 и продолжаем
+# с того же места при старте.
+_PREGEN_STATE = os.path.join(TTS_DIR, "_pregen_queue.json")
+
+
+def _pregen_save(left: list, force: bool, model: str | None):
+    try:
+        os.makedirs(TTS_DIR, exist_ok=True)
+        tmp = _PREGEN_STATE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"left": left, "force": force, "model": model or "",
+                       "done": _pregen["done"], "generated": _pregen["generated"],
+                       "skipped": _pregen["skipped"], "total": _pregen["total"],
+                       "ts": time.time()}, f)
+        os.replace(tmp, _PREGEN_STATE)
+    except Exception as e:
+        logger.warning("blog-tts: не удалось сохранить очередь пакета: %s", e)
+
+
+def _pregen_clear():
+    try:
+        os.remove(_PREGEN_STATE)
+    except OSError:
+        pass
 _LEKCIYA_RE = re.compile(r"/blog/(lekciya-[a-z0-9][a-z0-9-]{2,120})\.html")
 _BLOG_RE = re.compile(r"/blog/([a-z0-9][a-z0-9-]{2,120})\.html")
 
@@ -1297,8 +1327,10 @@ async def _pregenerate_run(slugs: list, force: bool = False,
     _pregen.update(running=True, total=len(slugs), done=0, generated=0,
                    skipped=0, errors=[], started=time.time(), finished=0,
                    cancel=False, cancelled=False, model=model or "")
+    _pregen_save(list(slugs), force, model)
+    finished_all = False
     try:
-        for slug in slugs:
+        for i, slug in enumerate(slugs):
             if _pregen["cancel"]:
                 # Пакет на восемьсот лекций идёт сутками и всё это время
                 # держит очередь занятой. Кнопка «остановить» нужна, чтобы
@@ -1308,7 +1340,15 @@ async def _pregenerate_run(slugs: list, force: bool = False,
                             _pregen["done"], _pregen["total"])
                 break
             try:
-                if _cache_ok(slug) and not force:
+                # Уже озвучено ровно той моделью, ради которой затеян
+                # прогон, — переделывать нечего. Без этого перезапуск
+                # пакета начинал архив сначала и жёг часы на лекциях,
+                # которые уже готовы.
+                if (force and model
+                        and _cache_ok(slug)
+                        and (_read_meta(slug) or {}).get("fish_model") == model):
+                    _pregen["skipped"] += 1
+                elif _cache_ok(slug) and not force:
                     _pregen["skipped"] += 1
                 else:
                     lock = _locks.setdefault(slug, asyncio.Lock())
@@ -1325,8 +1365,21 @@ async def _pregenerate_run(slugs: list, force: bool = False,
                 _pregen["errors"].append({"slug": slug, "error": str(e)[:200]})
             finally:
                 _pregen["done"] += 1
+                # остаток очереди — чтобы продолжить после перезапуска
+                _pregen_save(list(slugs[i + 1:]), force, model)
+        finished_all = True
     finally:
         _pregen.update(running=False, finished=time.time())
+        # Очередь стираем, только если прогон дошёл до конца или его
+        # остановил человек кнопкой. Если задачу срезали снаружи
+        # (передеплой, SIGTERM), файл обязан уцелеть — иначе продолжать
+        # будет нечего, а ровно ради этого он и заведён.
+        if finished_all or _pregen["cancelled"]:
+            _pregen_clear()
+        else:
+            logger.warning("blog-tts: пакет прерван на %s/%s — очередь "
+                           "сохранена, продолжу при следующем старте",
+                           _pregen["done"], _pregen["total"])
         logger.info(
             "blog-tts pregenerate done: generated=%s skipped=%s errors=%s of %s",
             _pregen["generated"], _pregen["skipped"], len(_pregen["errors"]), _pregen["total"],
@@ -1685,6 +1738,34 @@ def register_blog_tts_routes(app, limiter):
             "running": _pregen["running"],
             "items": items,
         }
+
+    # Продолжение прерванного пакета. Прогон на тысячу лекций идёт сутками
+    # и переживает несколько деплоев; без этого каждый перезапуск молча
+    # обнулял работу, и со стороны это выглядело как «озвучка не работает».
+    #
+    # Хук startup тут не годится: приложение живёт на lifespan, и
+    # on_event-обработчики при нём не вызываются вовсе. Зато сама
+    # регистрация маршрутов идёт уже внутри lifespan, то есть в рабочем
+    # цикле, — задачу ставим прямо здесь.
+    try:
+        with open(_PREGEN_STATE, encoding="utf-8") as _f:
+            _st = json.load(_f)
+        _left = [x for x in (_st.get("left") or [])
+                 if isinstance(x, str) and SLUG_RE.match(x)]
+        if _left:
+            logger.info("blog-tts: продолжаю прерванный пакет — осталось %s "
+                        "лекций (модель %s)", len(_left),
+                        _st.get("model") or "по умолчанию")
+            asyncio.get_running_loop().create_task(_pregenerate_run(
+                _left, force=bool(_st.get("force")),
+                model=(_st.get("model") or None)))
+        else:
+            _pregen_clear()
+    except (OSError, ValueError):
+        pass
+    except RuntimeError:
+        # регистрация вне рабочего цикла — продолжим при следующем старте
+        logger.warning("blog-tts: некому продолжить пакет, цикл ещё не запущен")
 
     # Диагностика при старте: сразу видно, подхватит ли бэкенд готовые mp3
     # (если TTS_DIR пуст или не тот — озвучка пойдёт заново и «не тем» голосом),
