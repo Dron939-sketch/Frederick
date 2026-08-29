@@ -829,10 +829,16 @@ async def meter_guard_middleware(request: Request, call_next):
             return await call_next(request)
 
         # Meter мог быть ещё не готов (ранний запрос при старте).
+        # FREE_DAILY_MINUTES берём оттуда же, а не числом: запасное значение
+        # в ответе 402 попадает пользователю на экран, и вписанное руками
+        # число разъезжается с настоящим лимитом в первый же раз, когда
+        # лимит меняют.
         try:
             from meter_routes import subscription_meter as _meter  # lazy
+            from subscription_meter import FREE_DAILY_MINUTES
         except Exception:
             _meter = None
+            FREE_DAILY_MINUTES = 10
         if _meter is None:
             return await call_next(request)
 
@@ -899,7 +905,7 @@ async def meter_guard_middleware(request: Request, call_next):
                 "path": path,
                 "block_reason": _reason,
                 "used_minutes": status.get("used_minutes_today", 0),
-                "limit_minutes": status.get("limit_minutes", 15),
+                "limit_minutes": status.get("limit_minutes", FREE_DAILY_MINUTES),
                 "trial_used_minutes": status.get("trial_used_minutes", 0),
                 "minutes_until_reset": _minutes_until_reset,
             })
@@ -914,7 +920,7 @@ async def meter_guard_middleware(request: Request, call_next):
             "trial_used_minutes": status.get("trial_used_minutes"),
             "trial_limit_minutes": status.get("trial_limit_minutes"),
             "remaining_trial_minutes": status.get("remaining_trial_minutes"),
-            "limit_minutes": status.get("limit_minutes", 15),
+            "limit_minutes": status.get("limit_minutes", FREE_DAILY_MINUTES),
             "used_minutes_today": status.get("used_minutes_today", 0),
             # Backward-compat — старые билды могут читать.
             "is_on_cooldown": False,
