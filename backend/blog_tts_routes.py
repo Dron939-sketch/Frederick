@@ -9,6 +9,7 @@
 """
 import asyncio
 import binascii
+import collections
 import hashlib
 import hmac
 import html as html_mod
@@ -754,7 +755,11 @@ _MP3_BR = {1: 32, 2: 40, 3: 48, 4: 56, 5: 64, 6: 80, 7: 96, 8: 112,
            9: 128, 10: 160, 11: 192, 12: 224, 13: 256, 14: 320}
 _MP3_SR = {0: 44100, 1: 48000, 2: 32000}
 # Версия санитарии в мете: файлы без неё лечатся лениво при первой отдаче.
-MP3_SAN_VERSION = 2
+# 3: версия поднята, чтобы обесценить отметки лекций, записанных, пока
+# санитария молча падала на отсутствующем импорте collections. Они
+# помечены «san: 2», но не починены; с новой версией каждая
+# вылечится при первой же отдаче, без переозвучки.
+MP3_SAN_VERSION = 3
 
 
 def _mp3_frames(data: bytes) -> list:
@@ -881,14 +886,19 @@ def _retune_silence(chunks: list) -> list:
     return out
 
 
-def _sanitize_mp3(data: bytes) -> bytes:
-    """Пересобирает склейку в честный поток: только звуковые кадры, тишина в
-    формате речи и один правильный Xing впереди. При любой странности
-    возвращает исходные байты — хуже, чем было, не сделает."""
+def _sanitize_mp3_checked(data: bytes) -> tuple:
+    """Как _sanitize_mp3, но вторым значением говорит, получилось ли.
+
+    Нужно, потому что метка «san» в мете раньше ставилась безусловно —
+    и когда санитария молча падала, файл записывался нечиненым, но с
+    отметкой «починен». Лечение при отдаче такие файлы пропускало, то
+    есть они оставались битыми навсегда. Теперь отметку ставит только
+    тот, кто действительно починил.
+    """
     try:
         frames = _mp3_frames(data)
         if len(frames) < 10:
-            return data
+            return data, True
         chunks = [data[off:off + size] for off, size in frames]
         # Тишину чужого формата перекладываем в формат речи, и только потом
         # считаем смещения: длина файла после этого меняется.
@@ -899,10 +909,15 @@ def _sanitize_mp3(data: bytes) -> bytes:
             offsets.append(acc)
             acc += len(c)
         xing = _build_xing(chunks[0][:4], len(chunks), acc, offsets)
-        return xing + b"".join(chunks)
+        return xing + b"".join(chunks), True
     except Exception as e:
         logger.warning(f"mp3 sanitize failed: {e}")
-        return data
+        return data, False
+
+
+def _sanitize_mp3(data: bytes) -> bytes:
+    """Санитария там, где результат «получилось или нет» не нужен."""
+    return _sanitize_mp3_checked(data)[0]
 
 
 async def _synth_yandex(client: httpx.AsyncClient, text: str) -> bytes:
@@ -1191,7 +1206,7 @@ async def _generate(slug: str, model: str | None = None,
 
         logger.info(f"blog-tts {slug}: {len(speech)} chars speech, provider={BLOG_TTS_PROVIDER}")
         audio, used, fish_err = await _synth_all(client, speech, slug, model=model)
-        audio = await asyncio.to_thread(_sanitize_mp3, audio)
+        audio, san_ok = await asyncio.to_thread(_sanitize_mp3_checked, audio)
 
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
@@ -1201,7 +1216,10 @@ async def _generate(slug: str, model: str | None = None,
         with open(_meta_path(slug), "w", encoding="utf-8") as mf:
             meta_out = {
                 "v": TTS_CACHE_VERSION, "provider": used, "wanted": BLOG_TTS_PROVIDER,
-                "ts": time.time(), "chars": len(speech), "san": MP3_SAN_VERSION,
+                "ts": time.time(), "chars": len(speech),
+                # Отметку ставим, только если санитария прошла: иначе
+                # файл вылечится при первой отдаче.
+                "san": MP3_SAN_VERSION if san_ok else 0,
             }
             if used == "fish":
                 # какой моделью синтезировано: пусто = «модель Fish по
