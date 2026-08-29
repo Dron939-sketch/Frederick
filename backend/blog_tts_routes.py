@@ -1155,14 +1155,22 @@ def _cache_ok(slug: str) -> bool:
     return os.path.exists(path) and os.path.getsize(path) > 1000
 
 
-async def _generate(slug: str, model: str | None = None) -> str:
+async def _generate(slug: str, model: str | None = None,
+                    force: bool = False) -> str:
     """Скачивает статью, синтезирует и кладёт mp3 в кэш. Возвращает путь.
 
     model — модель Fish только для этого вызова (пакет «переозвучить всё
-    бесплатной моделью» из админки); None — обычный порядок из env."""
+    бесплатной моделью» из админки); None — обычный порядок из env.
+
+    force — переозвучить поверх готового. Раньше вызывающий удалял mp3
+    сам, чтобы обойти _cache_ok, — и лекция оставалась без звука на всё
+    время синтеза (минуты), а если синтез падал, то навсегда: хороший
+    файл был уже стёрт. Теперь старый mp3 живёт до последнего момента и
+    подменяется атомарно (os.replace ниже), так что неудачная
+    переозвучка ничего не разрушает."""
     os.makedirs(TTS_DIR, exist_ok=True)
     path = os.path.join(TTS_DIR, f"{slug}.mp3")
-    if _cache_ok(slug):
+    if _cache_ok(slug) and not force:
         return path
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -1305,15 +1313,10 @@ async def _pregenerate_run(slugs: list, force: bool = False,
                 else:
                     lock = _locks.setdefault(slug, asyncio.Lock())
                     async with lock:
-                        if force:
-                            for _pth in (os.path.join(TTS_DIR, f"{slug}.mp3"),
-                                         _meta_path(slug)):
-                                try:
-                                    os.remove(_pth)
-                                except OSError:
-                                    pass
                         if force or not _cache_ok(slug):
-                            await _generate(slug, model=model)
+                            # без удаления: старый mp3 играет, пока идёт
+                            # синтез нового, и переживает неудачу
+                            await _generate(slug, model=model, force=force)
                             _pregen["generated"] += 1
                         else:
                             _pregen["skipped"] += 1
@@ -1349,16 +1352,10 @@ def _start_single(slug: str, force: bool = False) -> str:
         lock = _locks.setdefault(slug, asyncio.Lock())
         try:
             async with lock:
-                if force:
-                    # _cache_ok смотрит только на наличие mp3 — чтобы
-                    # переозвучить, файл надо убрать вместе с метой
-                    for _pth in (os.path.join(TTS_DIR, f"{slug}.mp3"), _meta_path(slug)):
-                        try:
-                            os.remove(_pth)
-                        except OSError:
-                            pass
                 if force or not _cache_ok(slug):
-                    await _generate(slug)
+                    # mp3 не удаляем: он играет, пока идёт синтез нового,
+                    # и остаётся на месте, если синтез не удался
+                    await _generate(slug, force=force)
             _gen_errors.pop(slug, None)
         except FileNotFoundError:
             _gen_errors[slug] = "article not found"
