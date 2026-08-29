@@ -1244,7 +1244,8 @@ async def _generate(slug: str, model: str | None = None,
 # много параллельно.
 _pregen: dict = {"running": False, "total": 0, "done": 0, "generated": 0,
                  "skipped": 0, "errors": [], "started": 0, "finished": 0,
-                 "cancel": False, "cancelled": False, "model": ""}
+                 "cancel": False, "cancelled": False, "model": "",
+                 "aborted": ""}
 
 # Очередь пакета переживает перезапуск. Задача жила только в памяти
 # процесса: любой передеплой (а они идут при каждой правке бэкенда) убивал
@@ -1326,9 +1327,18 @@ async def _pregenerate_run(slugs: list, force: bool = False,
     генерируем заново. Без force готовые пропускаются и Fish не тратится."""
     _pregen.update(running=True, total=len(slugs), done=0, generated=0,
                    skipped=0, errors=[], started=time.time(), finished=0,
-                   cancel=False, cancelled=False, model=model or "")
+                   cancel=False, cancelled=False, model=model or "",
+                   aborted="")
     _pregen_save(list(slugs), force, model)
     finished_all = False
+    # Подряд идущие отказы. Текст лекции берётся со страницы сайта, и если
+    # сайт лежит (503) или Fish перестал отвечать, то падать будет ВСЯ
+    # очередь: пакет прошёл бы тысячу лекций за минуты, записал тысячу
+    # ошибок и стёр очередь как «доделанную». Пять отказов подряд — это уже
+    # не про конкретную лекцию, а про то, что синтезировать сейчас нечем:
+    # останавливаемся и сохраняем очередь, чтобы продолжить, когда почините.
+    fails_in_row = 0
+    FAILS_TO_ABORT = 5
     try:
         for i, slug in enumerate(slugs):
             if _pregen["cancel"]:
@@ -1363,11 +1373,28 @@ async def _pregenerate_run(slugs: list, force: bool = False,
             except Exception as e:
                 logger.warning(f"blog-tts pregenerate {slug} failed: {e}")
                 _pregen["errors"].append({"slug": slug, "error": str(e)[:200]})
+                fails_in_row += 1
+                if fails_in_row >= FAILS_TO_ABORT:
+                    _pregen["aborted"] = (
+                        f"{FAILS_TO_ABORT} лекций подряд не озвучились "
+                        f"(последняя причина: {str(e)[:120]}). Очередь "
+                        f"сохранена — запустите заново, когда причина уйдёт")
+                    logger.error("blog-tts: пакет остановлен после %s отказов "
+                                 "подряд на %s/%s — очередь сохранена",
+                                 FAILS_TO_ABORT, _pregen["done"] + 1,
+                                 _pregen["total"])
+                    _pregen["done"] += 1
+                    _pregen_save(list(slugs[i + 1:]), force, model)
+                    break
+            else:
+                fails_in_row = 0
             finally:
                 _pregen["done"] += 1
                 # остаток очереди — чтобы продолжить после перезапуска
                 _pregen_save(list(slugs[i + 1:]), force, model)
-        finished_all = True
+        # break по череде отказов — это НЕ «дошли до конца»: очередь
+        # должна уцелеть, иначе продолжать после починки будет нечего
+        finished_all = not _pregen["aborted"]
     finally:
         _pregen.update(running=False, finished=time.time())
         # Очередь стираем, только если прогон дошёл до конца или его
