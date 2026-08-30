@@ -149,6 +149,12 @@ def register_meter_routes(app, db, limiter):
                 "free_days_used": status.get("free_days_used", 0),
                 "free_days_left": status.get("free_days_left"),
                 "trial_exhausted": status.get("trial_exhausted", False),
+                # Дневной лимит разный: с аккаунтом больше, чем без. Фронту
+                # нужны оба числа, чтобы предложить регистрацию на цифрах,
+                # а не на слово.
+                "is_registered": status.get("is_registered", True),
+                "registered_limit_minutes": status.get("registered_limit_minutes"),
+                "anon_limit_minutes": status.get("anon_limit_minutes"),
             }
             if not can_send:
                 # Дневной лимит отпустит в полночь UTC, общий запас — нет.
