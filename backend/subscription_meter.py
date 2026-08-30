@@ -1,10 +1,12 @@
 """
-subscription_meter.py — бесплатный запас 30 минут разговора, по 10 минут в день.
+subscription_meter.py — бесплатный запас 15 минут разговора, по 5 минут в день.
 
 Модель:
-- 30 минут бесплатно всего. Тратятся по факту разговора.
-- Дневной темп, чтобы запас не сгорал за один вечер: 10 минут с аккаунтом,
-  7 без него. Сброс дневного счётчика в 00:00 UTC.
+- 15 минут бесплатно всего. Тратятся по факту разговора.
+- Дневной темп, чтобы запас не сгорал за один вечер: 5 минут с аккаунтом,
+  3 без него. Сброс дневного счётчика в 00:00 UTC.
+- Анонимный расход дополнительно считается по IP за день: новая «личность»
+  из инкогнито или после чистки localStorage минут не добавляет.
 - Когда кончился общий запас — paywall, купить пакет.
 - Внутри лимита: полный функционал, без урезания.
 - На UI: видимый бадж-таймер в правом верхнем углу.
@@ -17,10 +19,9 @@ subscription_meter.py — бесплатный запас 30 минут разг
 внезапно: предупреждение смотрело на остаток минут, а он в этот момент был
 полным. Ноль переходов из десяти показов — закономерный итог.
 
-Теперь ограничение считает то, что человек действительно израсходовал.
-Общая щедрость та же: 30 минут — это прежние 3 дня по 10 минут. Разница в
-том, что при двух минутах в день их хватит на две недели, а не на три
-захода, и остаток убывает плавно — значит, предупреждение о скором конце
+Теперь ограничение считает то, что человек действительно израсходовал:
+при двух минутах в день запаса хватает на неделю, а не на три захода,
+и остаток убывает плавно — значит, предупреждение о скором конце
 успевает сработать.
 
 Принципиально отличается от прежнего Fading Fredi:
@@ -29,11 +30,27 @@ subscription_meter.py — бесплатный запас 30 минут разг
   деградацию качества.
 """
 
+import hashlib
 import logging
+import os
 from datetime import datetime, timezone
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def client_ip_hash(raw_ip: Optional[str]) -> Optional[str]:
+    """Солёный хеш IP для дневного анонимного потолка.
+
+    Сырой адрес в базе не храним: для потолка нужна только сравнимость
+    в пределах дня, а не сам адрес. Соль из env, чтобы дампом таблицы
+    нельзя было перебрать адреса по радуге.
+    """
+    ip = (raw_ip or "").strip()
+    if not ip:
+        return None
+    salt = os.environ.get("METER_IP_SALT") or "fredi-meter-v1"
+    return hashlib.sha256((salt + "|" + ip).encode()).hexdigest()[:32]
 
 
 # Бесплатный дневной лимит в минутах. Reset в 00:00 UTC.
@@ -46,10 +63,14 @@ logger = logging.getLogger(__name__)
 # аккаунт: не «подпишись», а «оставь почту — говори дольше».
 #
 # Число маленькое намеренно. Аноним должен упереться в стену на середине
-# разговора, а не на входе: 7 минут — это уже сложившийся контакт, и
+# разговора, а не на входе: пара минут — это уже сложившийся контакт, и
 # предложение сохранить его звучит как продолжение, а не как турникет.
-FREE_DAILY_MINUTES = 10
-FREE_DAILY_MINUTES_ANON = 7
+#
+# 30.08.2026 лимиты урезаны вдвое (10/7/30 → 5/3/15): каждая бесплатная
+# минута — реальные деньги за DeepSeek и голосовой стек, а конверсии в
+# подписку они пока не приносят. Пропорция «аккаунт даёт больше» сохранена.
+FREE_DAILY_MINUTES = 5
+FREE_DAILY_MINUTES_ANON = 3
 
 
 def daily_limit_minutes(registered: bool) -> int:
@@ -57,9 +78,18 @@ def daily_limit_minutes(registered: bool) -> int:
     return FREE_DAILY_MINUTES if registered else FREE_DAILY_MINUTES_ANON
 
 # Общий бесплатный запас в минутах — то, что реально ограничивает.
-# Ровно прежняя щедрость (3 дня × 10 минут), но тратится по факту
-# разговора, а не по числу заходов.
-FREE_TRIAL_MINUTES = 30
+# Тратится по факту разговора, а не по числу заходов.
+FREE_TRIAL_MINUTES = 15
+
+# Дневной потолок анонимного расхода с одного IP. Анонимная «личность»
+# живёт в localStorage, и до этой правки её можно было пересоздавать
+# бесконечно: инкогнито или чистка хранилища — и у «нового» человека
+# снова полный запас. Теперь анонимные секунды считаются ещё и на IP:
+# сколько личностей ни заводи, день с одного адреса ограничен. Потолок —
+# два анонимных лимита, чтобы два человека за одним роутером прошли день
+# без ложной стены; аккаунтов и Premium это не касается вовсе, так что
+# честный выход из-под потолка — оставить почту.
+ANON_IP_DAILY_CAP_MINUTES = FREE_DAILY_MINUTES_ANON * 2
 
 # Счётчик активных дней. Больше не блокирует — остаётся для аналитики
 # и для старых сборок фронта, которые читают free_days_used/free_days_left.
@@ -75,6 +105,17 @@ class SubscriptionMeter:
 
     async def init_user_tracking(self, user_id: int):
         async with self.db.get_connection() as conn:
+            # Строка заводится, если её нет. Раньше здесь был только UPDATE,
+            # и user_id, отсутствующий в fredi_users, оставался невидимым
+            # для счётчика насовсем: get_user_status раз за разом отдавал
+            # свежий полный запас, а record_usage упирался в пустой UPDATE
+            # и не записывал ни секунды — бесконечные бесплатные минуты
+            # для любого выдуманного id.
+            await conn.execute("""
+                INSERT INTO fredi_users (user_id, created_at, last_activity)
+                VALUES ($1, NOW(), NOW())
+                ON CONFLICT (user_id) DO NOTHING
+            """, user_id)
             await conn.execute("""
                 UPDATE fredi_users SET
                     trial_started_at = COALESCE(trial_started_at, NOW()),
@@ -218,9 +259,52 @@ class SubscriptionMeter:
             "next_session_limit_minutes": limit_today,
         }
 
-    async def can_send_message(self, user_id: int) -> Tuple[bool, Dict[str, Any]]:
+    async def can_send_message(self, user_id: int,
+                               ip_hash: Optional[str] = None
+                               ) -> Tuple[bool, Dict[str, Any]]:
         status = await self.get_user_status(user_id)
-        return status["can_send"], status
+        can = status["can_send"]
+        # Анонимный дневной потолок по IP. Проверяется только когда по
+        # личному счётчику ещё можно: стена та же дневная («на сегодня
+        # всё»), человек не должен видеть разницу между «кончились твои
+        # минуты» и «кончились минуты твоих сегодняшних личностей» —
+        # второе объяснило бы, как обходить первый счётчик.
+        if can and ip_hash and not status.get("is_premium") \
+                and status.get("is_registered") is False:
+            try:
+                if await self.anon_ip_capped(ip_hash):
+                    can = False
+                    status["can_send"] = False
+                    status["block_reason"] = "daily"
+                    status["remaining_minutes"] = 0.0
+                    status["remaining_today_minutes"] = 0.0
+                    status["ip_capped"] = True
+            except Exception as e:
+                # Потолок — страховка, а не главный счётчик: сломался —
+                # работаем по личному лимиту, не запираем человека зря.
+                logger.warning(f"anon ip cap check failed: {e}")
+        return can, status
+
+    async def anon_ip_seconds_today(self, ip_hash: str) -> int:
+        async with self.db.get_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT seconds FROM fredi_anon_ip_usage
+                WHERE ip_hash = $1 AND day = CURRENT_DATE
+            """, ip_hash)
+            return int(row["seconds"]) if row else 0
+
+    async def anon_ip_capped(self, ip_hash: str) -> bool:
+        used = await self.anon_ip_seconds_today(ip_hash)
+        return used >= ANON_IP_DAILY_CAP_MINUTES * 60
+
+    async def record_anon_ip_usage(self, ip_hash: str, seconds: int):
+        async with self.db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO fredi_anon_ip_usage (ip_hash, day, seconds)
+                VALUES ($1, CURRENT_DATE, $2)
+                ON CONFLICT (ip_hash, day)
+                DO UPDATE SET seconds = fredi_anon_ip_usage.seconds + $2
+            """, ip_hash, seconds)
 
     async def record_usage(self, user_id: int, seconds: int) -> Dict[str, Any]:
         """Записываем активность: в дневной счётчик и в общий запас.
