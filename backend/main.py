@@ -838,7 +838,7 @@ async def meter_guard_middleware(request: Request, call_next):
             from subscription_meter import FREE_DAILY_MINUTES
         except Exception:
             _meter = None
-            FREE_DAILY_MINUTES = 10
+            FREE_DAILY_MINUTES = 5
         if _meter is None:
             return await call_next(request)
 
@@ -873,7 +873,9 @@ async def meter_guard_middleware(request: Request, call_next):
             return await call_next(request)
 
         try:
-            can_send, status = await _meter.can_send_message(int(user_id))
+            from meter_routes import meter_ip_hash as _mih
+            can_send, status = await _meter.can_send_message(
+                int(user_id), ip_hash=_mih(request))
         except Exception as e:
             logger.warning(f"meter_guard: can_send check failed: {e}")
             return await call_next(request)
@@ -986,7 +988,13 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         except Exception:
             _ws_meter = None
         if _uid_for_meter > 0 and _ws_meter is not None:
-            can_send, st = await _ws_meter.can_send_message(_uid_for_meter)
+            # IP для анонимного потолка — как в meter_ip_hash, но у
+            # WebSocket нет Request: заголовок читаем с самого сокета.
+            from subscription_meter import client_ip_hash as _cih
+            _ws_xff = (websocket.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+            _ws_ip = _ws_xff or (websocket.client.host if websocket.client else None)
+            can_send, st = await _ws_meter.can_send_message(
+                _uid_for_meter, ip_hash=_cih(_ws_ip))
             if not can_send:
                 logger.info(
                     f"🚫 WS voice meter-blocked uid={_uid_for_meter} "

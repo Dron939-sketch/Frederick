@@ -7,10 +7,23 @@ import logging
 import os
 from typing import Optional
 from fastapi import Request, Header, HTTPException
-from subscription_meter import SubscriptionMeter
+from subscription_meter import SubscriptionMeter, client_ip_hash
 from services.user_memory import get_user_memory
 
 logger = logging.getLogger(__name__)
+
+
+def meter_ip_hash(request: Request):
+    """Хеш клиентского IP для анонимного дневного потолка.
+
+    За прокси Amvera настоящий адрес приходит в X-Forwarded-For (первым),
+    request.client.host в этом случае — адрес прокси, один на всех;
+    считать потолок по нему значило бы сложить всех анонимов в одно
+    ведро. Поэтому сначала заголовок, и только без него — client.host.
+    """
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    raw = xff or (request.client.host if request.client else None)
+    return client_ip_hash(raw)
 
 
 def _require_admin(token: Optional[str]) -> None:
@@ -79,6 +92,19 @@ def register_meter_routes(app, db, limiter):
                 )
             except Exception:
                 pass
+            # Дневной анонимный потолок по IP: сколько личностей ни заводи
+            # чисткой localStorage или инкогнито, день с одного адреса
+            # ограничен. Хеш солёный, сырые адреса не храним.
+            try:
+                await conn.execute(
+                    "CREATE TABLE IF NOT EXISTS fredi_anon_ip_usage ("
+                    "ip_hash TEXT NOT NULL, "
+                    "day DATE NOT NULL DEFAULT CURRENT_DATE, "
+                    "seconds INTEGER NOT NULL DEFAULT 0, "
+                    "PRIMARY KEY (ip_hash, day))"
+                )
+            except Exception:
+                pass
         logger.info("Meter tables ready")
 
         # User facts table
@@ -105,6 +131,15 @@ def register_meter_routes(app, db, limiter):
             if not user_id:
                 return {"success": False, "error": "user_id required"}
             status = await subscription_meter.record_usage(int(user_id), int(seconds))
+            # Анонимные секунды дублируются в IP-ведро дня: личный счётчик
+            # обнуляется вместе с localStorage, ведро — нет.
+            if not status.get("is_premium") and status.get("is_registered") is False:
+                iph = meter_ip_hash(request)
+                if iph:
+                    try:
+                        await subscription_meter.record_anon_ip_usage(iph, int(seconds))
+                    except Exception as e:
+                        logger.warning(f"anon ip usage record failed: {e}")
             return {"success": True, **status}
         except Exception as e:
             logger.error(f"meter record error: {e}")
@@ -130,7 +165,8 @@ def register_meter_routes(app, db, limiter):
     @limiter.limit("120/minute")
     async def can_send_message(request: Request, user_id: int):
         try:
-            can_send, status = await subscription_meter.can_send_message(user_id)
+            can_send, status = await subscription_meter.can_send_message(
+                user_id, ip_hash=meter_ip_hash(request))
             result = {
                 "success": True,
                 "can_send": can_send,
