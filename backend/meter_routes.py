@@ -130,7 +130,12 @@ def register_meter_routes(app, db, limiter):
             seconds = data.get("seconds", 30)
             if not user_id:
                 return {"success": False, "error": "user_id required"}
-            status = await subscription_meter.record_usage(int(user_id), int(seconds))
+            # seconds приходит с клиента и до этой правки не проверялся:
+            # отрицательное значение отматывало счётчик назад — лимит
+            # «возобновлялся» одним curl'ом. Клиент шлёт куски по 30 секунд;
+            # всё вне [1, 120] — не измерение, а попытка подкрутить.
+            seconds = max(1, min(120, int(seconds)))
+            status = await subscription_meter.record_usage(int(user_id), seconds)
             # Анонимные секунды дублируются в IP-ведро дня: личный счётчик
             # обнуляется вместе с localStorage, ведро — нет.
             if not status.get("is_premium") and status.get("is_registered") is False:
