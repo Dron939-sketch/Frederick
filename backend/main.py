@@ -3058,6 +3058,41 @@ async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
     return {"response": response_text, "tools_used": tools_used}
 
 
+# ---------- Возврат после немоты ----------
+# 30 августа Фреди несколько часов отвечал заглушкой: кончился баланс
+# DeepSeek. В расшифровке видно, чем это стоило: человек, который накануне
+# впервые выполнил договорённость (начал рисовать), пришёл рассказать —
+# и получил «У меня технический сбой» шесть раз подряд. Он писал в пустоту
+# и ушёл без ответа.
+#
+# Молчание уже случилось, отменить его нельзя. Но можно не делать вид, что
+# ничего не было: первый живой ответ после заглушки начинается с признания.
+# Отметка живёт в контексте пользователя, то есть переживает перезапуск.
+TECH_FAIL_BACK = (
+    "Сначала извинюсь: в прошлый раз я молчал не из-за тебя — у меня "
+    "сломался доступ к разуму, и на любой вопрос уходила одна и та же "
+    "отписка. Сейчас всё работает. "
+)
+
+
+def _mark_tech_fail(context_obj: dict, response_text: str) -> str:
+    """Ставит отметку о заглушке или снимает её, извинившись.
+
+    Возвращает текст ответа — с извинением в начале, если предыдущий ход
+    был провальным. Контекст меняется на месте; сохранить его — забота
+    вызывающего.
+    """
+    if not isinstance(context_obj, dict):
+        return response_text
+    failed_now = (response_text or "").strip() == TECH_FAIL_REPLY.strip()
+    if failed_now:
+        context_obj["tech_fail_at"] = time.time()
+        return response_text
+    if context_obj.pop("tech_fail_at", None):
+        return TECH_FAIL_BACK + (response_text or "")
+    return response_text
+
+
 # ---------- Схлопывание повторов одного вопроса ----------
 #
 # Фронт мог отправить один и тот же текст несколько раз: композер на
@@ -3203,6 +3238,8 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
 
     return {
         "context_obj": context_obj,
+        # прошлый ход закончился заглушкой — этот начнём с извинения
+        "tech_fail_back": bool(context_obj.get("tech_fail_at")),
         "has_profile": has_profile,
         "history": history,
         "mode_name": mode_name,
@@ -3225,9 +3262,19 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
     context_obj = prep["context_obj"]
     mode_instance = prep["mode_instance"]
 
+    # Отметка о немоте. Ставится, когда ответ — заглушка; снимается, когда
+    # Фреди снова заговорил. Сохранять контекст обязательно в обоих
+    # случаях, иначе отметка не переживёт перезапуск, а именно ради этого
+    # она и заведена.
+    _fail_before = bool(context_obj.get("tech_fail_at"))
+    _mark_tech_fail(context_obj, response_text)
+    _fail_after = bool(context_obj.get("tech_fail_at"))
+
     # Persist test_offered for BasicMode after processing
     if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
         context_obj["basic_test_offered"] = mode_instance.test_offered
+        await context_repo.save(user_id, context_obj)
+    elif _fail_before != _fail_after:
         await context_repo.save(user_id, context_obj)
     await _save_psychologist_state(user_id, context_obj, mode_instance, mode_name)
 
@@ -3314,6 +3361,8 @@ async def chat(request: Request, data: ChatRequest):
         result = await _freddy_or_mode(prep, data.user_id, data.message)
         mode_name = result["mode_name"]
         answer = result["response"]
+        if prep.get("tech_fail_back") and answer.strip() != TECH_FAIL_REPLY.strip():
+            answer = TECH_FAIL_BACK + answer
 
         await _finish_chat_turn(prep, data.user_id, data.message,
                                 answer, mode_name,
@@ -3384,6 +3433,17 @@ async def chat_stream(request: Request, data: ChatRequest):
 
             yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n"
 
+            # Извинение уходит первой дельтой: в потоке текст ответа
+            # начинает печататься сразу, и приписать что-то в начало потом
+            # уже некуда. Копится в _prefix, чтобы попасть и в сохранённую
+            # историю, и в поле full_text — иначе человек увидит извинение
+            # на экране, а в переписке его не будет.
+            _prefix = ""
+            if prep.get("tech_fail_back"):
+                _prefix = TECH_FAIL_BACK
+                yield json.dumps({"type": "delta", "text": _prefix},
+                                 ensure_ascii=False) + "\n"
+
             streamed_ok = False
             # FreddyService сейчас заглушка и отвечает пусто, но если её
             # включат обратно — ответ придёт целиком, отдаём одной дельтой.
@@ -3445,6 +3505,11 @@ async def chat_stream(request: Request, data: ChatRequest):
                 full_text = fallback["response"]
                 yield json.dumps({"type": "delta", "text": full_text},
                                  ensure_ascii=False) + "\n"
+
+            # Извинение — часть ответа, а не отдельная реплика: подклеиваем
+            # его к тексту, который уйдёт в историю и в done.
+            if _prefix and full_text.strip() != TECH_FAIL_REPLY.strip():
+                full_text = _prefix + full_text
 
             _now = time.time()
             timings = {
