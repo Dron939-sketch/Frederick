@@ -6265,6 +6265,41 @@ async def migrate_user(request: Request):
 
 
 # ---------- АДМИНКА ----------
+@app.get("/api/admin/ai-health")
+async def admin_ai_health(request: Request):
+    """Почему Фреди отвечает заглушкой (админ).
+
+    Заглушка «У меня технический сбой» выдаётся, когда DeepSeek не ответил.
+    Причина до сих пор жила только в логах Amvera: со стороны видно, что бот
+    отвечает всем одинаково, а кончившийся баланс от просроченного ключа или
+    таймаута не отличить, пока не откроешь лог. 30 августа он молчал так
+    несколько часов, и заметили это по одинаковой длине ответов в аналитике.
+    """
+    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+    if not expected or (request.headers.get("X-Admin-Token") or "").strip() != expected:
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    try:
+        from services.ai_service import LAST_AI_FAIL
+        fail = dict(LAST_AI_FAIL)
+    except Exception:
+        fail = {}
+    ago = (time.time() - fail.get("ts", 0)) if fail.get("ts") else None
+    return {
+        "reason": fail.get("reason") or "",
+        "detail": fail.get("detail") or "",
+        "fails_total": fail.get("count", 0),
+        "seconds_ago": int(ago) if ago is not None else None,
+        # свежий отказ = прямо сейчас людям отвечает заглушка
+        "failing_now": bool(ago is not None and ago < 600),
+        "hint": {
+            "no_balance": "Кончился баланс DeepSeek — пополните счёт",
+            "invalid_key": "DEEPSEEK_API_KEY не принят — проверьте ключ в env",
+            "rate_limited": "DeepSeek ограничивает частоту запросов",
+            "timeout": "DeepSeek не отвечает вовремя",
+        }.get(fail.get("reason") or "", ""),
+    }
+
+
 @app.get("/api/admin/stats")
 async def admin_stats(request: Request):
     try:
