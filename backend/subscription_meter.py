@@ -3,8 +3,8 @@ subscription_meter.py — бесплатный запас 30 минут разг
 
 Модель:
 - 30 минут бесплатно всего. Тратятся по факту разговора.
-- 10 минут в день — темп, чтобы запас не сгорал за один вечер.
-  Сброс дневного счётчика в 00:00 UTC.
+- Дневной темп, чтобы запас не сгорал за один вечер: 10 минут с аккаунтом,
+  7 без него. Сброс дневного счётчика в 00:00 UTC.
 - Когда кончился общий запас — paywall, купить пакет.
 - Внутри лимита: полный функционал, без урезания.
 - На UI: видимый бадж-таймер в правом верхнем углу.
@@ -37,7 +37,24 @@ logger = logging.getLogger(__name__)
 
 
 # Бесплатный дневной лимит в минутах. Reset в 00:00 UTC.
+#
+# Дневной темп разный (правка 08.2026). Аноним — единственный, кто уходит
+# бесследно: он не получит письма, не вернётся по ссылке из почты и не
+# увидит напоминания. Тратить на него столько же бесплатных минут, сколько
+# на человека с аккаунтом, — значит платить за разговор, у которого нет
+# продолжения. Три минуты разницы дают человеку СВОЮ причину завести
+# аккаунт: не «подпишись», а «оставь почту — говори дольше».
+#
+# Число маленькое намеренно. Аноним должен упереться в стену на середине
+# разговора, а не на входе: 7 минут — это уже сложившийся контакт, и
+# предложение сохранить его звучит как продолжение, а не как турникет.
 FREE_DAILY_MINUTES = 10
+FREE_DAILY_MINUTES_ANON = 7
+
+
+def daily_limit_minutes(registered: bool) -> int:
+    """Сколько минут в день положено: с аккаунтом больше, чем без."""
+    return FREE_DAILY_MINUTES if registered else FREE_DAILY_MINUTES_ANON
 
 # Общий бесплатный запас в минутах — то, что реально ограничивает.
 # Ровно прежняя щедрость (3 дня × 10 минут), но тратится по факту
@@ -94,6 +111,9 @@ class SubscriptionMeter:
                 "free_days_used": 0,
                 "free_days_left": None,  # без лимита
                 "trial_exhausted": False,
+                "is_registered": True,
+                "registered_limit_minutes": None,
+                "anon_limit_minutes": None,
                 # Backward-compat: старые билды могут читать.
                 "is_on_cooldown": False,
                 "remaining_cooldown_minutes": 0,
@@ -104,19 +124,24 @@ class SubscriptionMeter:
         async with self.db.get_connection() as conn:
             row = await conn.fetchrow("""
                 SELECT daily_usage_seconds, last_usage_reset, free_days_used,
-                       total_usage_seconds
+                       total_usage_seconds, email
                 FROM fredi_users WHERE user_id = $1
             """, user_id)
 
         if not row:
             await self.init_user_tracking(user_id)
             return self._compose_status(used_seconds=0, free_days_used=0,
-                                        total_seconds=0)
+                                        total_seconds=0, registered=False)
 
         daily_seconds = row["daily_usage_seconds"] or 0
         last_reset = row["last_usage_reset"]
         free_days_used = row["free_days_used"] or 0
         total_seconds = row["total_usage_seconds"] or 0
+        # Аккаунт — это почта в fredi_users. При регистрации анонима строка
+        # не заводится заново, к ней дописывают email (auth_routes), так что
+        # человек не теряет ни истории, ни потраченных минут — он ровно в тот
+        # же день получает лишние три.
+        registered = row["email"] is not None
         now = datetime.now(timezone.utc)
 
         # Daily reset в 00:00 UTC. На новой дате счётчик минут обнуляется —
@@ -132,12 +157,15 @@ class SubscriptionMeter:
 
         return self._compose_status(used_seconds=daily_seconds,
                                     free_days_used=free_days_used,
-                                    total_seconds=total_seconds)
+                                    total_seconds=total_seconds,
+                                    registered=registered)
 
     def _compose_status(self, used_seconds: int, free_days_used: int,
-                        total_seconds: int = 0) -> Dict[str, Any]:
+                        total_seconds: int = 0,
+                        registered: bool = True) -> Dict[str, Any]:
+        limit_today = daily_limit_minutes(registered)
         used_minutes = used_seconds / 60.0
-        remaining_today = max(0.0, FREE_DAILY_MINUTES - used_minutes)
+        remaining_today = max(0.0, limit_today - used_minutes)
 
         trial_used_minutes = total_seconds / 60.0
         remaining_trial = max(0.0, FREE_TRIAL_MINUTES - trial_used_minutes)
@@ -167,7 +195,7 @@ class SubscriptionMeter:
             "can_send": can_send,
             "remaining_minutes": round(remaining_minutes, 1),
             "used_minutes_today": round(used_minutes, 1),
-            "limit_minutes": FREE_DAILY_MINUTES,
+            "limit_minutes": limit_today,
             "remaining_today_minutes": round(remaining_today, 1),
             "remaining_trial_minutes": round(remaining_trial, 1),
             "trial_limit_minutes": FREE_TRIAL_MINUTES,
@@ -176,11 +204,18 @@ class SubscriptionMeter:
             "free_days_used": free_days_used,
             "free_days_left": max(0, FREE_TRIAL_DAYS - free_days_used),
             "trial_exhausted": trial_exhausted,
+            # Есть ли аккаунт и сколько минут он даёт. Фронт рисует по этим
+            # полям предложение зарегистрироваться, а не вписывает числа
+            # руками — иначе экран разъедется с настоящим лимитом в первый
+            # же раз, когда лимит поменяют.
+            "is_registered": registered,
+            "registered_limit_minutes": FREE_DAILY_MINUTES,
+            "anon_limit_minutes": FREE_DAILY_MINUTES_ANON,
             # Backward-compat.
             "is_on_cooldown": False,
             "remaining_cooldown_minutes": 0,
             "free_session_count": 0,
-            "next_session_limit_minutes": FREE_DAILY_MINUTES,
+            "next_session_limit_minutes": limit_today,
         }
 
     async def can_send_message(self, user_id: int) -> Tuple[bool, Dict[str, Any]]:
