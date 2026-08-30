@@ -40,6 +40,21 @@ DEEPSEEK_FAST_MODEL = os.environ.get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
 # кругу, это выглядело как издевательство и прямо так и было слышно в
 # жалобах. Правда работает лучше: сбой назван сбоем, у человека есть
 # понятное действие.
+# Почему Фреди ответил заглушкой. Причина отказа DeepSeek жила только в
+# логах Amvera: со стороны видно «бот отвечает одинаково», а балансом это,
+# просроченным ключом или таймаутом — не отличить, пока не полезешь в лог.
+# Так уже было с Fish: там причину вынесли в статус озвучки (fish_error), и
+# разбор перестал требовать доступа к логам. Здесь то же самое.
+LAST_AI_FAIL: dict = {"reason": "", "detail": "", "ts": 0, "count": 0}
+
+
+def _note_ai_fail(reason: str, detail: str = ""):
+    LAST_AI_FAIL["reason"] = reason
+    LAST_AI_FAIL["detail"] = (detail or "")[:200]
+    LAST_AI_FAIL["ts"] = time.time()
+    LAST_AI_FAIL["count"] = LAST_AI_FAIL.get("count", 0) + 1
+
+
 TECH_FAIL_REPLY = (
     "У меня технический сбой, ответить по делу сейчас не получается. "
     "Это не из-за тебя. Подожди пару минут и спроси ещё раз."
@@ -338,30 +353,41 @@ class AIService:
                 elif response.status == 401:
                     logger.error("❌ DeepSeek 401 error: Invalid API key")
                     logger.error(f"   API key (first 5 chars): {self.api_key[:5]}...")
+                    _note_ai_fail("invalid_key", "DeepSeek 401: ключ не принят")
                     return None
                     
                 elif response.status == 429:
                     logger.error("❌ DeepSeek 429 error: Rate limit exceeded")
+                    _note_ai_fail("rate_limited", "DeepSeek 429: слишком часто")
                     return None
                     
                 else:
                     logger.error(f"❌ DeepSeek error: {response.status}")
+                    _body = ""
                     try:
-                        error_text = await response.text()
-                        logger.error(f"   Response body: {error_text[:500]}")
+                        _body = await response.text()
+                        logger.error(f"   Response body: {_body[:500]}")
                     except Exception:
                         pass
+                    # 402 у DeepSeek — «Insufficient Balance»: самая частая
+                    # причина внезапной немоты, и по коду её видно сразу.
+                    _note_ai_fail(
+                        "no_balance" if response.status == 402 else f"http_{response.status}",
+                        _body[:200] or f"DeepSeek ответил {response.status}")
                     return None
                     
         except asyncio.TimeoutError:
             logger.error("❌ DeepSeek timeout (120 seconds)")
+            _note_ai_fail("timeout", "DeepSeek молчал дольше 120 секунд")
             return None
         except aiohttp.ClientError as e:
             logger.error(f"❌ DeepSeek client error: {e}")
+            _note_ai_fail("network", str(e))
             return None
         except Exception as e:
             logger.error(f"❌ DeepSeek unexpected error: {e}")
             logger.exception("Full traceback:")
+            _note_ai_fail("error", str(e))
             return None
 
     async def _call_deepseek_streaming(
@@ -429,6 +455,12 @@ class AIService:
                     # неизвестная модель), без которой отладка слепая.
                     logger.error("❌ DeepSeek streaming error: %s model=%s prompt_chars=%d body=%s"
                                  % (response.status, _model, _prompt_chars, body))
+                    _note_ai_fail(
+                        "no_balance" if response.status == 402
+                        else "invalid_key" if response.status == 401
+                        else "rate_limited" if response.status == 429
+                        else f"http_{response.status}",
+                        body or f"DeepSeek ответил {response.status} (model={_model})")
                     # Повтор «как раньше»: обычная модель и без параметра
                     # размышления. Неизвестное имя модели или неподдержанный
                     # ключ не должны оставлять человека без ответа.
@@ -473,8 +505,10 @@ class AIService:
                             yield content
         except asyncio.TimeoutError:
             logger.error("❌ DeepSeek streaming timeout (60s) prompt_chars=%d" % _prompt_chars)
+            _note_ai_fail("timeout", "DeepSeek молчал дольше 60 секунд")
         except Exception as e:
             logger.error(f"❌ DeepSeek streaming error: {e}")
+            _note_ai_fail("error", str(e))
         finally:
             _total = time.time() - _t0
             _hit = _usage.get("prompt_cache_hit_tokens")
