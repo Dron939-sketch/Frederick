@@ -116,7 +116,93 @@ async def _cached() -> dict:
         return data or (_cache["data"] or {})
 
 
+# Куда доходит человек с сайта. Приложение живёт на /fredi/, посадочная
+# для поиска — /virtual-psychologist/.
+FREDI_FILTER = "ym:s:URL=@'/fredi/' OR ym:s:URL=@'/virtual-psychologist/'"
+TRAFFIC_API = "https://api-metrika.yandex.net/stat/v1/data"
+
+
+async def _daily(client: httpx.AsyncClient, days: int, filt: str = "") -> dict:
+    """{дата: (визиты, посетители)} за последние days дней."""
+    params = {
+        "ids": METRIKA_COUNTER,
+        "metrics": "ym:s:visits,ym:s:users",
+        "dimensions": "ym:s:date",
+        "date1": "%ddaysAgo" % days,
+        "date2": "today",
+        "sort": "ym:s:date",
+        "limit": 400,
+    }
+    if filt:
+        params["filters"] = filt
+    r = await client.get(TRAFFIC_API, params=params,
+                         headers={"Authorization": f"OAuth {METRIKA_TOKEN}"})
+    if r.status_code != 200:
+        logger.warning("metrika traffic: %s %s", r.status_code, r.text[:200])
+        return {}
+    out = {}
+    for row in (r.json().get("data") or []):
+        day = (row.get("dimensions") or [{}])[0].get("name")
+        m = row.get("metrics") or [0, 0]
+        if day:
+            out[day] = (int(m[0] or 0), int(m[1] or 0))
+    return out
+
+
 def register_metrika_routes(app, limiter):
+
+    @app.get("/api/admin/metrika/traffic")
+    @limiter.limit("20/minute")
+    async def metrika_traffic(request: Request, days: int = 14):
+        """Трафик сайта по дням и сколько его доходит до Фреди (админ).
+
+        Аналитика приложения показывает 37 человек в неделю и не знает, что
+        это — весь трафик сайта или его сотая доля. Тысяча статей и сотня
+        курсов живут в Метрике, приложение — в своей базе, и связать их было
+        нечем: разговор про конверсию упирался в то, что знаменатель
+        неизвестен. Здесь он и считается.
+        """
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected or (request.headers.get("X-Admin-Token") or "").strip() != expected:
+            return {"error": "forbidden"}
+        if not metrika_configured():
+            return {"enabled": False,
+                    "message": "Нет YANDEX_METRIKA_TOKEN в env бэкенда"}
+        days = max(1, min(int(days or 14), 90))
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT * 3) as client:
+                site = await _daily(client, days)
+                lektorij = await _daily(client, days, LEKTORIJ_FILTER)
+                fredi = await _daily(client, days, FREDI_FILTER)
+        except Exception as e:
+            logger.warning("metrika traffic failed: %s", e)
+            return {"enabled": True, "error": str(e)[:200]}
+
+        rows = []
+        for day in sorted(site.keys() | lektorij.keys() | fredi.keys()):
+            sv, su = site.get(day, (0, 0))
+            lv, lu = lektorij.get(day, (0, 0))
+            fv, fu = fredi.get(day, (0, 0))
+            rows.append({"date": day, "site_visits": sv, "site_users": su,
+                         "lektorij_visits": lv, "lektorij_users": lu,
+                         "fredi_visits": fv, "fredi_users": fu})
+        tot_site = sum(r["site_users"] for r in rows)
+        tot_fredi = sum(r["fredi_users"] for r in rows)
+        return {
+            "enabled": True,
+            "counter": METRIKA_COUNTER,
+            "days": days,
+            "rows": rows,
+            "totals": {
+                "site_users": tot_site,
+                "lektorij_users": sum(r["lektorij_users"] for r in rows),
+                "fredi_users": tot_fredi,
+                # доля дошедших до приложения — то самое недостающее звено
+                # между «тысяча статей» и «37 человек в приложении»
+                "site_to_fredi_pct": round(100.0 * tot_fredi / tot_site, 2) if tot_site else None,
+            },
+        }
+
 
     @app.get("/api/metrika/online")
     @limiter.limit("120/minute")

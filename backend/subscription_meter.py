@@ -21,25 +21,77 @@ subscription_meter.py — платный Фреди: подписка 990 ₽/м
 дневная ветка при равных лимитах недостижима — общий запас всегда
 кончается первым.
 
+Анонимная инфраструктура (дневной темп без аккаунта, IP-потолок из
+правок #599-600) оставлена как страховка: до чата аноним теперь не
+доходит вовсе, но если блок 'auth' где-то обойдут — сработают старые
+пределы.
+
 Принципиально:
 - НЕ урезаем ответы AI по уровню — проба показывает настоящего Фреди.
 - Проба привязана к аккаунту (почта), а не к устройству.
 """
 
+import hashlib
 import logging
+import os
 from datetime import datetime, timezone
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-# Дневной лимит держим равным общей пробе: при равных значениях дневная
-# ветка недостижима (общий запас кончается первым или одновременно), и
-# человек никогда не увидит ложное «завтра снова будут минуты».
-FREE_DAILY_MINUTES = 10
+def client_ip_hash(raw_ip: Optional[str]) -> Optional[str]:
+    """Солёный хеш IP для дневного анонимного потолка.
 
-# Бесплатная проба: 10 минут разговора на аккаунт, целиком.
+    Сырой адрес в базе не храним: для потолка нужна только сравнимость
+    в пределах дня, а не сам адрес. Соль из env, чтобы дампом таблицы
+    нельзя было перебрать адреса по радуге.
+    """
+    ip = (raw_ip or "").strip()
+    if not ip:
+        return None
+    salt = os.environ.get("METER_IP_SALT") or "fredi-meter-v1"
+    return hashlib.sha256((salt + "|" + ip).encode()).hexdigest()[:32]
+
+
+# Бесплатный дневной лимит в минутах. Reset в 00:00 UTC.
+#
+# Дневной темп разный (правка 08.2026). Аноним — единственный, кто уходит
+# бесследно: он не получит письма, не вернётся по ссылке из почты и не
+# увидит напоминания. Тратить на него столько же бесплатных минут, сколько
+# на человека с аккаунтом, — значит платить за разговор, у которого нет
+# продолжения. Три минуты разницы дают человеку СВОЮ причину завести
+# аккаунт: не «подпишись», а «оставь почту — говори дольше».
+#
+# Число маленькое намеренно. Аноним должен упереться в стену на середине
+# разговора, а не на входе: пара минут — это уже сложившийся контакт, и
+# предложение сохранить его звучит как продолжение, а не как турникет.
+#
+# 30.08.2026 лимиты урезаны вдвое (10/7/30 → 5/3/15): каждая бесплатная
+# минута — реальные деньги за DeepSeek и голосовой стек, а конверсии в
+# подписку они пока не приносят. Пропорция «аккаунт даёт больше» сохранена.
+# Дневной лимит равен пробе: дневная нарезка отменена (см. докстринг).
+FREE_DAILY_MINUTES = 10
+FREE_DAILY_MINUTES_ANON = 3
+
+
+def daily_limit_minutes(registered: bool) -> int:
+    """Сколько минут в день положено: с аккаунтом больше, чем без."""
+    return FREE_DAILY_MINUTES if registered else FREE_DAILY_MINUTES_ANON
+
+# Общий бесплатный запас в минутах — то, что реально ограничивает.
+# Тратится по факту разговора, а не по числу заходов.
 FREE_TRIAL_MINUTES = 10
+
+# Дневной потолок анонимного расхода с одного IP. Анонимная «личность»
+# живёт в localStorage, и до этой правки её можно было пересоздавать
+# бесконечно: инкогнито или чистка хранилища — и у «нового» человека
+# снова полный запас. Теперь анонимные секунды считаются ещё и на IP:
+# сколько личностей ни заводи, день с одного адреса ограничен. Потолок —
+# два анонимных лимита, чтобы два человека за одним роутером прошли день
+# без ложной стены; аккаунтов и Premium это не касается вовсе, так что
+# честный выход из-под потолка — оставить почту.
+ANON_IP_DAILY_CAP_MINUTES = FREE_DAILY_MINUTES_ANON * 2
 
 # Счётчик активных дней. Больше не блокирует — остаётся для аналитики
 # и для старых сборок фронта, которые читают free_days_used/free_days_left.
@@ -55,6 +107,17 @@ class SubscriptionMeter:
 
     async def init_user_tracking(self, user_id: int):
         async with self.db.get_connection() as conn:
+            # Строка заводится, если её нет. Раньше здесь был только UPDATE,
+            # и user_id, отсутствующий в fredi_users, оставался невидимым
+            # для счётчика насовсем: get_user_status раз за разом отдавал
+            # свежий полный запас, а record_usage упирался в пустой UPDATE
+            # и не записывал ни секунды — бесконечные бесплатные минуты
+            # для любого выдуманного id.
+            await conn.execute("""
+                INSERT INTO fredi_users (user_id, created_at, last_activity)
+                VALUES ($1, NOW(), NOW())
+                ON CONFLICT (user_id) DO NOTHING
+            """, user_id)
             await conn.execute("""
                 UPDATE fredi_users SET
                     trial_started_at = COALESCE(trial_started_at, NOW()),
@@ -79,7 +142,6 @@ class SubscriptionMeter:
             return {
                 "has_subscription": True,
                 "is_premium": True,
-                "is_registered": True,
                 "can_send": True,
                 "remaining_minutes": None,
                 "used_minutes_today": 0,
@@ -92,6 +154,9 @@ class SubscriptionMeter:
                 "free_days_used": 0,
                 "free_days_left": None,  # без лимита
                 "trial_exhausted": False,
+                "is_registered": True,
+                "registered_limit_minutes": None,
+                "anon_limit_minutes": None,
                 # Backward-compat: старые билды могут читать.
                 "is_on_cooldown": False,
                 "remaining_cooldown_minutes": 0,
@@ -106,25 +171,20 @@ class SubscriptionMeter:
                 FROM fredi_users WHERE user_id = $1
             """, user_id)
 
-        # Без аккаунта разговора нет. Проверка именно здесь: через
-        # get_user_status ходят и can-send, и 402-мидлварь в main.py —
-        # прямой запрос к API мимо фронтовой модалки упрётся в тот же блок.
-        # Фронт по block_reason='auth' открывает регистрацию, не пейволл.
-        registered = bool(row and (row["email"] or "").strip())
-        if not registered:
-            if not row:
-                await self.init_user_tracking(user_id)
-            status = self._compose_status(used_seconds=0, free_days_used=0,
-                                          total_seconds=0)
-            status["can_send"] = False
-            status["block_reason"] = "auth"
-            status["is_registered"] = False
-            return status
+        if not row:
+            await self.init_user_tracking(user_id)
+            return self._compose_status(used_seconds=0, free_days_used=0,
+                                        total_seconds=0, registered=False)
 
         daily_seconds = row["daily_usage_seconds"] or 0
         last_reset = row["last_usage_reset"]
         free_days_used = row["free_days_used"] or 0
         total_seconds = row["total_usage_seconds"] or 0
+        # Аккаунт — это почта в fredi_users. При регистрации анонима строка
+        # не заводится заново, к ней дописывают email (auth_routes), так что
+        # человек не теряет ни истории, ни потраченных минут — он ровно в тот
+        # же день получает лишние три.
+        registered = row["email"] is not None
         now = datetime.now(timezone.utc)
 
         # Daily reset в 00:00 UTC. На новой дате счётчик минут обнуляется —
@@ -140,12 +200,15 @@ class SubscriptionMeter:
 
         return self._compose_status(used_seconds=daily_seconds,
                                     free_days_used=free_days_used,
-                                    total_seconds=total_seconds)
+                                    total_seconds=total_seconds,
+                                    registered=registered)
 
     def _compose_status(self, used_seconds: int, free_days_used: int,
-                        total_seconds: int = 0) -> Dict[str, Any]:
+                        total_seconds: int = 0,
+                        registered: bool = True) -> Dict[str, Any]:
+        limit_today = daily_limit_minutes(registered)
         used_minutes = used_seconds / 60.0
-        remaining_today = max(0.0, FREE_DAILY_MINUTES - used_minutes)
+        remaining_today = max(0.0, limit_today - used_minutes)
 
         trial_used_minutes = total_seconds / 60.0
         remaining_trial = max(0.0, FREE_TRIAL_MINUTES - trial_used_minutes)
@@ -169,32 +232,89 @@ class SubscriptionMeter:
         elif remaining_today <= 0:
             block_reason = "daily"
 
-        return {
+        status = {
             "has_subscription": False,
             "is_premium": False,
             "can_send": can_send,
             "remaining_minutes": round(remaining_minutes, 1),
             "used_minutes_today": round(used_minutes, 1),
-            "limit_minutes": FREE_DAILY_MINUTES,
+            "limit_minutes": limit_today,
             "remaining_today_minutes": round(remaining_today, 1),
             "remaining_trial_minutes": round(remaining_trial, 1),
             "trial_limit_minutes": FREE_TRIAL_MINUTES,
             "trial_used_minutes": round(trial_used_minutes, 1),
             "block_reason": block_reason,
-            "is_registered": True,
             "free_days_used": free_days_used,
             "free_days_left": max(0, FREE_TRIAL_DAYS - free_days_used),
             "trial_exhausted": trial_exhausted,
+            # Есть ли аккаунт и сколько минут он даёт. Фронт рисует по этим
+            # полям предложение зарегистрироваться, а не вписывает числа
+            # руками — иначе экран разъедется с настоящим лимитом в первый
+            # же раз, когда лимит поменяют.
+            "is_registered": registered,
+            "registered_limit_minutes": FREE_DAILY_MINUTES,
+            "anon_limit_minutes": FREE_DAILY_MINUTES_ANON,
             # Backward-compat.
             "is_on_cooldown": False,
             "remaining_cooldown_minutes": 0,
             "free_session_count": 0,
-            "next_session_limit_minutes": FREE_DAILY_MINUTES,
+            "next_session_limit_minutes": limit_today,
         }
+        # Решение 31.08.2026: без аккаунта разговора нет. Переопределение
+        # стоит в единственной точке сборки статуса — блок покрывает и
+        # can-send, и 402-мидлварь, и статус после record_usage. Фронт по
+        # block_reason='auth' открывает регистрацию, не пейволл.
+        if not registered:
+            status["can_send"] = False
+            status["block_reason"] = "auth"
+        return status
 
-    async def can_send_message(self, user_id: int) -> Tuple[bool, Dict[str, Any]]:
+    async def can_send_message(self, user_id: int,
+                               ip_hash: Optional[str] = None
+                               ) -> Tuple[bool, Dict[str, Any]]:
         status = await self.get_user_status(user_id)
-        return status["can_send"], status
+        can = status["can_send"]
+        # Анонимный дневной потолок по IP. Проверяется только когда по
+        # личному счётчику ещё можно: стена та же дневная («на сегодня
+        # всё»), человек не должен видеть разницу между «кончились твои
+        # минуты» и «кончились минуты твоих сегодняшних личностей» —
+        # второе объяснило бы, как обходить первый счётчик.
+        if can and ip_hash and not status.get("is_premium") \
+                and status.get("is_registered") is False:
+            try:
+                if await self.anon_ip_capped(ip_hash):
+                    can = False
+                    status["can_send"] = False
+                    status["block_reason"] = "daily"
+                    status["remaining_minutes"] = 0.0
+                    status["remaining_today_minutes"] = 0.0
+                    status["ip_capped"] = True
+            except Exception as e:
+                # Потолок — страховка, а не главный счётчик: сломался —
+                # работаем по личному лимиту, не запираем человека зря.
+                logger.warning(f"anon ip cap check failed: {e}")
+        return can, status
+
+    async def anon_ip_seconds_today(self, ip_hash: str) -> int:
+        async with self.db.get_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT seconds FROM fredi_anon_ip_usage
+                WHERE ip_hash = $1 AND day = CURRENT_DATE
+            """, ip_hash)
+            return int(row["seconds"]) if row else 0
+
+    async def anon_ip_capped(self, ip_hash: str) -> bool:
+        used = await self.anon_ip_seconds_today(ip_hash)
+        return used >= ANON_IP_DAILY_CAP_MINUTES * 60
+
+    async def record_anon_ip_usage(self, ip_hash: str, seconds: int):
+        async with self.db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO fredi_anon_ip_usage (ip_hash, day, seconds)
+                VALUES ($1, CURRENT_DATE, $2)
+                ON CONFLICT (ip_hash, day)
+                DO UPDATE SET seconds = fredi_anon_ip_usage.seconds + $2
+            """, ip_hash, seconds)
 
     async def record_usage(self, user_id: int, seconds: int) -> Dict[str, Any]:
         """Записываем активность: в дневной счётчик и в общий запас.

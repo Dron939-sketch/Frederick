@@ -886,7 +886,9 @@ async def meter_guard_middleware(request: Request, call_next):
             )
 
         try:
-            can_send, status = await _meter.can_send_message(int(user_id))
+            from meter_routes import meter_ip_hash as _mih
+            can_send, status = await _meter.can_send_message(
+                int(user_id), ip_hash=_mih(request))
         except Exception as e:
             logger.warning(f"meter_guard: can_send check failed: {e}")
             return await call_next(request)
@@ -1011,7 +1013,13 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
             if _uid_for_meter <= 0:
                 can_send, st = False, {"block_reason": "auth"}
             else:
-                can_send, st = await _ws_meter.can_send_message(_uid_for_meter)
+                # IP для анонимного потолка — как в meter_ip_hash, но у
+                # WebSocket нет Request: заголовок читаем с самого сокета.
+                from subscription_meter import client_ip_hash as _cih
+                _ws_xff = (websocket.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+                _ws_ip = _ws_xff or (websocket.client.host if websocket.client else None)
+                can_send, st = await _ws_meter.can_send_message(
+                    _uid_for_meter, ip_hash=_cih(_ws_ip))
             if not can_send:
                 logger.info(
                     f"🚫 WS voice meter-blocked uid={_uid_for_meter} "
@@ -3086,6 +3094,41 @@ async def _ask_mode(mode_instance, question: str) -> Dict[str, Any]:
     return {"response": response_text, "tools_used": tools_used}
 
 
+# ---------- Возврат после немоты ----------
+# 30 августа Фреди несколько часов отвечал заглушкой: кончился баланс
+# DeepSeek. В расшифровке видно, чем это стоило: человек, который накануне
+# впервые выполнил договорённость (начал рисовать), пришёл рассказать —
+# и получил «У меня технический сбой» шесть раз подряд. Он писал в пустоту
+# и ушёл без ответа.
+#
+# Молчание уже случилось, отменить его нельзя. Но можно не делать вид, что
+# ничего не было: первый живой ответ после заглушки начинается с признания.
+# Отметка живёт в контексте пользователя, то есть переживает перезапуск.
+TECH_FAIL_BACK = (
+    "Сначала извинюсь: в прошлый раз я молчал не из-за тебя — у меня "
+    "сломался доступ к разуму, и на любой вопрос уходила одна и та же "
+    "отписка. Сейчас всё работает. "
+)
+
+
+def _mark_tech_fail(context_obj: dict, response_text: str) -> str:
+    """Ставит отметку о заглушке или снимает её, извинившись.
+
+    Возвращает текст ответа — с извинением в начале, если предыдущий ход
+    был провальным. Контекст меняется на месте; сохранить его — забота
+    вызывающего.
+    """
+    if not isinstance(context_obj, dict):
+        return response_text
+    failed_now = (response_text or "").strip() == TECH_FAIL_REPLY.strip()
+    if failed_now:
+        context_obj["tech_fail_at"] = time.time()
+        return response_text
+    if context_obj.pop("tech_fail_at", None):
+        return TECH_FAIL_BACK + (response_text or "")
+    return response_text
+
+
 # ---------- Схлопывание повторов одного вопроса ----------
 #
 # Фронт мог отправить один и тот же текст несколько раз: композер на
@@ -3231,6 +3274,8 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
 
     return {
         "context_obj": context_obj,
+        # прошлый ход закончился заглушкой — этот начнём с извинения
+        "tech_fail_back": bool(context_obj.get("tech_fail_at")),
         "has_profile": has_profile,
         "history": history,
         "mode_name": mode_name,
@@ -3253,9 +3298,19 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
     context_obj = prep["context_obj"]
     mode_instance = prep["mode_instance"]
 
+    # Отметка о немоте. Ставится, когда ответ — заглушка; снимается, когда
+    # Фреди снова заговорил. Сохранять контекст обязательно в обоих
+    # случаях, иначе отметка не переживёт перезапуск, а именно ради этого
+    # она и заведена.
+    _fail_before = bool(context_obj.get("tech_fail_at"))
+    _mark_tech_fail(context_obj, response_text)
+    _fail_after = bool(context_obj.get("tech_fail_at"))
+
     # Persist test_offered for BasicMode after processing
     if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
         context_obj["basic_test_offered"] = mode_instance.test_offered
+        await context_repo.save(user_id, context_obj)
+    elif _fail_before != _fail_after:
         await context_repo.save(user_id, context_obj)
     await _save_psychologist_state(user_id, context_obj, mode_instance, mode_name)
 
@@ -3342,6 +3397,8 @@ async def chat(request: Request, data: ChatRequest):
         result = await _freddy_or_mode(prep, data.user_id, data.message)
         mode_name = result["mode_name"]
         answer = result["response"]
+        if prep.get("tech_fail_back") and answer.strip() != TECH_FAIL_REPLY.strip():
+            answer = TECH_FAIL_BACK + answer
 
         await _finish_chat_turn(prep, data.user_id, data.message,
                                 answer, mode_name,
@@ -3412,6 +3469,17 @@ async def chat_stream(request: Request, data: ChatRequest):
 
             yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n"
 
+            # Извинение уходит первой дельтой: в потоке текст ответа
+            # начинает печататься сразу, и приписать что-то в начало потом
+            # уже некуда. Копится в _prefix, чтобы попасть и в сохранённую
+            # историю, и в поле full_text — иначе человек увидит извинение
+            # на экране, а в переписке его не будет.
+            _prefix = ""
+            if prep.get("tech_fail_back"):
+                _prefix = TECH_FAIL_BACK
+                yield json.dumps({"type": "delta", "text": _prefix},
+                                 ensure_ascii=False) + "\n"
+
             streamed_ok = False
             # FreddyService сейчас заглушка и отвечает пусто, но если её
             # включат обратно — ответ придёт целиком, отдаём одной дельтой.
@@ -3473,6 +3541,11 @@ async def chat_stream(request: Request, data: ChatRequest):
                 full_text = fallback["response"]
                 yield json.dumps({"type": "delta", "text": full_text},
                                  ensure_ascii=False) + "\n"
+
+            # Извинение — часть ответа, а не отдельная реплика: подклеиваем
+            # его к тексту, который уйдёт в историю и в done.
+            if _prefix and full_text.strip() != TECH_FAIL_REPLY.strip():
+                full_text = _prefix + full_text
 
             _now = time.time()
             timings = {
@@ -6293,6 +6366,41 @@ async def migrate_user(request: Request):
 
 
 # ---------- АДМИНКА ----------
+@app.get("/api/admin/ai-health")
+async def admin_ai_health(request: Request):
+    """Почему Фреди отвечает заглушкой (админ).
+
+    Заглушка «У меня технический сбой» выдаётся, когда DeepSeek не ответил.
+    Причина до сих пор жила только в логах Amvera: со стороны видно, что бот
+    отвечает всем одинаково, а кончившийся баланс от просроченного ключа или
+    таймаута не отличить, пока не откроешь лог. 30 августа он молчал так
+    несколько часов, и заметили это по одинаковой длине ответов в аналитике.
+    """
+    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+    if not expected or (request.headers.get("X-Admin-Token") or "").strip() != expected:
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    try:
+        from services.ai_service import LAST_AI_FAIL
+        fail = dict(LAST_AI_FAIL)
+    except Exception:
+        fail = {}
+    ago = (time.time() - fail.get("ts", 0)) if fail.get("ts") else None
+    return {
+        "reason": fail.get("reason") or "",
+        "detail": fail.get("detail") or "",
+        "fails_total": fail.get("count", 0),
+        "seconds_ago": int(ago) if ago is not None else None,
+        # свежий отказ = прямо сейчас людям отвечает заглушка
+        "failing_now": bool(ago is not None and ago < 600),
+        "hint": {
+            "no_balance": "Кончился баланс DeepSeek — пополните счёт",
+            "invalid_key": "DEEPSEEK_API_KEY не принят — проверьте ключ в env",
+            "rate_limited": "DeepSeek ограничивает частоту запросов",
+            "timeout": "DeepSeek не отвечает вовремя",
+        }.get(fail.get("reason") or "", ""),
+    }
+
+
 @app.get("/api/admin/stats")
 async def admin_stats(request: Request):
     try:
