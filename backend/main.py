@@ -868,9 +868,22 @@ async def meter_guard_middleware(request: Request, call_next):
             request._receive = _replay_receive  # подменяем, чтобы downstream тоже прочитал
 
         if user_id is None:
-            # Анонимный вызов без идентификатора — не блокируем,
-            # но и считать расход некому. Пропускаем (legacy).
-            return await call_next(request)
+            # Раньше вызов без идентификатора пропускался (legacy) — это
+            # была дыра: убрал user_id из тела и говоришь бесплатно. С
+            # платной моделью AI-вызов без личности не обслуживается.
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "success": False,
+                    "error": "METER_BLOCKED",
+                    "can_send": False,
+                    "block_reason": "auth",
+                    "message": ("Чтобы разговаривать с Фреди, нужен аккаунт: "
+                                "имя, почта и минута времени. После регистрации — "
+                                "10 минут бесплатно."),
+                },
+                headers=_cors_headers_for(request),
+            )
 
         try:
             can_send, status = await _meter.can_send_message(int(user_id))
@@ -926,7 +939,13 @@ async def meter_guard_middleware(request: Request, call_next):
             "is_on_cooldown": False,
             "remaining_cooldown_minutes": 0,
         }
-        if _reason == "trial":
+        if _reason == "auth":
+            # Аноним: разговор доступен только с аккаунтом. Никакого
+            # таймера до полуночи — полночь тут ничего не вернёт.
+            _content["message"] = ("Чтобы разговаривать с Фреди, нужен аккаунт: "
+                                   "имя, почта и минута времени. После регистрации — "
+                                   "10 минут бесплатно.")
+        elif _reason == "trial":
             _content["message"] = ("Бесплатные минуты закончились. "
                                    "Чтобы продолжить без лимитов, открой Premium.")
         else:
@@ -985,8 +1004,14 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
             from meter_routes import subscription_meter as _ws_meter
         except Exception:
             _ws_meter = None
-        if _uid_for_meter > 0 and _ws_meter is not None:
-            can_send, st = await _ws_meter.can_send_message(_uid_for_meter)
+        if _ws_meter is not None:
+            # Без идентификатора голосовой стек не обслуживаем — та же
+            # дыра, что была в HTTP-мидлвари: убрал user_id и говоришь
+            # бесплатно самым дорогим стеком.
+            if _uid_for_meter <= 0:
+                can_send, st = False, {"block_reason": "auth"}
+            else:
+                can_send, st = await _ws_meter.can_send_message(_uid_for_meter)
             if not can_send:
                 logger.info(
                     f"🚫 WS voice meter-blocked uid={_uid_for_meter} "
@@ -1007,6 +1032,9 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                         # ему нужен пакет. Один текст на оба вводил в
                         # заблуждение тех, у кого просто кончился день.
                         "message": (
+                            "Чтобы говорить с Фреди голосом, нужен аккаунт: "
+                            "имя, почта и минута времени."
+                            if st.get("block_reason") == "auth" else
                             "Бесплатные минуты закончились — оформи подписку, "
                             "чтобы продолжить голосовое общение."
                             if st.get("block_reason") == "trial" else
