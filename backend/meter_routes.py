@@ -198,10 +198,11 @@ def register_meter_routes(app, db, limiter):
                 "anon_limit_minutes": status.get("anon_limit_minutes"),
             }
             if not can_send:
-                # Дневной лимит отпустит в полночь UTC, общий запас — нет.
-                # Раньше reset_at отдавался в обоих случаях, и человек с
-                # исчерпанным trial ждал полуночи впустую.
-                if status.get("block_reason") != "trial":
+                # Таймер до полуночи — только у дневного блока. Раньше
+                # условие было «не trial», и блок 'auth' (нет аккаунта)
+                # тоже получал reset_at — человеку без регистрации
+                # обещали, что полночь что-то вернёт.
+                if status.get("block_reason") == "daily":
                     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
                     now = _dt.now(_tz.utc)
                     next_midnight = (now + _td(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
