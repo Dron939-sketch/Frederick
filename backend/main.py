@@ -382,6 +382,11 @@ async def lifespan(app: FastAPI):
         _init_waitlist = register_waitlist_routes(app, db, limiter)
         await _init_waitlist()
 
+        # «Связаться с разработчиком» из настроек: в базу + Telegram владельцу.
+        from feedback_routes import register_feedback_routes
+        _init_feedback = register_feedback_routes(app, db, limiter)
+        await _init_feedback()
+
         # Reengagement (Phase 1 + полу-автомат). Подключаем routes
         # (публичные + админские) + bg-scheduler. EmailService getter
         # — лямбда, чтобы admin-эндпоинты и шедулер всегда брали
