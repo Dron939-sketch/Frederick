@@ -157,8 +157,15 @@ def register_payment_routes(app, db, limiter):
                     user_id
                 )
                 if customer_email:
+                    # Только если почты ещё нет. Раньше здесь стоял
+                    # безусловный UPDATE: человек вписывал в поле «Email
+                    # для чека» рабочий адрес — и терял вход по личному,
+                    # потому что логин аккаунта молча подменялся. Туда же
+                    # уходило и восстановление пин-кода. Оплаченный аккаунт
+                    # переставал открываться сразу после оплаты.
                     await conn.execute(
-                        "UPDATE fredi_users SET email = $2, updated_at = NOW() WHERE user_id = $1",
+                        "UPDATE fredi_users SET email = $2, updated_at = NOW() "
+                        "WHERE user_id = $1 AND (email IS NULL OR email = '')",
                         user_id, customer_email
                     )
                 if customer_phone:
