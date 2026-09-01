@@ -198,7 +198,20 @@ voice_manager: Optional[VoiceConnectionManager] = None
 # ============================================
 # RATE LIMITING
 # ============================================
-limiter = Limiter(key_func=get_remote_address)
+def _real_client_ip(request):
+    """Ключ rate-limit — настоящий клиентский IP, а не адрес прокси.
+
+    За прокси Амверы request.client.host — внутренний адрес балансера,
+    один на всех (в логах 01.09 это 10.112.222.11): slowapi складывал
+    ВСЕХ посетителей в одно ведро, и один активный браузер выжигал
+    лимит verify-payment всему миру — проверено с двух разных сетей.
+    Настоящий адрес приходит первым в X-Forwarded-For.
+    """
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    return xff or get_remote_address(request)
+
+
+limiter = Limiter(key_func=_real_client_ip)
 
 # ============================================
 # MODELS (Pydantic)
