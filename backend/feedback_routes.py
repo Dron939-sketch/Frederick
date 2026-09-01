@@ -26,8 +26,27 @@ MAX_META_LEN = 300
 
 
 def _owner_chat_id() -> str:
-    return (os.environ.get("FEEDBACK_TG_CHAT_ID")
-            or os.environ.get("ADMIN_TG_CHAT_ID") or "").strip()
+    """Чат владельца: число (личный чат) или @имя (канал, где бот админ).
+
+    Значение задаётся руками в панели Амверы, поэтому в него легко попадает
+    не id, а ссылка — «https://web.telegram.org/k/#@meysternlp» или просто
+    «meysternlp». Telegram на такое отвечает chat not found, и обращение
+    молча уходит только в базу. Приводим к тому, что API понимает.
+    """
+    raw = (os.environ.get("FEEDBACK_TG_CHAT_ID")
+           or os.environ.get("ADMIN_TG_CHAT_ID") or "").strip()
+    if not raw:
+        return ""
+    if "t.me/" in raw or "telegram.org" in raw:
+        raw = raw.rstrip("/").split("/")[-1]
+        raw = raw.split("#")[-1]
+    raw = raw.strip()
+    if not raw:
+        return ""
+    # Числовой id (у групп он отрицательный) оставляем как есть, имя — с @.
+    if raw.lstrip("-").isdigit() or raw.startswith("@"):
+        return raw
+    return "@" + raw.lstrip("@")
 
 
 def _bot_token() -> str:
