@@ -57,8 +57,14 @@ def _auth_header() -> str:
 
 
 def _order_no() -> str:
-    """M-20260901-K7QF — дата для глаза, хвост от совпадений."""
-    tail = "".join(random.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+    """M-20260901-K7QF9X — дата для глаза, хвост от совпадений.
+
+    Номер уходит в ЮKassa как Idempotence-Key, поэтому совпадение двух
+    номеров означало бы, что второму заказу вернут чужой платёж. Шесть
+    знаков дают два миллиарда вариантов на день — этого достаточно.
+    """
+    alphabet = string.ascii_uppercase + string.digits
+    tail = "".join(random.choice(alphabet) for _ in range(6))
     return "M-%s-%s" % (datetime.now(timezone.utc).strftime("%Y%m%d"), tail)
 
 
@@ -324,7 +330,7 @@ def register_order_routes(app, db, limiter):
         except Exception:
             return {"success": False, "error": "invalid JSON"}
         order_no = (data.get("order_no") or "").strip()[:32]
-        if not re.match(r"^M-\d{8}-[A-Z0-9]{4}$", order_no):
+        if not re.match(r"^M-\d{8}-[A-Z0-9]{4,8}$", order_no):
             return {"success": False, "error": "invalid order_no"}
         async with db.get_connection() as conn:
             row = await conn.fetchrow(
