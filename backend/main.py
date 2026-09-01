@@ -387,6 +387,13 @@ async def lifespan(app: FastAPI):
         _init_feedback = register_feedback_routes(app, db, limiter)
         await _init_feedback()
 
+        # Продажа комплекта напрямую: форма с адресом ПВЗ СДЭК и оплата.
+        # Регистрируется после feedback_routes — берёт оттуда доставку
+        # заказов владельцу (Telegram, а если он не настроен — почта).
+        from order_routes import register_order_routes
+        _init_orders = register_order_routes(app, db, limiter)
+        await _init_orders()
+
         # Reengagement (Phase 1 + полу-автомат). Подключаем routes
         # (публичные + админские) + bg-scheduler. EmailService getter
         # — лямбда, чтобы admin-эндпоинты и шедулер всегда брали

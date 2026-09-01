@@ -344,6 +344,18 @@ def register_payment_routes(app, db, limiter):
             if not event or not isinstance(payment_obj, dict):
                 return {"success": False, "error": "invalid webhook format"}
             logger.info(f"YooKassa webhook: event={event}, id={payment_obj.get('id')}, ip={client_ip}, trusted={ip_trusted}")
+            # Вебхук у ЮKassa один на магазин, а платежи бывают двух пород:
+            # подписка Фреди и заказ комплекта. Заказ помечен в metadata и
+            # уходит своему обработчику — иначе process_webhook попытается
+            # активировать подписку неизвестно кому.
+            metadata = payment_obj.get("metadata") or {}
+            if metadata.get("type") == "shop_order":
+                shop_handler = getattr(app.state, "shop_order_webhook", None)
+                if shop_handler and payment_obj.get("id"):
+                    await shop_handler(payment_obj["id"])
+                else:
+                    logger.warning("shop_order webhook, но обработчик не зарегистрирован")
+                return {"success": True}
             await payment_service.process_webhook(event, payment_obj)
             return {"success": True}
         except json.JSONDecodeError:
