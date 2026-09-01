@@ -744,8 +744,16 @@ async def set_basic_mode_preset(value: str) -> str:
 
 
 async def _enforce_premium_mode(user_id, requested_mode: str) -> str:
-    """Возвращает реально применимый режим: для premium-юзеров — что попросили,
-    для не-premium и premium-режима — 'basic'. 'basic' всегда проходит."""
+    """Реально применимый режим: подписчику — что попросил, остальным — 'basic'.
+
+    С одним исключением: пока у человека не кончились бесплатные минуты,
+    роли работают полностью. Проба обязана показывать тот товар, который
+    продаётся: раньше первые десять минут шли в самом слабом режиме, под
+    кнопками ролей висело «выбор роли — с подпиской», а посадочная в это
+    время обещала, что «внутри пробы работает всё». Человек знакомился
+    с урезанной версией и по ней решал, стоит ли платить 990 ₽ за ту,
+    которую ни разу не видел.
+    """
     mode = (requested_mode or "basic").strip().lower()
     if mode not in _PREMIUM_MODES:
         return mode
@@ -753,10 +761,14 @@ async def _enforce_premium_mode(user_id, requested_mode: str) -> str:
         from meter_routes import subscription_meter as _m
         if _m is None:
             return "basic"
-        is_premium = await _m.has_active_subscription(int(user_id))
+        if await _m.has_active_subscription(int(user_id)):
+            return mode
+        status = await _m.get_user_status(int(user_id))
+        if status and not status.get("trial_exhausted"):
+            return mode
     except Exception:
         return "basic"
-    return mode if is_premium else "basic"
+    return "basic"
 
 
 # Точные пути и префиксы (regex), где генерируется AI-контент и идут расходы по API.
