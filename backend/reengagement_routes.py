@@ -95,6 +95,40 @@ _D3_CANDIDATES_SQL = """
     ORDER BY u.last_activity ASC
 """
 
+# SQL кандидатов trial_spent: выговорил ≥ 9 из 10 бесплатных минут,
+# активной подписки нет, последний визит от 12 часов до 14 дней назад.
+# Критерии зеркалят services/reengagement._scan_and_send_trial.
+_TRIAL_CANDIDATES_SQL = """
+    SELECT u.user_id, u.email,
+           COALESCE(uc.name, u.first_name) AS name,
+           u.created_at, u.last_activity,
+           EXTRACT(EPOCH FROM (NOW() - u.last_activity)) / 86400.0 AS days_inactive,
+           EXTRACT(EPOCH FROM (NOW() - u.created_at))   / 86400.0 AS days_since_signup,
+           COALESCE(u.total_usage_seconds, 0) / 60.0 AS trial_minutes_used,
+           EXISTS (
+               SELECT 1 FROM fredi_messenger_links m
+               WHERE m.user_id = u.user_id AND m.platform = 'max'
+                 AND COALESCE(m.is_active, TRUE) = TRUE
+           ) AS has_max
+    FROM fredi_users u
+    LEFT JOIN fredi_user_contexts uc ON uc.user_id = u.user_id
+    WHERE u.email IS NOT NULL
+      AND COALESCE(u.email_opted_in, TRUE) = TRUE
+      AND COALESCE(u.total_usage_seconds, 0) >= 540
+      AND u.last_activity < NOW() - INTERVAL '12 hours'
+      AND u.last_activity > NOW() - INTERVAL '14 days'
+      AND NOT EXISTS (
+          SELECT 1 FROM fredi_subscriptions sub
+          WHERE sub.user_id = u.user_id
+            AND sub.status = 'active' AND sub.expires_at > NOW()
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM fredi_reengagement_log l
+          WHERE l.user_id = u.user_id AND l.campaign = 'trial_spent'
+      )
+    ORDER BY u.last_activity ASC
+"""
+
 
 def register_reengagement_routes(app, db, email_service_getter=None):
     router = APIRouter(prefix="/api/reengagement", tags=["reengagement"])
@@ -193,8 +227,13 @@ def register_reengagement_routes(app, db, email_service_getter=None):
                 ids_int = [int(x) for x in ids][:limit]
             except (ValueError, TypeError):
                 raise HTTPException(status_code=400, detail={"error": "bad_user_ids"})
+            # Фильтр по id обязан встать ДО ORDER BY — приклеенный в хвост
+            # " AND ..." оказывался после сортировки и ломал запрос.
             rows = await db.fetch(
-                _D3_CANDIDATES_SQL + " AND u.user_id = ANY($1::bigint[]) LIMIT $2",
+                _D3_CANDIDATES_SQL.replace(
+                    "ORDER BY",
+                    "AND u.user_id = ANY($1::bigint[])\n    ORDER BY"
+                ) + " LIMIT $2",
                 ids_int, limit
             )
         else:
@@ -219,6 +258,80 @@ def register_reengagement_routes(app, db, email_service_getter=None):
                 logger.warning(f"[reeng-admin] send failed for {r['user_id']}: {e}")
                 failed += 1
             # Мягкий rate-limit между отправками — для SMTP/MAX.
+            await asyncio.sleep(1.0)
+        return {"success": True, "dry_run": False,
+                "total_candidates": len(rows),
+                "sent": sent, "failed": failed}
+
+    @admin_router.get("/trial-candidates")
+    async def trial_candidates(request: Request):
+        """Счётчик и список кандидатов на кампанию trial_spent."""
+        _check_admin(request.headers.get("X-Admin-Token"))
+        rows = await db.fetch(_TRIAL_CANDIDATES_SQL + " LIMIT 200")
+        cands = []
+        for r in rows:
+            cands.append({
+                "user_id": r["user_id"],
+                "email": r["email"],
+                "name": r["name"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "last_activity": r["last_activity"].isoformat() if r["last_activity"] else None,
+                "days_inactive": round(float(r["days_inactive"] or 0), 1),
+                "trial_minutes_used": round(float(r["trial_minutes_used"] or 0), 1),
+                "has_max": bool(r["has_max"]),
+            })
+        return {"success": True, "count": len(cands), "candidates": cands}
+
+    @admin_router.post("/trial-send")
+    async def trial_send(request: Request):
+        """Манульная батч-отправка trial_spent. body = {dry_run?: bool,
+        limit?: int, user_ids?: list[int]} — зеркалит /d3-send."""
+        _check_admin(request.headers.get("X-Admin-Token"))
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        dry = bool(body.get("dry_run"))
+        limit = int(body.get("limit") or 50)
+        ids = body.get("user_ids") or []
+        if not isinstance(ids, list):
+            ids = []
+
+        from services.reengagement import send_reengagement, CAMPAIGN_TRIAL
+
+        if ids:
+            try:
+                ids_int = [int(x) for x in ids][:limit]
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail={"error": "bad_user_ids"})
+            rows = await db.fetch(
+                _TRIAL_CANDIDATES_SQL.replace(
+                    "ORDER BY",
+                    "AND u.user_id = ANY($1::bigint[])\n    ORDER BY"
+                ) + " LIMIT $2",
+                ids_int, limit
+            )
+        else:
+            rows = await db.fetch(_TRIAL_CANDIDATES_SQL + " LIMIT $1", limit)
+
+        if dry:
+            return {"success": True, "dry_run": True,
+                    "would_send": len(rows),
+                    "user_ids": [r["user_id"] for r in rows]}
+
+        es = email_service_getter() if callable(email_service_getter) else email_service_getter
+        sent = 0
+        failed = 0
+        for r in rows:
+            try:
+                ok = await send_reengagement(db, es, r["user_id"], CAMPAIGN_TRIAL)
+                if ok:
+                    sent += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.warning(f"[reeng-admin] trial send failed for {r['user_id']}: {e}")
+                failed += 1
             await asyncio.sleep(1.0)
         return {"success": True, "dry_run": False,
                 "total_candidates": len(rows),
