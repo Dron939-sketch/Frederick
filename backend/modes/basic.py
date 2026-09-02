@@ -962,6 +962,39 @@ class BasicMode(BaseMode):
         except Exception as _e:
             logger.debug(f"identity intercept skip: {_e}")
 
+        # Кризисный перехват — до LLM. Фильтр жил только в PsychologistMode,
+        # а 02.09.2026 разговор с «вообще жить не хочется» шёл именно в
+        # BasicMode — и телефон доверия человеку так и не прозвучал. Basic —
+        # режим по умолчанию, поэтому именно здесь фильтр нужнее всего.
+        # Номер даётся один раз за сессию: повторять его на каждое сообщение —
+        # значит превратить поддержку в шаблонную отписку.
+        try:
+            from .prompts.psychologist.router import has_crisis_marker
+            _crisis_already = (
+                getattr(self, "_crisis_said", False)
+                or bool(self.user_data.get("crisis_notice_shown"))
+            )
+            if has_crisis_marker(question) and not _crisis_already:
+                self._crisis_said = True
+                self.user_data["crisis_notice_shown"] = True
+                crisis_text = (
+                    "Стоп. То, что ты сейчас сказал(а), — серьёзно, и я не пройду мимо "
+                    "этого. Я здесь и никуда не денусь, мы продолжим.\n\n"
+                    "Но одна вещь важнее нашего разговора. Когда появляются мысли не "
+                    "жить — рядом должен быть живой человек. Телефон доверия "
+                    "8-800-2000-122 — бесплатно, круглосуточно и анонимно. Если "
+                    "станет совсем остро — 112. Сохрани номера сейчас, это десять "
+                    "секунд.\n\n"
+                    "А теперь скажи мне: эти мысли появились сегодня или уже "
+                    "какое-то время с тобой? И кто или что сейчас рядом — из того, "
+                    "что удерживает?"
+                )
+                self.conversation_history.append(f"Фреди: {crisis_text}")
+                yield crisis_text
+                return
+        except Exception as _e:
+            logger.debug(f"crisis intercept skip: {_e}")
+
         if self.message_counter == 1:
             # Три независимых похода в БД: факты о человеке, его таймзона
             # (fredi_users.user_tz — фронт шлёт её через POST /api/user/tz,
