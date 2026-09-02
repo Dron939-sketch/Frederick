@@ -32,9 +32,13 @@ logger = logging.getLogger(__name__)
 # /optout и /track.
 APP_BASE_URL = (os.environ.get("APP_BASE_URL")
                 or "https://meysternlp.ru/fredi/").rstrip("/") + "/"
+# Дефолт — same-origin через nginx meysternlp (/api/ проксируется на бэкенд).
+# Раньше здесь стоял мёртвый onrender-адрес (отвечает 503): ни API_BASE_URL,
+# ни PUBLIC_API_BASE_URL в проде не заданы, и каждая ссылка «отписаться»
+# в письмах вела бы в никуда.
 API_BASE_URL = (os.environ.get("API_BASE_URL")
                 or os.environ.get("PUBLIC_API_BASE_URL")
-                or "https://fredi-backend-flz2.onrender.com").rstrip("/")
+                or "https://meysternlp.ru").rstrip("/")
 
 # Кампания «d3» — первое и единственное в Phase 1.
 CAMPAIGN_D3 = "d3_first"
