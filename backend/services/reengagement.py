@@ -39,6 +39,13 @@ API_BASE_URL = (os.environ.get("API_BASE_URL")
 # Кампания «d3» — первое и единственное в Phase 1.
 CAMPAIGN_D3 = "d3_first"
 
+# Кампания «trial_spent» (Phase 2): пользователь выговорил бесплатные
+# минуты, подписки нет. Самый горячий момент воронки: человек уже знает,
+# что такое разговор с Фреди, и упёрся в счётчик. Текст фиксированный —
+# в платёжном письме генерации не место: каждое слово должно быть
+# проверяемым (цена, условия).
+CAMPAIGN_TRIAL = "trial_spent"
+
 
 # ============================================================
 # 1. ПОВЕДЕНЧЕСКОЕ SUMMARY
@@ -228,6 +235,26 @@ def _fallback_text(name: str, s: dict) -> str:
     )
 
 
+def _trial_text(s: dict) -> str:
+    """Текст письма trial_spent. Без генерации: цена и условия — только
+    проверяемые. 990 ₽/мес и безлимит по минутам — из subscription_meter
+    (премиуму remaining_minutes = None) и страницы тарифов."""
+    name = (s.get('name') or '').strip()
+    hello = f"{name}, вы" if name else "Вы"
+    return (
+        f"{hello} использовали бесплатные минуты Фреди — спасибо, что "
+        "попробовали не мимоходом.\n\n"
+        "Если разговор оказался полезным, дальше он продолжается по "
+        "подписке: 990 ₽ в месяц, без счётчика минут — говорите столько, "
+        "сколько нужно, голосом или текстом.\n\n"
+        "Если пока не время — ничего не потеряется: история и профиль "
+        "остаются, вернуться можно в любой момент."
+    )
+
+
+TRIAL_SUBJECT = "Бесплатные минуты закончились — как продолжить"
+
+
 # ============================================================
 # 3. ОТПРАВКА
 # ============================================================
@@ -335,7 +362,13 @@ async def send_reengagement(db, email_service, user_id: int,
     return_link = f"{APP_BASE_URL}?ref=reeng&cid={token}"
     optout_link = f"{API_BASE_URL}/api/reengagement/optout?t={token}"
 
-    text = await generate_message_text(s)
+    if campaign == CAMPAIGN_TRIAL:
+        text = _trial_text(s)
+        subject = TRIAL_SUBJECT
+        return_link = f"{APP_BASE_URL}?ref=reeng-trial&cid={token}"
+    else:
+        text = await generate_message_text(s)
+        subject = "Фреди — подумалось о тебе"
     delivered = False
 
     if channel == 'max':
@@ -349,7 +382,7 @@ async def send_reengagement(db, email_service, user_id: int,
             channel = 'email'
             delivered = await _send_via_email(
                 email_service, s['email'],
-                "Фреди — подумалось о тебе",
+                subject,
                 f"{text}\n\nОткрыть Фреди: {return_link}\n\n"
                 f"Не хочешь получать такие письма? {optout_link}",
                 _build_html(text, return_link, optout_link)
@@ -357,7 +390,7 @@ async def send_reengagement(db, email_service, user_id: int,
     else:
         delivered = await _send_via_email(
             email_service, s['email'],
-            "Фреди — подумалось о тебе",
+            subject,
             f"{text}\n\nОткрыть Фреди: {return_link}\n\n"
             f"Не хочешь получать такие письма? {optout_link}",
             _build_html(text, return_link, optout_link)
@@ -408,6 +441,70 @@ async def _scan_and_send_d3(db, email_service):
         await asyncio.sleep(1.2)
 
 
+async def _scan_and_send_trial(db, email_service):
+    """Один проход по кандидатам trial_spent.
+
+    Кандидат: зарегистрирован (email есть, от писем не отказывался),
+    выговорил ≥ 9 из 10 бесплатных минут (total_usage_seconds ≥ 540 —
+    берём с запасом, чтобы поймать и тех, кто упёрся в счётчик на
+    последних секундах), активной подписки нет, последний визит от
+    12 часов до 14 дней назад: в моменте не дёргаем, давно ушедших
+    не трогаем."""
+    rows = await db.fetch(
+        """SELECT u.user_id
+           FROM fredi_users u
+           WHERE u.email IS NOT NULL
+             AND COALESCE(u.email_opted_in, TRUE) = TRUE
+             AND COALESCE(u.total_usage_seconds, 0) >= 540
+             AND u.last_activity < NOW() - INTERVAL '12 hours'
+             AND u.last_activity > NOW() - INTERVAL '14 days'
+             AND NOT EXISTS (
+                 SELECT 1 FROM fredi_subscriptions sub
+                 WHERE sub.user_id = u.user_id
+                   AND sub.status = 'active' AND sub.expires_at > NOW()
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM fredi_reengagement_log l
+                 WHERE l.user_id = u.user_id AND l.campaign = $1
+             )
+           LIMIT 50""",
+        CAMPAIGN_TRIAL
+    )
+    if not rows:
+        return
+    logger.info(f"[reeng] trial_spent: найдено {len(rows)} кандидатов")
+    for r in rows:
+        try:
+            await send_reengagement(db, email_service, r['user_id'], CAMPAIGN_TRIAL)
+        except Exception as e:
+            logger.warning(f"[reeng] trial send failed for user {r['user_id']}: {e}")
+        await asyncio.sleep(1.2)
+
+
+async def _count_trial_candidates(db) -> int:
+    """COUNT кандидатов trial_spent — для логов и админки."""
+    row = await db.fetchrow(
+        """SELECT COUNT(*)::int AS n
+           FROM fredi_users u
+           WHERE u.email IS NOT NULL
+             AND COALESCE(u.email_opted_in, TRUE) = TRUE
+             AND COALESCE(u.total_usage_seconds, 0) >= 540
+             AND u.last_activity < NOW() - INTERVAL '12 hours'
+             AND u.last_activity > NOW() - INTERVAL '14 days'
+             AND NOT EXISTS (
+                 SELECT 1 FROM fredi_subscriptions sub
+                 WHERE sub.user_id = u.user_id
+                   AND sub.status = 'active' AND sub.expires_at > NOW()
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM fredi_reengagement_log l
+                 WHERE l.user_id = u.user_id AND l.campaign = $1
+             )""",
+        CAMPAIGN_TRIAL
+    )
+    return int(row["n"] if row else 0)
+
+
 async def _count_candidates(db) -> int:
     """Дешёвый COUNT — для логов и polling из админки."""
     row = await db.fetchrow(
@@ -450,11 +547,13 @@ async def reengagement_scheduler(db, email_service_getter):
             if autosend:
                 es = email_service_getter() if callable(email_service_getter) else email_service_getter
                 await _scan_and_send_d3(db, es)
+                await _scan_and_send_trial(db, es)
             else:
                 n = await _count_candidates(db)
-                if n > 0:
-                    logger.info(f"[reeng] d3: ожидают отправки {n} (autosend off, "
-                                f"открой админку → Reengagement)")
+                nt = await _count_trial_candidates(db)
+                if n > 0 or nt > 0:
+                    logger.info(f"[reeng] ожидают отправки: d3 {n}, trial_spent {nt} "
+                                f"(autosend off, открой админку → Reengagement)")
         except asyncio.CancelledError:
             raise
         except Exception as e:
