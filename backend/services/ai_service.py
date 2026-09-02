@@ -196,16 +196,20 @@ class AIService:
 
                     # Пустой видимый ответ при finish_reason='length' —
                     # это модель с рассуждениями съела весь бюджет токенов
-                    # на невидимую часть. Один раз пробуем с утроенным
-                    # бюджетом: клиенту это стоит того же одного запроса.
+                    # на невидимую часть. Прежний ретрай утраивал бюджет,
+                    # но размышление не трогал — и в логах 02.09 видно, как
+                    # модель съедала и 900 токенов, не выдав ни знака.
+                    # Лечит не бюджет, а выключенное размышление: повтор
+                    # идёт с thinking=False и умеренным запасом токенов.
                     if not result:
                         if _fin == 'length' and _retry_budget:
-                            bigger = min(max(int(max_tokens) * 3, 900), 4000)
+                            bigger = min(max(int(max_tokens) * 3, 300), 4000)
                             logger.warning(
-                                "🔁 Пустой ответ при finish_reason=length, повтор с max_tokens=%d "
-                                "(было %s)" % (bigger, max_tokens))
+                                "🔁 Пустой ответ при finish_reason=length, повтор с "
+                                "thinking=off, max_tokens=%d (было %s, thinking=%s)"
+                                % (bigger, max_tokens, thinking))
                             return await self._simple_call(prompt, bigger, temperature,
-                                                           thinking=thinking,
+                                                           thinking=False,
                                                            _retry_budget=False)
                         self.last_error = ("модель вернула пустой ответ (finish_reason=%s, "
                                            "бюджет %s токенов)" % (_fin, max_tokens))
