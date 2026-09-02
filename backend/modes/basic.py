@@ -286,7 +286,14 @@ class BasicMode(BaseMode):
         except Exception as e:
             logger.warning(f"Anthropic import/call error: {e}")
 
-        return await self.ai_service._simple_call(prompt, max_tokens=max_tokens, temperature=temperature)
+        # thinking=False: _call_llm обслуживает короткие служебные вызовы
+        # (извлечение правил, «золотые» фразы, эмоции) с max_tokens=50-150.
+        # Модель с включённым размышлением тратила весь бюджет на невидимую
+        # часть и возвращала 0 знаков (логи 02.09: finish=length, знаков=0,
+        # даже после повтора с бюджетом 900) — по 2-3 пустых платных вызова
+        # на каждое сообщение пользователя.
+        return await self.ai_service._simple_call(prompt, max_tokens=max_tokens,
+                                                  temperature=temperature, thinking=False)
 
     async def _get_memory(self):
         if self._memory is None:
