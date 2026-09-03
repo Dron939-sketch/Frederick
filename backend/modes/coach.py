@@ -22,6 +22,8 @@ from .prompts.coach import (
 from profiles import VECTORS, LEVEL_PROFILES
 from services.ai_service import AIService
 
+from .prompts.psychologist.router import crisis_reply
+
 logger = logging.getLogger(__name__)
 
 
@@ -190,6 +192,12 @@ class CoachMode(BaseMode):
     # ========== ПОТОКОВАЯ ОБРАБОТКА (WebSocket) ==========
     async def process_question_streaming(self, question: str):
         """Потоковая обработка через AI с кастомным промптом Рассел-коуча."""
+        _crisis = crisis_reply(self, question)
+        if _crisis:
+            self.save_to_history(question, _crisis)
+            yield _crisis
+            return
+
         profile = self._ai_profile()
         system_prompt = self._build_system_prompt(profile)
         system_prompt = await self._prepend_memory(system_prompt)
@@ -217,6 +225,11 @@ class CoachMode(BaseMode):
     # ========== ПОЛНЫЙ ОТВЕТ (HTTP) ==========
     async def process_question_full(self, question: str) -> str:
         logger.info("🎙️ process_question_full в режиме CoachMode")
+
+        _crisis = crisis_reply(self, question)
+        if _crisis:
+            self.save_to_history(question, _crisis)
+            return _crisis
 
         profile = self._ai_profile()
         system_prompt = self._build_system_prompt(profile)
