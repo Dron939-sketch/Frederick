@@ -1170,6 +1170,40 @@ def _cache_ok(slug: str) -> bool:
     return os.path.exists(path) and os.path.getsize(path) > 1000
 
 
+# Сайт живёт на Amvera, и каждый его передеплой — это несколько минут 503.
+# Текст лекции берётся со страницы, поэтому пакетная озвучка попадала в
+# такое окно и падала подряд на всех слагах: 3 сентября так остановился
+# прогон на 150/472 — сработала защита FAILS_TO_ABORT, хотя чинить было
+# нечего, сайт возвращался сам через пару минут. Ждём его здесь.
+ARTICLE_TRIES = 4
+ARTICLE_BACKOFF = (5, 20, 60)      # сек: суммарно до полутора минут ожидания
+
+
+async def _fetch_article(client, slug: str):
+    """Страница лекции с сайта, с повтором на временную недоступность.
+
+    Повторяем только то, что чинится ожиданием: 5xx, 429 и сетевой сбой.
+    404 — это настоящая пропажа статьи, ждать её бессмысленно, отдаём
+    ошибку сразу, чтобы слаг попал в отчёт как проблемный."""
+    last = None
+    for attempt in range(ARTICLE_TRIES):
+        try:
+            page = await client.get(f"{SITE_BASE}/blog/{slug}.html")
+            if page.status_code == 200:
+                return page
+            if page.status_code < 500 and page.status_code != 429:
+                raise FileNotFoundError(f"article {slug} -> {page.status_code}")
+            last = f"article {slug} -> {page.status_code}"
+        except (httpx.TransportError, httpx.TimeoutException) as e:
+            last = f"article {slug} -> {type(e).__name__}"
+        if attempt < ARTICLE_TRIES - 1:
+            pause = ARTICLE_BACKOFF[attempt]
+            logger.info("blog-tts %s: сайт недоступен (%s), повтор через %s с",
+                        slug, last, pause)
+            await asyncio.sleep(pause)
+    raise FileNotFoundError(f"{last} (после {ARTICLE_TRIES} попыток)")
+
+
 async def _generate(slug: str, model: str | None = None,
                     force: bool = False) -> str:
     """Скачивает статью, синтезирует и кладёт mp3 в кэш. Возвращает путь.
@@ -1189,9 +1223,7 @@ async def _generate(slug: str, model: str | None = None,
         return path
 
     async with httpx.AsyncClient(timeout=30) as client:
-        page = await client.get(f"{SITE_BASE}/blog/{slug}.html")
-        if page.status_code != 200:
-            raise FileNotFoundError(f"article {slug} -> {page.status_code}")
+        page = await _fetch_article(client, slug)
         text = _extract_text(page.text)
         if len(text) < 200:
             raise ValueError(f"article {slug}: extracted text too short")
