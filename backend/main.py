@@ -9048,18 +9048,31 @@ async def api_natal_chart(request: Request):
     if not date_time:
         return {"success": False, "error": "date_time is required (format: 'YYYY-MM-DD HH:MM')"}
 
+    Subject = getattr(_immanuel_charts, "Subject", None)
+    Natal = getattr(_immanuel_charts, "Natal", None)
+    if Subject is None or Natal is None:
+        return {"success": False, "error": "immanuel.charts.Subject / Natal не найден"}
+
+    def _build():
+        return Natal(Subject(date_time=date_time, latitude=latitude, longitude=longitude))
+
     try:
-        Subject = getattr(_immanuel_charts, "Subject", None)
-        Natal = getattr(_immanuel_charts, "Natal", None)
-        if Subject is None or Natal is None:
-            return {"success": False, "error": "immanuel.charts.Subject / Natal не найден"}
-        subject = Subject(date_time=date_time, latitude=latitude, longitude=longitude)
-        natal = Natal(subject)
+        # Swiss Ephemeris считает синхронно и не быстро. В async-эндпойнте
+        # прямой вызов держал событийный цикл, и пока строилась одна карта,
+        # сервер не отвечал никому: 3 сентября в аналитике за тот же час
+        # набралось 332 ошибки 504 на /api/chats, /api/notifications и
+        # /api/meter/can-send — соседних запросах, ни при чём не виноватых.
+        # Считаем в потоке и с потолком по времени: лучше честная ошибка
+        # на одной карте, чем повисший на минуту сервер для всех.
+        natal = await asyncio.wait_for(asyncio.to_thread(_build), timeout=25)
+    except asyncio.TimeoutError:
+        logger.error("immanuel natal chart build timed out (25s)")
+        return {"success": False, "error": "Расчёт занял слишком долго. Попробуйте ещё раз."}
     except Exception as e:
         logger.error(f"immanuel natal chart build failed: {e}")
         return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
-    chart_data = _natal_serialize(natal)
+    chart_data = await asyncio.to_thread(_natal_serialize, natal)
     chart_data["success"] = True
     chart_data["subject"]["date_time_local"] = date_time
     chart_data["subject"]["latitude"] = latitude
