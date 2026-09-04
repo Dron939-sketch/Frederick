@@ -916,8 +916,9 @@ async def meter_guard_middleware(request: Request, call_next):
                     "can_send": False,
                     "block_reason": "auth",
                     "message": ("Чтобы разговаривать с Фреди, нужен аккаунт: "
-                                "имя, почта и минута времени. После регистрации — "
-                                "10 минут бесплатно."),
+                                "имя, почта и минута времени. С аккаунтом "
+                                "бесплатных минут больше, и они обновляются "
+                                "каждый день."),
                 },
                 headers=_cors_headers_for(request),
             )
@@ -931,6 +932,37 @@ async def meter_guard_middleware(request: Request, call_next):
             return await call_next(request)
 
         if can_send:
+            # 04.09: голос — отдельная стена. Дневные минуты ещё есть, но
+            # окно «всё включено» выговорено → голосовые пути закрыты,
+            # текст продолжает работать. Стена не смешивается с дневной:
+            # голос не вернётся в полночь, и мы этого не обещаем.
+            if path.startswith("/api/voice/") \
+                    and not status.get("is_premium") \
+                    and status.get("voice_allowed") is False:
+                try:
+                    await log_server_event(user_id, "meter_blocked_server", {
+                        "path": path, "block_reason": "voice",
+                        "trial_used_minutes": status.get("trial_used_minutes", 0),
+                    })
+                except Exception:
+                    pass
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        "success": False,
+                        "error": "METER_BLOCKED",
+                        "can_send": False,
+                        "block_reason": "voice",
+                        "voice_allowed": False,
+                        "remaining_today_minutes": status.get("remaining_today_minutes"),
+                        "limit_minutes": status.get("limit_minutes"),
+                        "is_registered": status.get("is_registered"),
+                        "message": ("Голосовые минуты знакомства закончились. "
+                                    "Текстом можно продолжать бесплатно — голос "
+                                    "возвращается с Premium."),
+                    },
+                    headers=_cors_headers_for(request),
+                )
             return await call_next(request)
 
         # Дневной reset в 00:00 UTC — считаем сколько минут осталось.
@@ -1057,6 +1089,16 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                 _ws_ip = _ws_xff or (websocket.client.host if websocket.client else None)
                 can_send, st = await _ws_meter.can_send_message(
                     _uid_for_meter, ip_hash=_cih(_ws_ip))
+                # 04.09: голос живёт в окне «всё включено». Дневные минуты
+                # могут быть на месте, а окно выговорено — тогда голосовой
+                # сокет закрыт, текст в чате продолжает работать. Без этой
+                # проверки давний пользователь с can_send=true проходил бы
+                # в самый дорогой стек (Deepgram + DeepSeek + Fish Audio).
+                if can_send and not st.get("is_premium") \
+                        and st.get("voice_allowed") is False:
+                    can_send = False
+                    st = dict(st)
+                    st["block_reason"] = "voice"
             if not can_send:
                 logger.info(
                     f"🚫 WS voice meter-blocked uid={_uid_for_meter} "
@@ -1080,6 +1122,10 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                             "Чтобы говорить с Фреди голосом, нужен аккаунт: "
                             "имя, почта и минута времени."
                             if st.get("block_reason") == "auth" else
+                            "Голосовые минуты знакомства закончились. Текстом "
+                            "можно продолжать бесплатно — голос возвращается "
+                            "с Premium."
+                            if st.get("block_reason") == "voice" else
                             "Бесплатные минуты закончились — оформи подписку, "
                             "чтобы продолжить голосовое общение."
                             if st.get("block_reason") == "trial" else

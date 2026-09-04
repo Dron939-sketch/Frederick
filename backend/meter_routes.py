@@ -187,6 +187,8 @@ def register_meter_routes(app, db, limiter):
                 "trial_limit_minutes": status.get("trial_limit_minutes"),
                 "trial_used_minutes": status.get("trial_used_minutes"),
                 "block_reason": status.get("block_reason"),
+                # 04.09: окно «всё включено» ограничивает только голос.
+                "voice_allowed": status.get("voice_allowed", True),
                 "free_days_used": status.get("free_days_used", 0),
                 "free_days_left": status.get("free_days_left"),
                 "trial_exhausted": status.get("trial_exhausted", False),
@@ -212,20 +214,19 @@ def register_meter_routes(app, db, limiter):
                 result["is_on_cooldown"] = False
                 result["remaining_cooldown_minutes"] = 0
             else:
-                # Warning при ≥70% израсходованного — по тому из двух
-                # ограничений, которое ближе. Считать только дневной процент
-                # нельзя: к концу общего запаса человек может открыть день
-                # с нулевым расходом, получить «использовано 0%» и упереться
-                # в paywall через минуту разговора.
+                # Warning при ≥70% израсходованного — только по дневному
+                # лимиту. До 04.09 бралось max(день, запас), и это было
+                # верно: запас реально обрывал разговор. Теперь окно «всё
+                # включено» текст не ограничивает, а выговорено оно у
+                # каждого давнего пользователя — max() предупреждал бы
+                # такого человека каждый день при нулевом дневном расходе.
                 used_day = status.get("used_minutes_today")
                 lim_day = status.get("limit_minutes")
-                used_trial = status.get("trial_used_minutes")
-                lim_trial = status.get("trial_limit_minutes")
 
                 def _pct(used, lim):
                     return (used / lim) if (lim and lim > 0 and used is not None) else 0.0
 
-                pct = max(_pct(used_day, lim_day), _pct(used_trial, lim_trial))
+                pct = _pct(used_day, lim_day)
                 if pct >= 0.70 and not status.get("is_premium"):
                     result["warning"] = True
                     # Событие — только на первое пересечение порога за сутки.
