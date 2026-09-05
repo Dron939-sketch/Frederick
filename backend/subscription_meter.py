@@ -88,9 +88,24 @@ def client_ip_hash(raw_ip: Optional[str]) -> Optional[str]:
 FREE_DAILY_MINUTES = 5
 FREE_DAILY_MINUTES_ANON = 3
 
+# 05.09.2026: первый разговор анониму дают дописать. Выгрузка диалогов
+# за месяц: стена аккаунта на третьей минуте показана 55 раз, аккаунтов
+# 4; она приходила посреди первого ответа Фреди, до всякой пользы. Все
+# длинные разговоры базы (20–60 минут) начались с того, что человека не
+# прервали. Поэтому в первый день анониму — FIRST_CONVERSATION_MINUTES,
+# столько же, сколько окно «всё включено» с голосом; со второго дня —
+# обычные 3. Аккаунт, заведённый в тот же день, добавляет свои 5 сверху,
+# а не обнуляет: иначе «оставь почту — говори дольше» стало бы ложью
+# ровно в момент регистрации.
+FIRST_CONVERSATION_MINUTES = 10
 
-def daily_limit_minutes(registered: bool) -> int:
-    """Сколько минут в день положено: с аккаунтом больше, чем без."""
+
+def daily_limit_minutes(registered: bool, first_day: bool = False) -> int:
+    """Сколько минут в день положено: с аккаунтом больше, чем без.
+
+    first_day — вся история человека уместилась в сегодня (первый разговор)."""
+    if first_day:
+        return FIRST_CONVERSATION_MINUTES + (FREE_DAILY_MINUTES if registered else 0)
     return FREE_DAILY_MINUTES if registered else FREE_DAILY_MINUTES_ANON
 
 # Окно «всё включено», в суммарных минутах с начала знакомства: пока оно
@@ -108,7 +123,7 @@ FREE_TRIAL_MINUTES = 10
 # два анонимных лимита, чтобы два человека за одним роутером прошли день
 # без ложной стены; аккаунтов и Premium это не касается вовсе, так что
 # честный выход из-под потолка — оставить почту.
-ANON_IP_DAILY_CAP_MINUTES = FREE_DAILY_MINUTES_ANON * 2
+ANON_IP_DAILY_CAP_MINUTES = FIRST_CONVERSATION_MINUTES * 2
 
 # Счётчик активных дней. Больше не блокирует — остаётся для аналитики
 # и для старых сборок фронта, которые читают free_days_used/free_days_left.
@@ -224,7 +239,11 @@ class SubscriptionMeter:
     def _compose_status(self, used_seconds: int, free_days_used: int,
                         total_seconds: int = 0,
                         registered: bool = True) -> Dict[str, Any]:
-        limit_today = daily_limit_minutes(registered)
+        # Первый день: всё, что человек наговорил за жизнь, наговорено
+        # сегодня (общий счётчик не больше дневного, с запасом на секунды
+        # округления). Такому даём дописать первый разговор целиком.
+        first_day = total_seconds <= used_seconds + 30
+        limit_today = daily_limit_minutes(registered, first_day)
         used_minutes = used_seconds / 60.0
         remaining_today = max(0.0, limit_today - used_minutes)
 

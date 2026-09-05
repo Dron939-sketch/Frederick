@@ -50,6 +50,16 @@ CAMPAIGN_D3 = "d3_first"
 # проверяемым (цена, условия).
 CAMPAIGN_TRIAL = "trial_spent"
 
+# Кампания «d1» (05.09.2026): «Фреди напишет завтра». Выгрузка диалогов
+# за месяц показала, что все длинные разговоры обрываются на реплике
+# Фреди и повода вернуться нет, а подписка покупается на второй-третий
+# день. Через сутки после разговора — короткое письмо с продолжением его
+# темы: «как прошло?», один шаг, дверь обратно. Не реклама. В отличие от
+# d3, письмо знает тему последней реплики (решение владельца): без цитат,
+# только суть в двух-трёх словах.
+CAMPAIGN_D1 = "d1_tomorrow"
+D1_SUBJECT = "Фреди: как прошло?"
+
 
 # ============================================================
 # 1. ПОВЕДЕНЧЕСКОЕ SUMMARY
@@ -218,6 +228,48 @@ async def generate_message_text(s: dict) -> str:
     return _fallback_text(name, s)
 
 
+async def _last_user_topic(db, user_id: int) -> str:
+    """Последняя реплика человека (обрезанная) — для письма d1."""
+    try:
+        row = await db.fetchrow(
+            """SELECT content FROM fredi_messages
+               WHERE user_id = $1 AND role = 'user'
+               ORDER BY id DESC LIMIT 1""", user_id)
+        return (row['content'] or '').strip()[:400] if row else ''
+    except Exception as e:
+        logger.warning(f"[reeng] last topic failed: {e}")
+        return ''
+
+
+async def generate_d1_text(s: dict, topic: str) -> str:
+    """Письмо на следующий день: продолжение вчерашнего разговора."""
+    name = (s.get('name') or 'друг').strip() or 'друг'
+    prompt = (
+        "Ты — Фреди, виртуальный психолог. Вчера человек говорил с тобой, "
+        "разговор оборвался. Напиши ему короткое письмо (40–70 слов), как "
+        "будто продолжаешь тот же разговор на следующий день.\n\n"
+        f"Имя: {name}\n"
+        f"О чём была его последняя реплика (не цитируй, назови суть двумя-тремя словами): {topic or 'не известно'}\n\n"
+        "Строение: спроси, как прошло вчера или как сегодня с этим; одно "
+        "наблюдение по теме; один маленький шаг на сегодня; фраза-приглашение "
+        "продолжить. Тон спокойный, на «ты», без восклицаний, без «всё будет "
+        "хорошо», без рекламы, без упоминания подписки и минут. Без "
+        "приветствия и без подписи. Не пересказывай, что он говорил."
+    )
+    try:
+        from services.anthropic_client import call_anthropic
+        text = await call_anthropic(prompt, max_tokens=260, temperature=0.7)
+        if not (text and isinstance(text, str) and len(text.strip()) > 30):
+            from services.ai_service import call_deepseek
+            text = await call_deepseek(prompt, max_tokens=260, temperature=0.7)
+        if text and isinstance(text, str) and len(text.strip()) > 30:
+            return text.strip()
+    except Exception as e:
+        logger.warning(f"[reeng] d1 LLM call failed: {e}")
+    return (f"{name}, вчера мы остановились на полуслове. Как прошло? "
+            f"Если хочешь, продолжим с того же места — я помню, о чём шла речь.")
+
+
 def _fallback_text(name: str, s: dict) -> str:
     """Шаблонное сообщение, если LLM недоступна."""
     if s.get('skill_active'):
@@ -381,6 +433,10 @@ async def send_reengagement(db, email_service, user_id: int,
         text = _trial_text(s)
         subject = TRIAL_SUBJECT
         return_link = f"{APP_BASE_URL}?ref=reeng-trial&cid={token}"
+    elif campaign == CAMPAIGN_D1:
+        text = await generate_d1_text(s, await _last_user_topic(db, user_id))
+        subject = D1_SUBJECT
+        return_link = f"{APP_BASE_URL}?ref=reeng-d1&cid={token}"
     else:
         text = await generate_message_text(s)
         subject = "Фреди — подумалось о тебе"
@@ -496,6 +552,38 @@ async def _scan_and_send_trial(db, email_service):
         await asyncio.sleep(1.2)
 
 
+D1_SQL = """SELECT u.user_id
+             FROM fredi_users u
+            WHERE u.email IS NOT NULL AND u.email <> ''
+              AND u.last_activity < NOW() - INTERVAL '20 hours'
+              AND u.last_activity > NOW() - INTERVAL '40 hours'
+              AND EXISTS (SELECT 1 FROM fredi_messages m
+                           WHERE m.user_id = u.user_id AND m.role = 'user'
+                             AND m.created_at > NOW() - INTERVAL '2 days')
+              AND NOT EXISTS (SELECT 1 FROM fredi_reengagement_log l
+                               WHERE l.user_id = u.user_id AND l.campaign = $1)
+              AND u.email_opted_out_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM fredi_reengagement_log l
+                               WHERE l.user_id = u.user_id AND l.opted_out_at IS NOT NULL)
+            LIMIT 50"""
+
+
+async def _scan_and_send_d1(db, email_service):
+    """Один проход d1: разговор был сутки назад, письма ещё не было."""
+    rows = await db.fetch(D1_SQL, CAMPAIGN_D1)
+    logger.info(f"[reeng] d1: найдено {len(rows)} кандидатов")
+    for r in rows:
+        try:
+            await send_reengagement(db, email_service, r['user_id'], CAMPAIGN_D1)
+        except Exception as e:
+            logger.warning(f"[reeng] d1 send failed for user {r['user_id']}: {e}")
+
+
+async def _count_d1_candidates(db) -> int:
+    rows = await db.fetch(D1_SQL, CAMPAIGN_D1)
+    return len(rows)
+
+
 async def _count_trial_candidates(db) -> int:
     """COUNT кандидатов trial_spent — для логов и админки."""
     row = await db.fetchrow(
@@ -561,13 +649,15 @@ async def reengagement_scheduler(db, email_service_getter):
         try:
             if autosend:
                 es = email_service_getter() if callable(email_service_getter) else email_service_getter
+                await _scan_and_send_d1(db, es)
                 await _scan_and_send_d3(db, es)
                 await _scan_and_send_trial(db, es)
             else:
                 n = await _count_candidates(db)
                 nt = await _count_trial_candidates(db)
-                if n > 0 or nt > 0:
-                    logger.info(f"[reeng] ожидают отправки: d3 {n}, trial_spent {nt} "
+                n1 = await _count_d1_candidates(db)
+                if n > 0 or nt > 0 or n1 > 0:
+                    logger.info(f"[reeng] ожидают отправки: d1 {n1}, d3 {n}, trial_spent {nt} "
                                 f"(autosend off, открой админку → Reengagement)")
         except asyncio.CancelledError:
             raise
