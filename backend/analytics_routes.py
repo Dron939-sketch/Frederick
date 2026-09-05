@@ -867,6 +867,101 @@ def register_analytics_routes(app, db):
             logger.error(f"analytics messages user error: {e}")
             return {"error": "internal"}
 
+    @app.get("/api/analytics/messages/export")
+    async def analytics_messages_export(days: int = 30, anon: int = 1, max_messages: int = 20000,
+                                        x_admin_token: Optional[str] = Header(default=None)):
+        """Все диалоги за период одним файлом (JSON), сгруппированные по человеку.
+
+        Зачем. Из админки диалог читается по одному, и разобрать сотню
+        разговоров на темы, возраст и момент ухода вручную нельзя. Файл
+        отдаётся в анализ — в том числе внешний, поэтому по умолчанию
+        обезличен (anon=1): вместо user_id — необратимый хеш, имена и
+        контакты из карточки не выгружаются, почты и телефоны внутри
+        реплик заменяются на [email]/[phone]. Возраст, пол, город остаются —
+        ради них выгрузка и нужна. anon=0 отдаёт как есть.
+
+        Один запрос — один файл, до max_messages последних сообщений
+        (по умолчанию 20 000). Закрыт X-Admin-Token.
+        """
+        _check_admin(x_admin_token)
+        import hashlib
+        import re
+        from fastapi.responses import Response
+
+        days = max(1, min(int(days), 365))
+        lim = max(100, min(int(max_messages), 100000))
+        anon = bool(int(anon))
+        salt = hashlib.sha256(((os.environ.get("ADMIN_TOKEN") or "") + "|export").encode()).hexdigest()[:16]
+        email_re = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+        phone_re = re.compile(r"(?<!\d)(?:\+7|8)?[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)")
+
+        def scrub(text):
+            if not anon or not text:
+                return text
+            return phone_re.sub("[phone]", email_re.sub("[email]", text))
+
+        try:
+            async with db.get_connection() as conn:
+                rows = await conn.fetch(
+                    "SELECT m.id, m.user_id, m.role, m.content, m.metadata, m.created_at, "
+                    "       COALESCE(NULLIF(c.name, ''), NULLIF(u.first_name, ''), '') AS user_name, "
+                    "       c.age, c.gender, c.city, u.created_at AS user_since, "
+                    "       (u.email IS NOT NULL AND u.email <> '') AS has_account "
+                    "FROM fredi_messages m "
+                    "LEFT JOIN fredi_user_contexts c ON c.user_id = m.user_id "
+                    "LEFT JOIN fredi_users u ON u.user_id = m.user_id "
+                    "WHERE m.created_at > NOW() - ($1 || ' days')::interval "
+                    "ORDER BY m.id DESC LIMIT $2", str(days), lim
+                )
+        except Exception as e:
+            logger.error(f"analytics messages export error: {e}")
+            return {"error": "internal"}
+
+        dialogs = {}
+        for r in reversed(rows):
+            uid = int(r["user_id"])
+            key = hashlib.sha256(f"{salt}:{uid}".encode()).hexdigest()[:12] if anon else uid
+            d = dialogs.get(key)
+            if d is None:
+                d = dialogs[key] = {
+                    "user": key,
+                    "age": r["age"], "gender": r["gender"], "city": r["city"],
+                    "has_account": bool(r["has_account"]),
+                    "user_since": r["user_since"].isoformat() if r["user_since"] else None,
+                    "messages": [],
+                }
+                if not anon:
+                    d["user_name"] = r["user_name"] or ""
+            meta = r["metadata"]
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    meta = {}
+            meta = meta or {}
+            d["messages"].append({
+                "role": r["role"],
+                "text": scrub(r["content"]),
+                "mode": meta.get("mode"),
+                "voice": bool(meta.get("voice")),
+                "ts": r["created_at"].isoformat() if r["created_at"] else None,
+            })
+
+        payload = {
+            "exported_at": datetime.utcnow().isoformat() + "Z",
+            "days": days,
+            "anonymized": anon,
+            "dialogs": len(dialogs),
+            "messages": len(rows),
+            "items": list(dialogs.values()),
+        }
+        fname = f"fredi-dialogs-{days}d-{datetime.utcnow().strftime('%Y%m%d')}{'-anon' if anon else ''}.json"
+        return Response(
+            content=json.dumps(payload, ensure_ascii=False, indent=1),
+            media_type="application/json; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+
     @app.get("/api/analytics/costs")
     async def analytics_costs(
         period: str = "7d",
