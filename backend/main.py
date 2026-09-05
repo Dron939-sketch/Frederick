@@ -133,6 +133,28 @@ weather_service: Optional[WeatherService] = None
 user_repo: Optional[UserRepository] = None
 context_repo: Optional[ContextRepository] = None
 message_repo: Optional[MessageRepository] = None
+
+
+async def _session_meta(user_id) -> dict:
+    """Сколько реплик человек написал в текущем разговоре и есть ли у
+    него аккаунт. Нужно BasicMode для ритуала завершения: после пятой
+    реплики подряд Фреди подводит итог и зовёт продолжить завтра, а
+    анониму называет причину завести аккаунт. История в user_data —
+    без времени и обрезана десятью сообщениями, поэтому считаем в базе:
+    разговор — реплики с разрывом меньше 40 минут."""
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT (u.email IS NOT NULL AND u.email <> '') AS registered, "
+                "       (SELECT COUNT(*) FROM fredi_messages m "
+                "         WHERE m.user_id = u.user_id AND m.role = 'user' "
+                "           AND m.created_at > NOW() - INTERVAL '40 minutes') AS turns "
+                "FROM fredi_users u WHERE u.user_id = $1", int(user_id))
+        if row:
+            return {"session_turns": int(row["turns"] or 0), "is_registered": bool(row["registered"])}
+    except Exception as e:
+        logger.debug(f"_session_meta skip: {e}")
+    return {}
 hypno: Optional[HypnoOrchestrator] = None
 tales: Optional[TherapeuticTales] = None
 intervention_lib: Optional[InterventionLibrary] = None
@@ -1214,6 +1236,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         "history": history,  # ФИХ: реальная история
         "message_count": context.get("basic_message_count", 0),  # счётчик для BasicMode
         "test_offered": context.get("basic_test_offered", False),  # флаг предложения теста
+        **(await _session_meta(user_id_for_db)),  # session_turns, is_registered — для ритуала завершения
     }
 
     class SimpleContext:
@@ -3342,6 +3365,7 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         "history": history,           # ФИХ 3: реальная история
         "message_count": msg_count,   # ФИХ 4: счётчик BasicMode
         "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
+        **(await _session_meta(user_id)),  # session_turns, is_registered — для ритуала завершения
     }
 
     class SimpleContext:
