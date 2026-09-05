@@ -20,7 +20,7 @@ from .prompts.coach import (
     should_include_fewshot,
 )
 from profiles import VECTORS, LEVEL_PROFILES
-from services.ai_service import AIService
+from services.ai_service import AIService, TECH_FAIL_REPLY
 
 from .prompts.psychologist.router import crisis_reply
 
@@ -216,7 +216,15 @@ class CoachMode(BaseMode):
                 yield chunk
 
         if not full_response:
-            fallback = self._generate_philosophical_question(question)
+            # Модель промолчала (сбой провайдера, пустой поток). Раньше сюда
+            # подставлялся случайный «философский вопрос» из шаблонов —
+            # 5 сентября девушка 19 лет с PHQ-9 = 23 из 27 попросила помочь
+            # собрать, что сказать врачу, и получила «Я слышу вас. Как вы
+            # сами отвечаете на этот вопрос?». Человеку в таком состоянии
+            # нельзя отвечать заглушкой под видом ответа: честнее сказать,
+            # что сбой, — той же фразой, что и basic, чтобы main.py узнал её
+            # и извинился при следующем живом ответе.
+            fallback = TECH_FAIL_REPLY
             full_response = fallback
             yield fallback
 
@@ -246,7 +254,9 @@ class CoachMode(BaseMode):
         )
 
         if not response or not response.strip():
-            response = self._generate_philosophical_question(question)
+            # См. комментарий в process_question_streaming: не шаблон, а
+            # честное «сбой», единое с basic.
+            response = TECH_FAIL_REPLY
 
         self.save_to_history(question, response)
         return response
