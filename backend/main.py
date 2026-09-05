@@ -2196,13 +2196,30 @@ async def init_database_tables():
 # ============================================
 # ФОНОВЫЕ ЗАДАЧИ
 # ============================================
+# Сколько хранить диалоги и события. До 5 сентября 2026 задача раз в час
+# удаляла все сообщения старше 30 дней — у всех, включая вернувшихся и
+# подписчиков. Выгрузка диалогов начиналась 8 августа, хотя разговоры
+# шли с весны: их стёр этот же цикл. Для продукта, который продаёт «я тебя
+# помню», это било по главному: память Фреди о человеке кончалась через
+# месяц. По умолчанию сообщения теперь не удаляются (0 = хранить всегда),
+# события аналитики живут год. Оба срока задаются в env.
+MESSAGE_RETENTION_DAYS = int(os.environ.get("MESSAGE_RETENTION_DAYS", "0") or 0)
+EVENTS_RETENTION_DAYS = int(os.environ.get("EVENTS_RETENTION_DAYS", "365") or 365)
+
+
 async def cleanup_old_data():
     while True:
         try:
             await asyncio.sleep(3600)
             async with db.get_connection() as conn:
-                await conn.execute("DELETE FROM fredi_messages WHERE created_at < NOW() - INTERVAL '30 days'")
-                await conn.execute("DELETE FROM fredi_events WHERE created_at < NOW() - INTERVAL '30 days'")
+                if MESSAGE_RETENTION_DAYS > 0:
+                    await conn.execute(
+                        "DELETE FROM fredi_messages WHERE created_at < NOW() - ($1 || ' days')::interval",
+                        str(MESSAGE_RETENTION_DAYS))
+                if EVENTS_RETENTION_DAYS > 0:
+                    await conn.execute(
+                        "DELETE FROM fredi_events WHERE created_at < NOW() - ($1 || ' days')::interval",
+                        str(EVENTS_RETENTION_DAYS))
                 await conn.execute("DELETE FROM fredi_weekend_ideas_cache WHERE expires_at < NOW()")
                 await conn.execute("UPDATE fredi_users SET is_active = FALSE WHERE last_activity < NOW() - INTERVAL '90 days' AND is_active = TRUE")
                 logger.info("🧹 Cleanup completed")
