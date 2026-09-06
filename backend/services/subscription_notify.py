@@ -35,15 +35,28 @@ def _app_link() -> str:
     return (os.environ.get("FREDI_APP_URL") or "https://meysternlp.ru/fredi/").rstrip("/")
 
 
-def _build_email(name_or_empty: str, expires_at: datetime, is_renewal: bool) -> tuple[str, str, str]:
+def _trial_note(plan: str) -> str:
+    # Пробная неделя: человек должен знать заранее, что будет после неё.
+    if plan != "trial_week":
+        return ""
+    return ("Это пробная неделя за 290 ₽. Когда она закончится, подписка "
+            "продолжится за 990 ₽ в месяц — отключить автопродление можно "
+            "в один клик в разделе «Подписка». ")
+
+
+def _build_email(name_or_empty: str, expires_at: datetime, is_renewal: bool,
+                 plan: str = "monthly") -> tuple[str, str, str]:
     """Returns (subject, plain_body, html_body)."""
-    title = "Подписка продлена" if is_renewal else "Подписка активирована"
+    title = "Подписка продлена" if is_renewal else (
+        "Пробная неделя началась" if plan == "trial_week" else "Подписка активирована")
     greet = f"Привет{', ' + name_or_empty if name_or_empty else ''}!"
     date_str = _format_date(expires_at)
     link = _app_link()
+    note = _trial_note(plan)
     plain = (
         f"{greet}\n\n"
         f"{title}. Фреди Premium открыт до {date_str}.\n"
+        f"{note}"
         f"Полный доступ ко всем возможностям: безлимитные сессии, "
         f"AI-дневник, гипноз, зеркала, транзактный анализ.\n\n"
         f"Открыть Фреди: {link}\n\n"
@@ -58,6 +71,7 @@ def _build_email(name_or_empty: str, expires_at: datetime, is_renewal: bool) -> 
         f"<p style=\"font-size:15px;line-height:1.55;color:#333;margin:0 0 16px;\">"
         f"{greet} Фреди Premium открыт до <b>{date_str}</b>.</p>"
         f"<p style=\"font-size:14px;line-height:1.55;color:#555;margin:0 0 24px;\">"
+        f"{note}"
         f"Полный доступ ко всем возможностям: безлимитные сессии с Фреди, "
         f"AI-дневник, гипнотические практики, зеркала отношений, "
         f"транзактный анализ по Берну.</p>"
@@ -73,11 +87,12 @@ def _build_email(name_or_empty: str, expires_at: datetime, is_renewal: bool) -> 
     return title, plain, html
 
 
-def _build_messenger_text(expires_at: datetime, is_renewal: bool) -> str:
+def _build_messenger_text(expires_at: datetime, is_renewal: bool, plan: str = "monthly") -> str:
     verb = "продлена" if is_renewal else "активирована"
     date_str = _format_date(expires_at)
     return (
         f"✨ Подписка Фреди Premium {verb} до {date_str}.\n\n"
+        f"{_trial_note(plan)}"
         f"Тебе открыт полный доступ: безлимитные сессии, AI-дневник, "
         f"гипноз, зеркала отношений.\n\n"
         f"Открыть → {_app_link()}"
@@ -126,7 +141,7 @@ async def _send_max(chat_id: str, text: str) -> bool:
         return False
 
 
-async def _send_email(db, user_id: int, expires_at: datetime, is_renewal: bool) -> bool:
+async def _send_email(db, user_id: int, expires_at: datetime, is_renewal: bool, plan: str = "monthly") -> bool:
     """Достаёт email из fredi_users и шлёт через EmailService (если поднят)."""
     email = None
     first_name = ""
@@ -159,7 +174,7 @@ async def _send_email(db, user_id: int, expires_at: datetime, is_renewal: bool) 
             from email_service import EmailService
             email_service = EmailService()
 
-        subject, plain, html = _build_email(first_name, expires_at, is_renewal)
+        subject, plain, html = _build_email(first_name, expires_at, is_renewal, plan)
         ok = await email_service.send(email, subject, plain, html=html)
         return bool(ok)
     except Exception as e:
@@ -197,6 +212,7 @@ async def notify_subscription_activated(
     user_id: int,
     expires_at: datetime,
     is_renewal: bool = False,
+    plan: str = "monthly",
 ) -> dict:
     """Главная функция: дублирует уведомление по всем доступным каналам.
 
@@ -204,10 +220,10 @@ async def notify_subscription_activated(
     блокировать активацию подписки. Возвращает словарь с результатом
     каждого канала (для логов/админки).
     """
-    msg_text = _build_messenger_text(expires_at, is_renewal)
+    msg_text = _build_messenger_text(expires_at, is_renewal, plan)
 
     # Все каналы параллельно — никакой канал не ждёт другого.
-    email_task = asyncio.create_task(_send_email(db, user_id, expires_at, is_renewal))
+    email_task = asyncio.create_task(_send_email(db, user_id, expires_at, is_renewal, plan))
     msg_task = asyncio.create_task(_send_messengers(db, user_id, msg_text))
 
     try:
