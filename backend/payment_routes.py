@@ -12,7 +12,7 @@ import hmac
 import os
 from fastapi import Request
 
-from payment import PaymentService
+from payment import PaymentService, PLANS, TRIAL_PLAN
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,11 @@ def register_payment_routes(app, db, limiter):
             # Отвязка карты обнуляет токен (требование ЮKassa) — колонка
             # должна допускать NULL
             await conn.execute("ALTER TABLE fredi_payment_methods ALTER COLUMN payment_method_id DROP NOT NULL")
+            # Тариф платежа и подписки: 'monthly' (990 ₽ / 30 дней) или
+            # 'trial_week' (290 ₽ / 7 дней). До 06.09.2026 тариф был один,
+            # поэтому у старых строк остаётся значение по умолчанию.
+            await conn.execute("ALTER TABLE fredi_payments ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'monthly'")
+            await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'monthly'")
         logger.info("Payment tables ready")
 
         # Стартуем фоновый поллинг pending-платежей здесь, чтобы не
@@ -149,6 +154,15 @@ def register_payment_routes(app, db, limiter):
             customer_phone = data.get("phone", "").strip()[:20] if data.get("phone") else None
             if not customer_email and not customer_phone:
                 return {"success": False, "error": "Необходимо указать email или телефон для чека"}
+
+            plan = str(data.get("plan") or "monthly")
+            if plan not in PLANS:
+                return {"success": False, "error": "unknown plan"}
+            if plan == TRIAL_PLAN and not await payment_service.trial_available(user_id):
+                # Пробная неделя — один раз на аккаунт. Фронт по статусу
+                # её и не покажет; это защита от прямого вызова.
+                return {"success": False, "error": "Пробная неделя уже была — доступна подписка на месяц",
+                        "code": "trial_used"}
 
             async with db.get_connection() as conn:
                 await conn.execute(
@@ -186,12 +200,13 @@ def register_payment_routes(app, db, limiter):
                         FROM fredi_payments
                         WHERE user_id = $1
                           AND payment_type = 'subscription_first'
+                          AND COALESCE(plan, 'monthly') = $2
                           AND status IN ('pending', 'waiting_for_capture')
                           AND created_at > NOW() - INTERVAL '10 minutes'
                         ORDER BY created_at DESC
                         LIMIT 1
                         """,
-                        user_id,
+                        user_id, plan,
                     )
                 if existing:
                     existing_id = existing["yookassa_id"]
@@ -225,13 +240,14 @@ def register_payment_routes(app, db, limiter):
                 user_id, return_url,
                 customer_email=customer_email,
                 customer_phone=customer_phone,
+                plan=plan,
             )
             if result["success"]:
                 async with db.get_connection() as conn:
                     await conn.execute(
                         "INSERT INTO fredi_events (user_id, event_type, event_data) VALUES ($1, $2, $3)",
                         user_id, "subscription_payment_created",
-                        json.dumps({"payment_id": result["payment_id"]})
+                        json.dumps({"payment_id": result["payment_id"], "plan": plan})
                     )
             return result
         except json.JSONDecodeError:

@@ -21,6 +21,24 @@ SUBSCRIPTION_AMOUNT = "990.00"
 SUBSCRIPTION_CURRENCY = "RUB"
 SUBSCRIPTION_PERIOD_DAYS = 30
 
+# Тарифы первого платежа. За пять дней рекламы (02–06.09.2026): ~170
+# первых сообщений, 3 стены оплаты, 0 подписок — между «бесплатно» и
+# 990 ₽ сразу нет ступеньки. Пробная неделя за 290 ₽ и есть ступенька:
+# полный Premium на 7 дней, карта сохраняется, дальше обычные 990 ₽ в
+# месяц автопродлением (отключается в один клик). Пробная неделя — один
+# раз на аккаунт: тому, у кого уже была любая подписка, не продаётся.
+PLANS = {
+    "monthly": {"amount": SUBSCRIPTION_AMOUNT, "days": SUBSCRIPTION_PERIOD_DAYS,
+                "title": f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес"},
+    "trial_week": {"amount": "290.00", "days": 7,
+                   "title": "Фреди Premium — пробная неделя, 290 руб"},
+}
+TRIAL_PLAN = "trial_week"
+
+
+def plan_info(plan: Optional[str]) -> Dict[str, Any]:
+    return PLANS.get(plan or "monthly", PLANS["monthly"])
+
 
 class PaymentService:
     """YooKassa API service"""
@@ -60,6 +78,7 @@ class PaymentService:
         return_url: str,
         customer_email: Optional[str] = None,
         customer_phone: Optional[str] = None,
+        plan: str = "monthly",
     ) -> Dict[str, Any]:
         if not self.shop_id or not self.secret_key:
             logger.error("YooKassa credentials not configured!")
@@ -74,15 +93,21 @@ class PaymentService:
             logger.error(f"No customer email or phone for user {user_id}")
             return {"success": False, "error": "Для оплаты необходимо указать email или телефон"}
 
-        description = f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес"
+        plan = plan if plan in PLANS else "monthly"
+        info = PLANS[plan]
+        amount = info["amount"]
+        description = info["title"]
+        # Ключ идемпотентности у каждого тарифа свой: иначе «неделя за 290»
+        # сразу после клика по «месяц за 990» вернула бы платёж на 990.
+        op = "subscription_first" if plan == "monthly" else f"subscription_first_{plan}"
 
         payment_data = {
-            "amount": {"value": SUBSCRIPTION_AMOUNT, "currency": SUBSCRIPTION_CURRENCY},
+            "amount": {"value": amount, "currency": SUBSCRIPTION_CURRENCY},
             "capture": True,
             "confirmation": {"type": "redirect", "return_url": return_url},
             "save_payment_method": True,
             "description": description,
-            "metadata": {"user_id": str(user_id), "type": "subscription_first"},
+            "metadata": {"user_id": str(user_id), "type": "subscription_first", "plan": plan},
             "receipt": {
                 "customer": customer,
                 "items": [
@@ -90,7 +115,7 @@ class PaymentService:
                         "description": description,
                         "quantity": "1.00",
                         "amount": {
-                            "value": SUBSCRIPTION_AMOUNT,
+                            "value": amount,
                             "currency": SUBSCRIPTION_CURRENCY,
                         },
                         "vat_code": 1,
@@ -112,7 +137,7 @@ class PaymentService:
                         # в течение 10 минут YooKassa вернёт тот же платёж,
                         # а не создаст новый.
                         "Idempotence-Key": self._idempotence_key(
-                            user_id=user_id, op="subscription_first"
+                            user_id=user_id, op=op
                         ),
                         "Content-Type": "application/json",
                     },
@@ -134,7 +159,7 @@ class PaymentService:
                         headers={
                             "Authorization": self._get_auth_header(),
                             "Idempotence-Key": self._idempotence_key(
-                                user_id=user_id, op="subscription_first_once"
+                                user_id=user_id, op=op + "_once"
                             ),
                             "Content-Type": "application/json",
                         },
@@ -159,17 +184,17 @@ class PaymentService:
 
             async with self.db.get_connection() as conn:
                 await conn.execute("""
-                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)
-                    VALUES ($1, $2, $3, 'pending', 'subscription_first', $4)
+                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description, plan)
+                    VALUES ($1, $2, $3, 'pending', 'subscription_first', $4, $5)
                     ON CONFLICT (yookassa_id) DO NOTHING
-                """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT),
-                    f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес")
+                """, user_id, yookassa_id, float(amount), description, plan)
 
-            logger.info(f"Payment created: {yookassa_id} for user {user_id}")
+            logger.info(f"Payment created: {yookassa_id} for user {user_id} plan={plan}")
             return {
                 "success": True,
                 "payment_id": yookassa_id,
                 "confirmation_url": confirmation_url,
+                "plan": plan,
             }
 
         except httpx.HTTPStatusError as e:
@@ -323,13 +348,16 @@ class PaymentService:
                 is_renewal = False
                 logger.info(f"Creating new subscription for user {user_id} until {new_expires}")
 
+            # Автопродление всегда идёт на месячный тариф — и после
+            # пробной недели тоже.
             await conn.execute("""
-                INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew)
-                VALUES ($1, 'active', $2, $3, TRUE)
+                INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew, plan)
+                VALUES ($1, 'active', $2, $3, TRUE, 'monthly')
                 ON CONFLICT (user_id) DO UPDATE SET
                     status = 'active',
                     expires_at = $3,
                     auto_renew = TRUE,
+                    plan = 'monthly',
                     updated_at = NOW()
             """, user_id, now, new_expires)
 
@@ -352,6 +380,18 @@ class PaymentService:
         yookassa_id = payment_obj.get("id", "")
         metadata = payment_obj.get("metadata", {}) or {}
         payment_type = metadata.get("type", "subscription_first")
+        # Тариф — из metadata платежа (единственное, чему можно верить после
+        # повторного GET у ЮKassa); сумма — из самого платежа, а не из
+        # константы, иначе пробная неделя легла бы в базу как 990.
+        plan = metadata.get("plan") or "monthly"
+        if plan not in PLANS:
+            plan = "monthly"
+        info = PLANS[plan]
+        try:
+            paid_amount = float((payment_obj.get("amount") or {}).get("value") or info["amount"])
+        except (TypeError, ValueError):
+            paid_amount = float(info["amount"])
+        period_days = int(info["days"])
 
         async with self.db.get_connection() as conn:
             # 1) Идемпотентность: если этот платёж уже отработан в подписку,
@@ -361,12 +401,11 @@ class PaymentService:
             """, yookassa_id)
 
             await conn.execute("""
-                INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)
-                VALUES ($1, $2, $3, 'succeeded', $4, $5)
+                INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description, plan)
+                VALUES ($1, $2, $3, 'succeeded', $4, $5, $6)
                 ON CONFLICT (yookassa_id) DO UPDATE SET
                     status = 'succeeded', updated_at = NOW()
-            """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT), payment_type,
-                f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес")
+            """, user_id, yookassa_id, paid_amount, payment_type, info["title"], plan)
 
             # 2) Сохраняем способ оплаты, если он пришёл (нужен для автопродления).
             payment_method = payment_obj.get("payment_method", {}) or {}
@@ -391,22 +430,22 @@ class PaymentService:
                 WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
             """, user_id)
             if row:
-                new_expires = row["expires_at"] + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                new_expires = row["expires_at"] + timedelta(days=period_days)
                 is_renewal = True
                 await conn.execute("""
-                    UPDATE fredi_subscriptions SET expires_at = $1, updated_at = NOW()
+                    UPDATE fredi_subscriptions SET expires_at = $1, plan = $3, updated_at = NOW()
                     WHERE user_id = $2 AND status = 'active'
-                """, new_expires, user_id)
+                """, new_expires, user_id, plan)
             else:
-                new_expires = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                new_expires = now + timedelta(days=period_days)
                 is_renewal = False
                 await conn.execute("""
-                    INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew)
-                    VALUES ($1, 'active', $2, $3, TRUE)
+                    INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew, plan)
+                    VALUES ($1, 'active', $2, $3, TRUE, $4)
                     ON CONFLICT (user_id) DO UPDATE SET
                         status = 'active', started_at = $2, expires_at = $3,
-                        auto_renew = TRUE, updated_at = NOW()
-                """, user_id, now, new_expires)
+                        auto_renew = TRUE, plan = $4, updated_at = NOW()
+                """, user_id, now, new_expires, plan)
 
         # Аналитика только при первой обработке этого платежа, чтобы
         # не дублировать subscription_activated при ретраях/поллинге.
@@ -418,6 +457,8 @@ class PaymentService:
                     "expires_at": new_expires.isoformat(),
                     "source": "webhook_or_verify",
                     "yookassa_id": yookassa_id,
+                    "plan": plan,
+                    "amount": paid_amount,
                 })
             except Exception as e:
                 logger.debug(f"analytics track(subscription_activated) failed: {e}")
@@ -428,7 +469,7 @@ class PaymentService:
             try:
                 from services.subscription_notify import notify_subscription_activated
                 asyncio.create_task(notify_subscription_activated(
-                    self.db, user_id, new_expires, is_renewal=is_renewal,
+                    self.db, user_id, new_expires, is_renewal=is_renewal, plan=plan,
                 ))
             except Exception as e:
                 logger.warning(f"notify dispatch failed for user {user_id}: {e}")
@@ -602,7 +643,7 @@ class PaymentService:
     async def get_subscription_status(self, user_id: int) -> Dict[str, Any]:
         async with self.db.get_connection() as conn:
             sub = await conn.fetchrow("""
-                SELECT status, started_at, expires_at, auto_renew
+                SELECT status, started_at, expires_at, auto_renew, plan
                 FROM fredi_subscriptions WHERE user_id = $1
                 ORDER BY expires_at DESC LIMIT 1
             """, user_id)
@@ -611,8 +652,16 @@ class PaymentService:
                 FROM fredi_payment_methods WHERE user_id = $1 AND is_active = TRUE
             """, user_id)
 
+        # Пробная неделя — один раз: любая прошлая подписка (в том числе
+        # истёкшая) закрывает её, дальше только месяц.
+        trial_available = sub is None
+        plans = {
+            "trial_week": {"amount": PLANS["trial_week"]["amount"], "days": 7, "available": trial_available},
+            "monthly": {"amount": PLANS["monthly"]["amount"], "days": 30, "available": True},
+        }
         if not sub:
-            return {"has_subscription": False, "status": "none", "card": None}
+            return {"has_subscription": False, "status": "none", "card": None,
+                    "trial_available": trial_available, "plans": plans}
 
         is_active = (
             sub["status"] == "active"
@@ -626,8 +675,17 @@ class PaymentService:
             "started_at": str(sub["started_at"]) if sub["started_at"] else None,
             "expires_at": str(sub["expires_at"]) if sub["expires_at"] else None,
             "auto_renew": sub["auto_renew"],
+            "plan": sub["plan"] or "monthly",
             "card": {"last4": card["card_last4"], "type": card["card_type"]} if card else None,
+            "trial_available": trial_available,
+            "plans": plans,
         }
+
+    async def trial_available(self, user_id: int) -> bool:
+        async with self.db.get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT 1 FROM fredi_subscriptions WHERE user_id = $1", user_id)
+        return row is None
 
     async def toggle_auto_renew(self, user_id: int, enabled: bool) -> Dict[str, Any]:
         async with self.db.get_connection() as conn:
@@ -647,10 +705,16 @@ class PaymentService:
                 SELECT s.user_id, pm.payment_method_id
                 FROM fredi_subscriptions s
                 JOIN fredi_payment_methods pm ON pm.user_id = s.user_id AND pm.is_active = TRUE
-                WHERE s.auto_renew = TRUE 
-                  AND s.status = 'active' 
-                  AND s.expires_at <= NOW() + INTERVAL '1 day'
+                WHERE s.auto_renew = TRUE
+                  AND s.status = 'active'
                   AND s.expires_at > NOW() - INTERVAL '1 day'
+                  AND (
+                    -- месяц продлевается за сутки до конца, как и раньше;
+                    -- пробная неделя — только когда истекла: списывать
+                    -- 990 на шестой день из семи нельзя
+                    (COALESCE(s.plan, 'monthly') <> 'trial_week' AND s.expires_at <= NOW() + INTERVAL '1 day')
+                    OR (s.plan = 'trial_week' AND s.expires_at <= NOW())
+                  )
             """)
         
         logger.info(f"Found {len(rows)} subscriptions to renew")
