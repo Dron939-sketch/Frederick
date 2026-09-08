@@ -20,7 +20,7 @@ from .prompts.coach import (
     should_include_fewshot,
 )
 from profiles import VECTORS, LEVEL_PROFILES
-from services.ai_service import AIService, TECH_FAIL_REPLY
+from services.ai_service import AIService, TECH_FAIL_REPLY, tech_fail_reply
 
 from .prompts.psychologist.router import crisis_reply
 
@@ -224,7 +224,7 @@ class CoachMode(BaseMode):
             # нельзя отвечать заглушкой под видом ответа: честнее сказать,
             # что сбой, — той же фразой, что и basic, чтобы main.py узнал её
             # и извинился при следующем живом ответе.
-            fallback = TECH_FAIL_REPLY
+            fallback = tech_fail_reply(self.user_id)
             full_response = fallback
             yield fallback
 
@@ -256,7 +256,7 @@ class CoachMode(BaseMode):
         if not response or not response.strip():
             # См. комментарий в process_question_streaming: не шаблон, а
             # честное «сбой», единое с basic.
-            response = TECH_FAIL_REPLY
+            response = tech_fail_reply(self.user_id)
 
         self.save_to_history(question, response)
         return response

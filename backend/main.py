@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 from db import Database
 from cache import RedisCache
-from services.ai_service import AIService, TECH_FAIL_REPLY
+from services.ai_service import AIService, TECH_FAIL_REPLY, is_tech_fail, tech_fail_reply
 from services.weather_service import WeatherService
 from services.weekend_planner import WeekendPlanner
 from repositories.user_repo import UserRepository
@@ -3243,7 +3243,7 @@ def _mark_tech_fail(context_obj: dict, response_text: str) -> str:
     """
     if not isinstance(context_obj, dict):
         return response_text
-    failed_now = (response_text or "").strip() == TECH_FAIL_REPLY.strip()
+    failed_now = is_tech_fail(response_text)
     if failed_now:
         context_obj["tech_fail_at"] = time.time()
         return response_text
@@ -3521,7 +3521,7 @@ async def chat(request: Request, data: ChatRequest):
         result = await _freddy_or_mode(prep, data.user_id, data.message)
         mode_name = result["mode_name"]
         answer = result["response"]
-        if prep.get("tech_fail_back") and answer.strip() != TECH_FAIL_REPLY.strip():
+        if prep.get("tech_fail_back") and not is_tech_fail(answer):
             answer = TECH_FAIL_BACK + answer
 
         await _finish_chat_turn(prep, data.user_id, data.message,
@@ -3668,7 +3668,7 @@ async def chat_stream(request: Request, data: ChatRequest):
 
             # Извинение — часть ответа, а не отдельная реплика: подклеиваем
             # его к тексту, который уйдёт в историю и в done.
-            if _prefix and full_text.strip() != TECH_FAIL_REPLY.strip():
+            if _prefix and not is_tech_fail(full_text):
                 full_text = _prefix + full_text
 
             _now = time.time()
@@ -4014,10 +4014,10 @@ async def process_voice(
                 response_text = result.get("response", "")
             except Exception as e:
                 logger.error(f"All methods failed: {e}")
-                response_text = TECH_FAIL_REPLY
+                response_text = tech_fail_reply(user_id)
 
         if not response_text or not response_text.strip():
-            response_text = TECH_FAIL_REPLY
+            response_text = tech_fail_reply(user_id)
 
         # Persist test_offered for BasicMode after processing
         if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
@@ -4262,7 +4262,7 @@ async def process_voice_stream(
                         full_text = (result.get("response", "") or "").strip()
                     except Exception as _e:
                         logger.error(f"stream fallback process_question failed: {_e}")
-                        full_text = TECH_FAIL_REPLY
+                        full_text = tech_fail_reply(user_id)
                     if full_text:
                         full_text_parts = [full_text]
                         try:
@@ -4272,7 +4272,7 @@ async def process_voice_stream(
                         except Exception as _e:
                             logger.warning(f"TTS fallback failed: {_e}")
 
-                full_text = " ".join(full_text_parts).strip() or TECH_FAIL_REPLY
+                full_text = " ".join(full_text_parts).strip() or tech_fail_reply(user_id)
 
                 # Persist + analytics.
                 if mode_name == "basic" and hasattr(mode_instance, 'test_offered'):
