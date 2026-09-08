@@ -10,7 +10,9 @@ import logging
 import hashlib
 import hmac
 import os
-from fastapi import Request
+from datetime import datetime, timezone
+
+from fastapi import HTTPException, Request
 
 from payment import PaymentService, PLANS, TRIAL_PLAN
 
@@ -30,6 +32,17 @@ YOOKASSA_IPS = {
     "77.75.156.11", "77.75.156.35", "77.75.154.128/25",
     "2a02:5180::/32",
 }
+
+
+def _check_admin(token):
+    """Тот же контракт, что у админ-ручек в analytics_routes: без
+    ADMIN_TOKEN в окружении эндпоинт выключен, с неверным — 401."""
+    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail={"error": "admin_disabled",
+                                                      "message": "Админ-эндпоинты выключены: задайте ADMIN_TOKEN в env"})
+    if not token or not hmac.compare_digest(str(token), expected):
+        raise HTTPException(status_code=401, detail={"error": "unauthorized"})
 
 
 def _validate_user_id(user_id):
@@ -543,6 +556,106 @@ def register_payment_routes(app, db, limiter):
             }
         except Exception as e:
             logger.error(f"admin_user_contacts error: {e}")
+            return {"success": False, "error": "internal error"}
+
+    @app.post("/api/admin/transfer-subscription")
+    @limiter.limit("10/minute")
+    async def admin_transfer_subscription(request: Request):
+        """Переносит оплаченную подписку с одного user_id на другой.
+
+        Зачем. Человек платит с одного идентификатора, а в кабинет
+        заходит с другим (localStorage почистился, второй браузер,
+        случайная вторая регистрация) — и видит «подписки нет», хотя
+        чек пришёл. 08.09.2026 так случилось с первой же оплатой
+        пробной недели. Починка входа лечит будущее, но у уже
+        заплативших подписка остаётся на старом id, и вернуть её нечем:
+        руками в базу никто не ходит, а merge-anon отказывается
+        работать, когда у донора есть email.
+
+        Переносит всё, что делает подписку подпиской: саму запись,
+        привязанную карту (иначе автопродление спишет деньги в пользу
+        аккаунта, которым не пользуются) и историю платежей.
+
+        Защита — X-Admin-Token, как у остальных админ-ручек.
+        """
+        try:
+            _check_admin(request.headers.get("X-Admin-Token")
+                         or request.headers.get("x-admin-token"))
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            src = _validate_user_id(body.get("from_user_id"))
+            dst = _validate_user_id(body.get("to_user_id"))
+            if not src or not dst:
+                return {"success": False, "error": "invalid user_id"}
+            if src == dst:
+                return {"success": False, "error": "same user_id"}
+
+            async with db.get_connection() as conn:
+                async with conn.transaction():
+                    sub = await conn.fetchrow(
+                        "SELECT status, plan, started_at, expires_at, auto_renew "
+                        "FROM fredi_subscriptions WHERE user_id = $1", src)
+                    if not sub:
+                        return {"success": False, "error": "source_has_no_subscription"}
+
+                    # Чужую живую подписку не затираем: если у получателя
+                    # уже есть действующая — это не тот случай, для
+                    # которого ручка сделана, и разбираться нужно руками.
+                    dst_sub = await conn.fetchrow(
+                        "SELECT status, expires_at FROM fredi_subscriptions WHERE user_id = $1", dst)
+                    if dst_sub and dst_sub["status"] == "active" \
+                            and dst_sub["expires_at"] is not None \
+                            and dst_sub["expires_at"] > datetime.now(timezone.utc):
+                        return {"success": False, "error": "target_already_active",
+                                "target_expires_at": dst_sub["expires_at"].isoformat()}
+
+                    # user_id в обеих таблицах UNIQUE, поэтому мёртвую
+                    # запись получателя сначала убираем, потом переносим.
+                    if dst_sub:
+                        await conn.execute(
+                            "DELETE FROM fredi_subscriptions WHERE user_id = $1", dst)
+                    await conn.execute(
+                        "UPDATE fredi_subscriptions SET user_id = $1, updated_at = NOW() "
+                        "WHERE user_id = $2", dst, src)
+
+                    card = await conn.fetchrow(
+                        "SELECT payment_method_id, card_last4, card_type "
+                        "FROM fredi_payment_methods WHERE user_id = $1", src)
+                    if card:
+                        await conn.execute(
+                            "DELETE FROM fredi_payment_methods WHERE user_id = $1", dst)
+                        await conn.execute(
+                            "UPDATE fredi_payment_methods SET user_id = $1, updated_at = NOW() "
+                            "WHERE user_id = $2", dst, src)
+
+                    moved = await conn.execute(
+                        "UPDATE fredi_payments SET user_id = $1, updated_at = NOW() "
+                        "WHERE user_id = $2", dst, src)
+                    try:
+                        payments_moved = int(str(moved).split()[-1])
+                    except Exception:
+                        payments_moved = 0
+
+            logger.info(f"💳 transfer-subscription: {src} → {dst} "
+                        f"plan={sub['plan']} expires={sub['expires_at']} "
+                        f"card={'yes' if card else 'no'} payments={payments_moved}")
+            return {
+                "success": True,
+                "from_user_id": src,
+                "to_user_id": dst,
+                "status": sub["status"],
+                "plan": sub["plan"],
+                "expires_at": sub["expires_at"].isoformat() if sub["expires_at"] else None,
+                "auto_renew": bool(sub["auto_renew"]),
+                "card_moved": bool(card),
+                "payments_moved": payments_moved,
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"admin_transfer_subscription error: {e}")
             return {"success": False, "error": "internal error"}
 
     return init_payment_tables, subscription_renewal_scheduler
