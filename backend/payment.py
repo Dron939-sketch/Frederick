@@ -423,8 +423,27 @@ class PaymentService:
                 """, user_id, payment_method_id, card_last4, card_type)
                 logger.info(f"Saved payment_method_id {payment_method_id} for user {user_id}")
 
-            # 3) Активация / продление подписки.
+            # 3) Активация / продление подписки — ровно один раз на платёж.
+            #
+            # Идемпотентность обещана в шапке метода с самого начала, но до
+            # 08.09.2026 её выполняла только аналитика ниже: сама подписка
+            # продлевалась на period_days при КАЖДОМ повторном заходе. А
+            # заходов на один платёж штатно несколько: webhook от ЮKassa,
+            # verify_payment с фронта после возврата с оплаты и фоновый
+            # поллер. Человек, дважды открывший страницу возврата, получал
+            # 14 дней вместо семи за те же 290 ₽ — ровно это и видно у
+            # первых двух подписок пробной недели.
             now = datetime.now(timezone.utc)
+            if already == "succeeded":
+                cur = await conn.fetchrow("""
+                    SELECT expires_at FROM fredi_subscriptions WHERE user_id = $1
+                """, user_id)
+                logger.info(f"Payment {yookassa_id} already applied for user {user_id}, "
+                            f"subscription untouched (expires={cur['expires_at'] if cur else None})")
+                return {"success": True, "user_id": user_id,
+                        "expires_at": str(cur["expires_at"]) if cur else None,
+                        "already_applied": True}
+
             row = await conn.fetchrow("""
                 SELECT expires_at FROM fredi_subscriptions
                 WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
@@ -447,8 +466,10 @@ class PaymentService:
                         auto_renew = TRUE, plan = $4, updated_at = NOW()
                 """, user_id, now, new_expires, plan)
 
-        # Аналитика только при первой обработке этого платежа, чтобы
-        # не дублировать subscription_activated при ретраях/поллинге.
+        # Аналитика и письмо — только при первой обработке платежа. Сюда
+        # доходят лишь первые обработки: повторные вышли выше по
+        # already == "succeeded". Условие оставлено осознанно, как второй
+        # замок на той же двери: дублировать оплату в отчётах нельзя.
         if already != "succeeded":
             try:
                 from analytics_routes import log_server_event
