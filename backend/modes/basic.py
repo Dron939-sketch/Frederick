@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Dict, Any, AsyncGenerator, List, Optional
 
 from modes.base_mode import BaseMode
-from services.ai_service import AIService, DEEPSEEK_FAST_MODEL, TECH_FAIL_REPLY
+from services.ai_service import AIService, DEEPSEEK_FAST_MODEL, TECH_FAIL_REPLY, tech_fail_reply
 
 # Поведенческие правила Фреди — общие для всех режимов. В BasicMode профиль
 # юзера ещё не пройден, но запреты на шаблонные открывашки, переадресацию
@@ -1190,10 +1190,10 @@ class BasicMode(BaseMode):
                 # Модель не вернула текст — почти всегда это сетевой сбой
                 # до провайдера. Говорим правду, а не «уточни»: просьба
                 # уточнить при неработающей модели гоняет человека по кругу.
-                yield TECH_FAIL_REPLY
+                yield tech_fail_reply(self.user_id)
         except Exception as e:
             logger.error(f"BasicMode error: {e}")
-            yield TECH_FAIL_REPLY
+            yield tech_fail_reply(self.user_id)
 
     async def _stream_llm_sentences(
         self, question: str, max_tokens: int = ANSWER_MAX_TOKENS, temperature: float = 0.8

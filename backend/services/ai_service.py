@@ -60,6 +60,110 @@ TECH_FAIL_REPLY = (
     "Это не из-за тебя. Подожди пару минут и спроси ещё раз."
 )
 
+# Вторая и третья заглушка подряд — другими словами.
+#
+# 08.09 человек с 23:20 до 23:29 получил одну и ту же фразу четыре раза,
+# включая голосовую попытку, и в конце спросил «почему ты не отвечаешь».
+# Слово в слово повторённый отказ читается как издевательство: человек не
+# понимает, слышат ли его вообще. Признать, что сбой длится, — честнее и
+# дешевле любой другой правки.
+TECH_FAIL_AGAIN = (
+    "Всё ещё не отвечаю по делу — сбой не у тебя, а у меня, и он затянулся. "
+    "Твой вопрос я не потерял. Попробуй через пару минут."
+)
+TECH_FAIL_LONG = (
+    "Связь с моей головой до сих пор рвётся. Извини — это редкость, но "
+    "сегодня попало на тебя. Напиши позже, я отвечу на то же самое."
+)
+_TECH_FAILS = (TECH_FAIL_REPLY, TECH_FAIL_AGAIN, TECH_FAIL_LONG)
+
+# Сколько заглушек подряд получил человек. Сбрасывается настоящим ответом.
+_FAIL_STREAK: dict = {}
+_FAIL_STREAK_TTL = 30 * 60
+
+
+def tech_fail_reply(user_id=None) -> str:
+    """Заглушка с учётом того, сколько их подряд уже пришло этому человеку."""
+    if user_id is None:
+        return TECH_FAIL_REPLY
+    now = time.time()
+    n, ts = _FAIL_STREAK.get(user_id, (0, 0))
+    if now - ts > _FAIL_STREAK_TTL:
+        n = 0
+    n += 1
+    _FAIL_STREAK[user_id] = (n, now)
+    if len(_FAIL_STREAK) > 5000:
+        for k, (_, t) in list(_FAIL_STREAK.items()):
+            if now - t > _FAIL_STREAK_TTL:
+                _FAIL_STREAK.pop(k, None)
+    return _TECH_FAILS[min(n, len(_TECH_FAILS)) - 1]
+
+
+def note_ai_ok(user_id=None):
+    """Настоящий ответ дошёл — серия отказов кончилась."""
+    if user_id is not None:
+        _FAIL_STREAK.pop(user_id, None)
+
+
+def is_tech_fail(text) -> bool:
+    """Любая из заглушек, а не только первая.
+
+    Вызывающий код по этому признаку решает, сохранять ли реплику в
+    историю и списывать ли минуты. С появлением второй и третьей
+    формулировки сравнение с одной строкой перестало быть верным.
+    """
+    t = (text or "").strip()
+    return any(t == f.strip() for f in _TECH_FAILS)
+
+
+# Запасной провайдер. Пока DeepSeek молчит, Фреди молчит: другого пути у
+# чата не было вовсе. Anthropic включается только когда DeepSeek не дал
+# ничего, и только если ключ задан в env — без ключа поведение прежнее.
+ANTHROPIC_API_KEY = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+
+async def call_anthropic_fallback(system_prompt: str, user_prompt: str,
+                                  max_tokens: int = 1000,
+                                  temperature: float = 0.7) -> Optional[str]:
+    """Ответ запасной моделью. None — если ключа нет или она тоже молчит."""
+    if not ANTHROPIC_API_KEY:
+        return None
+    body = {
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                ANTHROPIC_URL,
+                headers={"x-api-key": ANTHROPIC_API_KEY,
+                         "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"},
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as r:
+                if r.status != 200:
+                    detail = (await r.text())[:200]
+                    logger.error("❌ Anthropic fallback %s: %s", r.status, detail)
+                    _note_ai_fail("fallback_failed", "Anthropic %s: %s" % (r.status, detail))
+                    return None
+                data = await r.json()
+        parts = [b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text"]
+        text = "".join(parts).strip()
+        if text:
+            logger.warning("↩️ ANTHROPIC_FALLBACK: ответил вместо DeepSeek, %d знаков", len(text))
+        return text or None
+    except Exception as e:
+        logger.error("❌ Anthropic fallback error: %s", e)
+        _note_ai_fail("fallback_failed", str(e))
+        return None
+
 # Режим размышления. Обе модели DeepSeek по умолчанию думают перед
 # ответом — и flash тоже, вопреки ожиданию. Именно это, а не выбор
 # модели, давало 8-29 секунд молчания и finish=length в шести случаях
@@ -289,7 +393,8 @@ class AIService:
     async def _call_deepseek(self, system_prompt: str, user_prompt: str,
                               max_tokens: int = 1000, temperature: float = 0.7,
                               model: Optional[str] = None,
-                              thinking: Optional[bool] = None) -> Optional[str]:
+                              thinking: Optional[bool] = None,
+                              _attempt: int = 0) -> Optional[str]:
         """model=None — обычная модель. Входной чат передаёт быструю.
 
         Если переданная модель неизвестна провайдеру (400), запрос
@@ -378,26 +483,52 @@ class AIService:
                     _note_ai_fail(
                         "no_balance" if response.status == 402 else f"http_{response.status}",
                         _body[:200] or f"DeepSeek ответил {response.status}")
-                    return None
+                    # Кончившийся баланс и просроченный ключ повтором не
+                    # лечатся — сразу к запасной модели.
+                    return await call_anthropic_fallback(system_prompt, user_prompt,
+                                                         max_tokens, temperature)
                     
         except asyncio.TimeoutError:
             logger.error("❌ DeepSeek timeout (120 seconds)")
             _note_ai_fail("timeout", "DeepSeek молчал дольше 120 секунд")
-            return None
+            return await self._after_fail(system_prompt, user_prompt, max_tokens,
+                                          temperature, model, thinking, _attempt)
         except aiohttp.ClientError as e:
             logger.error(f"❌ DeepSeek client error: {e}")
             _note_ai_fail("network", str(e))
-            return None
+            return await self._after_fail(system_prompt, user_prompt, max_tokens,
+                                          temperature, model, thinking, _attempt)
         except Exception as e:
             logger.error(f"❌ DeepSeek unexpected error: {e}")
             logger.exception("Full traceback:")
             _note_ai_fail("error", str(e))
-            return None
+            return await self._after_fail(system_prompt, user_prompt, max_tokens,
+                                          temperature, model, thinking, _attempt)
+
+    async def _after_fail(self, system_prompt, user_prompt, max_tokens,
+                          temperature, model, thinking, attempt):
+        """Один повтор, потом запасная модель.
+
+        До 08.09 отказ был окончательным с первой попытки: таймаут или
+        оборванная сеть сразу превращались в заглушку. Полторы секунды
+        паузы и второй заход снимают одиночный сбой; если и он не прошёл,
+        отвечает запасная модель, а не заглушка.
+        """
+        if attempt == 0:
+            await asyncio.sleep(1.5)
+            logger.warning("↻ DeepSeek: повтор после отказа")
+            out = await self._call_deepseek(system_prompt, user_prompt, max_tokens,
+                                            temperature, model, thinking, _attempt=1)
+            if out:
+                return out
+        return await call_anthropic_fallback(system_prompt, user_prompt,
+                                             max_tokens, temperature)
 
     async def _call_deepseek_streaming(
         self, system_prompt: str, user_prompt: str,
         max_tokens: int = 1000, temperature: float = 0.7,
         model: Optional[str] = None, thinking: Optional[bool] = None,
+        _retried: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Стриминговый близнец _call_deepseek: тот же system+user сплит и
         те же параметры, но stream=True — отдаёт контент по дельтам, как
@@ -438,6 +569,7 @@ class AIService:
         _t0 = time.time()
         _ttft = None
         _chars = 0
+        _failed = False
         _usage = {}
         _finish = None
         _prompt_chars = len(system_prompt or "") + len(user_prompt or "")
@@ -477,7 +609,17 @@ class AIService:
                                 system_prompt, user_prompt, max_tokens=max_tokens,
                                 temperature=temperature, model=DEEPSEEK_MODEL,
                                 thinking=None):
+                            _chars += len(_d)
                             yield _d
+                        return
+                    # Кончившийся баланс, чужой ключ, ограничение частоты —
+                    # повтором не лечатся, а заглушка человеку не помогает.
+                    # Отвечает запасная модель, если она задана.
+                    _alt = await call_anthropic_fallback(
+                        system_prompt, user_prompt, max_tokens, temperature)
+                    if _alt:
+                        _chars += len(_alt)
+                        yield _alt
                     return
                 async for line in response.content:
                     if not line:
@@ -510,9 +652,11 @@ class AIService:
         except asyncio.TimeoutError:
             logger.error("❌ DeepSeek streaming timeout (60s) prompt_chars=%d" % _prompt_chars)
             _note_ai_fail("timeout", "DeepSeek молчал дольше 60 секунд")
+            _failed = True
         except Exception as e:
             logger.error(f"❌ DeepSeek streaming error: {e}")
             _note_ai_fail("error", str(e))
+            _failed = True
         finally:
             _total = time.time() - _t0
             _hit = _usage.get("prompt_cache_hit_tokens")
@@ -538,6 +682,26 @@ class AIService:
                 "cache_miss_tokens": _miss,
                 "finish": _finish,
             }
+
+        # Ни одной дельты и был отказ — человек иначе получит заглушку.
+        # Повторяем один раз, потом отвечает запасная модель: её ответ
+        # приходит целиком, не по словам, но это несравнимо лучше, чем
+        # «у меня технический сбой» четыре раза подряд.
+        if _failed and _chars == 0:
+            if not _retried:
+                await asyncio.sleep(1.5)
+                logger.warning("↻ DeepSeek streaming: повтор после отказа")
+                async for _d in self._call_deepseek_streaming(
+                        system_prompt, user_prompt, max_tokens=max_tokens,
+                        temperature=temperature, model=model, thinking=thinking,
+                        _retried=True):
+                    _chars += len(_d)
+                    yield _d
+            if _chars == 0:
+                _alt = await call_anthropic_fallback(system_prompt, user_prompt,
+                                                     max_tokens, temperature)
+                if _alt:
+                    yield _alt
 
     # ============================================
     # ГЕНЕРАЦИЯ ОТВЕТА — главный метод (обновлён)
