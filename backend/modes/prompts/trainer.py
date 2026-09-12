@@ -34,7 +34,7 @@ except Exception:
 TRAINER_GEN_PARAMS: Dict[str, Any] = {
     "temperature": 0.7,
     "top_p": 0.9,
-    "max_tokens": 1000,
+    "max_tokens": 1500,  # 12.09.2026: три бесплатных ответа должны быть полными, не урезанными
     "frequency_penalty": 0.3,
     "presence_penalty": 0.0,
 }

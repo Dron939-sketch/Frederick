@@ -100,12 +100,22 @@ FREE_DAILY_MINUTES_ANON = 3
 FIRST_CONVERSATION_MINUTES = 10
 
 
-def daily_limit_minutes(registered: bool, first_day: bool = False) -> int:
+def daily_limit_minutes(registered: bool, first_day: bool = False,
+                        registered_today: bool = False) -> int:
     """Сколько минут в день положено: с аккаунтом больше, чем без.
 
-    first_day — вся история человека уместилась в сегодня (первый разговор)."""
+    first_day — вся история человека уместилась в сегодня (первый разговор).
+    registered_today — аккаунт заведён сегодня. Тогда дневной лимит — это
+    анонимные минуты дня плюс FREE_DAILY_MINUTES сверху: регистрация
+    добавляет свои минуты, а не заменяет уже потраченные. До 12.09.2026 так
+    было только в первый день (10 + 5); со второго дня аноним, упёршийся в
+    стену на трёх минутах, после регистрации получал лимит 5 при
+    потраченных 3 — то есть две минуты, и «оставь почту — говори дольше»
+    оказывалось почти ложью ровно в момент, когда человек поверил."""
     if first_day:
         return FIRST_CONVERSATION_MINUTES + (FREE_DAILY_MINUTES if registered else 0)
+    if registered and registered_today:
+        return FREE_DAILY_MINUTES_ANON + FREE_DAILY_MINUTES
     return FREE_DAILY_MINUTES if registered else FREE_DAILY_MINUTES_ANON
 
 # Окно «всё включено», в суммарных минутах с начала знакомства: пока оно
@@ -200,7 +210,7 @@ class SubscriptionMeter:
         async with self.db.get_connection() as conn:
             row = await conn.fetchrow("""
                 SELECT daily_usage_seconds, last_usage_reset, free_days_used,
-                       total_usage_seconds, email
+                       total_usage_seconds, email, registered_at
                 FROM fredi_users WHERE user_id = $1
             """, user_id)
 
@@ -219,6 +229,11 @@ class SubscriptionMeter:
         # же день получает лишние три.
         registered = row["email"] is not None
         now = datetime.now(timezone.utc)
+        # Аккаунт заведён сегодня (UTC, как и дневной сброс) — день
+        # регистрации получает анонимные минуты плюс свои, см.
+        # daily_limit_minutes. У аккаунтов до 12.09.2026 колонка пустая.
+        reg_at = row["registered_at"]
+        registered_today = bool(registered and reg_at and reg_at.date() == now.date())
 
         # Daily reset в 00:00 UTC. На новой дате счётчик минут обнуляется —
         # но общий запас не трогаем, он на то и общий.
@@ -234,16 +249,23 @@ class SubscriptionMeter:
         return self._compose_status(used_seconds=daily_seconds,
                                     free_days_used=free_days_used,
                                     total_seconds=total_seconds,
-                                    registered=registered)
+                                    registered=registered,
+                                    registered_today=registered_today)
 
     def _compose_status(self, used_seconds: int, free_days_used: int,
                         total_seconds: int = 0,
-                        registered: bool = True) -> Dict[str, Any]:
+                        registered: bool = True,
+                        registered_today: bool = False) -> Dict[str, Any]:
         # Первый день: всё, что человек наговорил за жизнь, наговорено
         # сегодня (общий счётчик не больше дневного, с запасом на секунды
         # округления). Такому даём дописать первый разговор целиком.
         first_day = total_seconds <= used_seconds + 30
-        limit_today = daily_limit_minutes(registered, first_day)
+        limit_today = daily_limit_minutes(registered, first_day, registered_today)
+        # Сколько минут в день будет у этого же человека с аккаунтом,
+        # заведённым сегодня. Фронт рисует стену анонима по разнице с
+        # limit_today: раньше здесь стояла голая константа 5, и на второй
+        # день стена честно обещала «+2 минуты».
+        limit_if_registered_today = daily_limit_minutes(True, first_day, True)
         used_minutes = used_seconds / 60.0
         remaining_today = max(0.0, limit_today - used_minutes)
 
@@ -291,8 +313,12 @@ class SubscriptionMeter:
             # руками — иначе экран разъедется с настоящим лимитом в первый
             # же раз, когда лимит поменяют.
             "is_registered": registered,
-            "registered_limit_minutes": FREE_DAILY_MINUTES,
-            "anon_limit_minutes": FREE_DAILY_MINUTES_ANON,
+            # Для анонима: столько будет сегодня, если завести аккаунт
+            # сейчас; для аккаунта — его сегодняшний лимит. Разница
+            # с anon_limit_minutes — то самое «+5 минут», которое фронт
+            # пишет на стене.
+            "registered_limit_minutes": limit_if_registered_today if not registered else limit_today,
+            "anon_limit_minutes": daily_limit_minutes(False, first_day),
             # Backward-compat.
             "is_on_cooldown": False,
             "remaining_cooldown_minutes": 0,

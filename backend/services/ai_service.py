@@ -801,7 +801,9 @@ class AIService:
                     "frequency_penalty": frequency_penalty,
                     "presence_penalty": presence_penalty
                 },
-                timeout=aiohttp.ClientTimeout(total=30)
+                # 30 с не хватало длинным ответам коуча/психолога (см.
+                # generate_response_streaming, 12.09.2026); у basic — 120.
+                timeout=aiohttp.ClientTimeout(total=120)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -904,38 +906,81 @@ class AIService:
             "stream": True
         }
 
-        try:
-            session = await self._get_session()
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers, json=data,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status != 200:
-                    logger.error(f"Streaming error: {response.status}")
-                    yield self._get_fallback_response(mode)
-                    return
-                
-                async for line in response.content:
-                    if line:
-                        line_str = line.decode('utf-8').strip()
-                        if line_str.startswith('data: '):
-                            data_str = line_str[6:]
-                            if data_str == '[DONE]':
-                                break
-                            try:
-                                chunk = json.loads(data_str)
-                                if 'choices' in chunk and chunk['choices']:
-                                    content = chunk['choices'][0].get('delta', {}).get('content', '')
-                                    if content:
-                                        clean_content = self._clean_for_voice(content)
-                                        if clean_content:
-                                            yield clean_content
-                            except json.JSONDecodeError:
-                                continue
-        except Exception as e:
-            logger.error(f"Streaming error: {e}")
-            yield self._get_fallback_response(mode)
+        # Таймаут и повтор (12.09.2026). Здесь стоял общий таймаут 30 с на
+        # весь поток, без повтора и без запасной модели — в отличие от
+        # _call_deepseek_streaming, которым отвечает basic. Ответ психолога
+        # в 1100–1400 токенов в 30 с не укладывается: выгрузка за 7 дней —
+        # 10 из 33 ответов психолога 11.09 обрезаны на полуслове, человек
+        # написал «твои сообщения приходят не полностью»; у коуча 14 из 29
+        # ответов — заглушка «технический сбой» (модель не успела отдать
+        # первую дельту). Теперь: 180 с на поток и 60 с на паузу между
+        # дельтами, один повтор при пустом ответе, затем запасная модель.
+        _chars = 0
+        _failed = False
+        for _attempt in (1, 2):
+            _failed = False
+            try:
+                session = await self._get_session()
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers, json=data,
+                    timeout=aiohttp.ClientTimeout(total=180, sock_read=60)
+                ) as response:
+                    if response.status != 200:
+                        _body = ""
+                        try:
+                            _body = (await response.text())[:200]
+                        except Exception:
+                            pass
+                        logger.error(f"Streaming error: {response.status} {_body}")
+                        _note_ai_fail("http_%s" % response.status, _body)
+                        _failed = True
+                    else:
+                        async for line in response.content:
+                            if line:
+                                line_str = line.decode('utf-8').strip()
+                                if line_str.startswith('data: '):
+                                    data_str = line_str[6:]
+                                    if data_str == '[DONE]':
+                                        break
+                                    try:
+                                        chunk = json.loads(data_str)
+                                        if 'choices' in chunk and chunk['choices']:
+                                            content = chunk['choices'][0].get('delta', {}).get('content', '')
+                                            if content:
+                                                clean_content = self._clean_for_voice(content)
+                                                if clean_content:
+                                                    _chars += len(clean_content)
+                                                    yield clean_content
+                                    except json.JSONDecodeError:
+                                        continue
+            except asyncio.TimeoutError:
+                logger.error("Streaming error: таймаут DeepSeek (mode=%s, получено %d симв.)" % (mode, _chars))
+                _note_ai_fail("timeout", "streaming mode=%s chars=%d" % (mode, _chars))
+                _failed = True
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                _note_ai_fail("error", str(e))
+                _failed = True
+            if _chars > 0 or not _failed:
+                break
+            if _attempt == 1:
+                await asyncio.sleep(1.5)
+                logger.warning("↻ streaming (mode=%s): повтор после отказа" % mode)
+
+        if _chars == 0 and _failed:
+            # Обе попытки пусты — запасная модель целиком, без истории:
+            # хуже, чем живой поток, но несравнимо лучше заглушки.
+            _alt = None
+            try:
+                _alt = await call_anthropic_fallback(final_system_prompt, user_prompt,
+                                                     max_tokens, temperature)
+            except Exception as e:
+                logger.error(f"fallback error: {e}")
+            if _alt:
+                yield _alt
+            else:
+                yield self._get_fallback_response(mode)
 
     # ============================================
     # СИСТЕМНЫЕ ПРОМПТЫ (без изменений)

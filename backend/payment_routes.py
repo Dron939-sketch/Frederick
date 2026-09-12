@@ -140,6 +140,14 @@ def register_payment_routes(app, db, limiter):
             # поэтому у старых строк остаётся значение по умолчанию.
             await conn.execute("ALTER TABLE fredi_payments ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'monthly'")
             await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'monthly'")
+            # Повторные попытки автопродления (12.09.2026). До этого
+            # неудачное списание сразу выключало автопродление, а окно
+            # кандидатов было в сутки: один сбой — и человек выпадал
+            # навсегда, без единого повтора. Теперь счётчик попыток,
+            # время последней и её ошибка живут в самой подписке.
+            await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS renewal_attempts INTEGER NOT NULL DEFAULT 0")
+            await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS renewal_last_attempt_at TIMESTAMP WITH TIME ZONE")
+            await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS renewal_last_error TEXT")
         logger.info("Payment tables ready")
 
         # Стартуем фоновый поллинг pending-платежей здесь, чтобы не
