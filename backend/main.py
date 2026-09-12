@@ -3816,6 +3816,15 @@ async def ai_generate(request: Request, data: AIGenerateRequest):
 
 
 # ========== ГЛУБОКИЙ АНАЛИЗ ==========
+async def _is_premium_user(user_id) -> bool:
+    """Есть ли активная подписка (для запертых разделов: полный разбор)."""
+    try:
+        from meter_routes import subscription_meter as _m
+        return bool(_m and await _m.has_active_subscription(int(user_id)))
+    except Exception:
+        return False
+
+
 @app.post("/api/deep-analysis")
 @limiter.limit("5/minute")
 async def deep_analysis(request: Request, data: ChatRequest):
@@ -3826,6 +3835,12 @@ async def deep_analysis(request: Request, data: ChatRequest):
         has_profile = bool(profile.get('profile_data') or profile.get('ai_generated_profile'))
         if not has_profile:
             return {"success": False, "error": "Сначала пройдите тест"}
+
+        # Полный разбор — часть подписки (решение владельца 12.09.2026).
+        # Портрет и первый шаг бесплатны и живут на экране теста; шесть
+        # разделов разбора генерируются только подписчику.
+        if not await _is_premium_user(data.user_id):
+            return {"success": False, "error": "premium_required", "premium_required": True}
 
         profile_data = profile.get('profile_data', {})
         behavioral_levels = profile.get('behavioral_levels', {})
@@ -3871,7 +3886,16 @@ AI-профиль:
         if response:
             cleaned = re.sub(r'^```json\s*', '', response)
             cleaned = re.sub(r'\s*```$', '', cleaned)
-            analysis_data = json.loads(cleaned)
+            try:
+                analysis_data = json.loads(cleaned)
+            except json.JSONDecodeError:
+                # Модель иногда добавляет фразу до или после JSON — берём
+                # первый блок в фигурных скобках. Раньше это давало пустой
+                # разбор без ошибки на экране.
+                m = re.search(r'\{.*\}', cleaned, re.S)
+                if not m:
+                    raise
+                analysis_data = json.loads(m.group(0))
             await user_repo.save_deep_analysis(data.user_id, analysis_data)
             return {"success": True, "analysis": analysis_data}
         else:
@@ -3890,6 +3914,10 @@ async def get_saved_deep_analysis(request: Request, user_id: Union[int, str]):
             user_id_for_db = int(user_id)
         except (ValueError, TypeError):
             user_id_for_db = user_id
+
+        if not await _is_premium_user(user_id_for_db):
+            return {"success": False, "analysis": None, "cached": False,
+                    "error": "premium_required", "premium_required": True}
 
         saved_analysis = await user_repo.get_last_deep_analysis(user_id_for_db)
 
