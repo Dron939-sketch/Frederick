@@ -33,7 +33,8 @@ def test_registration_day_adds_minutes_on_top():
     reg_today = sm.daily_limit_minutes(True, registered_today=True)
     reg_old = sm.daily_limit_minutes(True)
     assert reg_today == anon + sm.FREE_DAILY_MINUTES, (anon, reg_today)
-    assert reg_today > reg_old, "в день регистрации минут больше, чем в обычный день аккаунта"
+    assert reg_today >= reg_old, "в день регистрации минут не меньше, чем в обычный день аккаунта"
+    assert sm.daily_limit_minutes(False) == 0, "со второго дня аноним без минут (12.09.2026)"
 
 
 def test_first_day_formula_unchanged():
