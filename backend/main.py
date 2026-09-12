@@ -1818,6 +1818,9 @@ async def init_database_tables():
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_hash TEXT")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP WITH TIME ZONE")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMP WITH TIME ZONE")
+        # День регистрации: в этот день аккаунт добавляет минуты к
+        # анонимным, а не заменяет их (subscription_meter, 12.09.2026).
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS registered_at TIMESTAMP WITH TIME ZONE")
 
         # === reengagement (Phase 1) ===
         # email_opted_in — общий флаг согласия получать win-back сообщения

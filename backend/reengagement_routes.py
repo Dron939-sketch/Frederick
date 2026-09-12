@@ -9,6 +9,8 @@ reengagement_routes.py — публичные endpoint'ы и админские
 Админские (под X-Admin-Token):
   GET  /api/admin/reengagement/d3-candidates  — счётчик и список
   POST /api/admin/reengagement/d3-send        — батч-отправка вручную
+  GET  /api/admin/reengagement/d1-candidates  — то же для d1 «как прошло?»
+  POST /api/admin/reengagement/d1-send
   GET  /api/admin/reengagement/stats          — отправлено/доставлено/clicks
 
 Полу-автомат: cron-шедулер по умолчанию НЕ шлёт автоматически
@@ -336,6 +338,58 @@ def register_reengagement_routes(app, db, email_service_getter=None):
         return {"success": True, "dry_run": False,
                 "total_candidates": len(rows),
                 "sent": sent, "failed": failed}
+
+    # d1 «как прошло?» — до 12.09.2026 у кампании не было ни счётчика,
+    # ни кнопки: отправить её можно было только через автосенд, который
+    # по умолчанию стоял выключенным. Тот же контракт, что у d3 и trial:
+    # GET — кандидаты, POST {dry_run?, limit?, user_ids?} — отправка.
+    @admin_router.get("/d1-candidates")
+    async def d1_candidates(request: Request):
+        _check_admin(request.headers.get("X-Admin-Token"))
+        from services.reengagement import D1_SQL, CAMPAIGN_D1
+        rows = await db.fetch(D1_SQL, CAMPAIGN_D1)
+        return {"success": True, "count": len(rows),
+                "user_ids": [r["user_id"] for r in rows]}
+
+    @admin_router.post("/d1-send")
+    async def d1_send(request: Request):
+        _check_admin(request.headers.get("X-Admin-Token"))
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        dry = bool(body.get("dry_run"))
+        limit = max(1, min(int(body.get("limit") or 50), 50))
+        ids = body.get("user_ids") or []
+        if not isinstance(ids, list):
+            ids = []
+        from services.reengagement import D1_SQL, CAMPAIGN_D1, send_reengagement
+        rows = await db.fetch(D1_SQL, CAMPAIGN_D1)
+        if ids:
+            try:
+                wanted = {int(x) for x in ids}
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail={"error": "bad_user_ids"})
+            rows = [r for r in rows if int(r["user_id"]) in wanted]
+        rows = rows[:limit]
+        if dry:
+            return {"success": True, "dry_run": True,
+                    "would_send": len(rows),
+                    "user_ids": [r["user_id"] for r in rows]}
+        es = email_service_getter() if callable(email_service_getter) else email_service_getter
+        sent = failed = 0
+        for r in rows:
+            try:
+                if await send_reengagement(db, es, r["user_id"], CAMPAIGN_D1):
+                    sent += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.warning(f"[reeng-admin] d1 send failed for {r['user_id']}: {e}")
+                failed += 1
+            await asyncio.sleep(1.0)
+        return {"success": True, "dry_run": False,
+                "total_candidates": len(rows), "sent": sent, "failed": failed}
 
     @admin_router.get("/stats")
     async def stats(request: Request):

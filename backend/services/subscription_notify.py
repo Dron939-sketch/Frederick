@@ -51,7 +51,11 @@ def _build_email(name_or_empty: str, expires_at: datetime, is_renewal: bool,
         "Пробная неделя началась" if plan == "trial_week" else "Подписка активирована")
     greet = f"Привет{', ' + name_or_empty if name_or_empty else ''}!"
     date_str = _format_date(expires_at)
-    link = _app_link()
+    # utm — чтобы визиты из письма о подписке были видны в Метрике
+    # отдельно от прямых заходов (12.09.2026, вместе с письмами возврата).
+    link = (_app_link() + "/?utm_source=fredi_mail&utm_medium=email"
+            + ("&utm_campaign=subscription_renewed" if is_renewal
+               else "&utm_campaign=subscription_activated"))
     note = _trial_note(plan)
     plain = (
         f"{greet}\n\n"
