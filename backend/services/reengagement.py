@@ -60,6 +60,23 @@ CAMPAIGN_TRIAL = "trial_spent"
 CAMPAIGN_D1 = "d1_tomorrow"
 D1_SUBJECT = "Фреди: как прошло?"
 
+# Метки для Метрики (12.09.2026). До этого ссылка «Открыть Фреди» несла
+# только ?ref=reeng&cid=…, а Метрика читает utm_*: за 30 дней в отчётах
+# не было ни одного визита из писем, и понять, работают письма или нет,
+# было нельзя в принципе. Теперь каждая ссылка — utm_source=fredi_mail,
+# utm_medium=email, utm_campaign=<кампания>; ref и cid остаются для
+# /track и отписки.
+UTM_SOURCE = "fredi_mail"
+UTM_MEDIUM = "email"
+_REF = {CAMPAIGN_D3: "reeng", CAMPAIGN_TRIAL: "reeng-trial", CAMPAIGN_D1: "reeng-d1"}
+
+
+def build_return_link(campaign: str, token: str) -> str:
+    """Ссылка «Открыть Фреди» из письма: ref для бэкенда, utm для Метрики."""
+    ref = _REF.get(campaign, "reeng")
+    return (f"{APP_BASE_URL}?ref={ref}&cid={token}"
+            f"&utm_source={UTM_SOURCE}&utm_medium={UTM_MEDIUM}&utm_campaign={campaign}")
+
 
 # ============================================================
 # 1. ПОВЕДЕНЧЕСКОЕ SUMMARY
@@ -427,17 +444,15 @@ async def send_reengagement(db, email_service, user_id: int,
         return False
     log_id = inserted['id']
 
-    return_link = f"{APP_BASE_URL}?ref=reeng&cid={token}"
+    return_link = build_return_link(campaign, token)
     optout_link = f"{API_BASE_URL}/api/reengagement/optout?t={token}"
 
     if campaign == CAMPAIGN_TRIAL:
         text = _trial_text(s)
         subject = TRIAL_SUBJECT
-        return_link = f"{APP_BASE_URL}?ref=reeng-trial&cid={token}"
     elif campaign == CAMPAIGN_D1:
         text = await generate_d1_text(s, await _last_user_topic(db, user_id))
         subject = D1_SUBJECT
-        return_link = f"{APP_BASE_URL}?ref=reeng-d1&cid={token}"
     else:
         text = await generate_message_text(s)
         subject = "Фреди — подумалось о тебе"
@@ -629,20 +644,23 @@ async def _count_candidates(db) -> int:
 
 
 async def reengagement_scheduler(db, email_service_getter):
-    """Бэкграунд-loop: раз в час считаем кандидатов и (опционально) шлём.
+    """Бэкграунд-loop: раз в час считаем кандидатов и шлём.
 
-    Полу-автомат: по умолчанию REENG_AUTOSEND=0 — шедулер ничего не
-    отправляет, только логирует количество кандидатов. Оператор
-    смотрит число в админке и нажимает кнопку «Отправить».
-
-    Полностью автоматический режим включается env REENG_AUTOSEND=1 —
-    тогда каждый час шлём batch до 50.
+    До 12.09.2026 по умолчанию стоял полу-автомат (REENG_AUTOSEND=0):
+    шедулер только логировал число кандидатов, письма уходили кнопкой
+    из админки, а у d1 «как прошло?» кнопки не было вовсе — кампания
+    существовала лишь на бумаге. Аудит клиентской базы: из 17
+    зарегистрированных за 30 дней вернулись 6, писем никто не получил.
+    Теперь автосенд — режим по умолчанию: каждый час d1, d3 и
+    trial_spent, до 50 писем на кампанию за проход, с паузой 1,2 с
+    между письмами. Выключить: REENG_AUTOSEND=0 (тогда только из
+    админки, счётчики в логе).
     """
-    autosend = (os.environ.get("REENG_AUTOSEND") or "0").strip() == "1"
+    autosend = (os.environ.get("REENG_AUTOSEND") or "1").strip() != "0"
     if autosend:
-        logger.info("[reeng] AUTOSEND=1 — режим полностью автоматический")
+        logger.info("[reeng] автосенд включён (по умолчанию): d1, d3, trial_spent раз в час")
     else:
-        logger.info("[reeng] AUTOSEND=0 — полу-автомат: шлём только из админки")
+        logger.info("[reeng] REENG_AUTOSEND=0 — полу-автомат: шлём только из админки")
 
     # Стартовая пауза — даём приложению полностью подняться.
     await asyncio.sleep(60)

@@ -317,7 +317,8 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                         await conn.execute(
                             """
                             UPDATE fredi_users
-                            SET email = $1, password_hash = $2, password_updated_at = NOW(), updated_at = NOW()
+                            SET email = $1, password_hash = $2, password_updated_at = NOW(),
+                                registered_at = NOW(), updated_at = NOW()
                             WHERE user_id = $3
                             """,
                             email, password_hash, anon_uid,
@@ -821,8 +822,8 @@ def _new_user_id() -> int:
 async def _insert_new_user(conn, uid: int, email: str, password_hash: str):
     await conn.execute(
         """
-        INSERT INTO fredi_users (user_id, email, password_hash, password_updated_at, platform, created_at, last_activity)
-        VALUES ($1, $2, $3, NOW(), 'web', NOW(), NOW())
+        INSERT INTO fredi_users (user_id, email, password_hash, password_updated_at, registered_at, platform, created_at, last_activity)
+        VALUES ($1, $2, $3, NOW(), NOW(), 'web', NOW(), NOW())
         """,
         int(uid), email, password_hash,
     )
