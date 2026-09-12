@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 from db import Database
 from cache import RedisCache
 from services.ai_service import AIService, TECH_FAIL_REPLY, is_tech_fail, tech_fail_reply
+import premium_gate
 from services.weather_service import WeatherService
 from services.weekend_planner import WeekendPlanner
 from repositories.user_repo import UserRepository
@@ -779,6 +780,11 @@ async def _enforce_premium_mode(user_id, requested_mode: str) -> str:
     mode = (requested_mode or "basic").strip().lower()
     if mode not in _PREMIUM_MODES:
         return mode
+    # Коуч и тренер до basic не понижаются: у них свой замок после трёх
+    # бесплатных ответов (premium_gate, 12.09.2026). Молчаливое понижение
+    # выглядело так, будто коуч вдруг заговорил как Бендер.
+    if mode in premium_gate.LOCK_MODES:
+        return mode
     try:
         from meter_routes import subscription_meter as _m
         if _m is None:
@@ -1256,6 +1262,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         if mode_name == "basic":
             user_data["basic_mode_preset"] = await get_basic_mode_preset()
         mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
+        mode_instance, _ = await _premium_gate_instance(mode_name, mode_instance, user_id_for_db)
         logger.info(f"✅ Mode instance created: {mode_instance.__class__.__name__}")
     except Exception as e:
         logger.error(f"❌ Failed to create mode instance: {e}")
@@ -3321,6 +3328,29 @@ def _chat_dedup_finish(key: tuple, fut, answer: str, mode_name: Optional[str]) -
         _chat_recent[key] = (time.time(), answer, mode_name)
 
 
+async def _premium_gate_instance(mode_name: str, mode_instance, user_id):
+    """Три бесплатных ответа коуча и тренера, дальше — замок.
+
+    Решение владельца 12.09.2026, см. premium_gate.py. Замок подменяет
+    инстанс режима: модель не зовётся, человек получает текст про подписку.
+    Общая точка для текстовых и голосовых путей — иначе голосовой коуч
+    отвечал бы без счёта. Возвращает (инстанс, заперт ли)."""
+    if mode_name not in premium_gate.LOCK_MODES:
+        return mode_instance, False
+    try:
+        from meter_routes import subscription_meter as _m
+        is_premium = bool(_m and await _m.has_active_subscription(int(user_id)))
+    except Exception:
+        is_premium = False
+    if is_premium:
+        return mode_instance, False
+    used = await premium_gate.free_answers_used(db, user_id)
+    if not premium_gate.should_lock(mode_name, is_premium, used):
+        return mode_instance, False
+    logger.info(f"🔒 {mode_name} locked for user {user_id}: {used} free answers used")
+    return premium_gate.LockedMode(mode_name), True
+
+
 async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) -> Dict[str, Any]:
     """Подготовка хода диалога: профиль, режим, история, инстанс режима.
 
@@ -3386,6 +3416,11 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         user_data["basic_mode_preset"] = await get_basic_mode_preset()
     mode_instance = get_mode(mode_name, user_id, user_data, simple_context)
 
+    # Три бесплатных ответа коуча и тренера, дальше — замок (решение
+    # владельца 12.09.2026, см. premium_gate.py). Замок подменяет режим:
+    # модель не зовётся, человек получает текст про подписку.
+    mode_instance, premium_lock = await _premium_gate_instance(mode_name, mode_instance, user_id)
+
     reflection = None
     if has_profile and user_data.get("confinement_model"):
         try:
@@ -3408,6 +3443,7 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         "mode_name": mode_name,
         "mode_instance": mode_instance,
         "reflection": reflection,
+        "premium_lock": premium_lock,
     }
 
 
@@ -3536,6 +3572,7 @@ async def chat(request: Request, data: ChatRequest):
             "response": answer,
             "mode_used": mode_name,
             "reflection": prep["reflection"],
+            "premium_lock": bool(prep.get("premium_lock")),
         }
 
     except Exception as e:
@@ -3709,6 +3746,7 @@ async def chat_stream(request: Request, data: ChatRequest):
             yield json.dumps({"type": "done", "full_text": full_text,
                               "mode_used": mode_name,
                               "reflection": prep["reflection"],
+                              "premium_lock": bool(prep.get("premium_lock")),
                               "timings": timings},
                              ensure_ascii=False) + "\n"
 
@@ -3987,6 +4025,7 @@ async def process_voice(
         if mode_name == "basic":
             user_data["basic_mode_preset"] = await get_basic_mode_preset()
         mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
+        mode_instance, _ = await _premium_gate_instance(mode_name, mode_instance, user_id_for_db)
 
         response_text = None
 
@@ -4165,6 +4204,7 @@ async def process_voice_stream(
                 if mode_name == "basic":
                     user_data["basic_mode_preset"] = await get_basic_mode_preset()
                 mode_instance = get_mode(mode_name, user_id_for_db, user_data, simple_context)
+                mode_instance, _ = await _premium_gate_instance(mode_name, mode_instance, user_id_for_db)
 
                 full_text_parts = []
                 # Какой TTS-провайдер озвучивает этот стрим. None = ещё не
