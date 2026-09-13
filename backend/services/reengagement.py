@@ -25,6 +25,8 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
+from free_tier import why_not_block, why_not_html
+
 logger = logging.getLogger(__name__)
 
 # Базовые URL'ы для ссылок в сообщениях. APP_BASE_URL = web-фронт,
@@ -394,8 +396,12 @@ async def _send_via_email(email_service, to: str, subject: str,
         return False
 
 
-def _build_html(text: str, return_link: str, optout_link: str) -> str:
+def _build_html(text: str, return_link: str, optout_link: str, extra_html: str = "") -> str:
     """Простой HTML-вариант для email-клиентов."""
+    # Ссылки опроса в HTML идут кнопками (extra_html); адреса строками
+    # нужны только в текстовой части письма.
+    if extra_html and "что остановило от подписки" in (text or ""):
+        text = text.split("Один вопрос, без обязательств")[0].rstrip()
     safe_text = (text or "").replace("\n", "<br>")
     return f"""<!doctype html>
 <html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:24px auto;padding:0 16px;color:#1c1c1e;line-height:1.55">
@@ -403,6 +409,7 @@ def _build_html(text: str, return_link: str, optout_link: str) -> str:
 <p style="margin-top:24px">
   <a href="{return_link}" style="display:inline-block;padding:12px 22px;background:#1c1c1e;color:#fff;text-decoration:none;border-radius:10px;font-weight:600">Открыть Фреди</a>
 </p>
+{extra_html}
 <hr style="margin-top:36px;border:none;border-top:1px solid #e5e5ea">
 <p style="font-size:12px;color:#8e8e93;margin-top:14px">
   Если такие письма больше не нужны — <a href="{optout_link}" style="color:#8e8e93">отписаться в один клик</a>.
@@ -456,6 +463,14 @@ async def send_reengagement(db, email_service, user_id: int,
     else:
         text = await generate_message_text(s)
         subject = "Фреди — подумалось о тебе"
+    # Письмо третьего дня — единственный контакт с теми, кто ушёл: сюда
+    # кладём вопрос «что остановило от подписки» с четырьмя ссылками
+    # (владелец, 13.09.2026). Ответ — параметр why= в ссылке, приложение
+    # пишет событие sub_why_not.
+    why_text = why_not_block(return_link) if campaign == CAMPAIGN_D3 else ""
+    why_html = why_not_html(return_link) if campaign == CAMPAIGN_D3 else ""
+    if why_text:
+        text = f"{text}\n\n{why_text}"
     delivered = False
 
     if channel == 'max':
@@ -472,7 +487,7 @@ async def send_reengagement(db, email_service, user_id: int,
                 subject,
                 f"{text}\n\nОткрыть Фреди: {return_link}\n\n"
                 f"Не хочешь получать такие письма? {optout_link}",
-                _build_html(text, return_link, optout_link)
+                _build_html(text, return_link, optout_link, why_html)
             )
     else:
         delivered = await _send_via_email(
@@ -480,7 +495,7 @@ async def send_reengagement(db, email_service, user_id: int,
             subject,
             f"{text}\n\nОткрыть Фреди: {return_link}\n\n"
             f"Не хочешь получать такие письма? {optout_link}",
-            _build_html(text, return_link, optout_link)
+            _build_html(text, return_link, optout_link, why_html)
         )
 
     # Дописываем реальный результат в зафиксированную ранее строку.

@@ -347,7 +347,11 @@ class BasicMode(BaseMode):
     async def _load_cross_session_memory(self) -> None:
         """Кросс-сессионная память: подгружаем сводки прошлых закрытых сессий
         и в фоне суммаризуем сессию, которая только что закрылась.
-        Тот же паттерн, что в psychologist/coach/trainer."""
+        Тот же паттерн, что в psychologist/coach/trainer.
+        Без аккаунта память не подмешивается (free_tier.py)."""
+        if not self.user_data.get("memory_allowed", True):
+            self._cross_memory = ""
+            return
         try:
             from session_memory import (
                 load_memory_block,

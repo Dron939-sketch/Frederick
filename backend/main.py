@@ -16,6 +16,7 @@ Build marker: голос — посегментный TTS-стрим (буфер
 import os
 import sys
 import asyncio
+from free_tier import session_history
 import logging
 import time
 import json
@@ -3387,6 +3388,14 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
     else:
         msg_count = 0
 
+    session_meta = await _session_meta(user_id)
+    # Бесплатная версия без аккаунта не помнит вчерашнего (free_tier.py):
+    # в промпт идёт только текущий разговор, сводки прошлых сессий не
+    # подмешиваются. is_registered неизвестен (сбой базы) — считаем, что
+    # аккаунт есть: лишняя память дешевле ложного «с чистого листа».
+    registered = bool(session_meta.get("is_registered", True))
+    history = session_history(history, registered)
+
     user_data = {
         "profile_data": profile.get("profile_data", {}),
         "perception_type": profile.get("perception_type", "не определен"),
@@ -3398,7 +3407,8 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         "history": history,           # ФИХ 3: реальная история
         "message_count": msg_count,   # ФИХ 4: счётчик BasicMode
         "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
-        **(await _session_meta(user_id)),  # session_turns, is_registered — для ритуала завершения
+        "memory_allowed": registered,
+        **session_meta,  # session_turns, is_registered — для ритуала завершения
     }
 
     class SimpleContext:

@@ -178,7 +178,10 @@ class CoachMode(BaseMode):
     # ========== ПАМЯТЬ (Phase: cross-session memory) ==========
     async def _prepend_memory(self, system_prompt: str) -> str:
         """Подмешивает блок памяти прошлых сессий в начало system_prompt
-        и параллельно запускает фоновую суммаризацию закрытой сессии."""
+        и параллельно запускает фоновую суммаризацию закрытой сессии.
+        Без аккаунта память не подмешивается (free_tier.py)."""
+        if not self.user_data.get("memory_allowed", True):
+            return system_prompt
         try:
             from session_memory import load_memory_block, schedule_summarize_in_background
             memory_block = await load_memory_block(self.user_id)
