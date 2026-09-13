@@ -274,12 +274,13 @@ class PsychologistMode(BaseMode):
         # сводки прошлых сессий (если есть). Параллельно — фоновая задача
         # сcammarize прошлой сессии (если она «закрылась»).
         memory_block = ""
-        try:
-            from session_memory import load_memory_block, schedule_summarize_in_background
-            memory_block = await load_memory_block(self.user_id)
-            schedule_summarize_in_background(self.user_id)
-        except Exception as e:
-            logger.debug(f"session_memory load failed: {e}")
+        if self.user_data.get("memory_allowed", True):  # без аккаунта — без памяти (free_tier.py)
+            try:
+                from session_memory import load_memory_block, schedule_summarize_in_background
+                memory_block = await load_memory_block(self.user_id)
+                schedule_summarize_in_background(self.user_id)
+            except Exception as e:
+                logger.debug(f"session_memory load failed: {e}")
         prompt_with_memory = (memory_block + method.system_prompt) if memory_block else method.system_prompt
 
         # 5. Отправляем вступительное сообщение (если есть)
