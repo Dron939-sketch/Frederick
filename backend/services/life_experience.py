@@ -64,6 +64,15 @@ ON fredi_life_experience USING GIN (trigger_keywords)
 
 _db_module = None
 
+# Служебный пользователь часового мониторинга: раз в час шлёт
+# «[healthcheck] служебная проверка ответа, не человек». За сутки это 24
+# пары реплик — самый «активный» диалог, и до 13.09.2026 он попадал в
+# ночную агрегацию первым. Оттуда в «интуицию» пришёл паттерн «человек
+# проверяет связь → на самом деле ищет контакт», и Фреди начал отвечать
+# живым людям с первого сообщения: «ты, похоже, пришёл не связь
+# проверять» — подростку 14 лет, женщине с мужем-алкоголиком.
+HEALTHCHECK_USER_ID = 900000001
+
 
 def set_db(db_module) -> None:
     global _db_module
@@ -148,12 +157,14 @@ async def _fetch_yesterday_dialogs(max_dialogs: int, max_msgs: int) -> List[Dict
             FROM fredi_messages
             WHERE created_at >= NOW() - INTERVAL '24 hours'
               AND COALESCE(metadata->>'mode', '') IN ('basic', 'freddy')
+              AND user_id <> $2
+              AND content NOT LIKE '[healthcheck]%'
             GROUP BY user_id
             HAVING COUNT(*) >= 4
             ORDER BY MAX(created_at) DESC
             LIMIT $1
             """,
-            max_dialogs,
+            max_dialogs, HEALTHCHECK_USER_ID,
         )
 
     out = []
