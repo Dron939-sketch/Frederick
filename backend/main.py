@@ -6592,6 +6592,7 @@ async def admin_ai_health(request: Request):
             "invalid_key": "DEEPSEEK_API_KEY не принят — проверьте ключ в env",
             "rate_limited": "DeepSeek ограничивает частоту запросов",
             "timeout": "DeepSeek не отвечает вовремя",
+            "spare_failed": "Дополнительный вызов после сбоя потока тоже не ответил",
         }.get(fail.get("reason") or "", ""),
     }
 

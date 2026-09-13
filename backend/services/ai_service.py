@@ -116,54 +116,6 @@ def is_tech_fail(text) -> bool:
     return any(t == f.strip() for f in _TECH_FAILS)
 
 
-# Запасной провайдер. Пока DeepSeek молчит, Фреди молчит: другого пути у
-# чата не было вовсе. Anthropic включается только когда DeepSeek не дал
-# ничего, и только если ключ задан в env — без ключа поведение прежнее.
-ANTHROPIC_API_KEY = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-
-
-async def call_anthropic_fallback(system_prompt: str, user_prompt: str,
-                                  max_tokens: int = 1000,
-                                  temperature: float = 0.7) -> Optional[str]:
-    """Ответ запасной моделью. None — если ключа нет или она тоже молчит."""
-    if not ANTHROPIC_API_KEY:
-        return None
-    body = {
-        "model": ANTHROPIC_MODEL,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
-    if system_prompt:
-        body["system"] = system_prompt
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                ANTHROPIC_URL,
-                headers={"x-api-key": ANTHROPIC_API_KEY,
-                         "anthropic-version": "2023-06-01",
-                         "content-type": "application/json"},
-                json=body,
-                timeout=aiohttp.ClientTimeout(total=60),
-            ) as r:
-                if r.status != 200:
-                    detail = (await r.text())[:200]
-                    logger.error("❌ Anthropic fallback %s: %s", r.status, detail)
-                    _note_ai_fail("fallback_failed", "Anthropic %s: %s" % (r.status, detail))
-                    return None
-                data = await r.json()
-        parts = [b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text"]
-        text = "".join(parts).strip()
-        if text:
-            logger.warning("↩️ ANTHROPIC_FALLBACK: ответил вместо DeepSeek, %d знаков", len(text))
-        return text or None
-    except Exception as e:
-        logger.error("❌ Anthropic fallback error: %s", e)
-        _note_ai_fail("fallback_failed", str(e))
-        return None
-
 # Режим размышления. Обе модели DeepSeek по умолчанию думают перед
 # ответом — и flash тоже, вопреки ожиданию. Именно это, а не выбор
 # модели, давало 8-29 секунд молчания и finish=length в шести случаях
@@ -484,9 +436,10 @@ class AIService:
                         "no_balance" if response.status == 402 else f"http_{response.status}",
                         _body[:200] or f"DeepSeek ответил {response.status}")
                     # Кончившийся баланс и просроченный ключ повтором не
-                    # лечатся — сразу к запасной модели.
-                    return await call_anthropic_fallback(system_prompt, user_prompt,
-                                                         max_tokens, temperature)
+                    # лечатся; остальные коды — ещё один вызов.
+                    return await self.spare_call(system_prompt, user_prompt,
+                                                 max_tokens, temperature,
+                                                 status=response.status)
                     
         except asyncio.TimeoutError:
             logger.error("❌ DeepSeek timeout (120 seconds)")
@@ -505,14 +458,70 @@ class AIService:
             return await self._after_fail(system_prompt, user_prompt, max_tokens,
                                           temperature, model, thinking, _attempt)
 
+    async def spare_call(self, system_prompt: str, user_prompt: str,
+                         max_tokens: int = 1000, temperature: float = 0.7,
+                         status: Optional[int] = None) -> Optional[str]:
+        """Дополнительный вызов DeepSeek, когда поток и его повтор не дали
+        ни одной дельты.
+
+        Запасной модели у проекта нет (решение владельца 13.09.2026: «нет
+        API для запасной модели, поэтому не переключаем, а делаем
+        дополнительный вызов»). До этого сюда был подключён Anthropic по
+        ключу из env, ключа в env не было, и на проде фолбэк ни разу не
+        сработал: 13.09 06:06 человек получил две заглушки подряд.
+
+        Отличия от основного пути, чтобы не повторить тот же отказ:
+        отдельное соединение вместо общего пула (застрявший пул — одна из
+        причин «молчания»), без потока, без параметра размышления, обычная
+        модель, пауза 2 с перед запросом, свой таймаут. Кончившийся баланс
+        (402) и чужой ключ (401) ещё одним вызовом не лечатся — сразу None.
+        """
+        if not self.api_key or status in (401, 402):
+            return None
+        await asyncio.sleep(2)
+        body = {
+            "model": DEEPSEEK_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt or ""},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        _apply_thinking(body, False)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}",
+                             "Content-Type": "application/json"},
+                    json=body,
+                    timeout=aiohttp.ClientTimeout(total=90),
+                ) as r:
+                    if r.status != 200:
+                        detail = (await r.text())[:200]
+                        logger.error("❌ spare call %s: %s", r.status, detail)
+                        _note_ai_fail("spare_failed", "DeepSeek %s: %s" % (r.status, detail))
+                        return None
+                    data = await r.json()
+            text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+            text = text.strip()
+            if text:
+                logger.warning("↩️ SPARE_CALL: ответил дополнительный вызов, %d знаков", len(text))
+            return text or None
+        except Exception as e:
+            logger.error("❌ spare call error: %s", e)
+            _note_ai_fail("spare_failed", str(e))
+            return None
+
     async def _after_fail(self, system_prompt, user_prompt, max_tokens,
                           temperature, model, thinking, attempt):
-        """Один повтор, потом запасная модель.
+        """Один повтор, потом дополнительный вызов без потока.
 
         До 08.09 отказ был окончательным с первой попытки: таймаут или
         оборванная сеть сразу превращались в заглушку. Полторы секунды
         паузы и второй заход снимают одиночный сбой; если и он не прошёл,
-        отвечает запасная модель, а не заглушка.
+        отвечает дополнительный вызов (spare_call), а не заглушка.
         """
         if attempt == 0:
             await asyncio.sleep(1.5)
@@ -521,8 +530,8 @@ class AIService:
                                             temperature, model, thinking, _attempt=1)
             if out:
                 return out
-        return await call_anthropic_fallback(system_prompt, user_prompt,
-                                             max_tokens, temperature)
+        return await self.spare_call(system_prompt, user_prompt,
+                                     max_tokens, temperature)
 
     async def _call_deepseek_streaming(
         self, system_prompt: str, user_prompt: str,
@@ -612,11 +621,12 @@ class AIService:
                             _chars += len(_d)
                             yield _d
                         return
-                    # Кончившийся баланс, чужой ключ, ограничение частоты —
-                    # повтором не лечатся, а заглушка человеку не помогает.
-                    # Отвечает запасная модель, если она задана.
-                    _alt = await call_anthropic_fallback(
-                        system_prompt, user_prompt, max_tokens, temperature)
+                    # Кончившийся баланс и чужой ключ повтором не лечатся;
+                    # ограничение частоты и ошибки сервера — ещё один вызов
+                    # после паузы.
+                    _alt = await self.spare_call(
+                        system_prompt, user_prompt, max_tokens, temperature,
+                        status=response.status)
                     if _alt:
                         _chars += len(_alt)
                         yield _alt
@@ -684,9 +694,9 @@ class AIService:
             }
 
         # Ни одной дельты и был отказ — человек иначе получит заглушку.
-        # Повторяем один раз, потом отвечает запасная модель: её ответ
-        # приходит целиком, не по словам, но это несравнимо лучше, чем
-        # «у меня технический сбой» четыре раза подряд.
+        # Повторяем один раз, потом дополнительный вызов без потока: его
+        # ответ приходит целиком, не по словам, но это несравнимо лучше,
+        # чем «у меня технический сбой» четыре раза подряд.
         if _failed and _chars == 0:
             if not _retried:
                 await asyncio.sleep(1.5)
@@ -698,8 +708,8 @@ class AIService:
                     _chars += len(_d)
                     yield _d
             if _chars == 0:
-                _alt = await call_anthropic_fallback(system_prompt, user_prompt,
-                                                     max_tokens, temperature)
+                _alt = await self.spare_call(system_prompt, user_prompt,
+                                             max_tokens, temperature)
                 if _alt:
                     yield _alt
 
@@ -907,14 +917,15 @@ class AIService:
         }
 
         # Таймаут и повтор (12.09.2026). Здесь стоял общий таймаут 30 с на
-        # весь поток, без повтора и без запасной модели — в отличие от
+        # весь поток, без повтора и без дополнительного вызова — в отличие от
         # _call_deepseek_streaming, которым отвечает basic. Ответ психолога
         # в 1100–1400 токенов в 30 с не укладывается: выгрузка за 7 дней —
         # 10 из 33 ответов психолога 11.09 обрезаны на полуслове, человек
         # написал «твои сообщения приходят не полностью»; у коуча 14 из 29
         # ответов — заглушка «технический сбой» (модель не успела отдать
         # первую дельту). Теперь: 180 с на поток и 60 с на паузу между
-        # дельтами, один повтор при пустом ответе, затем запасная модель.
+        # дельтами, один повтор при пустом ответе, затем дополнительный
+        # вызов без потока (spare_call).
         _chars = 0
         _failed = False
         for _attempt in (1, 2):
@@ -969,14 +980,14 @@ class AIService:
                 logger.warning("↻ streaming (mode=%s): повтор после отказа" % mode)
 
         if _chars == 0 and _failed:
-            # Обе попытки пусты — запасная модель целиком, без истории:
-            # хуже, чем живой поток, но несравнимо лучше заглушки.
+            # Обе попытки потока пусты — дополнительный вызов без потока,
+            # ответ приходит целиком. Хуже живого потока, но лучше заглушки.
             _alt = None
             try:
-                _alt = await call_anthropic_fallback(final_system_prompt, user_prompt,
-                                                     max_tokens, temperature)
+                _alt = await self.spare_call(final_system_prompt, user_prompt,
+                                             max_tokens, temperature)
             except Exception as e:
-                logger.error(f"fallback error: {e}")
+                logger.error(f"spare call error: {e}")
             if _alt:
                 yield _alt
             else:

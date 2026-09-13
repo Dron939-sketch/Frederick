@@ -5,8 +5,9 @@
 10 ответов из 33 (человек написал «твои сообщения приходят не полностью»),
 у режима «коуч» 14 ответов из 29 — заглушка «технический сбой». Причина —
 generate_response_streaming с общим таймаутом 30 с на весь поток, без
-повтора и без запасной модели, тогда как basic ходит через
-_call_deepseek_streaming с повтором и Anthropic-фолбэком.
+повтора, тогда как basic ходит через _call_deepseek_streaming с повтором.
+Запасной модели у проекта нет: после повтора — дополнительный вызов
+DeepSeek без потока (spare_call).
 
 Запуск: python3 backend/tests/test_streaming_retry.py
 """
@@ -100,27 +101,37 @@ def test_timeout_then_success_gives_real_answer():
     assert "технический сбой" not in "".join(out)
 
 
-def test_two_failures_use_fallback_model():
+def test_two_failures_use_spare_call():
+    """Запасной модели нет (владелец, 13.09.2026): после двух пустых
+    потоков — дополнительный вызов DeepSeek без потока."""
     called = {}
 
-    async def fake_fallback(system_prompt, user_prompt, max_tokens, temperature):
+    async def fake_spare(system_prompt, user_prompt, max_tokens, temperature, status=None):
         called["yes"] = (system_prompt, user_prompt)
-        return "Ответ запасной модели."
+        return "Ответ дополнительного вызова."
 
-    ai.call_anthropic_fallback = fake_fallback
     svc, sess = _service([{"resp": _Resp(500, [])}, {"exc": asyncio.TimeoutError()}])
+    svc.spare_call = fake_spare
     out = asyncio.run(_collect(svc))
     assert sess.calls == 2
-    assert out == ["Ответ запасной модели."], out
+    assert out == ["Ответ дополнительного вызова."], out
     assert called["yes"][1] == "Привет"
 
 
-def test_fallback_model_silent_gives_stub_not_crash():
-    async def none_fallback(*a, **k):
+def test_spare_call_skips_balance_and_key_errors():
+    svc, _ = _service([])
+    assert asyncio.run(svc.spare_call("s", "u", 10, 0.5, status=402)) is None
+    assert asyncio.run(svc.spare_call("s", "u", 10, 0.5, status=401)) is None
+    svc.api_key = ""
+    assert asyncio.run(svc.spare_call("s", "u", 10, 0.5)) is None
+
+
+def test_spare_call_silent_gives_stub_not_crash():
+    async def none_spare(*a, **k):
         return None
 
-    ai.call_anthropic_fallback = none_fallback
     svc, sess = _service([{"exc": RuntimeError("boom")}, {"exc": RuntimeError("boom")}])
+    svc.spare_call = none_spare
     out = asyncio.run(_collect(svc))
     assert out == [ai.AIService._get_fallback_response(svc, "coach")], out
 
