@@ -17,7 +17,7 @@ from .base_mode import BaseMode
 from profiles import VECTORS, LEVEL_PROFILES
 from confinement.confinement_model import ConfinementModel9
 from confinement.loop_analyzer import LoopAnalyzer
-from services.ai_service import AIService
+from services.ai_service import AIService, tech_fail_reply
 
 # Импорты для многоавторской архитектуры
 from .prompts.psychologist import get_method, METHODS_REGISTRY
@@ -304,9 +304,18 @@ class PsychologistMode(BaseMode):
                     yield chunk
         except Exception as e:
             logger.error(f"Ошибка при вызове AI: {e}")
-            fallback_response = "Я здесь. Расскажите подробнее, что вы чувствуете?"
+            # Не шаблон под видом ответа, а честное «сбой» — той же
+            # фразой, что и basic/coach. 11.09.2026 женщина в остром горе
+            # пять раз подряд получала «Я с вами. Расскажите подробнее, что
+            # вас беспокоит» на подробные, тяжёлые сообщения и ушла со
+            # словами «пустой разговор выходит».
+            fallback_response = tech_fail_reply(self.user_id)
             full_response = fallback_response
             yield fallback_response
+
+        if not full_response or not full_response.strip():
+            full_response = tech_fail_reply(self.user_id)
+            yield full_response
         
         # 7. Сохраняем в историю
         if full_response:
@@ -327,8 +336,8 @@ class PsychologistMode(BaseMode):
             full_response += chunk
         
         if not full_response or not full_response.strip():
-            full_response = "Вопрос интересный. Расскажите подробнее, пожалуйста."
-        
+            full_response = tech_fail_reply(self.user_id)
+
         return full_response
 
     # ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========

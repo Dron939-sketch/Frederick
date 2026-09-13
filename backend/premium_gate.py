@@ -44,6 +44,19 @@ def is_lock_text(text: Optional[str]) -> bool:
     return bool(text) and text.startswith(LOCK_PREFIX)
 
 
+def _tech_fail_texts() -> List[str]:
+    """Заглушки «технический сбой» — не ответы, в счёт не идут.
+
+    13.09.2026 06:06 МСК: человек с аккаунтом получил в коуче две заглушки
+    и один живой ответ — и на четвёртом сообщении замок «три ответа вы уже
+    получили». Два из трёх «ответов» были сбоем DeepSeek."""
+    try:
+        from services.ai_service import _TECH_FAILS
+        return [t.strip() for t in _TECH_FAILS]
+    except Exception:
+        return []
+
+
 async def free_answers_used(db, user_id: int, modes: Iterable[str] = LOCK_MODES) -> int:
     """Сколько настоящих ответов коуча/тренера человек уже получил."""
     try:
@@ -53,8 +66,9 @@ async def free_answers_used(db, user_id: int, modes: Iterable[str] = LOCK_MODES)
                 WHERE user_id = $1
                   AND role = 'assistant'
                   AND COALESCE(metadata->>'mode', '') = ANY($2::text[])
-                  AND content NOT LIKE $3""",
-            int(user_id), list(modes), LOCK_PREFIX + "%",
+                  AND content NOT LIKE $3
+                  AND NOT (btrim(content) = ANY($4::text[]))""",
+            int(user_id), list(modes), LOCK_PREFIX + "%", _tech_fail_texts(),
         )
         return int(row["n"] if row else 0)
     except Exception as e:
