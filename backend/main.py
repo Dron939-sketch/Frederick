@@ -6509,8 +6509,9 @@ async def get_test_recommendations(request: Request, user_id: int):
         # (что человек получит) — без них блок оставался списком ссылок без
         # объяснения. Кэш здесь вечный, и без этой проверки все, кто прошёл
         # тест раньше, так и остались бы со старым видом навсегда.
+        _rec_v = getattr(ai_service, 'REC_FORMAT_VERSION', 1)
         if isinstance(cached, list) and cached and all(
-                isinstance(it, dict) and it.get('format') for it in cached):
+                isinstance(it, dict) and it.get('v', 0) >= _rec_v for it in cached):
             return {"success": True, "status": "ready", "items": cached}
         items = await ai_service.generate_test_recommendations(user_id, profile)
         if items:
