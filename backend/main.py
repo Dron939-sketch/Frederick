@@ -3368,7 +3368,20 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         mode_name = "basic"
         logger.info(f"🎭 User {user_id} has no profile → BasicMode")
     else:
-        mode_name = context_obj.get("communication_mode", requested_mode)
+        # Роль спрашиваем у клиента, а не у базы. Колонка communication_mode
+        # создана с DEFAULT 'coach' (строка ~1606), поэтому у всех, кто
+        # прошёл тест и ни разу не переключал роль, в контексте лежит
+        # «коуч» — хотя человек его не выбирал. Дальше срабатывал замок
+        # premium_gate, и после трёх ответов человек получал «Режим „Коуч“
+        # доступен только с подпиской» сразу после портрета, не понимая,
+        # при чём тут коуч. Проверено 14.09.2026 на проде: запросы с
+        # mode=basic отвечались коучем и упирались в этот замок.
+        # Роль человек выбирает в меню, и выбор сохраняется отдельной
+        # ручкой save_mode (строка ~5890), так что запрос клиента —
+        # источник правды; база нужна только когда клиент ничего не прислал.
+        requested = (requested_mode or "").strip().lower()
+        stored = (context_obj.get("communication_mode") or "").strip().lower()
+        mode_name = requested or stored or "basic"
     # Premium-gate: без активной подписки premium-роли понижаются до basic.
     mode_name = await _enforce_premium_mode(user_id, mode_name)
 
