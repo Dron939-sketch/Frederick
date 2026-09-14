@@ -3856,6 +3856,40 @@ async def _is_premium_user(user_id) -> bool:
         return False
 
 
+_ANALYSIS_KEYS = ("portrait", "loops", "mechanisms", "growth", "forecast", "keys")
+
+
+def _salvage_json_sections(text: str, keys=_ANALYSIS_KEYS) -> dict:
+    """Собирает разделы из недописанного или битого JSON.
+
+    14.09.2026 полный разбор падал у владельца двумя способами:
+    «Unterminated string starting at: line 6 column 14» — модель уперлась
+    в max_tokens и оборвала JSON на пятом разделе из шести, и
+    «Expecting ',' delimiter» — незаэкранированный символ внутри строки.
+    В обоих случаях человек, заплативший за разбор, видел на экране текст
+    питоновского парсера и пустоту.
+
+    Пять готовых разделов из шести — это разбор, а не ошибка. Здесь
+    вытаскивается каждый раздел по отдельности: целая строка разбирается
+    json.loads, оборванная берётся как есть до обрыва.
+    """
+    out = {}
+    for k in keys:
+        m = re.search(r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)' % re.escape(k), text, re.S)
+        if not m:
+            continue
+        raw = m.group(1)
+        try:
+            val = json.loads('"' + raw + '"')
+        except json.JSONDecodeError:
+            val = raw.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t')
+        val = val.strip()
+        # Совсем короткий огрызок — не раздел, а начало фразы.
+        if len(val) >= 40:
+            out[k] = val
+    return out
+
+
 @app.post("/api/deep-analysis")
 @limiter.limit("5/minute")
 async def deep_analysis(request: Request, data: ChatRequest):
@@ -3912,11 +3946,17 @@ AI-профиль:
 Верни строго JSON, 5-6 предложений в каждом разделе.
 """
 
-        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=4000, temperature=0.7)
+        # max_tokens=6000, а не 4000: шесть разделов по 5–6 предложений
+        # по-русски в 4000 не помещались, и JSON обрывался на пятом.
+        # json_mode заставляет провайдера отдать синтаксически корректный
+        # объект, а не JSON обычным текстом.
+        response = await ai_service._call_deepseek(
+            system_prompt, user_prompt, max_tokens=6000, temperature=0.7, json_mode=True)
 
         if response:
             cleaned = re.sub(r'^```json\s*', '', response)
             cleaned = re.sub(r'\s*```$', '', cleaned)
+            analysis_data = None
             try:
                 analysis_data = json.loads(cleaned)
             except json.JSONDecodeError:
@@ -3924,17 +3964,31 @@ AI-профиль:
                 # первый блок в фигурных скобках. Раньше это давало пустой
                 # разбор без ошибки на экране.
                 m = re.search(r'\{.*\}', cleaned, re.S)
-                if not m:
-                    raise
-                analysis_data = json.loads(m.group(0))
+                if m:
+                    try:
+                        analysis_data = json.loads(m.group(0))
+                    except json.JSONDecodeError:
+                        analysis_data = None
+            if not isinstance(analysis_data, dict) or not analysis_data:
+                analysis_data = _salvage_json_sections(cleaned)
+                if analysis_data:
+                    logger.warning(
+                        "Разбор собран по частям: %s из %s разделов",
+                        len(analysis_data), len(_ANALYSIS_KEYS))
+            if not analysis_data:
+                logger.error("Deep analysis: JSON не разобран, ответ: %r", cleaned[:500])
+                return {"success": False,
+                        "error": "Разбор не собрался с первого раза. Нажмите «Провести новый анализ»."}
             await user_repo.save_deep_analysis(data.user_id, analysis_data)
             return {"success": True, "analysis": analysis_data}
         else:
             return {"success": False, "error": "Не удалось сгенерировать анализ"}
 
     except Exception as e:
-        logger.error(f"Deep analysis error: {e}")
-        return {"success": False, "error": str(e)}
+        # Текст исключения наружу не отдаём: 14.09 владелец увидел на
+        # экране «Unterminated string starting at: line 6 column 14».
+        logger.error(f"Deep analysis error: {e}", exc_info=True)
+        return {"success": False, "error": "Не удалось собрать разбор. Попробуйте ещё раз."}
 
 
 @app.get("/api/deep-analysis/{user_id}")

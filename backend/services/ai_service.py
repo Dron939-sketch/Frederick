@@ -346,12 +346,20 @@ class AIService:
                               max_tokens: int = 1000, temperature: float = 0.7,
                               model: Optional[str] = None,
                               thinking: Optional[bool] = None,
+                              json_mode: bool = False,
                               _attempt: int = 0) -> Optional[str]:
         """model=None — обычная модель. Входной чат передаёт быструю.
 
         Если переданная модель неизвестна провайдеру (400), запрос
         повторяется на DEEPSEEK_MODEL: неверное имя в env не должно
         оставлять людей без ответа.
+
+        json_mode=True включает у провайдера режим строгого JSON. Нужен
+        там, где ответ разбирается json.loads: 14.09.2026 полный разбор
+        падал с «Unterminated string» и «Expecting ',' delimiter» —
+        модель отдавала JSON обычным текстом и обрывала его. Провайдер
+        требует, чтобы слово JSON стояло в промпте; у вызывающих кода
+        оно есть в описании формата.
         """
         if not self.api_key:
             return None
@@ -367,6 +375,8 @@ class AIService:
                 "temperature": temperature,
                 "max_tokens": max_tokens
             }
+            if json_mode:
+                request_body["response_format"] = {"type": "json_object"}
             _apply_thinking(request_body, thinking)
             async with session.post(
                 f"{self.base_url}/chat/completions",
@@ -408,7 +418,8 @@ class AIService:
                         return await self._call_deepseek(
                             system_prompt, user_prompt,
                             max_tokens=max_tokens, temperature=temperature,
-                            model=DEEPSEEK_MODEL, thinking=None)
+                            model=DEEPSEEK_MODEL, thinking=None,
+                            json_mode=json_mode)
                     return None
                     
                 elif response.status == 401:
@@ -445,18 +456,21 @@ class AIService:
             logger.error("❌ DeepSeek timeout (120 seconds)")
             _note_ai_fail("timeout", "DeepSeek молчал дольше 120 секунд")
             return await self._after_fail(system_prompt, user_prompt, max_tokens,
-                                          temperature, model, thinking, _attempt)
+                                          temperature, model, thinking, _attempt,
+                                          json_mode=json_mode)
         except aiohttp.ClientError as e:
             logger.error(f"❌ DeepSeek client error: {e}")
             _note_ai_fail("network", str(e))
             return await self._after_fail(system_prompt, user_prompt, max_tokens,
-                                          temperature, model, thinking, _attempt)
+                                          temperature, model, thinking, _attempt,
+                                          json_mode=json_mode)
         except Exception as e:
             logger.error(f"❌ DeepSeek unexpected error: {e}")
             logger.exception("Full traceback:")
             _note_ai_fail("error", str(e))
             return await self._after_fail(system_prompt, user_prompt, max_tokens,
-                                          temperature, model, thinking, _attempt)
+                                          temperature, model, thinking, _attempt,
+                                          json_mode=json_mode)
 
     async def spare_call(self, system_prompt: str, user_prompt: str,
                          max_tokens: int = 1000, temperature: float = 0.7,
@@ -515,7 +529,7 @@ class AIService:
             return None
 
     async def _after_fail(self, system_prompt, user_prompt, max_tokens,
-                          temperature, model, thinking, attempt):
+                          temperature, model, thinking, attempt, json_mode=False):
         """Один повтор, потом дополнительный вызов без потока.
 
         До 08.09 отказ был окончательным с первой попытки: таймаут или
@@ -527,7 +541,8 @@ class AIService:
             await asyncio.sleep(1.5)
             logger.warning("↻ DeepSeek: повтор после отказа")
             out = await self._call_deepseek(system_prompt, user_prompt, max_tokens,
-                                            temperature, model, thinking, _attempt=1)
+                                            temperature, model, thinking,
+                                            json_mode=json_mode, _attempt=1)
             if out:
                 return out
         return await self.spare_call(system_prompt, user_prompt,
