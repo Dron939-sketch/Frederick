@@ -3856,6 +3856,71 @@ async def _is_premium_user(user_id) -> bool:
         return False
 
 
+def _vector_levels(profile: dict) -> dict:
+    """Четыре вектора так, как их видит человек на экране: среднее, округлённое.
+
+    behavioral_levels — это список уровней по каждому ответу, и свести его
+    в одно число можно по-разному. Клиент (test.js, calculateFinalProfile)
+    берёт СРЕДНЕЕ и округляет — именно это число стоит в коде профиля
+    СБ-5_ТФ-6_УБ-6_ЧВ-6 и в таблице векторов.
+
+    На бэкенде до 14.09.2026 было два разных способа. Утренние сообщения и
+    планировщик выходных считали среднее — верно. А полный разбор и поиск
+    «двойников» брали ПОСЛЕДНИЙ элемент списка, то есть уровень последнего
+    ответа по вектору. Человек с профилем СБ-5 мог получить платный разбор,
+    написанный про СБ-3, потому что последним он ответил именно так.
+    Заметить это по тексту невозможно: разбор выглядит осмысленным, просто
+    он про другого человека.
+
+    Шкала векторов — 1..6, а не 1..9: уровни 7–9 в тесте есть только у
+    вопросов этапа мышления (они помечены measures, а не strategy) и в
+    behavioral_levels не попадают.
+    """
+    levels = profile.get('behavioral_levels') or {}
+    out = {}
+    for k in ('СБ', 'ТФ', 'УБ', 'ЧВ'):
+        arr = levels.get(k) or []
+        if isinstance(arr, (int, float)):
+            arr = [arr]
+        nums = [x for x in arr if isinstance(x, (int, float))]
+        out[k] = int(round(sum(nums) / len(nums))) if nums else 3
+    return out
+
+
+_ANALYSIS_KEYS = ("portrait", "loops", "mechanisms", "growth", "forecast", "keys")
+
+
+def _salvage_json_sections(text: str, keys=_ANALYSIS_KEYS) -> dict:
+    """Собирает разделы из недописанного или битого JSON.
+
+    14.09.2026 полный разбор падал у владельца двумя способами:
+    «Unterminated string starting at: line 6 column 14» — модель уперлась
+    в max_tokens и оборвала JSON на пятом разделе из шести, и
+    «Expecting ',' delimiter» — незаэкранированный символ внутри строки.
+    В обоих случаях человек, заплативший за разбор, видел на экране текст
+    питоновского парсера и пустоту.
+
+    Пять готовых разделов из шести — это разбор, а не ошибка. Здесь
+    вытаскивается каждый раздел по отдельности: целая строка разбирается
+    json.loads, оборванная берётся как есть до обрыва.
+    """
+    out = {}
+    for k in keys:
+        m = re.search(r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)' % re.escape(k), text, re.S)
+        if not m:
+            continue
+        raw = m.group(1)
+        try:
+            val = json.loads('"' + raw + '"')
+        except json.JSONDecodeError:
+            val = raw.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t')
+        val = val.strip()
+        # Совсем короткий огрызок — не раздел, а начало фразы.
+        if len(val) >= 40:
+            out[k] = val
+    return out
+
+
 @app.post("/api/deep-analysis")
 @limiter.limit("5/minute")
 async def deep_analysis(request: Request, data: ChatRequest):
@@ -3874,7 +3939,7 @@ async def deep_analysis(request: Request, data: ChatRequest):
             return {"success": False, "error": "premium_required", "premium_required": True}
 
         profile_data = profile.get('profile_data', {})
-        behavioral_levels = profile.get('behavioral_levels', {})
+        vec = _vector_levels(profile)
         deep_patterns = profile.get('deep_patterns', {})
 
         system_prompt = """Ты — психолог Фреди. Проведи ГЛУБОКИЙ психологический анализ личности пользователя.
@@ -3898,10 +3963,10 @@ async def deep_analysis(request: Request, data: ChatRequest):
 Уровень мышления: {profile.get('thinking_level', 5)}/9
 
 Поведенческие уровни:
-СБ: {behavioral_levels.get('СБ', [3])[-1] if behavioral_levels.get('СБ') else 3}/6
-ТФ: {behavioral_levels.get('ТФ', [3])[-1] if behavioral_levels.get('ТФ') else 3}/6
-УБ: {behavioral_levels.get('УБ', [3])[-1] if behavioral_levels.get('УБ') else 3}/6
-ЧВ: {behavioral_levels.get('ЧВ', [3])[-1] if behavioral_levels.get('ЧВ') else 3}/6
+СБ: {vec['СБ']}/6
+ТФ: {vec['ТФ']}/6
+УБ: {vec['УБ']}/6
+ЧВ: {vec['ЧВ']}/6
 
 Глубинные паттерны:
 {json.dumps(deep_patterns, ensure_ascii=False, indent=2) if deep_patterns else 'Нет данных'}
@@ -3912,11 +3977,17 @@ AI-профиль:
 Верни строго JSON, 5-6 предложений в каждом разделе.
 """
 
-        response = await ai_service._call_deepseek(system_prompt, user_prompt, max_tokens=4000, temperature=0.7)
+        # max_tokens=6000, а не 4000: шесть разделов по 5–6 предложений
+        # по-русски в 4000 не помещались, и JSON обрывался на пятом.
+        # json_mode заставляет провайдера отдать синтаксически корректный
+        # объект, а не JSON обычным текстом.
+        response = await ai_service._call_deepseek(
+            system_prompt, user_prompt, max_tokens=6000, temperature=0.7, json_mode=True)
 
         if response:
             cleaned = re.sub(r'^```json\s*', '', response)
             cleaned = re.sub(r'\s*```$', '', cleaned)
+            analysis_data = None
             try:
                 analysis_data = json.loads(cleaned)
             except json.JSONDecodeError:
@@ -3924,17 +3995,31 @@ AI-профиль:
                 # первый блок в фигурных скобках. Раньше это давало пустой
                 # разбор без ошибки на экране.
                 m = re.search(r'\{.*\}', cleaned, re.S)
-                if not m:
-                    raise
-                analysis_data = json.loads(m.group(0))
+                if m:
+                    try:
+                        analysis_data = json.loads(m.group(0))
+                    except json.JSONDecodeError:
+                        analysis_data = None
+            if not isinstance(analysis_data, dict) or not analysis_data:
+                analysis_data = _salvage_json_sections(cleaned)
+                if analysis_data:
+                    logger.warning(
+                        "Разбор собран по частям: %s из %s разделов",
+                        len(analysis_data), len(_ANALYSIS_KEYS))
+            if not analysis_data:
+                logger.error("Deep analysis: JSON не разобран, ответ: %r", cleaned[:500])
+                return {"success": False,
+                        "error": "Разбор не собрался с первого раза. Нажмите «Провести новый анализ»."}
             await user_repo.save_deep_analysis(data.user_id, analysis_data)
             return {"success": True, "analysis": analysis_data}
         else:
             return {"success": False, "error": "Не удалось сгенерировать анализ"}
 
     except Exception as e:
-        logger.error(f"Deep analysis error: {e}")
-        return {"success": False, "error": str(e)}
+        # Текст исключения наружу не отдаём: 14.09 владелец увидел на
+        # экране «Unterminated string starting at: line 6 column 14».
+        logger.error(f"Deep analysis error: {e}", exc_info=True)
+        return {"success": False, "error": "Не удалось собрать разбор. Попробуйте ещё раз."}
 
 
 @app.get("/api/deep-analysis/{user_id}")
@@ -4795,12 +4880,9 @@ async def find_psychometric_doubles(request: Request, user_id: str, limit: int =
         profile_data = profile.get('profile_data', {})
         behavioral_levels = profile.get('behavioral_levels', {})
 
-        vectors = {
-            'СБ': behavioral_levels.get('СБ', [4])[-1] if behavioral_levels.get('СБ') else 4,
-            'ТФ': behavioral_levels.get('ТФ', [4])[-1] if behavioral_levels.get('ТФ') else 4,
-            'УБ': behavioral_levels.get('УБ', [4])[-1] if behavioral_levels.get('УБ') else 4,
-            'ЧВ': behavioral_levels.get('ЧВ', [4])[-1] if behavioral_levels.get('ЧВ') else 4
-        }
+        # Среднее, как на экране, а не последний ответ: «двойников» искали
+        # по уровню последнего ответа, и совпадения выходили не с теми.
+        vectors = _vector_levels(profile)
 
         async with db.get_connection() as conn:
             rows = await conn.fetch("""
@@ -4815,14 +4897,10 @@ async def find_psychometric_doubles(request: Request, user_id: str, limit: int =
         doubles = []
         for row in rows:
             other_profile = row['profile'] if isinstance(row['profile'], dict) else json.loads(row['profile'])
-            other_behavioral = other_profile.get('behavioral_levels', {})
-
-            other_vectors = {
-                'СБ': other_behavioral.get('СБ', [4])[-1] if other_behavioral.get('СБ') else 4,
-                'ТФ': other_behavioral.get('ТФ', [4])[-1] if other_behavioral.get('ТФ') else 4,
-                'УБ': other_behavioral.get('УБ', [4])[-1] if other_behavioral.get('УБ') else 4,
-                'ЧВ': other_behavioral.get('ЧВ', [4])[-1] if other_behavioral.get('ЧВ') else 4
-            }
+            # Тем же способом, что и свои векторы: иначе сравнивалось бы
+            # моё среднее с чужим последним ответом, и «двойник» выходил
+            # случайным человеком.
+            other_vectors = _vector_levels(other_profile)
 
             total_diff = sum(abs(vectors.get(k, 4) - other_vectors.get(k, 4)) for k in ['СБ', 'ТФ', 'УБ', 'ЧВ'])
             similarity = max(0, min(100, int((1 - total_diff / 24) * 100)))
@@ -6426,7 +6504,13 @@ async def get_test_recommendations(request: Request, user_id: int):
         if not profile.get('profile_data'):
             return {"success": False, "status": "no_profile", "items": []}
         cached = profile.get('test_recommendations')
-        if isinstance(cached, list) and cached:
+        # Кэш старого формата пересобираем. 14.09.2026 к рекомендации
+        # добавились «format» (что это за формат и сколько стоит) и «what»
+        # (что человек получит) — без них блок оставался списком ссылок без
+        # объяснения. Кэш здесь вечный, и без этой проверки все, кто прошёл
+        # тест раньше, так и остались бы со старым видом навсегда.
+        if isinstance(cached, list) and cached and all(
+                isinstance(it, dict) and it.get('format') for it in cached):
             return {"success": True, "status": "ready", "items": cached}
         items = await ai_service.generate_test_recommendations(user_id, profile)
         if items:

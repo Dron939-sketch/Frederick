@@ -346,12 +346,20 @@ class AIService:
                               max_tokens: int = 1000, temperature: float = 0.7,
                               model: Optional[str] = None,
                               thinking: Optional[bool] = None,
+                              json_mode: bool = False,
                               _attempt: int = 0) -> Optional[str]:
         """model=None — обычная модель. Входной чат передаёт быструю.
 
         Если переданная модель неизвестна провайдеру (400), запрос
         повторяется на DEEPSEEK_MODEL: неверное имя в env не должно
         оставлять людей без ответа.
+
+        json_mode=True включает у провайдера режим строгого JSON. Нужен
+        там, где ответ разбирается json.loads: 14.09.2026 полный разбор
+        падал с «Unterminated string» и «Expecting ',' delimiter» —
+        модель отдавала JSON обычным текстом и обрывала его. Провайдер
+        требует, чтобы слово JSON стояло в промпте; у вызывающих кода
+        оно есть в описании формата.
         """
         if not self.api_key:
             return None
@@ -367,6 +375,8 @@ class AIService:
                 "temperature": temperature,
                 "max_tokens": max_tokens
             }
+            if json_mode:
+                request_body["response_format"] = {"type": "json_object"}
             _apply_thinking(request_body, thinking)
             async with session.post(
                 f"{self.base_url}/chat/completions",
@@ -408,7 +418,8 @@ class AIService:
                         return await self._call_deepseek(
                             system_prompt, user_prompt,
                             max_tokens=max_tokens, temperature=temperature,
-                            model=DEEPSEEK_MODEL, thinking=None)
+                            model=DEEPSEEK_MODEL, thinking=None,
+                            json_mode=json_mode)
                     return None
                     
                 elif response.status == 401:
@@ -445,18 +456,21 @@ class AIService:
             logger.error("❌ DeepSeek timeout (120 seconds)")
             _note_ai_fail("timeout", "DeepSeek молчал дольше 120 секунд")
             return await self._after_fail(system_prompt, user_prompt, max_tokens,
-                                          temperature, model, thinking, _attempt)
+                                          temperature, model, thinking, _attempt,
+                                          json_mode=json_mode)
         except aiohttp.ClientError as e:
             logger.error(f"❌ DeepSeek client error: {e}")
             _note_ai_fail("network", str(e))
             return await self._after_fail(system_prompt, user_prompt, max_tokens,
-                                          temperature, model, thinking, _attempt)
+                                          temperature, model, thinking, _attempt,
+                                          json_mode=json_mode)
         except Exception as e:
             logger.error(f"❌ DeepSeek unexpected error: {e}")
             logger.exception("Full traceback:")
             _note_ai_fail("error", str(e))
             return await self._after_fail(system_prompt, user_prompt, max_tokens,
-                                          temperature, model, thinking, _attempt)
+                                          temperature, model, thinking, _attempt,
+                                          json_mode=json_mode)
 
     async def spare_call(self, system_prompt: str, user_prompt: str,
                          max_tokens: int = 1000, temperature: float = 0.7,
@@ -515,7 +529,7 @@ class AIService:
             return None
 
     async def _after_fail(self, system_prompt, user_prompt, max_tokens,
-                          temperature, model, thinking, attempt):
+                          temperature, model, thinking, attempt, json_mode=False):
         """Один повтор, потом дополнительный вызов без потока.
 
         До 08.09 отказ был окончательным с первой попытки: таймаут или
@@ -527,7 +541,8 @@ class AIService:
             await asyncio.sleep(1.5)
             logger.warning("↻ DeepSeek: повтор после отказа")
             out = await self._call_deepseek(system_prompt, user_prompt, max_tokens,
-                                            temperature, model, thinking, _attempt=1)
+                                            temperature, model, thinking,
+                                            json_mode=json_mode, _attempt=1)
             if out:
                 return out
         return await self.spare_call(system_prompt, user_prompt,
@@ -1280,14 +1295,27 @@ class AIService:
                     'когда нужен живой формат, группа и обратная связь от ведущего'),
     }
 
+    # Что это за формат — человеку нужно понимать, куда он идёт и во что
+    # это ему обойдётся, до того как нажмёт. Числа (сколько лекций в курсе)
+    # сюда намеренно не вписаны: они разъезжаются с каталогом в первый же
+    # день, для этого есть link_lektorij.py на стороне сайта.
+    REC_FORMAT = {
+        'course': 'Курс Лектория — бесплатно, без регистрации',
+        'game': 'Тренажёр в приложении — 10–15 минут',
+        'trening': 'Живой тренинг с ведущим, в группе',
+    }
+
     def _rec_items(self, ids_with_reasons):
         items = []
         for rec_id, reason in ids_with_reasons:
             entry = self.TEST_REC_CATALOG.get(rec_id)
             if not entry:
                 continue
+            reason_text, what_text = reason if isinstance(reason, tuple) else (reason, '')
             items.append({'id': rec_id, 'type': entry[0], 'title': entry[1],
-                          'url': entry[2], 'reason': reason})
+                          'url': entry[2], 'reason': reason_text,
+                          'what': what_text,
+                          'format': self.REC_FORMAT.get(entry[0], '')})
         return items
 
     def _get_recommendations_fallback(self, profile: Dict) -> List[Dict]:
@@ -1332,9 +1360,10 @@ class AIService:
 {catalog_lines}
 
 Ответ — СТРОГО JSON-массив без пояснений:
-[{{"id": "...", "reason": "..."}}, ...]
+[{{"id": "...", "reason": "...", "what": "..."}}, ...]
 
-reason — 1-2 предложения на «ты»: почему именно ему, с опорой на его профиль. Без общих слов «это полезно каждому»."""
+reason — 1-2 предложения на «ты»: почему именно ему, с опорой на его профиль. Назови, что в его результатах на это указывает. Без общих слов «это полезно каждому».
+what — одно предложение: что он будет уметь или понимать после, конкретно. Не «станет лучше», а что именно изменится в его поведении."""
 
         behavioral_levels = profile.get('behavioral_levels', {})
         scores = {}
@@ -1358,9 +1387,12 @@ reason — 1-2 предложения на «ты»: почему именно �
                 if m:
                     raw = json.loads(m.group())
                     if isinstance(raw, list):
-                        pairs = [(str(r.get('id', '')), str(r.get('reason', '')).strip())
+                        pairs = [(str(r.get('id', '')),
+                                  (str(r.get('reason', '')).strip(),
+                                   str(r.get('what', '')).strip()))
                                  for r in raw if isinstance(r, dict)]
-                        items = self._rec_items([p for p in pairs if p[0] in self.TEST_REC_CATALOG and p[1]])
+                        items = self._rec_items([p for p in pairs
+                                                 if p[0] in self.TEST_REC_CATALOG and p[1][0]])
                         if len(items) >= 2:
                             return items[:3]
             except (json.JSONDecodeError, AttributeError, TypeError):
@@ -1368,8 +1400,25 @@ reason — 1-2 предложения на «ты»: почему именно �
         return self._get_recommendations_fallback(profile)
 
     async def generate_ai_profile(self, user_id: int, profile: Dict) -> Optional[str]:
+        """None вместо заглушки, если портрет не собрался.
+
+        14.09.2026 владелец прошёл тест и получил под заголовком
+        «AI-СГЕНЕРИРОВАННЫЙ ПРОФИЛЬ» общий текст про «высокий уровень
+        адаптивности» и «устойчивость к стрессу» — человеку с тревожным
+        типом привязанности, про которого этап 5 на том же экране писал
+        «болезненно реагируешь на холодность». Заканчивался текст строкой
+        «Ваш профиль: СБ-4_ТФ-4_УБ-4_ЧВ-4», хотя настоящий код был
+        СБ-5_ТФ-6_УБ-6_ЧВ-6. Это была заглушка _get_profile_fallback.
+
+        Хуже того, заглушка сохранялась в ai_generated_profile навсегда:
+        оттуда её читал полный разбор и рекомендации, то есть один сбой
+        сети отравлял всё, что человек увидит дальше. Оба вызывающих
+        места сохраняют результат только при истинном значении — значит
+        None здесь означает «попробуем в следующий раз», и это честнее
+        вымышленного портрета.
+        """
         if not self.api_key:
-            return self._get_profile_fallback(profile)
+            return None
 
         system_prompt = """Ты — психолог Фреди. Напиши подробный психологический портрет пользователя.
 
@@ -1401,7 +1450,14 @@ reason — 1-2 предложения на «ты»: почему именно �
 ⚠️ ГЛАВНАЯ ЛОВУШКА
 (1-2 предложения)
 
-Тёплый тон, обращение на "ты"."""
+Тёплый тон, обращение на "ты".
+
+ЧЕГО НЕЛЬЗЯ. Портрет показывается на одном экране с разбором этапа 5,
+где уже названы тип привязанности, базовая защита и теневая сторона.
+Не противоречь им: человеку с тревожной привязанностью нельзя писать
+«устойчивость к стрессу» — на экране прямо над твоим текстом сказано,
+что он болезненно реагирует на холодность. Код профиля не выводи вообще:
+он уже стоит выше, и второй, отличающийся, читается как ошибка."""
 
         profile_data = profile.get('profile_data', {})
         behavioral_levels = profile.get('behavioral_levels', {})
@@ -1418,8 +1474,13 @@ reason — 1-2 предложения на «ты»: почему именно �
 УБ: {scores.get('УБ', 3):.1f}/6  ЧВ: {scores.get('ЧВ', 3):.1f}/6
 Паттерны: {self._format_deep_patterns(profile.get('deep_patterns', {}))}
 """
-        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=1500)
-        return response or self._get_profile_fallback(profile)
+        # max_tokens=3000, а не 1500: пять разделов по-русски в полторы
+        # тысячи токенов помещались впритык, и портрет выходил коротким и
+        # общим — ровно то, на что владелец пожаловался 14.09.2026
+        # («описание сумбурное»). Русский текст у этой модели дороже в
+        # токенах, чем кажется по числу слов.
+        response = await self._call_deepseek(system_prompt, user_prompt, max_tokens=3000)
+        return response or None
 
     async def generate_psychologist_thought(self, user_id: int, profile: Dict) -> str:
         if not self.api_key:
@@ -1591,33 +1652,6 @@ reason — 1-2 предложения на «ты»: почему именно �
         неё минуты и бесплатные ответы; фразу под видом ответа они узнать
         не могли."""
         return tech_fail_reply()
-
-    def _get_profile_fallback(self, profile: Dict) -> str:
-        """Запасной профиль"""
-        profile_code = profile.get('profile_data', {}).get('display_name', 'СБ-4_ТФ-4_УБ-4_ЧВ-4')
-        return f"""
-🔑 КЛЮЧЕВАЯ ХАРАКТЕРИСТИКА
-Вы человек с высоким уровнем адаптивности. Умеете подстраиваться под обстоятельства и находить общий язык с разными людьми.
-
-💪 СИЛЬНЫЕ СТОРОНЫ
-- Высокоразвитые социальные навыки
-- Способность видеть системные связи
-- Устойчивость к стрессу
-- Прагматизм в вопросах ресурсов
-
-🎯 ЗОНЫ РОСТА
-- Развитие навыков отстаивания личных границ
-- Работа со спонтанностью и гибкостью
-- Углубление самопонимания
-
-🌱 КАК ЭТО СФОРМИРОВАЛОСЬ
-Ваш опыт и окружение сформировали адаптивный тип реагирования, который стал вашей основной стратегией.
-
-⚠️ ГЛАВНАЯ ЛОВУШКА
-Склонность к излишнему контролю. Иногда вы слишком много анализируете вместо того, чтобы действовать.
-
-Ваш профиль: {profile_code}
-"""
 
     def _get_thought_fallback(self, profile: Dict) -> str:
         return "Ты часто ставишь интересы других выше своих. Где та грань, за которой забота о других превращается в забывание о себе?"
