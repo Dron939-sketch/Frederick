@@ -599,6 +599,22 @@ class BasicMode(BaseMode):
         )
         parts.append("\n".join(adapt_lines))
 
+        # Каталог своего — только когда тест пройден. Без него человек после
+        # портрета спрашивал «с чего начать» и получал общие слова: модель не
+        # знала ни одного нашего курса, тренажёра и книги, и самый сильный
+        # момент воронки уходил в пустоту (наблюдение владельца 14.09.2026).
+        try:
+            from modes.prompts.arsenal import arsenal_block
+            block = arsenal_block(
+                weakest_vector=wv,
+                thinking_level=tl,
+                perception_type=getattr(self, "perception_type", None),
+            )
+            if block:
+                parts.append(block.rstrip())
+        except Exception:
+            logger.exception("arsenal_block failed")
+
         return "\n".join(parts) + "\n\n"
 
     def _build_user_block(self) -> str:
