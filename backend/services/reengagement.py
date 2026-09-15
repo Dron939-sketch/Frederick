@@ -94,10 +94,15 @@ async def build_user_summary(db, user_id: int) -> dict:
     # Профиль юзера
     # Имя человека живёт в fredi_user_contexts.name (то, что он сам назвал
     # Фреди); в fredi_users колонки name нет — берём с фолбэком на first_name.
+    # Почта берётся из аккаунта, а если аккаунта нет — из contact_email:
+    # туда кладётся адрес, который человек назвал на знакомстве в тесте,
+    # чтобы получить разбор файлом. Он и есть единственный канал к тем,
+    # кто прошёл тест и ушёл, так и не заведя аккаунт, — а их большинство.
     user = await db.fetchrow(
         """SELECT u.user_id,
                   COALESCE(uc.name, u.first_name) AS name,
-                  u.email, u.created_at, u.last_activity
+                  COALESCE(u.email, u.contact_email) AS email,
+                  u.created_at, u.last_activity
            FROM fredi_users u
            LEFT JOIN fredi_user_contexts uc ON uc.user_id = u.user_id
            WHERE u.user_id = $1""",
@@ -520,7 +525,7 @@ async def _scan_and_send_d3(db, email_service):
            WHERE u.created_at < NOW() - INTERVAL '3 days'
              AND u.last_activity < NOW() - INTERVAL '3 days'
              AND u.last_activity > NOW() - INTERVAL '14 days'
-             AND u.email IS NOT NULL
+             AND COALESCE(u.email, u.contact_email) IS NOT NULL
              AND COALESCE(u.email_opted_in, TRUE) = TRUE
              AND NOT EXISTS (
                  SELECT 1 FROM fredi_reengagement_log l
