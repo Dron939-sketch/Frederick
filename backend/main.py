@@ -2502,6 +2502,89 @@ async def _deliver_test_pdf_to_messenger(user_id: int, platform: str) -> bool:
         return False
 
 
+class EmailTestPdfIn(BaseModel):
+    user_id: int
+    email: Optional[str] = None
+
+
+@app.post("/api/test/email-pdf")
+@limiter.limit("5/minute")
+async def email_test_pdf(request: Request, data: EmailTestPdfIn):
+    """Разбор теста письмом, файлом.
+
+    Почту человек оставляет на знакомстве, в одном ряду с городом и
+    возрастом, и оставляет за дело: PDF приходит письмом и остаётся у
+    него, даже когда вкладка закрыта. Для нас это единственный канал,
+    которым вернувшегося вообще можно позвать обратно.
+
+    Адрес берётся из тела запроса, а если его там нет — из контекста
+    (туда его кладёт тот же экран знакомства) или из аккаунта. Ссылка в
+    письме стоит рядом с вложением: почтовые клиенты режут крупные
+    приложения, и без ссылки человек остался бы ни с чем.
+    """
+    uid = int(data.user_id)
+    email = (data.email or "").strip()
+    if not email:
+        try:
+            ctx = await context_repo.get(uid) or {}
+            email = str(ctx.get("email") or "").strip()
+        except Exception:
+            email = ""
+    if not email:
+        try:
+            async with db.get_connection() as conn:
+                email = (await conn.fetchval(
+                    "SELECT email FROM fredi_users WHERE user_id = $1", uid) or "").strip()
+        except Exception:
+            email = ""
+    if not email or "@" not in email:
+        return {"success": False, "error": "no_email"}
+
+    pdf_bytes = await _build_test_pdf_for_user(uid)
+    if not pdf_bytes:
+        return {"success": False, "error": "profile_not_ready"}
+
+    try:
+        token = await _issue_pdf_token(uid)
+        link = f"{_public_base_url()}/api/test/portrait-pdf?token={token}"
+    except Exception as e:
+        logger.warning(f"email_test_pdf: token failed (non-fatal): {e}")
+        link = ""
+
+    subject = "Ваш разбор теста — Фреди"
+    body = (
+        "Здравствуйте!\n\n"
+        "Во вложении — разбор вашего теста: восприятие, мышление, поведение, "
+        "точка роста и глубинные паттерны.\n\n"
+        + (f"Если вложение не открылось, файл лежит здесь: {link}\n\n" if link else "")
+        + "Разбор — не приговор и не ярлык. Это описание того, как вы обычно "
+        "поступаете; менять привычный ход можно, и именно об этом с вами "
+        "говорит Фреди.\n\n"
+        "— Фреди, виртуальный психолог\n"
+        "https://meysternlp.ru/fredi/\n"
+    )
+    html = (
+        "<p>Здравствуйте!</p>"
+        "<p>Во вложении — разбор вашего теста: восприятие, мышление, поведение, "
+        "точка роста и глубинные паттерны.</p>"
+        + (f'<p>Если вложение не открылось, файл лежит <a href="{link}">здесь</a>.</p>' if link else "")
+        + "<p>Разбор — не приговор и не ярлык. Это описание того, как вы обычно "
+        "поступаете; менять привычный ход можно, и именно об этом с вами "
+        "говорит Фреди.</p>"
+        '<p>— Фреди, виртуальный психолог<br>'
+        '<a href="https://meysternlp.ru/fredi/">meysternlp.ru/fredi</a></p>'
+    )
+
+    sent = False
+    if email_service:
+        sent = await email_service.send(
+            email, subject, body, html=html,
+            attachments=[("razbor-testa-fredi.pdf", pdf_bytes, "pdf")],
+        )
+    await log_event(uid, "test_pdf_emailed", {"sent": bool(sent), "has_link": bool(link)})
+    return {"success": bool(sent), "link": link or None}
+
+
 @app.get("/api/test/portrait-pdf")
 async def download_test_portrait_pdf(token: str = ""):
     """Скачивание PDF-портрета по одноразовому токену из MAX-сообщения."""
