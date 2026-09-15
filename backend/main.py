@@ -4318,6 +4318,7 @@ async def process_voice_stream(
     user_id: str = Form(...),
     voice: UploadFile = File(...),
     mode: str = Form("psychologist"),
+    text_only: bool = Form(False),
 ):
     """Streaming-версия /api/voice/process.
 
@@ -4333,6 +4334,12 @@ async def process_voice_stream(
 
     Tест-acceptance edge case (юзер согласился на оффер теста) обрабатывается
     как single-shot: одно audio-событие + done с action=open_test.
+
+    text_only=true — беззвучный режим фронта (кнопка в шапке окна
+    разговора): сказать вслух человек может, а слушать сейчас нет. Тогда
+    TTS не вызывается вовсе, а события audio уходят с одним полем text.
+    Старые клиенты такое событие уже понимают: текст они добавляют в
+    ленту, а enqueueAudio на пустом b64 выходит сразу.
     """
     try:
         audio_bytes = await voice.read()
@@ -4456,6 +4463,12 @@ async def process_voice_stream(
                         _gap_ms = int((time.time() - _lat["t_prev"]) * 1000)  # ожидание фразы от LLM
                         _lat["t_prev"] = time.time()
                         full_text_parts.append(sentence)
+                        if text_only:
+                            # Беззвучный режим: синтез пропускаем целиком.
+                            # Это не только тишина у человека — это ещё и
+                            # не потраченные деньги и секунды на озвучку,
+                            # которую никто не услышит.
+                            return None, sentence
                         # Пиним TTS-провайдера на весь стрим: если первое
                         # предложение озвучил Fish, остальные тоже только Fish.
                         # Иначе Fish-сбой посередине переключает на Yandex и
@@ -4492,6 +4505,13 @@ async def process_voice_stream(
                             logger.warning(f"🎙️ VOICE_LAT[http] sent#{_idx} TTS_ERR ({_e}): «{sentence[:60]}»")
                         return None, sentence
 
+                    def _sentence_event(b64, text):
+                        """Событие одного предложения. Без b64 — молча, одним текстом."""
+                        ev = {"type": "audio", "text": text}
+                        if b64:
+                            ev["b64"] = b64
+                        return json.dumps(ev, ensure_ascii=False) + "\n"
+
                     _buf = ""
                     async for chunk in mode_instance.process_question_streaming(recognized_text):
                         if not chunk:
@@ -4500,13 +4520,13 @@ async def process_voice_stream(
                         ready, _buf = _split_stream_buffer(_buf)
                         for _s in ready:
                             _b64, _txt = await _synth_sentence(_s)
-                            if _b64:
-                                yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
+                            if _b64 or (text_only and _txt):
+                                yield _sentence_event(_b64, _txt)
                     # Флешим остаток буфера (последнее предложение без завершающего пробела)
                     if _buf.strip():
                         _b64, _txt = await _synth_sentence(_buf)
-                        if _b64:
-                            yield json.dumps({"type": "audio", "b64": _b64, "text": _txt}, ensure_ascii=False) + "\n"
+                        if _b64 or (text_only and _txt):
+                            yield _sentence_event(_b64, _txt)
 
                     if _lat["first"]:
                         logger.info(
@@ -4525,12 +4545,15 @@ async def process_voice_stream(
                         full_text = tech_fail_reply(user_id)
                     if full_text:
                         full_text_parts = [full_text]
-                        try:
-                            audio_b64 = await voice_service.text_to_speech(full_text, mode_name)
-                            if audio_b64:
-                                yield json.dumps({"type": "audio", "b64": audio_b64, "text": full_text}, ensure_ascii=False) + "\n"
-                        except Exception as _e:
-                            logger.warning(f"TTS fallback failed: {_e}")
+                        if text_only:
+                            yield json.dumps({"type": "audio", "text": full_text}, ensure_ascii=False) + "\n"
+                        else:
+                            try:
+                                audio_b64 = await voice_service.text_to_speech(full_text, mode_name)
+                                if audio_b64:
+                                    yield json.dumps({"type": "audio", "b64": audio_b64, "text": full_text}, ensure_ascii=False) + "\n"
+                            except Exception as _e:
+                                logger.warning(f"TTS fallback failed: {_e}")
 
                 full_text = " ".join(full_text_parts).strip() or tech_fail_reply(user_id)
 
