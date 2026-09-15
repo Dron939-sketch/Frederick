@@ -46,7 +46,7 @@ def test_email_pdf_endpoint_exists_and_falls_back_to_context():
     """
     src = _src(_MAIN)
     i = src.index('@app.post("/api/test/email-pdf")')
-    block = src[i:i + 4600]
+    block = src[i:i + 7200]
     assert "context_repo.get(uid)" in block, "контекст не спрашивается"
     assert "FROM fredi_users WHERE user_id" in block, "аккаунт не спрашивается"
     assert "_build_test_pdf_for_user(uid)" in block
@@ -68,7 +68,7 @@ def test_contact_email_is_saved_but_never_overwrites_the_login():
     """
     src = _src(_MAIN)
     i = src.index('@app.post("/api/test/email-pdf")')
-    block = src[i:i + 4600]
+    block = src[i:i + 7200]
     assert "SET contact_email = $2" in block
     assert "UPDATE fredi_users SET email" not in block
     assert "ADD COLUMN IF NOT EXISTS contact_email TEXT" in src, "колонки нет в миграциях"
@@ -91,3 +91,22 @@ def test_no_registration_bonus_on_first_day():
     reg = sm.daily_limit_minutes(True, first_day=True)
     reg_today = sm.daily_limit_minutes(True, first_day=True, registered_today=True)
     assert anon == reg == reg_today == sm.FIRST_CONVERSATION_MINUTES, (anon, reg, reg_today)
+
+
+def test_letter_invites_to_the_recommended_course():
+    """В письме — курс из тех же рекомендаций, что человек видел на экране.
+
+    Названия и адреса курсов не выдумываются: по придуманному имени человек
+    ничего не найдёт. Берём первую рекомендацию типа course, а при пустом
+    кэше — rule-based запасной набор, чтобы письмо не оставалось без
+    приглашения из-за сбоя модели.
+    """
+    src = _src(_MAIN)
+    i = src.index('@app.post("/api/test/email-pdf")')
+    block = src[i:i + 7200]
+    assert 'it.get("type") == "course"' in block, "курс не выбирается из рекомендаций"
+    assert "_get_recommendations_fallback(prof)" in block, "при пустом кэше письмо останется без курса"
+    assert "аудиоверсия" in block and "бесплатно, без регистрации" in block
+    assert "course_html" in block and "course_text" in block
+    # Адрес курса должен стать абсолютным: относительный в письме не кликается.
+    assert 'SITE + course["url"]' in block

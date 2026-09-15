@@ -2574,6 +2574,54 @@ async def email_test_pdf(request: Request, data: EmailTestPdfIn):
         logger.warning(f"email_test_pdf: token failed (non-fatal): {e}")
         link = ""
 
+    # Приглашение на курс, который Фреди рекомендовал по этому же тесту
+    # (решение владельца 15.09.2026). Не «вот наш каталог», а один курс,
+    # выбранный по результату: человек, который только что прочитал про
+    # себя разбор, — единственный, кто готов действовать. Курс берётся из
+    # тех же рекомендаций, что он видит на экране: выдумывать названия и
+    # адреса нельзя, по придуманному имени он ничего не найдёт.
+    course = None
+    try:
+        prof = await user_repo.get_profile(uid) or {}
+        recs = prof.get("test_recommendations")
+        if not isinstance(recs, list) or not recs:
+            recs = ai_service._get_recommendations_fallback(prof) or []
+        for it in recs:
+            if isinstance(it, dict) and it.get("type") == "course" and it.get("url"):
+                course = it
+                break
+    except Exception as e:
+        logger.warning(f"email_test_pdf: course pick failed (non-fatal): {e}")
+
+    from html import escape as _esc_html
+
+    SITE = "https://meysternlp.ru"
+    course_text = course_html = ""
+    if course:
+        c_url = course["url"] if str(course["url"]).startswith("http") else SITE + course["url"]
+        c_title = str(course.get("title") or "Курс Лектория")
+        # Личное «почему именно он» в письмо не переносим, хотя оно есть в
+        # рекомендации: на экране эти строки написаны на «ты», а письмо
+        # идёт на «вы», и в одном абзаце это читается как склейка двух
+        # чужих текстов. Разбор человек уже прочитал — здесь довольно
+        # назвать курс, сказать, что он бесплатный, и что его можно
+        # слушать.
+        course_text = (
+            f"Что с этим делать: {c_title}. Фреди выбрал его по вашему разбору.\n"
+            "Курс открыт целиком и бесплатно, без регистрации. У каждой лекции есть "
+            "аудиоверсия — можно слушать за рулём, на прогулке и в дороге, читать "
+            "необязательно.\n"
+            f"{c_url}"
+        )
+        course_html = (
+            '<div style="border-left:3px solid #3b82ff;padding-left:12px;margin:18px 0">'
+            f'<p><b>Что с этим делать: <a href="{c_url}">{_esc_html(c_title)}</a></b><br>'
+            'Фреди выбрал его по вашему разбору.</p>'
+            '<p>Курс открыт целиком и бесплатно, без регистрации. У каждой лекции есть '
+            'аудиоверсия — можно слушать за рулём, на прогулке и в дороге, читать '
+            'необязательно.</p></div>'
+        )
+
     subject = "Ваш разбор теста — Фреди"
     body = (
         "Здравствуйте!\n\n"
@@ -2583,7 +2631,8 @@ async def email_test_pdf(request: Request, data: EmailTestPdfIn):
         + "Разбор — не приговор и не ярлык. Это описание того, как вы обычно "
         "поступаете; менять привычный ход можно, и именно об этом с вами "
         "говорит Фреди.\n\n"
-        "— Фреди, виртуальный психолог\n"
+        + (course_text + "\n\n" if course_text else "")
+        + "— Фреди, виртуальный психолог\n"
         "https://meysternlp.ru/fredi/\n"
     )
     html = (
@@ -2594,7 +2643,8 @@ async def email_test_pdf(request: Request, data: EmailTestPdfIn):
         + "<p>Разбор — не приговор и не ярлык. Это описание того, как вы обычно "
         "поступаете; менять привычный ход можно, и именно об этом с вами "
         "говорит Фреди.</p>"
-        '<p>— Фреди, виртуальный психолог<br>'
+        + course_html
+        + '<p>— Фреди, виртуальный психолог<br>'
         '<a href="https://meysternlp.ru/fredi/">meysternlp.ru/fredi</a></p>'
     )
 
