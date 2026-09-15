@@ -2372,11 +2372,21 @@ async def _issue_pdf_token(user_id: int, kind: str = "test_profile",
     return token
 
 
+# Прод живёт на Amvera. Значение по умолчанию оставалось от Render, и
+# 15.09.2026 это вышло наружу: в письме с разбором ссылка «если вложение
+# не открылось, файл лежит здесь» вела на fredi-backend-flz2.onrender.com,
+# а тот отдаёт 503 — хостинга давно нет. Переменную окружения на Amvera
+# никто не ставил, потому что до письма ссылку видели только в MAX.
+# Значение по умолчанию обязано указывать на живой прод: окружение его
+# перекрывает, но когда его нет — ссылка должна работать, а не ломаться.
+_DEFAULT_PUBLIC_BASE = "https://ffred-ddd989.amvera.io"
+
+
 def _public_base_url() -> str:
     """Базовый URL бэка (для построения скачиваемых ссылок)."""
     base = (os.environ.get("PUBLIC_API_BASE_URL")
             or os.environ.get("APP_BASE_URL")
-            or "https://fredi-backend-flz2.onrender.com")
+            or _DEFAULT_PUBLIC_BASE)
     return base.rstrip("/")
 
 

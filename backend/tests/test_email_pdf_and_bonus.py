@@ -110,3 +110,23 @@ def test_letter_invites_to_the_recommended_course():
     assert "course_html" in block and "course_text" in block
     # Адрес курса должен стать абсолютным: относительный в письме не кликается.
     assert 'SITE + course["url"]' in block
+
+
+def test_download_link_points_at_the_live_backend():
+    """Ссылка на файл в письме обязана открываться.
+
+    15.09.2026 она вела на fredi-backend-flz2.onrender.com — значение по
+    умолчанию, оставшееся от прежнего хостинга, который отдаёт 503.
+    Переменную окружения на Amvera никто не ставил: до письма эту ссылку
+    видели только в MAX, и там её не проверяли. Умолчание обязано быть
+    живым адресом, а не историческим.
+    """
+    src = _src(_MAIN)
+    assert '_DEFAULT_PUBLIC_BASE = "https://ffred-ddd989.amvera.io"' in src
+    i = src.index("def _public_base_url()")
+    block = src[i:i + 400]
+    assert "onrender.com" not in block, "умолчание снова указывает на мёртвый хостинг"
+    # Окружение по-прежнему главнее умолчания.
+    assert block.index("PUBLIC_API_BASE_URL") < block.index("_DEFAULT_PUBLIC_BASE")
+    # Список разрешённых origin трогать не надо: там старые адреса стоят
+    # законно, они ничего не строят и никого никуда не ведут.
