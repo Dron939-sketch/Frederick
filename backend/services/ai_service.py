@@ -602,7 +602,17 @@ class AIService:
             async with session.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers, json=data,
-                timeout=aiohttp.ClientTimeout(total=60),
+                # total считает весь поток целиком, а не паузу в нём: с
+                # total=60 длинный ответ рубился на полуслове ровно на
+                # шестидесятой секунде — модель исправно отдавала дельты,
+                # но не успевала договорить. 15.09.2026 владелец получил
+                # обрыв на «лишь бы не приближа»; в логах рядом стоит
+                # «streaming timeout (60s) prompt_chars=20765».
+                # Стоп-сигналом должна быть тишина, а не длина ответа:
+                # sock_read рвёт поток, если дельт нет 45 секунд, total
+                # остаётся крайней границей. Тот же разбор уже сделан для
+                # голосового потока ниже — там total=180, sock_read=60.
+                timeout=aiohttp.ClientTimeout(total=300, sock_read=45),
             ) as response:
                 if response.status != 200:
                     body = ""
@@ -675,8 +685,9 @@ class AIService:
                             _chars += len(content)
                             yield content
         except asyncio.TimeoutError:
-            logger.error("❌ DeepSeek streaming timeout (60s) prompt_chars=%d" % _prompt_chars)
-            _note_ai_fail("timeout", "DeepSeek молчал дольше 60 секунд")
+            logger.error("❌ DeepSeek streaming timeout: тишина 45с или поток дольше 300с, "
+                         "prompt_chars=%d получено=%d знаков" % (_prompt_chars, _chars))
+            _note_ai_fail("timeout", "DeepSeek замолчал на 45 секунд (получено %d знаков)" % _chars)
             _failed = True
         except Exception as e:
             logger.error(f"❌ DeepSeek streaming error: {e}")
