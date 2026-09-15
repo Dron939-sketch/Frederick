@@ -46,7 +46,7 @@ def test_email_pdf_endpoint_exists_and_falls_back_to_context():
     """
     src = _src(_MAIN)
     i = src.index('@app.post("/api/test/email-pdf")')
-    block = src[i:i + 3400]
+    block = src[i:i + 4600]
     assert "context_repo.get(uid)" in block, "контекст не спрашивается"
     assert "FROM fredi_users WHERE user_id" in block, "аккаунт не спрашивается"
     assert "_build_test_pdf_for_user(uid)" in block
@@ -55,6 +55,31 @@ def test_email_pdf_endpoint_exists_and_falls_back_to_context():
     # Порядок: тело → контекст → аккаунт.
     assert block.index("data.email") < block.index("context_repo.get(uid)") < \
         block.index("FROM fredi_users WHERE user_id")
+
+
+def test_contact_email_is_saved_but_never_overwrites_the_login():
+    """Адрес из теста ложится в contact_email, а не в email.
+
+    email — логин аккаунта: он уникален и идёт в паре с password_hash.
+    Запись адреса туда без пароля закрыла бы человеку регистрацию — на
+    свою же почту он получил бы «email уже занят». А сохранить адрес надо:
+    письмо третьего дня иначе не дойдёт ни до кого, кто прошёл тест и ушёл
+    без аккаунта, то есть до большинства.
+    """
+    src = _src(_MAIN)
+    i = src.index('@app.post("/api/test/email-pdf")')
+    block = src[i:i + 4600]
+    assert "SET contact_email = $2" in block
+    assert "UPDATE fredi_users SET email" not in block
+    assert "ADD COLUMN IF NOT EXISTS contact_email TEXT" in src, "колонки нет в миграциях"
+
+
+def test_day3_letter_reaches_people_without_an_account():
+    """Письмо третьего дня ищет адрес и в contact_email тоже."""
+    path = os.path.join(_BACKEND, "services", "reengagement.py")
+    src = _src(path)
+    assert "COALESCE(u.email, u.contact_email) AS email" in src, "адрес письма берётся только из аккаунта"
+    assert "COALESCE(u.email, u.contact_email) IS NOT NULL" in src, "отбор кандидатов d3 не видит contact_email"
 
 
 def test_no_registration_bonus_on_first_day():

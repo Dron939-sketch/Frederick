@@ -1725,6 +1725,14 @@ async def init_database_tables():
                 is_active BOOLEAN DEFAULT TRUE
             )
         """)
+        # Контактная почта — та, что человек назвал на знакомстве в тесте,
+        # чтобы получить разбор файлом. Отдельно от email, потому что email
+        # это логин аккаунта: он уникален и идёт в паре с password_hash, и
+        # запись адреса туда без пароля закрыла бы человеку регистрацию —
+        # /api/auth/register ответил бы ему «email уже занят» на его же
+        # собственный адрес. Здесь адрес нужен для одного: письма третьего
+        # дня тем, кто прошёл тест и ушёл без аккаунта.
+        await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS contact_email TEXT")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS platform TEXT DEFAULT 'web'")
         await conn.execute("ALTER TABLE fredi_users ADD COLUMN IF NOT EXISTS profile JSONB DEFAULT '{}'::jsonb")
@@ -2539,6 +2547,21 @@ async def email_test_pdf(request: Request, data: EmailTestPdfIn):
             email = ""
     if not email or "@" not in email:
         return {"success": False, "error": "no_email"}
+
+    # Адрес сохраняем у себя: он нужен не только сейчас. Письмо третьего
+    # дня — единственный способ позвать обратно того, кто прошёл тест и
+    # ушёл, а таких большинство. Пишем в contact_email, а не в email:
+    # email — логин аккаунта, и адрес без пароля закрыл бы человеку
+    # регистрацию его же почтой. Свой аккаунтный email не трогаем.
+    try:
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "UPDATE fredi_users SET contact_email = $2 "
+                "WHERE user_id = $1 AND email IS DISTINCT FROM $2",
+                uid, email,
+            )
+    except Exception as e:
+        logger.warning(f"email_test_pdf: contact_email not saved (non-fatal): {e}")
 
     pdf_bytes = await _build_test_pdf_for_user(uid)
     if not pdf_bytes:
