@@ -32,15 +32,26 @@ RENEWAL_RETRY_HOURS = 23
 
 # Тарифы первого платежа. За пять дней рекламы (02–06.09.2026): ~170
 # первых сообщений, 3 стены оплаты, 0 подписок — между «бесплатно» и
-# 990 ₽ сразу нет ступеньки. Пробная неделя за 290 ₽ и есть ступенька:
-# полный Premium на 7 дней, карта сохраняется, дальше обычные 990 ₽ в
-# месяц автопродлением (отключается в один клик). Пробная неделя — один
-# раз на аккаунт: тому, у кого уже была любая подписка, не продаётся.
+# 990 ₽ сразу нет ступеньки. Ступенькой стала проба: полный Premium,
+# карта сохраняется, дальше обычные 990 ₽ в месяц автопродлением
+# (отключается в один клик). Проба — один раз на аккаунт: тому, у кого
+# уже была любая подписка, не продаётся.
+#
+# 06.09.2026 проба стоила 290 ₽ за неделю. За следующие девять дней она
+# дала 59 показов стены оплаты, 6 кликов и одну оплату — ступенька всё
+# ещё высока, и 15.09.2026 владелец снизил её до 99 ₽ за три дня:
+# «возможно, это дорого для кого-то». Срок укорочен вместе с ценой,
+# чтобы человек решал быстрее, а не тянул неделю.
+#
+# Ключ тарифа остался trial_week, хотя недели в нём больше нет: он лежит
+# в колонке plan таблицы подписок у всех, кто уже платил, в SQL ниже и в
+# ссылках ?plan=trial_week, разошедшихся по сайту. Переименование ради
+# буквального названия сломало бы и историю, и живые ссылки.
 PLANS = {
     "monthly": {"amount": SUBSCRIPTION_AMOUNT, "days": SUBSCRIPTION_PERIOD_DAYS,
                 "title": f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес"},
-    "trial_week": {"amount": "290.00", "days": 7,
-                   "title": "Фреди Premium — пробная неделя, 290 руб"},
+    "trial_week": {"amount": "99.00", "days": 3,
+                   "title": "Фреди Premium — проба на 3 дня, 99 руб"},
 }
 TRIAL_PLAN = "trial_week"
 
@@ -399,7 +410,7 @@ class PaymentService:
         payment_type = metadata.get("type", "subscription_first")
         # Тариф — из metadata платежа (единственное, чему можно верить после
         # повторного GET у ЮKassa); сумма — из самого платежа, а не из
-        # константы, иначе пробная неделя легла бы в базу как 990.
+        # константы, иначе проба легла бы в базу как 990.
         plan = metadata.get("plan") or "monthly"
         if plan not in PLANS:
             plan = "monthly"
@@ -448,7 +459,7 @@ class PaymentService:
             # заходов на один платёж штатно несколько: webhook от ЮKassa,
             # verify_payment с фронта после возврата с оплаты и фоновый
             # поллер. Человек, дважды открывший страницу возврата, получал
-            # 14 дней вместо семи за те же 290 ₽ — ровно это и видно у
+            # 14 дней вместо семи за те же 290 ₽ (проба тогда стоила столько) — ровно это и видно у
             # первых двух подписок пробной недели.
             now = datetime.now(timezone.utc)
             if already == "succeeded":
@@ -693,12 +704,14 @@ class PaymentService:
                 FROM fredi_payment_methods WHERE user_id = $1 AND is_active = TRUE
             """, user_id)
 
-        # Пробная неделя — один раз: любая прошлая подписка (в том числе
+        # Проба — один раз: любая прошлая подписка (в том числе
         # истёкшая) закрывает её, дальше только месяц.
         trial_available = sub is None
         plans = {
-            "trial_week": {"amount": PLANS["trial_week"]["amount"], "days": 7, "available": trial_available},
-            "monthly": {"amount": PLANS["monthly"]["amount"], "days": 30, "available": True},
+            "trial_week": {"amount": PLANS["trial_week"]["amount"],
+                           "days": PLANS["trial_week"]["days"], "available": trial_available},
+            "monthly": {"amount": PLANS["monthly"]["amount"],
+                        "days": PLANS["monthly"]["days"], "available": True},
         }
         if not sub:
             return {"has_subscription": False, "status": "none", "card": None,
@@ -771,7 +784,7 @@ class PaymentService:
                        OR s.renewal_last_attempt_at <= NOW() - INTERVAL '{RENEWAL_RETRY_HOURS} hours')
                   AND (
                     -- месяц продлевается за сутки до конца, как и раньше;
-                    -- пробная неделя — только когда истекла: списывать
+                    -- проба — только когда истекла: списывать
                     -- 990 на шестой день из семи нельзя
                     (COALESCE(s.plan, 'monthly') <> 'trial_week' AND s.expires_at <= NOW() + INTERVAL '1 day')
                     OR (s.plan = 'trial_week' AND s.expires_at <= NOW())

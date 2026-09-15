@@ -136,7 +136,9 @@ def register_payment_routes(app, db, limiter):
             # должна допускать NULL
             await conn.execute("ALTER TABLE fredi_payment_methods ALTER COLUMN payment_method_id DROP NOT NULL")
             # Тариф платежа и подписки: 'monthly' (990 ₽ / 30 дней) или
-            # 'trial_week' (290 ₽ / 7 дней). До 06.09.2026 тариф был один,
+            # 'trial_week' (с 15.09.2026 — 99 ₽ / 3 дня, до того 290 ₽ / 7
+            # дней; ключ оставлен прежним, он лежит в этих же строках).
+            # До 06.09.2026 тариф был один,
             # поэтому у старых строк остаётся значение по умолчанию.
             await conn.execute("ALTER TABLE fredi_payments ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'monthly'")
             await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'monthly'")
@@ -180,9 +182,9 @@ def register_payment_routes(app, db, limiter):
             if plan not in PLANS:
                 return {"success": False, "error": "unknown plan"}
             if plan == TRIAL_PLAN and not await payment_service.trial_available(user_id):
-                # Пробная неделя — один раз на аккаунт. Фронт по статусу
-                # её и не покажет; это защита от прямого вызова.
-                return {"success": False, "error": "Пробная неделя уже была — доступна подписка на месяц",
+                # Проба — один раз на аккаунт. Фронт по статусу её и не
+                # покажет; это защита от прямого вызова.
+                return {"success": False, "error": "Пробный доступ уже был — доступна подписка на месяц",
                         "code": "trial_used"}
 
             async with db.get_connection() as conn:

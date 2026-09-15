@@ -36,10 +36,12 @@ def _app_link() -> str:
 
 
 def _trial_note(plan: str) -> str:
-    # Пробная неделя: человек должен знать заранее, что будет после неё.
+    # Проба: человек должен знать заранее, что будет после неё. Ключ тарифа
+    # остался trial_week с тех пор, когда проба была неделей за 290 ₽;
+    # с 15.09.2026 это три дня за 99 ₽ (см. PLANS в payment.py).
     if plan != "trial_week":
         return ""
-    return ("Это пробная неделя за 290 ₽. Когда она закончится, подписка "
+    return ("Это пробные три дня за 99 ₽. Когда они закончатся, подписка "
             "продолжится за 990 ₽ в месяц — отключить автопродление можно "
             "в один клик в разделе «Подписка». ")
 
@@ -48,7 +50,7 @@ def _build_email(name_or_empty: str, expires_at: datetime, is_renewal: bool,
                  plan: str = "monthly") -> tuple[str, str, str]:
     """Returns (subject, plain_body, html_body)."""
     title = "Подписка продлена" if is_renewal else (
-        "Пробная неделя началась" if plan == "trial_week" else "Подписка активирована")
+        "Пробные три дня начались" if plan == "trial_week" else "Подписка активирована")
     greet = f"Привет{', ' + name_or_empty if name_or_empty else ''}!"
     date_str = _format_date(expires_at)
     # utm — чтобы визиты из письма о подписке были видны в Метрике
