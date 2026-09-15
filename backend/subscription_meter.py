@@ -116,8 +116,15 @@ def daily_limit_minutes(registered: bool, first_day: bool = False,
     стену на трёх минутах, после регистрации получал лимит 5 при
     потраченных 3 — то есть две минуты, и «оставь почту — говори дольше»
     оказывалось почти ложью ровно в момент, когда человек поверил."""
+    # 15.09.2026: надбавка за регистрацию в первый день убрана (решение
+    # владельца). Минуты перестали быть платой за почту: почта приходит
+    # там, где человек и так её оставляет — на разборе теста в PDF и на
+    # оплате пробы. Регистрация «за пять минут» звала на шаг, который
+    # ничего не открывал: человек оставался в той же бесплатной версии,
+    # а предложение занимало место разговора о пробе за 99 ₽.
+    # Первый день теперь одинаков для всех: FIRST_CONVERSATION_MINUTES.
     if first_day:
-        return FIRST_CONVERSATION_MINUTES + (FREE_DAILY_MINUTES if registered else 0)
+        return FIRST_CONVERSATION_MINUTES
     if registered and registered_today:
         return FREE_DAILY_MINUTES_ANON + FREE_DAILY_MINUTES
     return FREE_DAILY_MINUTES if registered else FREE_DAILY_MINUTES_ANON

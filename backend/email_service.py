@@ -42,8 +42,15 @@ class EmailService:
             )
 
     async def send(self, to: str, subject: str, body: str,
-                    html: Optional[str] = None) -> bool:
-        """Отправляет письмо. True — если SMTP принял, False — иначе/отключено."""
+                    html: Optional[str] = None,
+                    attachments: Optional[list] = None) -> bool:
+        """Отправляет письмо. True — если SMTP принял, False — иначе/отключено.
+
+        attachments — список (имя_файла, bytes, mime_subtype). Нужен для
+        разбора теста: человек оставляет почту ровно затем, чтобы файл
+        остался у него, а ссылка на скачивание живёт до первого чищенного
+        браузера и до истечения токена.
+        """
         if not self.enabled:
             logger.warning(f"send_email skipped (disabled): to={to} subject={subject!r}")
             return False
@@ -60,6 +67,16 @@ class EmailService:
         msg.set_content(body)
         if html:
             msg.add_alternative(html, subtype="html")
+        for att in (attachments or []):
+            try:
+                filename, payload, subtype = att
+                msg.add_attachment(payload, maintype="application",
+                                   subtype=subtype or "octet-stream",
+                                   filename=filename)
+            except Exception as e:
+                # Письмо без вложения лучше, чем несостоявшееся письмо:
+                # в теле есть ссылка на тот же файл.
+                logger.error(f"📧 attachment skipped: {e}")
 
         try:
             if self.use_tls:

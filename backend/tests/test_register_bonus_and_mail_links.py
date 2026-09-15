@@ -37,12 +37,20 @@ def test_registration_day_adds_minutes_on_top():
     assert sm.daily_limit_minutes(False) == 0, "со второго дня аноним без минут (12.09.2026)"
 
 
-def test_first_day_formula_unchanged():
-    assert sm.daily_limit_minutes(False, first_day=True) == sm.FIRST_CONVERSATION_MINUTES
-    assert sm.daily_limit_minutes(True, first_day=True) == \
-        sm.FIRST_CONVERSATION_MINUTES + sm.FREE_DAILY_MINUTES
-    assert sm.daily_limit_minutes(True, first_day=True, registered_today=True) == \
-        sm.FIRST_CONVERSATION_MINUTES + sm.FREE_DAILY_MINUTES
+def test_first_day_is_the_same_for_everyone():
+    """Надбавка за регистрацию в первый день убрана (15.09.2026).
+
+    Минуты перестали быть платой за почту: почта приходит там, где человек
+    и так её оставляет — на разборе теста в PDF и на оплате пробы. Первый
+    день одинаков и анониму, и зарегистрированному, иначе на стене снова
+    появится «заведите аккаунт — будет больше», а регистрация сама по себе
+    человеку ничего не открывает.
+    """
+    for registered in (False, True):
+        for today in (False, True):
+            assert sm.daily_limit_minutes(registered, first_day=True,
+                                          registered_today=today) == \
+                sm.FIRST_CONVERSATION_MINUTES, (registered, today)
 
 
 def test_wall_numbers_promise_what_registration_really_gives():
