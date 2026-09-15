@@ -316,11 +316,22 @@ def register_analytics_routes(app, db):
                 mbs = await _step_users("meter_blocked_shown")
                 msc = await _step_users("meter_subscribe_clicked")
                 sub_act = await _step_users("subscription_activated")
+                # Отключение автопродления — единственный шаг воронки,
+                # который идёт вниз, и до 15.09.2026 он не считался нигде:
+                # человек уходил молча. Событие приходит как checkout_step
+                # с шагом auto_renew_off (fredi/subscription.js), поэтому
+                # ищется не по имени события, а по полю внутри data.
+                auto_off = await conn.fetchval(
+                    "SELECT COUNT(DISTINCT user_id) FROM fredi_analytics "
+                    "WHERE event = 'checkout_step' "
+                    "AND data->>'step' = 'auto_renew_off' "
+                    "AND created_at > NOW() - INTERVAL '7 days'") or 0
                 funnel = {
                     "meter_warning": mws,
                     "meter_blocked_shown": mbs,
                     "meter_subscribe_clicked": msc,
                     "subscription_activated": sub_act,
+                    "auto_renew_off": auto_off,
                 }
                 # Средняя длительность фич (feature_closed.duration_sec).
                 # LEAST cap 7200с (2 часа): защита от старых wall-clock
