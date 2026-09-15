@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import os
+from datetime import datetime
 import re
 import logging
 from typing import Any, Dict, Optional
@@ -136,9 +137,130 @@ def _last_level(arr) -> int:
     return 0
 
 
+# ── Оформление ────────────────────────────────────────────────────────
+# Документ читают на телефоне, в почте, спустя дни — и он единственное,
+# что остаётся у человека от получаса работы. Поэтому здесь не «отчёт из
+# базы», а печатный разворот: обложка, воздух, узкая колонка текста,
+# шкалы вместо цифр. Дорого выглядит сдержанность — два цвета, тонкие
+# линейки, крупный заголовок и поля, а не градиенты и рамки.
+INK = (26, 32, 44)        # основной текст, почти чёрный с синевой
+MUTED = (107, 114, 128)   # подписи и второстепенное
+HAIR = (226, 232, 240)    # волосяные линейки
+ACCENT = (59, 130, 255)   # тот же синий, что в приложении
+ACCENT_SOFT = (232, 240, 255)
+PAPER_DARK = (22, 28, 40) # плашка обложки
+FREDI_URL = "https://meysternlp.ru/fredi/"
+
+MARGIN = 20               # поля шире обычных: воздух и есть «дорого»
+CONTENT_W = 210 - MARGIN * 2
+
+
+def _rgb(pdf, setter, color):
+    getattr(pdf, setter)(*color)
+
+
+class _Report:
+    """Тонкая обёртка над FPDF: колонтитул и повторяющиеся приёмы вёрстки."""
+
+    def __init__(self, pdf, font_bold_real: bool):
+        self.pdf = pdf
+        self.bold_real = font_bold_real
+
+    def h(self, text: str, size: int = 13, top: float = 7, rule: bool = True):
+        """Заголовок раздела: капитель, линейка под ним, воздух сверху."""
+        pdf = self.pdf
+        pdf.ln(top)
+        pdf.set_font("DejaVu", "B", size)
+        _rgb(pdf, "set_text_color", INK)
+        pdf.cell(0, 7, text, ln=1)
+        if rule:
+            _rgb(pdf, "set_draw_color", HAIR)
+            pdf.set_line_width(0.3)
+            y = pdf.get_y() + 1
+            pdf.line(MARGIN, y, 210 - MARGIN, y)
+            pdf.ln(3)
+
+    def body(self, text: str, size: float = 10.5, lead: float = 5.6,
+             color=None, gap: float = 2):
+        pdf = self.pdf
+        pdf.set_font("DejaVu", "", size)
+        _rgb(pdf, "set_text_color", color or INK)
+        for para in [p.strip() for p in str(text).split("\n\n") if p.strip()]:
+            # multi_cell в fpdf2 оставляет курсор у ПРАВОГО края блока.
+            # Без явного возврата к полю следующий абзац начинается там же
+            # и уезжает за страницу — на второй странице так и вышло:
+            # формат и адрес курса оказались обрезаны краем листа.
+            pdf.set_x(MARGIN)
+            pdf.multi_cell(CONTENT_W, lead, para)
+            pdf.ln(gap)
+
+    def label(self, text: str):
+        pdf = self.pdf
+        pdf.set_font("DejaVu", "", 8)
+        _rgb(pdf, "set_text_color", MUTED)
+        pdf.cell(0, 5, text.upper(), ln=1)
+
+    def bar(self, label: str, level: int, caption: str):
+        """Вектор шкалой, а не числом: уровень видно, не читая."""
+        pdf = self.pdf
+        if pdf.get_y() > 240:
+            pdf.add_page()
+        pdf.set_font("DejaVu", "B", 10.5)
+        _rgb(pdf, "set_text_color", INK)
+        pdf.cell(14, 6, label, ln=0)
+
+        # Девять делений: заполненные — акцентом, пустые — волосяной линией.
+        x = pdf.get_x()
+        y = pdf.get_y() + 1.6
+        seg_w, gap_w, hgt = 8.0, 1.6, 3.2
+        lvl = int(level or 0)
+        for i in range(9):
+            _rgb(pdf, "set_fill_color", ACCENT if i < lvl else HAIR)
+            pdf.rect(x + i * (seg_w + gap_w), y, seg_w, hgt, style="F")
+        pdf.set_xy(x + 9 * (seg_w + gap_w) + 3, pdf.get_y())
+        pdf.set_font("DejaVu", "", 9.5)
+        _rgb(pdf, "set_text_color", MUTED)
+        pdf.cell(0, 6, f"{lvl or '—'} из 9", ln=1)
+
+        pdf.set_x(MARGIN + 14)
+        pdf.set_font("DejaVu", "", 10)
+        _rgb(pdf, "set_text_color", MUTED)
+        pdf.multi_cell(CONTENT_W - 14, 5.2, caption)
+        pdf.ln(2.5)
+
+    def card(self, title: str, text: str):
+        """Плашка для выделенного раздела — мягкая заливка, без рамки."""
+        pdf = self.pdf
+        if pdf.get_y() > 225:
+            pdf.add_page()
+        _rgb(pdf, "set_fill_color", ACCENT_SOFT)
+        x, y = MARGIN, pdf.get_y()
+        # Высоту считаем по тексту: рисуем заливку заранее, поверх — текст.
+        pdf.set_font("DejaVu", "", 10.5)
+        lines = 0
+        for para in [p.strip() for p in text.split("\n\n") if p.strip()]:
+            lines += len(pdf.multi_cell(CONTENT_W - 14, 5.6, para,
+                                        split_only=True)) + 1
+        hgt = lines * 5.6 + 16
+        pdf.rect(x, y, CONTENT_W, hgt, style="F")
+        pdf.set_xy(x + 7, y + 6)
+        pdf.set_font("DejaVu", "B", 10.5)
+        _rgb(pdf, "set_text_color", ACCENT)
+        pdf.cell(0, 6, title, ln=1)
+        pdf.set_x(x + 7)
+        pdf.set_font("DejaVu", "", 10.5)
+        _rgb(pdf, "set_text_color", INK)
+        for para in [p.strip() for p in text.split("\n\n") if p.strip()]:
+            pdf.set_x(x + 7)
+            pdf.multi_cell(CONTENT_W - 14, 5.6, para)
+            pdf.ln(1)
+        pdf.set_y(y + hgt + 4)
+
+
 def generate_test_pdf_bytes(profile: Dict[str, Any],
                               user_name: Optional[str] = None,
-                              psychologist_thought: Optional[str] = None) -> bytes:
+                              psychologist_thought: Optional[str] = None,
+                              recommendations: Optional[list] = None) -> bytes:
     """
     Собирает «полный отчёт» PDF по результатам теста:
       - архетип, код, тип восприятия, уровень мышления
@@ -180,7 +302,8 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
     cv = _last_level(behavioral.get("ЧВ"))
 
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_auto_page_break(auto=True, margin=22)
+    pdf.set_margins(MARGIN, MARGIN, MARGIN)
     pdf.add_page()
     pdf.add_font("DejaVu", "", font_regular, uni=True)
     if font_bold:
@@ -190,108 +313,138 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
         # fpdf2 эмулирует жирность затемнением (грубо, но работает).
         pdf.add_font("DejaVu", "B", font_regular, uni=True)
 
-    # Заголовок
-    pdf.set_font("DejaVu", "B", 22)
-    pdf.set_text_color(20, 20, 20)
-    pdf.cell(0, 12, "Полный отчёт", ln=1)
-    pdf.set_font("DejaVu", "", 11)
-    pdf.set_text_color(110, 110, 110)
-    addressee = (user_name or "").strip()
-    if addressee:
-        pdf.cell(0, 6, f"Для {addressee}", ln=1)
-    pdf.cell(0, 6, "Сгенерировано Фреди — твоим виртуальным психологом", ln=1)
-    pdf.ln(4)
+    r = _Report(pdf, bool(font_bold))
 
-    # Архетип-карточка
-    pdf.set_fill_color(255, 245, 235)
-    pdf.set_draw_color(255, 200, 170)
-    x0, y0 = pdf.get_x(), pdf.get_y()
-    pdf.set_font("DejaVu", "B", 18)
-    pdf.set_text_color(255, 107, 59)
-    pdf.cell(0, 12, str(archetype), ln=1, fill=True, border=1)
-    pdf.set_text_color(100, 100, 100)
+    # ── Обложка ──────────────────────────────────────────────────────
+    # Тёмная плашка во всю ширину страницы: имя архетипа читается первым,
+    # и документ с первого взгляда не похож на выгрузку из базы.
+    _rgb(pdf, "set_fill_color", PAPER_DARK)
+    pdf.rect(0, 0, 210, 62, style="F")
+    pdf.set_xy(MARGIN, 18)
+    pdf.set_font("DejaVu", "", 9)
+    pdf.set_text_color(150, 165, 190)
+    pdf.cell(0, 5, "ПСИХОЛОГИЧЕСКИЙ ПОРТРЕТ", ln=1)
+    pdf.set_x(MARGIN)
+    pdf.set_font("DejaVu", "B", 26)
+    pdf.set_text_color(255, 255, 255)
+    pdf.multi_cell(CONTENT_W, 11, str(archetype))
+    pdf.set_x(MARGIN)
     pdf.set_font("DejaVu", "", 10)
-    sub_parts = []
+    pdf.set_text_color(160, 175, 200)
+    cover_parts = []
     if display_name:
-        sub_parts.append(f"Код: {display_name}")
+        cover_parts.append(display_name)
     if perception_type:
-        sub_parts.append(f"Тип восприятия: {perception_type}")
-    sub_parts.append(f"Уровень мышления: {thinking_level}/9")
-    pdf.cell(0, 7, " · ".join(sub_parts), ln=1)
-    pdf.ln(6)
+        cover_parts.append(perception_type)
+    cover_parts.append(f"мышление {thinking_level}/9")
+    pdf.cell(0, 6, "  ·  ".join(cover_parts), ln=1)
 
-    # Векторы
-    pdf.set_font("DejaVu", "B", 13)
-    pdf.set_text_color(30, 30, 30)
-    pdf.cell(0, 8, "Поведенческие векторы", ln=1)
-    pdf.set_font("DejaVu", "", 11)
-
-    def _vector_row(label: str, level: int, descr: Dict[int, str]):
-        pdf.set_text_color(40, 40, 40)
-        pdf.set_font("DejaVu", "B", 11)
-        pdf.cell(36, 7, f"{label} {level or '—'}/9", ln=0)
-        pdf.set_font("DejaVu", "", 11)
-        pdf.set_text_color(80, 80, 80)
-        text = descr.get(int(level), "—") if level else "Нет данных"
-        pdf.multi_cell(0, 6, text)
-        pdf.ln(1)
-
-    _vector_row("СБ", sb, SB_LEVELS)
-    _vector_row("ТФ", tf, TF_LEVELS)
-    _vector_row("УБ", ub, UB_LEVELS)
-    _vector_row("ЧВ", cv, CV_LEVELS)
-
+    pdf.set_y(72)
+    # Имя ставим как есть, без «Для …»: склонять чужое имя вслепую —
+    # верный способ получить «Для Андрей» или «Для Любовю».
+    addressee = (user_name or "").strip()
+    stamp = datetime.now().strftime("%d.%m.%Y")
+    r.label(f"{addressee}  ·  {stamp}" if addressee
+            and addressee.lower() not in ("друг", "гость") else stamp)
     pdf.ln(2)
+    r.body("Это описание того, как вы обычно поступаете, — не диагноз и не "
+           "ярлык. Привычный ход можно менять; об этом и разговор с Фреди.",
+           size=11, lead=6, color=MUTED)
 
-    # Глубинный паттерн
+    # ── Векторы ──────────────────────────────────────────────────────
+    r.h("Четыре вектора поведения")
+    r.body("Шкала — не оценка «хорошо / плохо», а высота уровня: чем выше, "
+           "тем больше у вас выбора в этой области.", size=9.5, lead=5,
+           color=MUTED, gap=3)
+    r.bar("СБ", sb, SB_LEVELS.get(int(sb), "Нет данных") if sb else "Нет данных")
+    r.bar("ТФ", tf, TF_LEVELS.get(int(tf), "Нет данных") if tf else "Нет данных")
+    r.bar("УБ", ub, UB_LEVELS.get(int(ub), "Нет данных") if ub else "Нет данных")
+    r.bar("ЧВ", cv, CV_LEVELS.get(int(cv), "Нет данных") if cv else "Нет данных")
+
+    # ── Глубинный паттерн ────────────────────────────────────────────
     attach = _clean_for_pdf(deep.get("attachment") or "")
     if attach:
-        pdf.set_font("DejaVu", "B", 13)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 8, "Глубинный паттерн", ln=1)
-        pdf.set_font("DejaVu", "", 11)
-        pdf.set_text_color(80, 80, 80)
-        pdf.multi_cell(0, 6, attach)
-        pdf.ln(2)
+        r.h("Глубинный паттерн")
+        r.body(attach)
 
-    # AI-комментарий
+    # ── Что это значит ───────────────────────────────────────────────
     if ai_text:
-        pdf.set_font("DejaVu", "B", 13)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 8, "AI-комментарий", ln=1)
-        pdf.set_font("DejaVu", "", 11)
-        pdf.set_text_color(60, 60, 60)
-        # Чистим markdown-bold и переносы.
-        clean = ai_text.replace("**", "").replace("__", "")
-        for para in clean.split("\n\n"):
-            pdf.multi_cell(0, 6, para.strip())
-            pdf.ln(1)
+        r.h("Что это значит")
+        r.body(ai_text.replace("**", "").replace("__", ""))
 
-    # Мысли психолога — отдельный аналитический раздел.
+    # ── Мысли психолога ──────────────────────────────────────────────
     pt_clean = _clean_for_pdf(psychologist_thought or "")
     pt_clean = pt_clean.replace("**", "").replace("__", "")
     if pt_clean:
-        pdf.ln(2)
-        pdf.set_font("DejaVu", "B", 13)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 8, "Мысли психолога", ln=1)
-        pdf.set_font("DejaVu", "", 11)
-        pdf.set_text_color(60, 60, 60)
-        for para in pt_clean.split("\n\n"):
-            pdf.multi_cell(0, 6, para.strip())
-            pdf.ln(1)
+        pdf.ln(4)
+        r.card("Взгляд психолога", pt_clean)
 
-    # Подвал
+    # ── С чего начать ────────────────────────────────────────────────
+    # Правило владельца: результат теста обязан вести дальше. В файле,
+    # который человек откроет через неделю, это единственная дверь.
+    recs = [x for x in (recommendations or []) if isinstance(x, dict) and x.get("title")]
+    if recs:
+        r.h("С чего начать")
+        for it in recs[:3]:
+            pdf.set_font("DejaVu", "B", 10.5)
+            _rgb(pdf, "set_text_color", ACCENT)
+            title = _clean_for_pdf(str(it.get("title") or ""))
+            url = str(it.get("url") or "")
+            if url and not url.startswith("http"):
+                url = "https://meysternlp.ru" + url
+            pdf.set_x(MARGIN)
+            pdf.multi_cell(CONTENT_W, 5.8, title)
+            pdf.set_font("DejaVu", "", 9.5)
+            _rgb(pdf, "set_text_color", MUTED)
+            fmt = _clean_for_pdf(str(it.get("format") or ""))
+            if fmt:
+                pdf.set_x(MARGIN)
+                pdf.multi_cell(CONTENT_W, 5, fmt)
+            what = _clean_for_pdf(str(it.get("what") or ""))
+            if what:
+                _rgb(pdf, "set_text_color", INK)
+                pdf.set_font("DejaVu", "", 10)
+                pdf.set_x(MARGIN)
+                pdf.multi_cell(CONTENT_W, 5.2, what)
+            if url:
+                pdf.set_font("DejaVu", "", 9)
+                _rgb(pdf, "set_text_color", ACCENT)
+                pdf.set_x(MARGIN)
+                pdf.multi_cell(CONTENT_W, 5, url, link=url)
+            pdf.ln(4)
+
+    # ── Дверь обратно ────────────────────────────────────────────────
+    # Файл открывают через дни, и адреса к этому моменту человек не
+    # помнит. Кнопка нажимается прямо в PDF — так же, как ссылки выше.
+    if pdf.get_y() > 235:
+        pdf.add_page()
+    pdf.ln(6)
+    btn_y = pdf.get_y()
+    _rgb(pdf, "set_fill_color", ACCENT)
+    pdf.rect(MARGIN, btn_y, 74, 13, style="F")
+    pdf.set_xy(MARGIN, btn_y + 3.4)
+    pdf.set_font("DejaVu", "B", 11)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(74, 6, "Поговорить с Фреди", align="C",
+             link=FREDI_URL)
+    pdf.set_y(btn_y + 16)
+    pdf.set_x(MARGIN)
+    pdf.set_font("DejaVu", "", 9.5)
+    _rgb(pdf, "set_text_color", MUTED)
+    pdf.multi_cell(CONTENT_W, 5,
+        "Кнопка не нажимается — наберите адрес: meysternlp.ru/fredi")
+
+    # ── Подвал ───────────────────────────────────────────────────────
+    pdf.ln(5)
+    _rgb(pdf, "set_draw_color", HAIR)
+    pdf.set_line_width(0.3)
+    pdf.line(MARGIN, pdf.get_y(), 210 - MARGIN, pdf.get_y())
     pdf.ln(4)
-    pdf.set_draw_color(220, 220, 220)
-    pdf.set_line_width(0.2)
-    pdf.line(pdf.l_margin, pdf.get_y(), 210 - pdf.r_margin, pdf.get_y())
-    pdf.ln(3)
     pdf.set_font("DejaVu", "", 9)
-    pdf.set_text_color(150, 150, 150)
-    pdf.multi_cell(0, 5,
-        "Это твой портрет — он не диагноз и не приговор, а ориентир. "
-        "Я буду рядом, когда захочешь вернуться к практике. — Фреди")
+    _rgb(pdf, "set_text_color", MUTED)
+    pdf.set_x(MARGIN)
+    pdf.multi_cell(CONTENT_W, 5,
+        "Фреди — виртуальный психолог. Сделан психологом Андреем Мейстером.")
 
     out = pdf.output(dest="S")
     if isinstance(out, str):

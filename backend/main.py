@@ -2471,11 +2471,23 @@ async def _build_test_pdf_for_user(user_id: int) -> Optional[bytes]:
         psychologist_thought = await user_repo.get_psychologist_thought(int(user_id))
     except Exception as e:
         logger.warning(f"get_psychologist_thought failed (non-fatal): {e}")
+    # Рекомендации в файл: он единственное, что останется у человека через
+    # неделю, и без них разбор заканчивается описанием, а не шагом. Берём
+    # тот же кэш, что показан на экране, — ничего не выдумываем и ничего
+    # не пересчитываем.
+    recs = None
+    try:
+        recs = profile.get("test_recommendations")
+        if not isinstance(recs, list) or not recs:
+            recs = ai_service._get_recommendations_fallback(profile) or None
+    except Exception as e:
+        logger.warning(f"_build_test_pdf_for_user: recs skipped ({e})")
     try:
         from test_pdf import generate_test_pdf_bytes
         return generate_test_pdf_bytes(
             profile, user_name=ctx_name,
             psychologist_thought=psychologist_thought,
+            recommendations=recs,
         )
     except Exception as e:
         logger.error(f"generate_test_pdf_bytes failed: {e}")
