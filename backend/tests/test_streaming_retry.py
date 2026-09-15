@@ -65,6 +65,13 @@ class _Session:
 
 def _service(plan):
     svc = ai.AIService.__new__(ai.AIService)
+    # AIService — синглтон: __new__ отдаёт один и тот же объект, поэтому
+    # заглушки, которые тест вешает на экземпляр, переживают сам тест.
+    # test_spare_call_skips_balance_and_key_errors из-за этого видел
+    # fake_spare соседнего теста и падал на ровном месте — проверялся не
+    # код, а остаток от предыдущего прогона. Снимаем такие следы.
+    for _attr in ("spare_call",):
+        svc.__dict__.pop(_attr, None)
     svc.api_key = "test"
     svc.base_url = "http://deepseek.invalid"
     svc.cache = None
