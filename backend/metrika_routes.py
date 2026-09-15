@@ -36,7 +36,13 @@ ONLINE_MINUTES = 5
 CACHE_TTL = 45          # к Метрике ходим раз в 45 с, остальным отдаём кэш
 HTTP_TIMEOUT = 6.0
 
-_cache = {"ts": 0.0, "data": None}
+# Разделы, для которых считается счётчик. Лекторий был первым, Фреди
+# добавлен 15.09.2026 — на посадочной /virtual-psychologist/ человеку важно
+# видеть, что он не один: это его же вопрос «а тут вообще кто-нибудь есть».
+# Фильтр по Фреди объявлен ниже как FREDI_FILTER и переиспользуется здесь.
+SECTIONS = {"lektorij": LEKTORIJ_FILTER}
+
+_cache = {}            # раздел → {"ts": …, "data": …}
 _lock = asyncio.Lock()
 # Какая группировка реально работает для этого счётчика. Определяется первым
 # успешным запросом и дальше не переспрашивается.
@@ -47,14 +53,14 @@ def metrika_configured() -> bool:
     return bool(METRIKA_TOKEN and METRIKA_COUNTER)
 
 
-async def _ask(client: httpx.AsyncClient, group: str) -> list:
+async def _ask(client: httpx.AsyncClient, group: str, filt: str) -> list:
     """Ряд значений визитов по времени за сегодня. Пустой список — не вышло."""
     r = await client.get(
         METRIKA_API,
         params={
             "ids": METRIKA_COUNTER,
             "metrics": "ym:s:visits",
-            "filters": LEKTORIJ_FILTER,
+            "filters": filt,
             "date1": "today",
             "date2": "today",
             "group": group,
@@ -74,13 +80,13 @@ async def _ask(client: httpx.AsyncClient, group: str) -> list:
     return [float(x or 0) for x in series]
 
 
-async def _fetch() -> dict:
+async def _fetch(filt: str) -> dict:
     """Число посетителей и окно, которым оно посчитано."""
     global _group_mode
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         modes = [_group_mode] if _group_mode else ["minute", "hour"]
         for group in modes:
-            series = await _ask(client, group)
+            series = await _ask(client, group, filt)
             if not series:
                 continue
             _group_mode = group
@@ -93,32 +99,34 @@ async def _fetch() -> dict:
     return {}
 
 
-async def _cached() -> dict:
+async def _cached(section: str) -> dict:
+    slot = _cache.setdefault(section, {"ts": 0.0, "data": None})
     now = time.time()
-    if _cache["data"] is not None and now - _cache["ts"] < CACHE_TTL:
-        return _cache["data"]
+    if slot["data"] is not None and now - slot["ts"] < CACHE_TTL:
+        return slot["data"]
     async with _lock:
         now = time.time()
-        if _cache["data"] is not None and now - _cache["ts"] < CACHE_TTL:
-            return _cache["data"]
+        if slot["data"] is not None and now - slot["ts"] < CACHE_TTL:
+            return slot["data"]
         try:
-            data = await _fetch()
+            data = await _fetch(SECTIONS[section])
         except Exception as e:
-            logger.warning(f"metrika: запрос не удался: {e}")
+            logger.warning(f"metrika: запрос не удался ({section}): {e}")
             data = {}
         if data:
-            _cache["data"] = data
-            _cache["ts"] = now
-        elif _cache["data"] is not None:
+            slot["data"] = data
+            slot["ts"] = now
+        elif slot["data"] is not None:
             # Метрика моргнула — лучше отдать чуть устаревшее число,
             # чем уронить счётчик в «нет данных»
-            _cache["ts"] = now - CACHE_TTL / 2
-        return data or (_cache["data"] or {})
+            slot["ts"] = now - CACHE_TTL / 2
+        return data or (slot["data"] or {})
 
 
 # Куда доходит человек с сайта. Приложение живёт на /fredi/, посадочная
 # для поиска — /virtual-psychologist/.
 FREDI_FILTER = "ym:s:URL=@'/fredi/' OR ym:s:URL=@'/virtual-psychologist/'"
+SECTIONS["fredi"] = FREDI_FILTER
 TRAFFIC_API = "https://api-metrika.yandex.net/stat/v1/data"
 
 
@@ -206,10 +214,17 @@ def register_metrika_routes(app, limiter):
 
     @app.get("/api/metrika/online")
     @limiter.limit("120/minute")
-    async def metrika_online(request: Request):
-        if not metrika_configured():
+    async def metrika_online(request: Request, section: str = "lektorij"):
+        """Сколько человек в разделе прямо сейчас.
+
+        section=lektorij — страницы курсов и лекции (как было),
+        section=fredi — приложение и посадочная виртуального психолога.
+        Неизвестный раздел не ошибка: отдаём enabled:false, и на странице
+        остаётся оценочная кривая, а не сломанный счётчик.
+        """
+        if not metrika_configured() or section not in SECTIONS:
             return {"enabled": False}
-        data = await _cached()
+        data = await _cached(section)
         if not data:
             return {"enabled": False}
         return {"enabled": True, "online": data["online"],
