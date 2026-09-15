@@ -1237,7 +1237,7 @@ class BasicMode(BaseMode):
             #    включён Anthropic tool-use, сетевой сбой на старте).
             response = await self._call_llm_for_response(question, max_tokens=ANSWER_MAX_TOKENS, temperature=0.8)
             if response and response.strip():
-                cleaned = self._simple_clean(response)
+                cleaned = self._strip_banned_opener(self._simple_clean(response))
                 sentences = _split_into_sentences(cleaned)
                 if sentences:
                     for _s in sentences:
@@ -1283,6 +1283,7 @@ class BasicMode(BaseMode):
         user_text = self._build_user_message_block(question)
 
         buffer = ""
+        first_out = True  # первое выданное предложение — с него режем зачин
         try:
             async for delta in self.ai_service._call_deepseek_streaming(
                 system_text, user_text, max_tokens=max_tokens,
@@ -1294,6 +1295,13 @@ class BasicMode(BaseMode):
                 ready, buffer = _split_stream_buffer(buffer)
                 for sent in ready:
                     cleaned = self._simple_clean(sent)
+                    if first_out:
+                        cleaned = self._strip_banned_opener(cleaned)
+                        # Предложение состояло из одного зачина — пропускаем
+                        # целиком, первым станет следующее.
+                        if not cleaned:
+                            continue
+                        first_out = False
                     if cleaned:
                         yield cleaned
         except Exception as e:
@@ -1303,8 +1311,14 @@ class BasicMode(BaseMode):
         tail = self._simple_clean(buffer)
         if tail:
             for sent in _split_into_sentences(tail):
-                if sent:
-                    yield sent
+                if not sent:
+                    continue
+                if first_out:
+                    sent = self._strip_banned_opener(sent)
+                    if not sent:
+                        continue
+                    first_out = False
+                yield sent
 
     async def _save_fact_bg(self, fact: str):
         try:
@@ -1365,6 +1379,44 @@ class BasicMode(BaseMode):
                 self.golden_phrases.append(golden)
         except Exception as e:
             logger.debug(f"bg golden extract failed: {e}")
+
+    # Зачины, которые пресет запрещает прямым текстом. Инструкции мало:
+    # в выгрузке 09–15.09.2026 ими начинался КАЖДЫЙ ПЯТЫЙ ответ — 309 из
+    # 1419, из них «Так стоп» 97 раз, «Стоп» 72, «Смотри» 54, «О, ловлю»
+    # 45. Это второй заход: строчка про «Так стоп» в промпте уже стоит с
+    # прошлой выгрузки и не подействовала. Поэтому режем механически.
+    _BANNED_OPENER = re.compile(
+        # «Прямо сейчас» в список НЕ входит, хотя пресет его и не любит:
+        # им начинаются и нужные фразы — «Прямо сейчас вам нужен врач».
+        # Срезать зачин ценой ослабленного предупреждения нельзя.
+        #
+        # Две ветки. Первая — зачины из одного слова, после них идёт
+        # запятая или точка. Вторая — «О, ловлю…»: продолжение каждый раз
+        # своё («тебя», «тебя на слове», «формулировку»), поэтому режем
+        # всю вводную клаузу до первого знака, ограничив её длину, —
+        # иначе от «О, ловлю тебя на слове. …» остаётся обрубок «На слове».
+        r"^\s*(?:(?:так\s+стоп|стоп|спорим|смотри|а\s+вот\s+это\s+интересно)"
+        r"[\s,.!:;—–-]+"
+        r"|о,?\s*ловлю[^.!?—–:]{0,24}[.!?—–:]+\s*)",
+        re.IGNORECASE,
+    )
+
+    def _strip_banned_opener(self, text: str) -> str:
+        """Срезает запрещённый зачин с начала ПЕРВОГО предложения ответа.
+
+        Возвращает пустую строку, если от предложения ничего не осталось,
+        — тогда вызывающий пропускает его и первым станет следующее.
+        """
+        if not text:
+            return text
+        out = self._BANNED_OPENER.sub("", text, count=1)
+        if out == text:
+            return text
+        out = out.lstrip()
+        if not out:
+            return ""
+        # После среза предложение начинается со строчной буквы.
+        return out[0].upper() + out[1:]
 
     def _simple_clean(self, text: str) -> str:
         if not text:
