@@ -3809,6 +3809,79 @@ async def get_chat_history(request: Request, user_id: int, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Тема последнего разговора — для строки возврата в шапке приложения.
+#
+# Зачем. Вернувшийся человек ценнее нового: 15.09.2026 в приложении было
+# 50 новых и 16 вернувшихся, но новые сидели 349 секунд, а вернувшиеся —
+# 935. При этом шапка встречала обоих одинаково: «Я Фреди — ваш
+# виртуальный психолог», как будто человек здесь впервые. Возвращает в
+# разговор не приветствие, а собственная незакрытая тема.
+#
+# Что считается «последним разговором»: подряд идущие сообщения, между
+# которыми меньше двух часов. Пауза больше — это уже другой заход, и
+# тема у него своя. Тема — первая реплика человека в этом заходе: она
+# называет, с чем он пришёл, тогда как последняя — чаще «спасибо» или
+# «понятно».
+_TOPIC_GAP_SECONDS = 2 * 3600
+_TOPIC_MAX_CHARS = 60
+
+
+def _last_topic(messages: list) -> dict:
+    """messages — от старых к новым, как отдаёт message_repo.get_history."""
+    from datetime import datetime as _dt, timezone as _tz
+
+    def _ts(m):
+        try:
+            return _dt.fromisoformat(str(m.get("created_at")).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    msgs = [m for m in (messages or []) if m.get("content")]
+    if not msgs:
+        return {}
+    # Идём с конца, пока паузы меньше двух часов: так отрезается последний заход.
+    start = len(msgs) - 1
+    for i in range(len(msgs) - 1, 0, -1):
+        a, b = _ts(msgs[i - 1]), _ts(msgs[i])
+        if a and b and (b - a).total_seconds() > _TOPIC_GAP_SECONDS:
+            break
+        start = i - 1
+    session = msgs[start:]
+    first_user = next((m for m in session if m.get("role") == "user"), None)
+    if not first_user:
+        return {}
+    text = " ".join(str(first_user["content"]).split())
+    if len(text) > _TOPIC_MAX_CHARS:
+        # Режем по границе слова: обрывок посреди слова выглядит поломкой,
+        # а не сокращением.
+        cut = text[:_TOPIC_MAX_CHARS].rsplit(" ", 1)[0]
+        text = (cut or text[:_TOPIC_MAX_CHARS]).rstrip(" ,.;:—-") + "…"
+    last_at = _ts(session[-1])
+    days = None
+    if last_at:
+        try:
+            days = max(0, (_dt.now(_tz.utc) - last_at).days)
+        except Exception:
+            days = None
+    return {"topic": text, "messages": len(session), "days_ago": days,
+            "at": session[-1].get("created_at")}
+
+
+@app.get("/api/chat/last-topic/{user_id}")
+@limiter.limit("30/minute")
+async def get_last_topic(request: Request, user_id: int):
+    """Тема последнего разговора одной строкой. Пусто — значит разговоров ещё
+    не было, и шапка покажет приглашение вместо возврата."""
+    try:
+        messages = await message_repo.get_history(user_id, 60)
+        data = _last_topic(messages)
+        return {"success": True, **data} if data else {"success": True}
+    except Exception as e:
+        logger.error(f"Error getting last topic for user {user_id}: {e}")
+        # Шапка без темы просто покажет приглашение — падать тут незачем.
+        return {"success": True}
+
+
 # ФИХ 1: НОВЫЙ ЭНДПОИНТ /api/ai/generate
 @app.post("/api/ai/generate")
 @limiter.limit("20/minute")
