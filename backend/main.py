@@ -2632,8 +2632,9 @@ async def email_test_pdf(request: Request, data: EmailTestPdfIn):
         "поступаете; менять привычный ход можно, и именно об этом с вами "
         "говорит Фреди.\n\n"
         + (course_text + "\n\n" if course_text else "")
-        + "— Фреди, виртуальный психолог\n"
-        "https://meysternlp.ru/fredi/\n"
+        + "Вернуться к разговору можно в любой момент — Фреди здесь:\n"
+        "https://meysternlp.ru/fredi/\n\n"
+        "— Фреди, виртуальный психолог\n"
     )
     html = (
         "<p>Здравствуйте!</p>"
@@ -2644,8 +2645,18 @@ async def email_test_pdf(request: Request, data: EmailTestPdfIn):
         "поступаете; менять привычный ход можно, и именно об этом с вами "
         "говорит Фреди.</p>"
         + course_html
-        + '<p>— Фреди, виртуальный психолог<br>'
-        '<a href="https://meysternlp.ru/fredi/">meysternlp.ru/fredi</a></p>'
+        # Кнопка возврата. Письмо читают через дни после теста, и адрес к
+        # этому моменту человек уже не помнит: без кнопки он остаётся с
+        # разбором на руках и без двери обратно.
+        + '<p style="margin:22px 0 8px">'
+          '<a href="https://meysternlp.ru/fredi/" '
+          'style="display:inline-block;background:#3b82ff;color:#fff;'
+          'text-decoration:none;padding:13px 24px;border-radius:26px;'
+          'font-weight:700;font-size:15px">Поговорить с Фреди</a></p>'
+          '<p style="font-size:13px;color:#6b7280">Или наберите в браузере '
+          '<a href="https://meysternlp.ru/fredi/">meysternlp.ru/fredi</a> — '
+          'разговор продолжится с того места, где вы остановились.</p>'
+        + '<p>— Фреди, виртуальный психолог</p>'
     )
 
     sent = False
@@ -2984,7 +2995,12 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "services": {
             "database": False, "redis": False, "ai_service": False,
-            "voice_service": False, "websocket": voice_manager is not None
+            "voice_service": False, "websocket": voice_manager is not None,
+            # Почта — такая же зависимость, как БД и модель: без неё молча
+            # не уходят разбор теста, письма возврата и сброс пин-кода, а
+            # понять это снаружи было нельзя вовсе. Здесь только флаг: ни
+            # хоста, ни логина — health открыт всем.
+            "email": bool(email_service and getattr(email_service, "enabled", False)),
         }
     }
 
