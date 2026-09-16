@@ -125,6 +125,55 @@ CV_LEVELS = {
 }
 
 
+
+def _render_ai_text(r, text: str):
+    """Раскладывает разбор: заголовки, подзаголовки цен, пункты списка."""
+    pdf = r.pdf
+    blocks = [ln.rstrip() for ln in str(text).split("\n")]
+    buf = []
+
+    def flush():
+        if buf:
+            r.body("\n".join(buf).strip(), gap=1.5)
+            buf.clear()
+
+    for line in blocks:
+        t = line.strip()
+        if not t:
+            flush()
+            continue
+        letters = [c for c in t if c.isalpha()]
+        # Заголовок раздела: коротко и целиком заглавными.
+        if letters and len(t) <= 42 and all(c.isupper() for c in letters):
+            flush()
+            r.h(t.capitalize() if t.isupper() and len(t) > 30 else t, size=11, top=5, rule=False)
+            continue
+        # Подзаголовок цены.
+        if re.match(r"^Цена\s*\d+[.):]", t):
+            flush()
+            pdf.ln(1)
+            pdf.set_font("DejaVu", "B", 10.5)
+            _rgb(pdf, "set_text_color", INK)
+            pdf.set_x(MARGIN)
+            pdf.multi_cell(CONTENT_W, 5.4, t)
+            pdf.set_font("DejaVu", "", 10.5)
+            continue
+        # Пункт списка: с отступом, чтобы перенос не липнул к маркеру.
+        if t.startswith(("•", "-", "—")):
+            flush()
+            body = t.lstrip("•-— ").strip()
+            pdf.set_font("DejaVu", "", 10.5)
+            _rgb(pdf, "set_text_color", INK)
+            pdf.set_x(MARGIN + 2)
+            pdf.cell(4, 5.4, "•")
+            pdf.set_x(MARGIN + 6)
+            pdf.multi_cell(CONTENT_W - 6, 5.4, body)
+            pdf.ln(0.8)
+            continue
+        buf.append(t)
+    flush()
+
+
 def _last_level(arr) -> int:
     """behavioral_levels хранит массив уровней по стадиям. Берём последний (стадия 3)."""
     if isinstance(arr, list) and arr:
@@ -368,9 +417,13 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
         r.body(attach)
 
     # ── Что это значит ───────────────────────────────────────────────
+    # Разбор приходит размеченным: заголовки заглавными, пункты через «•»,
+    # цены подзаголовками «Цена 1. …». Раньше всё это падало в PDF одним
+    # сплошным абзацем — владелец 16.09.2026 о таком письме: «как будто не
+    # дожали». Теперь заголовки идут заголовками, пункты — с отступом.
     if ai_text:
         r.h("Что это значит")
-        r.body(ai_text.replace("**", "").replace("__", ""))
+        _render_ai_text(r, ai_text.replace("**", "").replace("__", ""))
 
     # ── Мысли психолога ──────────────────────────────────────────────
     pt_clean = _clean_for_pdf(psychologist_thought or "")

@@ -6773,6 +6773,11 @@ async def save_test_results(request: Request):
             'thinking_level': thinking_level,
             'behavioral_levels': behavioral_levels,
             'deep_patterns': deep_patterns,
+            # Ответы человека — для разбора. Без них модель видела только
+            # коды («СБ 4/6, тревожный тип») и писала про людей такого
+            # типа, а не про него; владелец 16.09.2026 о таком тексте:
+            # «как будто не дожали — не напугали и не обрадовали».
+            'all_answers': results.get('all_answers'),
             'test_result_id': test_result_id,
             'test_completed_at': datetime.now().isoformat(),
             'display_name': profile_code
