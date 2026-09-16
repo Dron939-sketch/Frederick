@@ -146,6 +146,10 @@ class PaymentService:
             },
         }
 
+        # Какое тело ушло в кассу: при выключенных автоплатежах ниже
+        # повторяем без save_payment_method, и повтор на мёртвый платёж
+        # обязан уйти с тем же телом, а не с исходным.
+        body_used = payment_data
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
@@ -173,6 +177,7 @@ class PaymentService:
                     logger.warning("YooKassa: recurring not enabled for shop, retrying without save_payment_method")
                     payment_data_once = dict(payment_data)
                     payment_data_once.pop("save_payment_method", None)
+                    body_used = payment_data_once
                     resp = await client.post(
                         f"{YOOKASSA_API_URL}/payments",
                         json=payment_data_once,
@@ -198,6 +203,45 @@ class PaymentService:
                     resp.raise_for_status()
 
                 result = resp.json()
+
+                # Ключ идемпотентности стабилен внутри десятиминутного окна —
+                # это защита от тройного списания при дабл-клике. Но у неё
+                # есть обратная сторона: человек, у которого на банковской
+                # странице не прошло, возвращается и жмёт «Оформить» снова
+                # в пределах тех же десяти минут — и ЮKassa по тому же ключу
+                # отдаёт ТОТ ЖЕ, уже отменённый платёж. Раньше его
+                # confirmation_url уходил на фронт как ни в чём не бывало, и
+                # человека отправляли на мёртвую страницу подтверждения:
+                # второй попытки у него физически не было.
+                #
+                # 16.09.2026 в Метрике это выглядело так: с 14 сентября пять
+                # платежей создано, все пятеро вернулись из кассы, ноль
+                # активаций. Поэтому: платёж, который уже не ждёт оплаты,
+                # переспрашиваем со свежим ключом.
+                status = (result or {}).get("status", "")
+                has_url = bool(((result or {}).get("confirmation") or {}).get("confirmation_url"))
+                if status not in ("pending", "waiting_for_capture") or not has_url:
+                    logger.warning(
+                        "YooKassa вернула непригодный платёж (status=%s, url=%s) — "
+                        "повторяем со свежим ключом", status or "?", has_url)
+                    resp = await client.post(
+                        f"{YOOKASSA_API_URL}/payments",
+                        json=body_used,
+                        headers={
+                            "Authorization": self._get_auth_header(),
+                            # Одноразовый ключ: повтор обязан создать новый
+                            # платёж, а не вернуть прежний.
+                            "Idempotence-Key": str(uuid.uuid4()),
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code != 200:
+                        logger.error(f"YooKassa retry error: {resp.status_code} {resp.text}")
+                        resp.raise_for_status()
+                    result = resp.json()
+                    if not (((result or {}).get("confirmation") or {}).get("confirmation_url")):
+                        return {"success": False,
+                                "error": "Платёжная система не вернула ссылку на оплату. Попробуйте ещё раз через минуту."}
 
             yookassa_id = result["id"]
             confirmation_url = result["confirmation"]["confirmation_url"]
