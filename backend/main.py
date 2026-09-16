@@ -1337,7 +1337,18 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
                             message=recognized_text,
                             history=history,
                         )
-                        logger.info(f"FreddyService chat result: reply={bool(freddy_result.get('reply'))}, model={freddy_result.get('model','?')}, error={freddy_result.get('error','none')}")
+                        # FreddyService отключён намеренно (services/freddy_service.py
+                        # — заглушка): пустой ответ здесь штатный, дальше идёт
+                        # обычный путь через BasicMode и DeepSeek. Логировать это
+                        # как info с error=agent_disabled нельзя: на каждое
+                        # голосовое сообщение в базовом режиме в логе появлялась
+                        # строка, неотличимая от поломки, и 16.09.2026 владелец
+                        # принёс её как аварию. Настоящие ответы и настоящие
+                        # ошибки по-прежнему видны.
+                        if freddy_result.get("error") == "agent_disabled":
+                            logger.debug("FreddyService отключён — идём через BasicMode")
+                        else:
+                            logger.info(f"FreddyService chat result: reply={bool(freddy_result.get('reply'))}, model={freddy_result.get('model','?')}, error={freddy_result.get('error','none')}")
                         if freddy_result.get("reply"):
                             response_text = freddy_result["reply"]
                             await websocket.send_json({"type": "text", "data": f"🧠 Фреди: {response_text}"})
