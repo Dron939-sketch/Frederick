@@ -93,7 +93,12 @@ def format_psychologist_text(text: str, user_name: str = "") -> str:
     if user_name and not text.lower().startswith(user_name.lower()):
         first_word = text.split()[0] if text else ""
         if first_word and first_word.lower() not in ['здравствуйте', 'привет', 'добрый']:
-            text = f"{user_name}, " + text[0].lower() + text[1:] if text else text
+            # Обращение открывает предложение, поэтому с большой буквы.
+            # Настоящее имя приходит уже с прописной, а запасное «друг» —
+            # со строчной, и на экране выходило «друг, ты часто ставишь…».
+            # Замечание владельца 17.09.2026.
+            address = user_name[0].upper() + user_name[1:]
+            text = f"{address}, " + text[0].lower() + text[1:] if text else text
     
     header_map = [
         (r'🔐\s*', r'КЛЮЧЕВОЙ\s*ЭЛЕМЕНТ', '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ'),
