@@ -98,17 +98,25 @@ class UserRepository:
     # ГЛУБОКИЙ АНАЛИЗ
     # ============================================
     
+    # Таблица здесь — fredi_deep_analyses, а не deep_analyses. В той же базе
+    # лежит чужая таблица deep_analyses от телеграм-бота, и её внешний ключ
+    # deep_analyses_user_id_fkey смотрит в users, куда веб-пользователи Фреди
+    # не попадают вовсе. Каждое сохранение разбора падало на
+    # «violates foreign key constraint», save_deep_analysis возвращал None,
+    # а get_last_deep_analysis читал из той же чужой таблицы и всегда отдавал
+    # пусто — премиум-разбор не сохранялся ни разу и генерировался заново
+    # (6000 токенов DeepSeek) при каждом открытии экрана.
     async def save_deep_analysis(self, user_id: Union[int, str], analysis_data: Dict[str, Any]) -> Optional[int]:
         try:
             condition, value = self._get_id_condition(user_id)
             await self.create_user_if_not_exists(user_id)
-            
+
             await self.db.execute(f"""
-                UPDATE deep_analyses SET is_active = FALSE WHERE {condition}
+                UPDATE fredi_deep_analyses SET is_active = FALSE WHERE {condition}
             """, value)
-            
+
             analysis_id = await self.db.fetchval("""
-                INSERT INTO deep_analyses (user_id, analysis_text, analysis_type, created_at, updated_at, is_active)
+                INSERT INTO fredi_deep_analyses (user_id, analysis_text, analysis_type, created_at, updated_at, is_active)
                 VALUES ($1, $2, $3, NOW(), NOW(), TRUE)
                 RETURNING id
             """, value, json.dumps(analysis_data, ensure_ascii=False), 'deep_analysis')
@@ -125,7 +133,7 @@ class UserRepository:
             
             row = await self.db.fetchrow(f"""
                 SELECT analysis_text, created_at, updated_at 
-                FROM deep_analyses
+                FROM fredi_deep_analyses
                 WHERE {condition} AND is_active = TRUE
                 ORDER BY created_at DESC LIMIT 1
             """, value)
@@ -147,7 +155,7 @@ class UserRepository:
             condition, value = self._get_id_condition(user_id)
             rows = await self.db.fetch(f"""
                 SELECT id, analysis_text, analysis_type, created_at, updated_at, is_active
-                FROM deep_analyses WHERE {condition}
+                FROM fredi_deep_analyses WHERE {condition}
                 ORDER BY created_at DESC LIMIT $2
             """, value, limit)
             
@@ -171,11 +179,11 @@ class UserRepository:
             condition, value = self._get_id_condition(user_id)
             if analysis_id:
                 await self.db.execute(f"""
-                    UPDATE deep_analyses SET is_active = FALSE WHERE {condition} AND id = $2
+                    UPDATE fredi_deep_analyses SET is_active = FALSE WHERE {condition} AND id = $2
                 """, value, analysis_id)
             else:
                 await self.db.execute(f"""
-                    UPDATE deep_analyses SET is_active = FALSE WHERE {condition}
+                    UPDATE fredi_deep_analyses SET is_active = FALSE WHERE {condition}
                 """, value)
             logger.info(f"Deep analysis deleted for user {user_id}")
             return True
