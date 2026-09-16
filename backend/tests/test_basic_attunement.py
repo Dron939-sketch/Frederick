@@ -1,0 +1,87 @@
+"""Базовый режим сначала подстраивается, потом ведёт.
+
+17.09.2026 владелец: «у режима бейсик не хватает эмпатии, он сухой как
+машина… людям не всегда нужны сразу ответы, им нужна подстройка».
+
+Замер по выгрузке за неделю (228 ответов на сообщения с болью):
+  • ни один не начинался с отражения того, что человек сказал — 0 %;
+  • 44 % содержали прямую команду что делать;
+  • первый вопрос стоял в среднем на 516-м знаке из 593 — в самом конце;
+  • короче 300 знаков — 5 %.
+
+Причина нашлась в самом промпте: блок «НАЧАЛО ОТВЕТА» запрещал
+отражающие открывашки, а «ЛИЧНОСТЬ» требовала быть сухим и «делать
+выводы самому, а не вытаскивать наводящими вопросами».
+"""
+
+import pathlib
+import re
+
+SRC = (pathlib.Path(__file__).resolve().parents[1]
+       / "modes" / "prompts" / "basic_presets.py").read_text(encoding="utf-8")
+
+
+def _current() -> str:
+    m = re.search(r'_PRESET_CURRENT = """\\\n(.*?)\n"""', SRC, re.S)
+    assert m, "не нашёлся _PRESET_CURRENT"
+    return m.group(1)
+
+
+def test_attunement_block_exists():
+    """Подстройка описана и объявлена главнее стилистики."""
+    body = _current()
+    assert "ПОДСТРОЙКА: СНАЧАЛА В ТЕМП, ПОТОМ ВЕДИ" in body
+    assert "важнее всей стилистики" in body
+
+
+def test_first_move_forbids_fixing():
+    """Первым ходом — не решения, а отражение и один вопрос."""
+    body = _current()
+    assert "ПЕРВЫЙ ХОД — НЕ ЧИНИТЬ" in body
+    assert "не давай решений" in body
+    assert "один открытый вопрос" in body
+
+
+def test_reflection_is_allowed_again():
+    """Запрет на отражающие открывашки снят — он и давал 0 %."""
+    body = _current()
+    banned_line = re.search(r"- Никогда не начинай с: (.+?)\n", body).group(1)
+    assert "Я слышу" not in banned_line, "отражение снова под запретом"
+    assert "Понял тебя" not in banned_line
+    assert "Отражение чувства — можно и нужно" in body
+
+
+def test_personality_is_not_dry_anymore():
+    """Из личности убрана сухость и запрет на вопросы."""
+    body = _current()
+    assert "Сухой, точный ум" not in body
+    assert "а не вытаскиваешь наводящими вопросами" not in body
+    assert "живое тепло" in body
+
+
+def test_registers_are_listed_and_bounded():
+    """Регистры перечислены, и у них есть граница."""
+    body = _current()
+    for word in ("сочувствие", "твёрдое плечо", "пошутить"):
+        assert word in body, f"нет регистра: {word}"
+    assert "Заигрывание с человеком в беде — нет" in body, "нет границы для флирта"
+    assert "сексуального подтекста" in body
+
+
+def test_long_answers_are_discouraged():
+    """Длинный ход закрывает разговор — это сказано прямо."""
+    body = _current()
+    assert "ДЕРЖИ ХОД КОРОТКИМ" in body
+    assert "Одна мысль" in body
+    assert "десять реплик" in body or "десять ходов" in body
+
+
+def test_micro_step_is_not_first_move():
+    """Микро-действие уехало из первого хода."""
+    body = _current()
+    assert "НЕ в первом ходе" in body
+
+
+def test_jarvis_preset_keeps_its_own_dryness():
+    """Отдельный пресет JARVIS — сознательный выбор, его не трогаем."""
+    assert "Ты — JARVIS из Iron Man. Сухой, точный ум." in SRC
