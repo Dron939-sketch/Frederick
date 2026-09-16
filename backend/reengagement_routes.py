@@ -145,7 +145,19 @@ def register_reengagement_routes(app, db, email_service_getter=None):
             t
         )
         if not row:
-            return HTMLResponse(_GONE_HTML, status_code=404)
+            # Токен может принадлежать не пользователю, а адресу с
+            # короткого теста сайта: у тех аккаунта нет вовсе. Отписка
+            # одна на человека — гасим все его записи разом, иначе он
+            # отпишется от одного теста и получит письмо по другому.
+            lead = await db.fetchrow(
+                "SELECT email FROM fredi_test_leads WHERE opt_out_token = $1 LIMIT 1", t)
+            if not lead:
+                return HTMLResponse(_GONE_HTML, status_code=404)
+            await db.execute(
+                "UPDATE fredi_test_leads SET opted_out_at = NOW() "
+                "WHERE email = $1 AND opted_out_at IS NULL", lead["email"])
+            logger.info(f"[reeng] lead opted out via token {t[:6]}…")
+            return HTMLResponse(_OK_HTML % (APP_BASE_URL, APP_BASE_URL))
         await db.execute(
             "UPDATE fredi_users SET email_opted_in = FALSE, "
             "email_opted_out_at = NOW() WHERE user_id = $1",

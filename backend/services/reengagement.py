@@ -588,6 +588,56 @@ async def _scan_and_send_trial(db, email_service):
         await asyncio.sleep(1.2)
 
 
+async def _scan_and_send_test_leads(db, email_service):
+    """Третий день после короткого теста сайта.
+
+    Эти люди не заводили аккаунта: они прошли тест на статической
+    странице и оставили почту, чтобы результат остался у них. Тест
+    называет состояние, но ничего не меняет сам — через три дня человек
+    либо забыл результат, либо как раз упёрся в то, что тест назвал.
+
+    Кандидата пропускаем, если тем же адресом кто-то уже завёл аккаунт:
+    у него своя цепочка писем (d1, d3, trial), и складывать две значит
+    писать человеку дважды за день.
+    """
+    from short_test_mail import TESTS, build_followup
+
+    rows = await db.fetch(
+        """SELECT l.id, l.email, l.test, l.band, l.opt_out_token
+             FROM fredi_test_leads l
+            WHERE l.followed_up_at IS NULL
+              AND l.opted_out_at IS NULL
+              AND l.created_at < NOW() - INTERVAL '3 days'
+              AND l.created_at > NOW() - INTERVAL '14 days'
+              AND NOT EXISTS (SELECT 1 FROM fredi_test_leads o
+                               WHERE o.email = l.email AND o.opted_out_at IS NOT NULL)
+              AND NOT EXISTS (SELECT 1 FROM fredi_users u
+                               WHERE LOWER(u.email::text) = l.email)
+            LIMIT 50"""
+    )
+    if not rows:
+        return
+    logger.info(f"[reeng] короткие тесты: найдено {len(rows)} кандидатов")
+    for r in rows:
+        try:
+            if r["test"] not in TESTS or r["band"] not in TESTS[r["test"]]["bands"]:
+                # Тест переименован или полоса исчезла — письмо собрать
+                # не из чего. Помечаем, чтобы не перебирать вечно.
+                await db.execute(
+                    "UPDATE fredi_test_leads SET followed_up_at = NOW() WHERE id = $1", r["id"])
+                continue
+            optout = f"{API_BASE_URL}/api/reengagement/optout?t={r['opt_out_token']}"
+            subject, text, html = build_followup(r["test"], r["band"], optout)
+            sent = await _send_via_email(email_service, r["email"], subject, text, html)
+            await db.execute(
+                "UPDATE fredi_test_leads SET followed_up_at = NOW() WHERE id = $1", r["id"])
+            logger.info(f"[reeng] короткий тест {r['test']}: письмо третьего дня "
+                        f"{'ушло' if sent else 'НЕ ушло'}")
+        except Exception as e:
+            logger.warning(f"[reeng] lead {r['id']} follow-up failed: {e}")
+        await asyncio.sleep(1.2)
+
+
 D1_SQL = """SELECT u.user_id
              FROM fredi_users u
             WHERE u.email IS NOT NULL AND u.email <> ''
@@ -691,6 +741,7 @@ async def reengagement_scheduler(db, email_service_getter):
                 await _scan_and_send_d1(db, es)
                 await _scan_and_send_d3(db, es)
                 await _scan_and_send_trial(db, es)
+                await _scan_and_send_test_leads(db, es)
             else:
                 n = await _count_candidates(db)
                 nt = await _count_trial_candidates(db)

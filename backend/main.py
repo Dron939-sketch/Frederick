@@ -1862,6 +1862,17 @@ async def init_database_tables():
             "email_opted_out_at TIMESTAMP WITH TIME ZONE"
         )
 
+        # Адреса с коротких тестов сайта (PHQ-9, GAD-7, ревность, умение
+        # любить). Отдельная таблица, а не fredi_users: аккаунта у этих
+        # людей нет, а строка в users без пароля закрыла бы человеку
+        # регистрацию его же почтой.
+        try:
+            from short_test_mail import CREATE_TABLE_SQL as _leads_sql, CREATE_INDEX_SQL as _leads_idx
+            await conn.execute(_leads_sql)
+            await conn.execute(_leads_idx)
+        except Exception as _e:
+            logger.warning(f"fredi_test_leads init failed: {_e}")
+
         # Лог отправок reengagement-кампаний.
         # UNIQUE (user_id, campaign) — дедуп, одну кампанию слать
         # юзеру один раз.
@@ -2689,6 +2700,71 @@ async def email_test_pdf(request: Request, data: EmailTestPdfIn):
         )
     await log_event(uid, "test_pdf_emailed", {"sent": bool(sent), "has_link": bool(link)})
     return {"success": bool(sent), "link": link or None}
+
+
+class ShortTestMailIn(BaseModel):
+    test: str
+    band: str
+    score: Optional[int] = None
+    email: str
+
+
+@app.post("/api/test/email-short")
+@limiter.limit("5/minute")
+async def email_short_test(request: Request, data: ShortTestMailIn):
+    """Результат короткого теста сайта — письмом, и адрес остаётся у нас.
+
+    Короткие тесты (PHQ-9, GAD-7, ревность, умение любить) живут на
+    статических страницах, вне приложения: аккаунта у человека нет и
+    user_id взять неоткуда. Адрес поэтому ложится в отдельную таблицу
+    fredi_test_leads, а не в fredi_users — записывать в users строку без
+    пароля значило бы закрыть человеку регистрацию его же почтой.
+
+    Тело запроса несёт только ключ теста, полосу результата и балл.
+    Текст письма собирается на сервере из своего каталога: если
+    принимать готовый разбор со страницы, ручка становится открытым
+    ретранслятором и нашим именем можно разослать что угодно.
+    """
+    import secrets
+    from short_test_mail import valid, build_letter
+
+    email = (data.email or "").strip().lower()
+    if not email or "@" not in email or len(email) > 254:
+        return {"success": False, "error": "bad_email"}
+    if not valid(data.test, data.band, data.score):
+        return {"success": False, "error": "unknown_test"}
+
+    token = secrets.token_urlsafe(24)
+    try:
+        async with db.get_connection() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO fredi_test_leads (email, test, band, score, opt_out_token)
+                   VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+                email, data.test, data.band, data.score, token,
+            )
+            lead_id = int(row["id"]) if row else 0
+            # Отписался раньше — письма больше не шлём, ни это, ни третьего дня.
+            opted = await conn.fetchval(
+                "SELECT 1 FROM fredi_test_leads "
+                "WHERE email = $1 AND opted_out_at IS NOT NULL LIMIT 1", email)
+    except Exception as e:
+        logger.warning(f"email_short_test: lead not saved (non-fatal): {e}")
+        lead_id, opted = 0, None
+
+    if opted:
+        return {"success": False, "error": "opted_out"}
+
+    optout = f"{_public_base_url()}/api/reengagement/optout?t={token}"
+    subject, text, html = build_letter(data.test, data.band, data.score, optout)
+
+    sent = False
+    if email_service:
+        try:
+            sent = await email_service.send(email, subject, text, html=html)
+        except Exception as e:
+            logger.warning(f"email_short_test: send failed: {e}")
+    logger.info(f"[short-test] {data.test}/{data.band} → {email[:3]}***: sent={bool(sent)} lead={lead_id}")
+    return {"success": bool(sent)}
 
 
 @app.get("/api/test/portrait-pdf")
