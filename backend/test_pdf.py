@@ -94,7 +94,22 @@ def _find_font(candidates):
     return None
 
 
-# Описания уровней по шкале /9 — синхронны с текстом на финале теста (test.js).
+# Потолок шкалы поведенческих векторов.
+#
+# Здесь стояла девятка, и каждая шкала в отчёте выглядела на треть
+# короче, чем есть: «6 / 9» читается как «до потолка ещё далеко», хотя
+# шесть — это и есть потолок. Уровни 7–9 в тесте бывают только у
+# вопросов этапа мышления (они помечены measures, а не strategy) и в
+# behavioral_levels не попадают вовсе; test.js на своём экране так и
+# пишет — «СБ 5/6». Проверено на 108 живых профилях 17.09.2026: ни
+# одного значения выше шести ни по одному вектору.
+#
+# Уровень мышления — отдельная шкала, он как раз /9 и здесь не при чём.
+VECTOR_MAX = 6
+
+# Описания уровней — синхронны с текстом на финале теста (test.js).
+# Записей девять, достижимы первые шесть: седьмую и выше тест по этим
+# векторам не выдаёт. Оставлены как есть, чтобы не расходиться с test.js.
 SB_LEVELS = {
     1: "Под давлением замираете",
     2: "Избегаете конфликтов",
@@ -424,17 +439,18 @@ class _Report:
         pdf.cell(CONTENT_W - 13 - 18, 5.6, caption, ln=0)
         pdf.set_font("DejaVu", "", 9)
         _rgb(pdf, "set_text_color", MUTED)
-        pdf.cell(18, 5.6, f"{lvl or '—'} / 9", align="R", ln=1)
+        pdf.cell(18, 5.6, f"{lvl or '—'} / {VECTOR_MAX}", align="R", ln=1)
 
         y = y0 + 7.6
         _rgb(pdf, "set_fill_color", HAIR)
         pdf.rect(MARGIN, y, CONTENT_W, 1.6, style="F")
         if lvl:
             _rgb(pdf, "set_fill_color", ACCENT)
-            pdf.rect(MARGIN, y, CONTENT_W * lvl / 9.0, 1.6, style="F")
+            pdf.rect(MARGIN, y, CONTENT_W * min(lvl, VECTOR_MAX) / VECTOR_MAX,
+                     1.6, style="F")
         pdf.set_fill_color(255, 255, 255)
-        for i in range(1, 9):
-            pdf.rect(MARGIN + CONTENT_W * i / 9.0 - 0.25, y, 0.5, 1.6,
+        for i in range(1, VECTOR_MAX):
+            pdf.rect(MARGIN + CONTENT_W * i / VECTOR_MAX - 0.25, y, 0.5, 1.6,
                      style="F")
         pdf.set_xy(MARGIN, y + 1.6 + 5.4)
 

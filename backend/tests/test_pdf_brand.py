@@ -280,6 +280,40 @@ def test_old_records_without_snapshot_still_work():
     assert test_pdf._vector_level({}, {}, "СБ") == 0
 
 
+def test_vector_scale_tops_out_at_six():
+    """Шкала векторов 1..6, а не 1..9.
+
+    В отчёте стояло «6 / 9», и каждая шкала выглядела на треть короче,
+    чем есть: шесть — это потолок, а читалось как «до потолка далеко».
+    Уровни 7–9 бывают только у вопросов этапа мышления и в
+    behavioral_levels не попадают. Проверено на 108 живых профилях
+    17.09.2026: ни одного значения выше шести.
+    """
+    import test_pdf
+    assert test_pdf.VECTOR_MAX == 6
+    bar = SRC.split("def bar(")[1].split("def quote(")[0]
+    assert "/ 9" not in bar, "шкала снова рисуется из девяти"
+    assert "9.0" not in bar
+    assert "VECTOR_MAX" in bar
+
+
+def test_pdf_and_doubles_count_vectors_the_same_way():
+    """PDF и поиск двойников считают вектора одинаково.
+
+    До 17.09.2026 в бэкенде жило три разных способа свести
+    behavioral_levels в число, и все три давали разное. У 74 профилей из
+    108 карточка «двойника» показывала вектора, не сходившиеся с кодом
+    профиля, напечатанным рядом в той же карточке.
+    """
+    import pathlib as pl
+    main = (pl.Path(__file__).resolve().parents[1]
+            / "main.py").read_text(encoding="utf-8")
+    vl = main.split("def _vector_levels(")[1].split("\ndef ")[0]
+    assert "math.floor(sum(nums) / len(nums) + 0.5)" in vl, (
+        "round() округляет половину до чётного, а экран — вверх")
+    assert "snapshot.get(fields[k])" in vl, "снимок приложения игнорируется"
+
+
 # ── Сборка целиком ───────────────────────────────────────────────────
 def test_report_builds_end_to_end():
     """Отчёт собирается на реальном профиле."""

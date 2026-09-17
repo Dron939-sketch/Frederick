@@ -21,6 +21,7 @@ import logging
 import time
 import json
 import hashlib
+import math
 import random
 import base64
 import re
@@ -50,7 +51,9 @@ logger = logging.getLogger(__name__)
 
 from db import Database
 from cache import RedisCache
-from services.ai_service import AIService, TECH_FAIL_REPLY, is_tech_fail, tech_fail_reply
+from services.ai_service import (AIService, TECH_FAIL_REPLY, is_tech_fail,
+                                tech_fail_reply, is_thought_fallback,
+                                profile_looks_complete)
 import premium_gate
 from services.weather_service import WeatherService
 from services.weekend_planner import WeekendPlanner
@@ -4228,16 +4231,35 @@ def _vector_levels(profile: dict) -> dict:
 
     Шкала векторов — 1..6, а не 1..9: уровни 7–9 в тесте есть только у
     вопросов этапа мышления (они помечены measures, а не strategy) и в
-    behavioral_levels не попадают.
+    behavioral_levels не попадают. Проверено на 108 живых профилях
+    17.09.2026: ни одного значения выше шести.
+
+    Ещё две поправки от 17.09.2026, обе найдены на живых данных.
+
+    ПЕРВАЯ: снимок важнее пересчёта. profile_data.sbLevel и соседние —
+    это то, что тест посчитал в момент прохождения и показал человеку на
+    экране. Пока снимок есть, считать заново незачем: любой пересчёт
+    рискует разойтись с числом, которое человек уже видел.
+
+    ВТОРАЯ: round() округляет половину до ЧЁТНОГО, а JS Math.round —
+    вверх. Среднее 4.5 давало здесь 4, а на экране 5. У 74 профилей из
+    108 «двойники» показывали вектора, не сходившиеся с кодом профиля
+    рядом в той же карточке.
     """
+    snapshot = profile.get('profile_data') or {}
+    fields = {'СБ': 'sbLevel', 'ТФ': 'tfLevel', 'УБ': 'ubLevel', 'ЧВ': 'chvLevel'}
     levels = profile.get('behavioral_levels') or {}
     out = {}
     for k in ('СБ', 'ТФ', 'УБ', 'ЧВ'):
+        snap = snapshot.get(fields[k])
+        if isinstance(snap, (int, float)) and snap:
+            out[k] = int(snap)
+            continue
         arr = levels.get(k) or []
         if isinstance(arr, (int, float)):
             arr = [arr]
-        nums = [x for x in arr if isinstance(x, (int, float))]
-        out[k] = int(round(sum(nums) / len(nums))) if nums else 3
+        nums = [float(x) for x in arr if isinstance(x, (int, float))]
+        out[k] = int(math.floor(sum(nums) / len(nums) + 0.5)) if nums else 3
     return out
 
 
@@ -5228,7 +5250,10 @@ async def get_smart_questions(request: Request, user_id: int):
 async def get_psychologist_thought(request: Request, user_id: int):
     try:
         thought = await user_repo.get_psychologist_thought(user_id)
-        if not thought:
+        # Заглушку, уже лежащую в базе с прошлых сбоев, считаем за «нет
+        # мысли» и собираем заново: сохранять её мы перестали, но у тех,
+        # кто прошёл тест до этого, она осталась записанной.
+        if not thought or is_thought_fallback(thought):
             profile = await user_repo.get_profile(user_id) or {}
             if profile:
                 thought = await ai_service.generate_psychologist_thought(user_id, profile)
@@ -6913,6 +6938,14 @@ async def get_generated_profile(request: Request, user_id: int):
         deep_patterns = profile.get('deep_patterns', {})
         ai_profile = profile.get('ai_generated_profile')
         psychologist_thought = await user_repo.get_psychologist_thought(user_id)
+        # Заглушка с прошлых сбоев — это «нет мысли»: ниже соберём заново.
+        if is_thought_fallback(psychologist_thought):
+            psychologist_thought = None
+        # Оборванный разбор (у одного человека в базе лежал один заголовок
+        # в двадцать знаков) — тоже «нет разбора», иначе он остаётся там
+        # навсегда: непустое поле означает «уже готово».
+        if ai_profile and not profile_looks_complete(ai_profile):
+            ai_profile = None
 
         if psychologist_thought:
             context = await context_repo.get(user_id) or {}
