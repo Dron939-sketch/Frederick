@@ -233,6 +233,53 @@ def test_coda_never_lands_on_content():
     assert "pdf.set_auto_page_break(False)" in coda
 
 
+# ── Числа векторов ───────────────────────────────────────────────────
+def test_vector_levels_match_what_the_app_showed():
+    """PDF повторяет числа, которые человек видел на экране.
+
+    Ошибка нашлась 17.09.2026 на живом профиле. Генератор брал последний
+    этап массива (_last_level), а приложение считает среднее по этапам
+    (fredi/test.js, calculateFinalProfile). У человека с массивами
+    СБ [6,5], ТФ [5,1], УБ [1,6], ЧВ [6,3] на экране стоял код
+    СБ-6_ТФ-3_УБ-4_ЧВ-5, а в файл уходило СБ-5_ТФ-1_УБ-6_ЧВ-3 — мимо по
+    всем четырём векторам.
+    """
+    import test_pdf
+    behavioral = {"СБ": [6, 5], "ТФ": [5, 1], "УБ": [1, 6], "ЧВ": [6, 3]}
+    got = [test_pdf._avg_level(behavioral[k])
+           for k in ("СБ", "ТФ", "УБ", "ЧВ")]
+    assert got == [6, 3, 4, 5], f"векторы разошлись с приложением: {got}"
+
+
+def test_half_rounds_up_like_javascript():
+    """Половина округляется вверх.
+
+    JS Math.round(4.5) = 5, а встроенный round() в Python = 4 (до
+    чётного). ЧВ [6, 3] даёт ровно 4.5 — на банковском округлении файл
+    снова разошёлся бы с экраном.
+    """
+    import test_pdf
+    assert test_pdf._avg_level([6, 3]) == 5
+    assert test_pdf._avg_level([1, 2]) == 2
+
+
+def test_app_snapshot_wins_over_recount():
+    """Пока есть снимок приложения, ничего не пересчитываем."""
+    import test_pdf
+    pd = {"sbLevel": 6, "tfLevel": 3, "ubLevel": 4, "chvLevel": 5}
+    beh = {"СБ": [1], "ТФ": [1], "УБ": [1], "ЧВ": [1]}
+    got = [test_pdf._vector_level(pd, beh, k)
+           for k in ("СБ", "ТФ", "УБ", "ЧВ")]
+    assert got == [6, 3, 4, 5]
+
+
+def test_old_records_without_snapshot_still_work():
+    """Старые записи без profile_data считаются по массиву этапов."""
+    import test_pdf
+    assert test_pdf._vector_level({}, {"СБ": [6, 5]}, "СБ") == 6
+    assert test_pdf._vector_level({}, {}, "СБ") == 0
+
+
 # ── Сборка целиком ───────────────────────────────────────────────────
 def test_report_builds_end_to_end():
     """Отчёт собирается на реальном профиле."""

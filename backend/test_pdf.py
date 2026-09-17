@@ -197,16 +197,59 @@ def _render_ai_text(r, text: str):
     flush()
 
 
-def _last_level(arr) -> int:
-    """behavioral_levels хранит массив уровней по стадиям. Берём последний (стадия 3)."""
+import math
+
+# Соответствие вектора и поля, в котором приложение держит его итог.
+_VECTOR_FIELDS = {"СБ": "sbLevel", "ТФ": "tfLevel",
+                  "УБ": "ubLevel", "ЧВ": "chvLevel"}
+
+
+def _avg_level(arr) -> int:
+    """Уровень вектора по массиву этапов — СРЕДНЕЕ, а не последний этап.
+
+    Здесь была ошибка, которую видно только на живых данных. Функция
+    называлась _last_level и брала arr[-1] «стадию 3», а приложение
+    считает иначе (fredi/test.js, calculateFinalProfile):
+
+        const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length
+        sbR = Math.round(avg(behavioralLevels['СБ']))
+
+    У человека, прошедшего тест 17.09.2026, поведенческие массивы были
+    СБ [6, 5], ТФ [5, 1], УБ [1, 6], ЧВ [6, 3]. На экране он увидел код
+    СБ-6_ТФ-3_УБ-4_ЧВ-5, а в PDF ему уходило СБ-5_ТФ-1_УБ-6_ЧВ-3 — мимо
+    по всем четырём векторам. Файл противоречил экрану, с которого его
+    скачали, и «Умеете защищать» превращалось в «Деньги как повезёт».
+
+    Округление именно floor(x + 0.5): JS Math.round округляет половину
+    ВВЕРХ, а встроенный round() в Python — до чётного, и на ЧВ [6, 3]
+    (среднее 4.5) он дал бы 4 вместо приложенческих 5.
+    """
     if isinstance(arr, list) and arr:
         try:
-            return int(arr[-1])
+            nums = [float(x) for x in arr]
         except (TypeError, ValueError):
             return 0
+        return int(math.floor(sum(nums) / len(nums) + 0.5))
     if isinstance(arr, (int, float)):
         return int(arr)
     return 0
+
+
+def _vector_level(profile_data: Dict[str, Any], behavioral: Dict[str, Any],
+                  code: str) -> int:
+    """Итог по вектору: сначала то, что посчитало приложение.
+
+    profile_data — снимок, сделанный самим тестом в момент прохождения.
+    Пока он есть, пересчитывать нечего: любой наш пересчёт рискует
+    разойтись с числом, которое человек уже видел на экране. Массив
+    этапов — запасной путь для старых записей, где снимка нет.
+    """
+    field = _VECTOR_FIELDS.get(code)
+    if field:
+        val = profile_data.get(field)
+        if isinstance(val, (int, float)) and val:
+            return int(val)
+    return _avg_level(behavioral.get(code))
 
 
 # ── Оформление ────────────────────────────────────────────────────────
@@ -477,10 +520,10 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
     deep = (profile_data.get("deep_patterns")
             or profile.get("deep_patterns") or {}) or {}
 
-    sb = _last_level(behavioral.get("СБ"))
-    tf = _last_level(behavioral.get("ТФ"))
-    ub = _last_level(behavioral.get("УБ"))
-    cv = _last_level(behavioral.get("ЧВ"))
+    sb = _vector_level(profile_data, behavioral, "СБ")
+    tf = _vector_level(profile_data, behavioral, "ТФ")
+    ub = _vector_level(profile_data, behavioral, "УБ")
+    cv = _vector_level(profile_data, behavioral, "ЧВ")
 
     class _Book(FPDF):
         """Колонтитул издания: слева — чей разбор, справа — номер листа.
