@@ -57,13 +57,29 @@ def _clean_for_pdf(text: str) -> str:
 # Попытка найти DejaVu — стандартный кириллический Unicode-шрифт.
 # Render/Debian-образ обычно содержит его. Для локальной разработки можно
 # положить TTF в backend/fonts/DejaVuSans.ttf — этот путь проверяется первым.
+# Montserrat первым, DejaVu запасным. Фирменный шрифт материалов —
+# Cera Pro, но он платный и лицензии нет (владелец 17.09.2026: «шрифтов
+# не будет, найди сам»). Montserrat — геометрический гротеск той же
+# породы, с полной кириллицей, настоящими Regular и Bold и лицензией
+# OFL: в коммерции можно, файл лицензии лежит рядом со шрифтами.
+#
+# Manrope и Jost проверены и отброшены: у обоих в свободном доступе
+# только переменные файлы, из которых fpdf2 берёт светлое начертание —
+# заголовок «РАЗБОР ТЕСТА» выходил бледным и разваливался.
+#
+# DejaVu оставлен запасным: если шрифты не доехали в образ, отчёт должен
+# собраться некрасивым, но собраться.
+_ASSET_FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "assets", "fonts")
 _FONT_CANDIDATES = [
+    os.path.join(_ASSET_FONTS, "Montserrat-Regular.ttf"),
     os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/TTF/DejaVuSans.ttf",
 ]
 _FONT_BOLD_CANDIDATES = [
+    os.path.join(_ASSET_FONTS, "Montserrat-Bold.ttf"),
     os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans-Bold.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
@@ -192,11 +208,21 @@ def _last_level(arr) -> int:
 # базы», а печатный разворот: обложка, воздух, узкая колонка текста,
 # шкалы вместо цифр. Дорого выглядит сдержанность — два цвета, тонкие
 # линейки, крупный заголовок и поля, а не градиенты и рамки.
+# Фирменная палитра. До 17.09.2026 отчёт был серо-синим и ничем не
+# напоминал остальные материалы: владелец показал свой гайд «Зумы
+# внимания» — чёрный #1C1C1C, янтарный #FFB800, белый — и попросил,
+# чтобы разбор выглядел не хуже. Три цвета, больше ничего.
+BRAND_BLACK = (28, 28, 28)
+BRAND_AMBER = (255, 184, 0)
+
 INK = (26, 32, 44)        # основной текст, почти чёрный с синевой
 MUTED = (107, 114, 128)   # подписи и второстепенное
 HAIR = (226, 232, 240)    # волосяные линейки
-ACCENT = (59, 130, 255)   # тот же синий, что в приложении
-ACCENT_SOFT = (232, 240, 255)
+# Янтарь — для заливок: полос, кнопки, подложки карточки. Для ТЕКСТА он
+# не годится, на белом читается плохо, поэтому заголовки и названия
+# рекомендаций идут чёрным, а янтарь их только подчёркивает.
+ACCENT = (255, 184, 0)
+ACCENT_SOFT = (255, 246, 219)
 PAPER_DARK = (22, 28, 40) # плашка обложки
 FREDI_URL = "https://meysternlp.ru/fredi/"
 
@@ -294,7 +320,7 @@ class _Report:
         pdf.rect(x, y, CONTENT_W, hgt, style="F")
         pdf.set_xy(x + 7, y + 6)
         pdf.set_font("DejaVu", "B", 10.5)
-        _rgb(pdf, "set_text_color", ACCENT)
+        _rgb(pdf, "set_text_color", BRAND_BLACK)
         pdf.cell(0, 6, title, ln=1)
         pdf.set_x(x + 7)
         pdf.set_font("DejaVu", "", 10.5)
@@ -364,38 +390,77 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
 
     r = _Report(pdf, bool(font_bold))
 
-    # ── Обложка ──────────────────────────────────────────────────────
-    # Тёмная плашка во всю ширину страницы: имя архетипа читается первым,
-    # и документ с первого взгляда не похож на выгрузку из базы.
-    _rgb(pdf, "set_fill_color", PAPER_DARK)
-    pdf.rect(0, 0, 210, 62, style="F")
-    pdf.set_xy(MARGIN, 18)
-    pdf.set_font("DejaVu", "", 9)
-    pdf.set_text_color(150, 165, 190)
-    pdf.cell(0, 5, "ПСИХОЛОГИЧЕСКИЙ ПОРТРЕТ", ln=1)
-    pdf.set_x(MARGIN)
-    pdf.set_font("DejaVu", "B", 26)
-    pdf.set_text_color(255, 255, 255)
-    pdf.multi_cell(CONTENT_W, 11, str(archetype))
-    pdf.set_x(MARGIN)
-    pdf.set_font("DejaVu", "", 10)
-    pdf.set_text_color(160, 175, 200)
-    cover_parts = []
-    if display_name:
-        cover_parts.append(display_name)
-    if perception_type:
-        cover_parts.append(perception_type)
-    cover_parts.append(f"мышление {thinking_level}/9")
-    pdf.cell(0, 6, "  ·  ".join(cover_parts), ln=1)
+    # ── Титульный лист ───────────────────────────────────────────────
+    # Отдельная страница, а не плашка над текстом. Решение владельца
+    # 17.09.2026: «на титульнике будем писать архетип и картинку».
+    # Раньше обложка была полосой в 62 мм, и разбор начинался прямо под
+    # ней — документ читался как выгрузка, а не как письмо человеку.
+    addressee = (user_name or "").strip()
+    if addressee.lower() in ("друг", "гость"):
+        addressee = ""
+    stamp = datetime.now().strftime("%d.%m.%Y")
 
-    pdf.set_y(72)
+    # Чёрный блок с заголовком, именем и датой.
+    _rgb(pdf, "set_fill_color", BRAND_BLACK)
+    pdf.rect(MARGIN, 20, CONTENT_W, 70, style="F",
+             round_corners=True, corner_radius=12)
+    _rgb(pdf, "set_text_color", BRAND_AMBER)
+    pdf.set_font("DejaVu", "B", 20)
+    pdf.set_xy(MARGIN + 10, 33)
+    pdf.cell(0, 10, "РАЗБОР ТЕСТА", ln=1)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("DejaVu", "", 12)
+    pdf.set_xy(MARGIN + 10, 49)
     # Имя ставим как есть, без «Для …»: склонять чужое имя вслепую —
     # верный способ получить «Для Андрей» или «Для Любовю».
-    addressee = (user_name or "").strip()
-    stamp = datetime.now().strftime("%d.%m.%Y")
-    r.label(f"{addressee}  ·  {stamp}" if addressee
-            and addressee.lower() not in ("друг", "гость") else stamp)
-    pdf.ln(2)
+    pdf.cell(0, 7, addressee or "Ваш психологический портрет", ln=1)
+    pdf.set_font("DejaVu", "", 9.5)
+    pdf.set_text_color(185, 185, 185)
+    pdf.set_xy(MARGIN + 10, 62)
+    sub = [p for p in (perception_type, f"мышление {thinking_level}/9") if p]
+    pdf.cell(0, 6, "  ·  ".join(sub + [stamp]), ln=1)
+
+    # Архетип — янтарная «пилюля». Высота считается по числу строк:
+    # «Спокойный воин» и «Наблюдатель за наблюдателем» — разной длины,
+    # и фиксированная рамка обрезала бы второй.
+    arch = str(archetype or "").strip() or "—"
+    pdf.set_font("DejaVu", "B", 13)
+    lines = max(1, int(pdf.get_string_width(arch) // (CONTENT_W - 16)) + 1)
+    pill_h = 12 + 7 * (lines - 1)
+    _rgb(pdf, "set_draw_color", BRAND_AMBER)
+    pdf.set_line_width(0.9)
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(MARGIN, 102, CONTENT_W, pill_h, style="D",
+             round_corners=True, corner_radius=min(9, pill_h / 2))
+    _rgb(pdf, "set_text_color", BRAND_BLACK)
+    pdf.set_xy(MARGIN + 8, 102 + (pill_h - 7 * lines) / 2)
+    pdf.multi_cell(CONTENT_W - 16, 7, arch.upper(), align="C")
+
+    # Рисунок. Если файла нет — просто пустое место: отчёт важнее
+    # картинки, и падать из-за отсутствующего png он не должен.
+    art = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "assets", "pdf", "titul-zerkalo.png")
+    if os.path.exists(art):
+        try:
+            pdf.image(art, x=(210 - 70) / 2, y=150, w=70)
+        except Exception as e:
+            logger.warning(f"титульный рисунок не вставился: {e}")
+
+    # Подвал титула. Автоперенос на время выключаем: он срабатывает на
+    # 275-м миллиметре, и подпись в 274-м улетала на отдельную страницу —
+    # в отчёте появлялся лист, где не было ничего, кроме «meysternlp.ru».
+    prev_auto = pdf.auto_page_break
+    pdf.set_auto_page_break(False)
+    _rgb(pdf, "set_draw_color", BRAND_BLACK)
+    pdf.set_line_width(0.3)
+    pdf.line(MARGIN, 272, 210 - MARGIN, 272)
+    pdf.set_font("DejaVu", "", 8.5)
+    _rgb(pdf, "set_text_color", MUTED)
+    pdf.set_xy(MARGIN, 274)
+    pdf.cell(0, 5, "meysternlp.ru")
+    pdf.set_auto_page_break(prev_auto, margin=22)
+
+    pdf.add_page()
     r.body("Это описание того, как вы обычно поступаете, — не диагноз и не "
            "ярлык. Привычный ход можно менять; об этом и разговор с Фреди.",
            size=11, lead=6, color=MUTED)
@@ -440,7 +505,7 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
         r.h("С чего начать")
         for it in recs[:3]:
             pdf.set_font("DejaVu", "B", 10.5)
-            _rgb(pdf, "set_text_color", ACCENT)
+            _rgb(pdf, "set_text_color", BRAND_BLACK)
             title = _clean_for_pdf(str(it.get("title") or ""))
             url = str(it.get("url") or "")
             if url and not url.startswith("http"):
@@ -461,7 +526,7 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
                 pdf.multi_cell(CONTENT_W, 5.2, what)
             if url:
                 pdf.set_font("DejaVu", "", 9)
-                _rgb(pdf, "set_text_color", ACCENT)
+                _rgb(pdf, "set_text_color", MUTED)
                 pdf.set_x(MARGIN)
                 pdf.multi_cell(CONTENT_W, 5, url, link=url)
             pdf.ln(4)
@@ -474,10 +539,12 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
     pdf.ln(6)
     btn_y = pdf.get_y()
     _rgb(pdf, "set_fill_color", ACCENT)
-    pdf.rect(MARGIN, btn_y, 74, 13, style="F")
+    pdf.rect(MARGIN, btn_y, 74, 13, style="F",
+             round_corners=True, corner_radius=6.5)
     pdf.set_xy(MARGIN, btn_y + 3.4)
     pdf.set_font("DejaVu", "B", 11)
-    pdf.set_text_color(255, 255, 255)
+    # Чёрным по янтарю, а не белым: белый на #FFB800 не читается вовсе.
+    _rgb(pdf, "set_text_color", BRAND_BLACK)
     pdf.cell(74, 6, "Поговорить с Фреди", align="C",
              link=FREDI_URL)
     pdf.set_y(btn_y + 16)
