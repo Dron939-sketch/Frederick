@@ -159,32 +159,39 @@ def _render_ai_text(r, text: str):
             flush()
             continue
         letters = [c for c in t if c.isalpha()]
-        # Заголовок раздела: коротко и целиком заглавными.
+        # Заголовок внутри разбора: коротко и целиком заглавными. Идёт
+        # подзаголовком, а не разделом: номер раздела здесь уже занят
+        # («Что это значит»), и вторая нумерация внутри него сбивала бы.
         if letters and len(t) <= 42 and all(c.isupper() for c in letters):
             flush()
-            r.h(t.capitalize() if t.isupper() and len(t) > 30 else t, size=11, top=5, rule=False)
+            r.sub(t)
             continue
         # Подзаголовок цены.
         if re.match(r"^Цена\s*\d+[.):]", t):
             flush()
             pdf.ln(1)
             pdf.set_font("DejaVu", "B", 10.5)
-            _rgb(pdf, "set_text_color", INK)
+            _rgb(pdf, "set_text_color", BRAND_BLACK)
             pdf.set_x(MARGIN)
-            pdf.multi_cell(CONTENT_W, 5.4, t)
+            pdf.multi_cell(CONTENT_W, 6, t, align="L")
             pdf.set_font("DejaVu", "", 10.5)
             continue
-        # Пункт списка: с отступом, чтобы перенос не липнул к маркеру.
+        # Пункт списка. Маркер — янтарная точка на левом поле: колонка
+        # текста остаётся прямой, а перечень видно с одного взгляда.
         if t.startswith(("•", "-", "—")):
             flush()
             body = t.lstrip("•-— ").strip()
+            y0 = pdf.get_y()
+            if y0 > 255:
+                pdf.add_page()
+                y0 = pdf.get_y()
+            _rgb(pdf, "set_fill_color", ACCENT)
+            pdf.rect(MARGIN - 6, y0 + 2.4, 1.8, 1.8, style="F")
             pdf.set_font("DejaVu", "", 10.5)
             _rgb(pdf, "set_text_color", INK)
-            pdf.set_x(MARGIN + 2)
-            pdf.cell(4, 5.4, "•")
-            pdf.set_x(MARGIN + 6)
-            pdf.multi_cell(CONTENT_W - 6, 5.4, body)
-            pdf.ln(0.8)
+            pdf.set_xy(MARGIN, y0)
+            pdf.multi_cell(CONTENT_W, 6, body, align="L")
+            pdf.ln(1.4)
             continue
         buf.append(t)
     flush()
@@ -203,60 +210,140 @@ def _last_level(arr) -> int:
 
 
 # ── Оформление ────────────────────────────────────────────────────────
-# Документ читают на телефоне, в почте, спустя дни — и он единственное,
-# что остаётся у человека от получаса работы. Поэтому здесь не «отчёт из
-# базы», а печатный разворот: обложка, воздух, узкая колонка текста,
-# шкалы вместо цифр. Дорого выглядит сдержанность — два цвета, тонкие
-# линейки, крупный заголовок и поля, а не градиенты и рамки.
-# Фирменная палитра. До 17.09.2026 отчёт был серо-синим и ничем не
-# напоминал остальные материалы: владелец показал свой гайд «Зумы
-# внимания» — чёрный #1C1C1C, янтарный #FFB800, белый — и попросил,
-# чтобы разбор выглядел не хуже. Три цвета, больше ничего.
+# ЗАМЫСЕЛ. Документ читают на телефоне, в почте, спустя дни — и он
+# единственное, что остаётся у человека от получаса работы. Значит это не
+# «выгрузка из базы», а печатное издание: обложка, колонтитул, нумерация
+# разделов, узкая колонка, много полей.
+#
+# 17.09.2026 владелец: «продумай всю концепцию ещё раз, нужно сделать
+# презентабельно и дорого». Дорого в печати делают ровно четыре вещи, и
+# ни одна из них не стоит денег:
+#
+#   1. ВОЗДУХ. Поля 22 мм, интерлиньяж 6.2 при кегле 10.5, пустое место
+#      под иллюстрацией. Плотно набранная страница выглядит дёшево даже
+#      идеальным шрифтом.
+#   2. ВОЛОСЯНЫЕ ЛИНИИ ВМЕСТО РАМОК И ПЛАШЕК. Заливка кричит, линия в
+#      0.2 мм — нет. Поэтому ушли: янтарная «пилюля» архетипа, кремовая
+#      карточка «Взгляда психолога», янтарная кнопка-таблетка.
+#   3. КОНТРАСТ КЕГЛЕЙ, А НЕ КОНТРАСТ ЦВЕТОВ. Разрядка 7 pt капителью
+#      против 19 pt заголовка — это и есть «дорогая» типографика.
+#      Дополнительных цветов не добавлено ни одного.
+#   4. РАСПАШНЫЕ ПЛАШКИ. Чёрное поле обложки и чёрная концовка идут в
+#      обрез, от края до края листа. Скруглённый прямоугольник с полями
+#      читается как карточка веб-интерфейса; полоса в обрез — как книга.
+#
+# Палитра прежняя и по-прежнему из трёх цветов: чёрный #1C1C1C, янтарный
+# #FFB800, белый — из гайда владельца «Зумы внимания».
 BRAND_BLACK = (28, 28, 28)
 BRAND_AMBER = (255, 184, 0)
 
-INK = (26, 32, 44)        # основной текст, почти чёрный с синевой
-MUTED = (107, 114, 128)   # подписи и второстепенное
-HAIR = (226, 232, 240)    # волосяные линейки
-# Янтарь — для заливок: полос, кнопки, подложки карточки. Для ТЕКСТА он
-# не годится, на белом читается плохо, поэтому заголовки и названия
-# рекомендаций идут чёрным, а янтарь их только подчёркивает.
+# Текст чёрный нейтральный, без синевы: синева была наследством от
+# интерфейса приложения и на бумаге читалась как выцветшая печать.
+INK = (26, 26, 26)        # основной текст
+MUTED = (122, 122, 122)   # подписи и второстепенное
+HAIR = (219, 219, 219)    # волосяные линейки
+DARK_MUTED = (146, 146, 146)   # второстепенное на чёрном
+DARK_MICRO = (124, 124, 124)   # капитель на чёрном
+# Янтарь — только заливка: полоски шкал, короткие акцентные штрихи,
+# номера разделов. Для длинного ТЕКСТА он не годится — на белом не
+# читается, поэтому заголовки всегда чёрные.
 ACCENT = (255, 184, 0)
-ACCENT_SOFT = (255, 246, 219)
-PAPER_DARK = (22, 28, 40) # плашка обложки
 FREDI_URL = "https://meysternlp.ru/fredi/"
 
-MARGIN = 20               # поля шире обычных: воздух и есть «дорого»
+MARGIN = 22               # поля шире обычных: воздух и есть «дорого»
 CONTENT_W = 210 - MARGIN * 2
+
+# Обложка: распашная чёрная полоса и рисунок под ней.
+COVER_BAND_H = 104
+# Концовка: такая же полоса внизу последней страницы — обложка и финал
+# рифмуются, документ получает начало и конец.
+CODA_TOP = 249
+
+ART_FILE = "titul-marionetka.png"
+# Рисунок владельца (штриховая тушь): человек на марионеточных нитях
+# поднимается по лестнице, ступени впереди — пунктиром, за спиной —
+# контур того, кем он мог бы быть. Ровно то, о чём отчёт: привычный ход
+# виден со стороны, и дальше есть куда шагнуть. Пропорции 687×1100.
+ART_RATIO = 1100 / 687
 
 
 def _rgb(pdf, setter, color):
     getattr(pdf, setter)(*color)
 
 
+def _micro(pdf, text: str, color=MUTED, size: float = 7,
+           spacing: float = 1.5, w: float = 0, align: str = "L",
+           link: str = "", caps: bool = True):
+    """Капитель вразрядку — вся мелкая служебная типографика отчёта.
+
+    Разрядка здесь не украшение: заглавные без неё слипаются в пятно, а
+    с ней строка читается как штемпель на бланке. Свойство сбрасываем
+    сразу — забытый char_spacing разъезжается по всему документу.
+
+    caps=False нужен там, где в строке есть имя с собственным регистром:
+    «MeysterAi» в верхнем регистре превращается в «MEYSTERAI» и перестаёт
+    быть названием.
+    """
+    pdf.set_font("DejaVu", "", size)
+    _rgb(pdf, "set_text_color", color)
+    pdf.set_char_spacing(spacing)
+    pdf.cell(w or CONTENT_W, 4.4, text.upper() if caps else text,
+             align=align, ln=1, link=link or "")
+    pdf.set_char_spacing(0)
+
+
 class _Report:
-    """Тонкая обёртка над FPDF: колонтитул и повторяющиеся приёмы вёрстки."""
+    """Тонкая обёртка над FPDF: повторяющиеся приёмы вёрстки издания."""
 
     def __init__(self, pdf, font_bold_real: bool):
         self.pdf = pdf
         self.bold_real = font_bold_real
+        self.section = 0
 
-    def h(self, text: str, size: int = 13, top: float = 7, rule: bool = True):
-        """Заголовок раздела: капитель, линейка под ним, воздух сверху."""
+    # ── Заголовки ────────────────────────────────────────────────────
+    def h(self, text: str, top: float = 12, keep: float = 34):
+        """Заголовок раздела: номер янтарём, название, линейка под ним.
+
+        Нумерация не для порядка — читать разбор можно с любого места.
+        Она делает документ изданием: «01», «02» на полях сразу говорят,
+        что страницу собирали, а не выгрузили.
+
+        keep — сколько миллиметров раздела обязано уместиться под
+        заголовком. По умолчанию три строки: заголовок в самом подвале
+        листа, а текст на следующем — самая заметная ошибка вёрстки.
+        Разделу, который нельзя разрывать вовсе, передают его высоту.
+        """
         pdf = self.pdf
-        pdf.ln(top)
-        pdf.set_font("DejaVu", "B", size)
-        _rgb(pdf, "set_text_color", INK)
-        pdf.cell(0, 7, text, ln=1)
-        if rule:
-            _rgb(pdf, "set_draw_color", HAIR)
-            pdf.set_line_width(0.3)
-            y = pdf.get_y() + 1
-            pdf.line(MARGIN, y, 210 - MARGIN, y)
-            pdf.ln(3)
+        self.section += 1
+        if pdf.get_y() + top + keep > 262:
+            pdf.add_page()
+        else:
+            pdf.ln(top)
+        pdf.set_x(MARGIN)
+        _micro(pdf, f"{self.section:02d}", color=BRAND_AMBER, size=8,
+               spacing=1.2)
+        pdf.set_x(MARGIN)
+        pdf.set_font("DejaVu", "B", 15)
+        _rgb(pdf, "set_text_color", BRAND_BLACK)
+        pdf.cell(CONTENT_W, 8, text, ln=1)
+        _rgb(pdf, "set_draw_color", HAIR)
+        pdf.set_line_width(0.2)
+        y = pdf.get_y() + 1.5
+        pdf.line(MARGIN, y, 210 - MARGIN, y)
+        pdf.ln(5)
 
-    def body(self, text: str, size: float = 10.5, lead: float = 5.6,
-             color=None, gap: float = 2):
+    def sub(self, text: str):
+        """Подзаголовок внутри раздела — капитель, без линейки."""
+        pdf = self.pdf
+        if pdf.get_y() > 252:
+            pdf.add_page()
+        pdf.ln(4)
+        pdf.set_x(MARGIN)
+        _micro(pdf, text, color=BRAND_BLACK, size=8.5, spacing=1.0)
+        pdf.ln(1.2)
+
+    def body(self, text: str, size: float = 10.5, lead: float = 6.2,
+             color=None, gap: float = 2.6):
         pdf = self.pdf
         pdf.set_font("DejaVu", "", size)
         _rgb(pdf, "set_text_color", color or INK)
@@ -266,70 +353,89 @@ class _Report:
             # и уезжает за страницу — на второй странице так и вышло:
             # формат и адрес курса оказались обрезаны краем листа.
             pdf.set_x(MARGIN)
-            pdf.multi_cell(CONTENT_W, lead, para)
+            pdf.multi_cell(CONTENT_W, lead, para, align="L")
             pdf.ln(gap)
 
-    def label(self, text: str):
-        pdf = self.pdf
-        pdf.set_font("DejaVu", "", 8)
-        _rgb(pdf, "set_text_color", MUTED)
-        pdf.cell(0, 5, text.upper(), ln=1)
-
+    # ── Шкалы ────────────────────────────────────────────────────────
     def bar(self, label: str, level: int, caption: str):
-        """Вектор шкалой, а не числом: уровень видно, не читая."""
-        pdf = self.pdf
-        if pdf.get_y() > 240:
-            pdf.add_page()
-        pdf.set_font("DejaVu", "B", 10.5)
-        _rgb(pdf, "set_text_color", INK)
-        pdf.cell(14, 6, label, ln=0)
+        """Вектор тонкой дорожкой во всю колонку.
 
-        # Девять делений: заполненные — акцентом, пустые — волосяной линией.
-        x = pdf.get_x()
-        y = pdf.get_y() + 1.6
-        seg_w, gap_w, hgt = 8.0, 1.6, 3.2
+        Было девять янтарных брусков по 8 мм — они перетягивали на себя
+        страницу и читались как индикатор загрузки. Стало: строка
+        «код — что это значит — N/9» и под ней дорожка в 1.6 мм с
+        белыми насечками. Девять делений по-прежнему видно, но вес у
+        блока текстовый, а не плакатный.
+        """
+        pdf = self.pdf
+        if pdf.get_y() > 248:
+            pdf.add_page()
         lvl = int(level or 0)
-        for i in range(9):
-            _rgb(pdf, "set_fill_color", ACCENT if i < lvl else HAIR)
-            pdf.rect(x + i * (seg_w + gap_w), y, seg_w, hgt, style="F")
-        pdf.set_xy(x + 9 * (seg_w + gap_w) + 3, pdf.get_y())
-        pdf.set_font("DejaVu", "", 9.5)
-        _rgb(pdf, "set_text_color", MUTED)
-        pdf.cell(0, 6, f"{lvl or '—'} из 9", ln=1)
+        y0 = pdf.get_y()
 
-        pdf.set_x(MARGIN + 14)
-        pdf.set_font("DejaVu", "", 10)
-        _rgb(pdf, "set_text_color", MUTED)
-        pdf.multi_cell(CONTENT_W - 14, 5.2, caption)
-        pdf.ln(2.5)
-
-    def card(self, title: str, text: str):
-        """Плашка для выделенного раздела — мягкая заливка, без рамки."""
-        pdf = self.pdf
-        if pdf.get_y() > 225:
-            pdf.add_page()
-        _rgb(pdf, "set_fill_color", ACCENT_SOFT)
-        x, y = MARGIN, pdf.get_y()
-        # Высоту считаем по тексту: рисуем заливку заранее, поверх — текст.
-        pdf.set_font("DejaVu", "", 10.5)
-        lines = 0
-        for para in [p.strip() for p in text.split("\n\n") if p.strip()]:
-            lines += len(pdf.multi_cell(CONTENT_W - 14, 5.6, para,
-                                        split_only=True)) + 1
-        hgt = lines * 5.6 + 16
-        pdf.rect(x, y, CONTENT_W, hgt, style="F")
-        pdf.set_xy(x + 7, y + 6)
+        pdf.set_xy(MARGIN, y0)
         pdf.set_font("DejaVu", "B", 10.5)
         _rgb(pdf, "set_text_color", BRAND_BLACK)
-        pdf.cell(0, 6, title, ln=1)
-        pdf.set_x(x + 7)
+        pdf.cell(13, 5.6, label, ln=0)
         pdf.set_font("DejaVu", "", 10.5)
         _rgb(pdf, "set_text_color", INK)
-        for para in [p.strip() for p in text.split("\n\n") if p.strip()]:
-            pdf.set_x(x + 7)
-            pdf.multi_cell(CONTENT_W - 14, 5.6, para)
-            pdf.ln(1)
-        pdf.set_y(y + hgt + 4)
+        pdf.cell(CONTENT_W - 13 - 18, 5.6, caption, ln=0)
+        pdf.set_font("DejaVu", "", 9)
+        _rgb(pdf, "set_text_color", MUTED)
+        pdf.cell(18, 5.6, f"{lvl or '—'} / 9", align="R", ln=1)
+
+        y = y0 + 7.6
+        _rgb(pdf, "set_fill_color", HAIR)
+        pdf.rect(MARGIN, y, CONTENT_W, 1.6, style="F")
+        if lvl:
+            _rgb(pdf, "set_fill_color", ACCENT)
+            pdf.rect(MARGIN, y, CONTENT_W * lvl / 9.0, 1.6, style="F")
+        pdf.set_fill_color(255, 255, 255)
+        for i in range(1, 9):
+            pdf.rect(MARGIN + CONTENT_W * i / 9.0 - 0.25, y, 0.5, 1.6,
+                     style="F")
+        pdf.set_xy(MARGIN, y + 1.6 + 5.4)
+
+    # ── Выноска ──────────────────────────────────────────────────────
+    def quote(self, title: str, text: str):
+        """Выделенный раздел — янтарная вертикаль на поле, без заливки.
+
+        Кремовая плашка на всю ширину выглядела как цветная врезка в
+        рекламной листовке. Вертикальный штрих в 1.6 мм на левом поле
+        делает то же самое — говорит «это голос автора» — и при этом
+        не красит страницу.
+        """
+        pdf = self.pdf
+        paras = [p.strip() for p in str(text).split("\n\n") if p.strip()]
+        if not paras:
+            return
+        pdf.ln(9)
+        inner = CONTENT_W - 13
+        pdf.set_font("DejaVu", "", 11)
+        lines = sum(len(pdf.multi_cell(inner, 6.4, p, split_only=True))
+                    for p in paras)
+        hgt = 7.5 + lines * 6.4 + (len(paras) - 1) * 2.4
+        # Вертикаль рисуется одной высотой — значит блок обязан уместиться
+        # на странице целиком, иначе штрих оборвётся, а текст поедет дальше.
+        if pdf.get_y() + hgt > 262:
+            pdf.add_page()
+        x, y = MARGIN, pdf.get_y()
+        _rgb(pdf, "set_fill_color", ACCENT)
+        pdf.rect(x, y, 1.6, hgt, style="F")
+
+        pdf.set_xy(x + 13, y)
+        pdf.set_font("DejaVu", "", 7.5)
+        _rgb(pdf, "set_text_color", MUTED)
+        pdf.set_char_spacing(1.5)
+        pdf.cell(inner, 4.4, title.upper(), ln=1)
+        pdf.set_char_spacing(0)
+        pdf.ln(2)
+        pdf.set_font("DejaVu", "", 11)
+        _rgb(pdf, "set_text_color", INK)
+        for p in paras:
+            pdf.set_x(x + 13)
+            pdf.multi_cell(inner, 6.4, p, align="L")
+            pdf.ln(2.4)
+        pdf.set_y(y + hgt + 3)
 
 
 def generate_test_pdf_bytes(profile: Dict[str, Any],
@@ -376,9 +482,34 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
     ub = _last_level(behavioral.get("УБ"))
     cv = _last_level(behavioral.get("ЧВ"))
 
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=22)
-    pdf.set_margins(MARGIN, MARGIN, MARGIN)
+    class _Book(FPDF):
+        """Колонтитул издания: слева — чей разбор, справа — номер листа.
+
+        Раньше страницы ничем не отличались одна от другой, и с третьей
+        читатель терял, что вообще держит в руках. Обложка колонтитула
+        не несёт — на ней он был бы шумом.
+        """
+        head_left = ""
+        show_head = False
+
+        def header(self):
+            if not self.show_head or self.page_no() == 1:
+                return
+            self.set_font("DejaVu", "", 7)
+            _rgb(self, "set_text_color", MUTED)
+            self.set_char_spacing(1.4)
+            self.set_xy(MARGIN, 13)
+            self.cell(CONTENT_W - 12, 4.4, self.head_left.upper(), ln=0)
+            self.set_char_spacing(0)
+            self.cell(12, 4.4, f"{self.page_no() - 1}", align="R", ln=1)
+            _rgb(self, "set_draw_color", HAIR)
+            self.set_line_width(0.2)
+            self.line(MARGIN, 19.5, 210 - MARGIN, 19.5)
+            self.set_xy(MARGIN, 30)
+
+    pdf = _Book(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=26)
+    pdf.set_margins(MARGIN, 30, MARGIN)
     pdf.add_page()
     pdf.add_font("DejaVu", "", font_regular, uni=True)
     if font_bold:
@@ -393,77 +524,105 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
     # ── Титульный лист ───────────────────────────────────────────────
     # Отдельная страница, а не плашка над текстом. Решение владельца
     # 17.09.2026: «на титульнике будем писать архетип и картинку».
-    # Раньше обложка была полосой в 62 мм, и разбор начинался прямо под
-    # ней — документ читался как выгрузка, а не как письмо человеку.
+    #
+    # Полоса идёт В ОБРЕЗ — от левого края листа до правого, без полей и
+    # без скруглений. Прежняя версия была прямоугольником со скруглением
+    # 12 мм внутри полей: ровно так рисуют карточку в веб-интерфейсе, и
+    # обложка выглядела скриншотом. Полоса до края читается как книга.
+    #
+    # Архетип поднят на обложку как ЗАГОЛОВОК ИЗДАНИЯ — белым по чёрному,
+    # капителью вразрядку, а не янтарной «пилюлей» под плашкой. Пилюля
+    # была третьим элементом на листе и спорила с полосой за внимание.
     addressee = (user_name or "").strip()
     if addressee.lower() in ("друг", "гость"):
         addressee = ""
     stamp = datetime.now().strftime("%d.%m.%Y")
 
-    # Чёрный блок с заголовком, именем и датой.
-    _rgb(pdf, "set_fill_color", BRAND_BLACK)
-    pdf.rect(MARGIN, 20, CONTENT_W, 70, style="F",
-             round_corners=True, corner_radius=12)
-    _rgb(pdf, "set_text_color", BRAND_AMBER)
-    pdf.set_font("DejaVu", "B", 20)
-    pdf.set_xy(MARGIN + 10, 33)
-    pdf.cell(0, 10, "РАЗБОР ТЕСТА", ln=1)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("DejaVu", "", 12)
-    pdf.set_xy(MARGIN + 10, 49)
-    # Имя ставим как есть, без «Для …»: склонять чужое имя вслепую —
-    # верный способ получить «Для Андрей» или «Для Любовю».
-    pdf.cell(0, 7, addressee or "Ваш психологический портрет", ln=1)
-    pdf.set_font("DejaVu", "", 9.5)
-    pdf.set_text_color(185, 185, 185)
-    pdf.set_xy(MARGIN + 10, 62)
-    sub = [p for p in (perception_type, f"мышление {thinking_level}/9") if p]
-    pdf.cell(0, 6, "  ·  ".join(sub + [stamp]), ln=1)
+    prev_auto = pdf.auto_page_break
+    # Обложка верстается абсолютными координатами, автоперенос тут только
+    # мешает: подпись на 274-м мм срабатывала на его границе в 275-м, и в
+    # отчёте появлялся лист, где не было ничего, кроме «meysternlp.ru».
+    pdf.set_auto_page_break(False)
 
-    # Архетип — янтарная «пилюля». Высота считается по числу строк:
-    # «Спокойный воин» и «Наблюдатель за наблюдателем» — разной длины,
-    # и фиксированная рамка обрезала бы второй.
-    arch = str(archetype or "").strip() or "—"
-    pdf.set_font("DejaVu", "B", 13)
-    lines = max(1, int(pdf.get_string_width(arch) // (CONTENT_W - 16)) + 1)
-    pill_h = 12 + 7 * (lines - 1)
-    _rgb(pdf, "set_draw_color", BRAND_AMBER)
-    pdf.set_line_width(0.9)
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(MARGIN, 102, CONTENT_W, pill_h, style="D",
-             round_corners=True, corner_radius=min(9, pill_h / 2))
-    _rgb(pdf, "set_text_color", BRAND_BLACK)
-    pdf.set_xy(MARGIN + 8, 102 + (pill_h - 7 * lines) / 2)
-    pdf.multi_cell(CONTENT_W - 16, 7, arch.upper(), align="C")
+    _rgb(pdf, "set_fill_color", BRAND_BLACK)
+    pdf.rect(0, 0, 210, COVER_BAND_H, style="F")
+
+    # Жанр документа — капителью вверху полосы. Просьба владельца
+    # 17.09.2026: «сверху напишем „разбор психологического профиля от
+    # виртуального психолога Фреди с использованием MeysterAi“, не очень
+    # крупным шрифтом». Предложение разнесено на два конца полосы: жанр
+    # сверху, авторство внизу. Одной строкой в 8 pt оно висело над
+    # плашкой ничьим текстом; так это шапка и выходные данные.
+    pdf.set_xy(MARGIN, 24)
+    _micro(pdf, "Разбор психологического профиля", color=DARK_MICRO,
+           size=7.5, spacing=2.0)
+
+    _rgb(pdf, "set_fill_color", BRAND_AMBER)
+    pdf.rect(MARGIN, 33, 16, 1.2, style="F")
+
+    # Архетип. Высота считается по числу строк: «Спокойный воин» и
+    # «Наблюдатель за наблюдателем внутри себя» — разной длины, и блок с
+    # фиксированной высотой второй обрезал бы.
+    arch = (str(archetype or "").strip() or "—").upper()
+    pdf.set_font("DejaVu", "B", 19)
+    pdf.set_char_spacing(1.1)
+    arch_lines = max(1, len(pdf.multi_cell(CONTENT_W, 10, arch,
+                                           split_only=True)))
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_xy(MARGIN, 44)
+    pdf.multi_cell(CONTENT_W, 10, arch, align="L")
+    pdf.set_char_spacing(0)
+
+    pdf.set_font("DejaVu", "", 9.5)
+    _rgb(pdf, "set_text_color", DARK_MUTED)
+    pdf.set_xy(MARGIN, 44 + arch_lines * 10 + 4)
+    sub = [p for p in (perception_type, f"мышление {thinking_level}/9") if p]
+    pdf.cell(CONTENT_W, 6, "  ·  ".join(sub), ln=1)
+
+    pdf.set_xy(MARGIN, COVER_BAND_H - 16)
+    _micro(pdf, "Виртуальный психолог Фреди  ·  с использованием MeysterAi",
+           color=DARK_MICRO, size=7.5, spacing=1.1, caps=False)
 
     # Рисунок. Если файла нет — просто пустое место: отчёт важнее
     # картинки, и падать из-за отсутствующего png он не должен.
     art = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "assets", "pdf", "titul-zerkalo.png")
+                       "assets", "pdf", ART_FILE)
     if os.path.exists(art):
         try:
-            pdf.image(art, x=(210 - 70) / 2, y=150, w=70)
+            art_w = 84
+            pdf.image(art, x=(210 - art_w) / 2,
+                      y=COVER_BAND_H + 12, w=art_w, h=art_w * ART_RATIO)
         except Exception as e:
             logger.warning(f"титульный рисунок не вставился: {e}")
 
-    # Подвал титула. Автоперенос на время выключаем: он срабатывает на
-    # 275-м миллиметре, и подпись в 274-м улетала на отдельную страницу —
-    # в отчёте появлялся лист, где не было ничего, кроме «meysternlp.ru».
-    prev_auto = pdf.auto_page_break
-    pdf.set_auto_page_break(False)
+    # Выходные данные обложки: кому и когда. Имя ставим как есть, без
+    # «Для …»: склонять чужое имя вслепую — верный способ получить
+    # «Для Андрей» или «Для Любовю».
     _rgb(pdf, "set_draw_color", BRAND_BLACK)
-    pdf.set_line_width(0.3)
-    pdf.line(MARGIN, 272, 210 - MARGIN, 272)
-    pdf.set_font("DejaVu", "", 8.5)
+    pdf.set_line_width(0.4)
+    pdf.line(MARGIN, 266, 210 - MARGIN, 266)
+    pdf.set_xy(MARGIN, 269)
+    pdf.set_font("DejaVu", "B", 10.5)
+    _rgb(pdf, "set_text_color", BRAND_BLACK)
+    pdf.cell(CONTENT_W - 30, 6, addressee or "Ваш психологический портрет",
+             ln=0)
+    pdf.set_font("DejaVu", "", 9)
     _rgb(pdf, "set_text_color", MUTED)
-    pdf.set_xy(MARGIN, 274)
-    pdf.cell(0, 5, "meysternlp.ru")
-    pdf.set_auto_page_break(prev_auto, margin=22)
+    pdf.cell(30, 6, stamp, align="R", ln=1)
+    pdf.set_xy(MARGIN, 277)
+    _micro(pdf, "meysternlp.ru", color=MUTED, size=7, spacing=1.6)
 
+    pdf.set_auto_page_break(prev_auto, margin=26)
+
+    # Со второй страницы идёт колонтитул: он и превращает пачку листов
+    # в издание. На обложке его нет — там он был бы шумом.
+    pdf.head_left = addressee or (archetype if archetype != "—"
+                                  else "Психологический портрет")
+    pdf.show_head = True
     pdf.add_page()
     r.body("Это описание того, как вы обычно поступаете, — не диагноз и не "
            "ярлык. Привычный ход можно менять; об этом и разговор с Фреди.",
-           size=11, lead=6, color=MUTED)
+           size=11, lead=6.4, color=MUTED)
 
     # ── Векторы ──────────────────────────────────────────────────────
     r.h("Четыре вектора поведения")
@@ -494,77 +653,91 @@ def generate_test_pdf_bytes(profile: Dict[str, Any],
     pt_clean = _clean_for_pdf(psychologist_thought or "")
     pt_clean = pt_clean.replace("**", "").replace("__", "")
     if pt_clean:
-        pdf.ln(4)
-        r.card("Взгляд психолога", pt_clean)
+        r.quote("Взгляд психолога", pt_clean)
 
     # ── С чего начать ────────────────────────────────────────────────
     # Правило владельца: результат теста обязан вести дальше. В файле,
     # который человек откроет через неделю, это единственная дверь.
     recs = [x for x in (recommendations or []) if isinstance(x, dict) and x.get("title")]
     if recs:
-        r.h("С чего начать")
-        for it in recs[:3]:
-            pdf.set_font("DejaVu", "B", 10.5)
-            _rgb(pdf, "set_text_color", BRAND_BLACK)
+        # Раздел держим на одном листе: позиция стоит около 36 мм, три —
+        # около 110. Без этого первая оставалась внизу страницы, две
+        # уезжали на следующую, и под ними до концовки зияло полстраницы
+        # пустоты — читалось как обрыв, а не как воздух.
+        r.h("С чего начать", keep=min(3, len(recs)) * 36)
+        # Нумерованный перечень с волосяными разделителями вместо плашек:
+        # три позиции читаются как оглавление раздела, а не как витрина.
+        for i, it in enumerate(recs[:3], 1):
+            if pdf.get_y() > 236:
+                pdf.add_page()
+            y0 = pdf.get_y()
             title = _clean_for_pdf(str(it.get("title") or ""))
             url = str(it.get("url") or "")
             if url and not url.startswith("http"):
                 url = "https://meysternlp.ru" + url
-            pdf.set_x(MARGIN)
-            pdf.multi_cell(CONTENT_W, 5.8, title)
-            pdf.set_font("DejaVu", "", 9.5)
-            _rgb(pdf, "set_text_color", MUTED)
+
+            # Номер вынесен на левое поле — колонка текста не рвётся.
+            pdf.set_xy(MARGIN - 8, y0 + 0.4)
+            pdf.set_font("DejaVu", "", 9)
+            _rgb(pdf, "set_text_color", BRAND_AMBER)
+            pdf.cell(7, 5.8, f"{i}", align="R", ln=0)
+
+            pdf.set_xy(MARGIN, y0)
+            pdf.set_font("DejaVu", "B", 11)
+            _rgb(pdf, "set_text_color", BRAND_BLACK)
+            pdf.multi_cell(CONTENT_W, 6, title, link=url or "", align="L")
             fmt = _clean_for_pdf(str(it.get("format") or ""))
             if fmt:
                 pdf.set_x(MARGIN)
-                pdf.multi_cell(CONTENT_W, 5, fmt)
+                _micro(pdf, fmt, color=MUTED, size=7, spacing=1.2)
             what = _clean_for_pdf(str(it.get("what") or ""))
             if what:
+                pdf.ln(1)
                 _rgb(pdf, "set_text_color", INK)
                 pdf.set_font("DejaVu", "", 10)
                 pdf.set_x(MARGIN)
-                pdf.multi_cell(CONTENT_W, 5.2, what)
+                pdf.multi_cell(CONTENT_W, 5.8, what, align="L")
             if url:
-                pdf.set_font("DejaVu", "", 9)
+                pdf.set_font("DejaVu", "", 8.5)
                 _rgb(pdf, "set_text_color", MUTED)
                 pdf.set_x(MARGIN)
-                pdf.multi_cell(CONTENT_W, 5, url, link=url)
+                pdf.multi_cell(CONTENT_W, 5, url, link=url, align="L")
             pdf.ln(4)
+            if i < len(recs[:3]):
+                _rgb(pdf, "set_draw_color", HAIR)
+                pdf.set_line_width(0.2)
+                pdf.line(MARGIN, pdf.get_y(), 210 - MARGIN, pdf.get_y())
+                pdf.ln(5)
 
-    # ── Дверь обратно ────────────────────────────────────────────────
+    # ── Концовка ─────────────────────────────────────────────────────
     # Файл открывают через дни, и адреса к этому моменту человек не
-    # помнит. Кнопка нажимается прямо в PDF — так же, как ссылки выше.
-    if pdf.get_y() > 235:
+    # помнит. Раньше здесь была янтарная кнопка-таблетка в 74 мм — та же
+    # кнопка, что в приложении, и она превращала последний лист в баннер.
+    # Стало: распашная чёрная полоса в подвале последней страницы,
+    # рифма к обложке. Ссылка нажимается ровно так же.
+    if pdf.get_y() > CODA_TOP - 22:
         pdf.add_page()
-    pdf.ln(6)
-    btn_y = pdf.get_y()
-    _rgb(pdf, "set_fill_color", ACCENT)
-    pdf.rect(MARGIN, btn_y, 74, 13, style="F",
-             round_corners=True, corner_radius=6.5)
-    pdf.set_xy(MARGIN, btn_y + 3.4)
-    pdf.set_font("DejaVu", "B", 11)
-    # Чёрным по янтарю, а не белым: белый на #FFB800 не читается вовсе.
-    _rgb(pdf, "set_text_color", BRAND_BLACK)
-    pdf.cell(74, 6, "Поговорить с Фреди", align="C",
-             link=FREDI_URL)
-    pdf.set_y(btn_y + 16)
-    pdf.set_x(MARGIN)
+    prev_auto = pdf.auto_page_break
+    pdf.set_auto_page_break(False)
+    _rgb(pdf, "set_fill_color", BRAND_BLACK)
+    pdf.rect(0, CODA_TOP, 210, 297 - CODA_TOP, style="F")
+    _rgb(pdf, "set_fill_color", BRAND_AMBER)
+    pdf.rect(MARGIN, CODA_TOP + 12, 16, 1.2, style="F")
+    pdf.set_xy(MARGIN, CODA_TOP + 19)
+    pdf.set_font("DejaVu", "B", 15)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(CONTENT_W, 9, "Поговорить с Фреди", ln=1, link=FREDI_URL)
+    pdf.set_xy(MARGIN, CODA_TOP + 29)
     pdf.set_font("DejaVu", "", 9.5)
-    _rgb(pdf, "set_text_color", MUTED)
-    pdf.multi_cell(CONTENT_W, 5,
-        "Кнопка не нажимается — наберите адрес: meysternlp.ru/fredi")
-
-    # ── Подвал ───────────────────────────────────────────────────────
-    pdf.ln(5)
-    _rgb(pdf, "set_draw_color", HAIR)
-    pdf.set_line_width(0.3)
-    pdf.line(MARGIN, pdf.get_y(), 210 - MARGIN, pdf.get_y())
-    pdf.ln(4)
-    pdf.set_font("DejaVu", "", 9)
-    _rgb(pdf, "set_text_color", MUTED)
-    pdf.set_x(MARGIN)
-    pdf.multi_cell(CONTENT_W, 5,
-        "Фреди — виртуальный психолог. Сделан психологом Андреем Мейстером.")
+    _rgb(pdf, "set_text_color", DARK_MUTED)
+    pdf.cell(CONTENT_W, 5.6,
+             "meysternlp.ru/fredi  —  открывается в браузере, "
+             "регистрация не нужна", ln=1, link=FREDI_URL)
+    pdf.set_xy(MARGIN, 288)
+    _micro(pdf, "Фреди — виртуальный психолог. "
+                "Сделан психологом Андреем Мейстером.",
+           color=DARK_MICRO, size=6.5, spacing=1.2)
+    pdf.set_auto_page_break(prev_auto, margin=26)
 
     out = pdf.output(dest="S")
     if isinstance(out, str):
