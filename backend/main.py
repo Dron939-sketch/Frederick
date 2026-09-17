@@ -1005,6 +1005,34 @@ async def meter_guard_middleware(request: Request, call_next):
                 )
             return await call_next(request)
 
+        # Подарочный разбор проходит сквозь стену — ровно один раз.
+        #
+        # Без этого исключения подарок невыдаваем по построению: мы
+        # обещаем его на стене оплаты, то есть человеку, у которого минуты
+        # уже кончились, — а /api/deep-analysis стоит в _METER_AI_REGEX,
+        # и тот же самый счётчик рубил бы генерацию с 402. Человек нажал
+        # бы «получить подарок» и увидел стену второй раз подряд; хуже,
+        # чем не обещать вовсе.
+        #
+        # Дыры здесь нет: _deep_gift_available смотрит, что разборов у
+        # человека не было НИ РАЗУ. После первой же генерации строка в
+        # fredi_deep_analyses появляется, и исключение закрывается
+        # навсегда — повторно пройти этим путём нельзя. Запрос к базе
+        # один и только на этом пути, только когда человек и так уже
+        # заблокирован.
+        if path.rstrip("/") == "/api/deep-analysis":
+            try:
+                if await _deep_gift_available(user_id):
+                    try:
+                        await log_server_event(user_id, "deep_gift_granted", {
+                            "block_reason": status.get("block_reason") or "daily",
+                        })
+                    except Exception:
+                        pass
+                    return await call_next(request)
+            except Exception as e:
+                logger.warning(f"meter_guard: gift check failed: {e}")
+
         # Дневной reset в 00:00 UTC — считаем сколько минут осталось.
         from datetime import datetime as _dt, timedelta as _td, timezone as _tz
         _now = _dt.now(_tz.utc)
@@ -4213,6 +4241,38 @@ async def _is_premium_user(user_id) -> bool:
         return False
 
 
+# Первый разбор — в подарок (владелец, 18.09.2026).
+#
+# Замер 01–17.09: стену оплаты увидел 171 человек, кликнули по подписке 13,
+# оплатили 4. Кто дошёл до кнопки — платит нормально; ломается сам экран
+# с ценой. В опросе «что остановило» из 18 ответов семь «попробую потом»
+# и семь «дорого», а «не понял, что даёт» — ноль. То есть людям понятно,
+# что мы продаём, и непонятно, зачем это им: на стене восемь строк
+# обещаний и ни одного доказательства.
+#
+# Подарок закрывает именно это. Дарим то, что действительно платное:
+# тест бесплатен и всегда был, а шесть разделов разбора закрыты с
+# 12.09.2026. Дарить бесплатное — самый быстрый способ, чтобы человек
+# перестал верить и остальным строкам; на «Весь Лекторий» мы это уже
+# проходили, он открыт всем, и его пришлось убрать из витрины.
+#
+# Условие одно и проверяемое: разбора у человека не было ни разу.
+# Подписка тут ни при чём — подписчику разбор и так доступен.
+async def _deep_gift_available(user_id) -> bool:
+    """Положен ли человеку бесплатный первый разбор."""
+    try:
+        return await user_repo.count_deep_analyses(user_id) == 0
+    except Exception:
+        return False
+
+
+async def _deep_access(user_id) -> bool:
+    """Может ли человек получить разбор: по подписке или в подарок."""
+    if await _is_premium_user(user_id):
+        return True
+    return await _deep_gift_available(user_id)
+
+
 def _vector_levels(profile: dict) -> dict:
     """Четыре вектора так, как их видит человек на экране: среднее, округлённое.
 
@@ -4310,8 +4370,9 @@ async def deep_analysis(request: Request, data: ChatRequest):
 
         # Полный разбор — часть подписки (решение владельца 12.09.2026).
         # Портрет и первый шаг бесплатны и живут на экране теста; шесть
-        # разделов разбора генерируются только подписчику.
-        if not await _is_premium_user(data.user_id):
+        # разделов разбора генерируются подписчику — или один раз в
+        # подарок тому, у кого разбора не было ни разу (см. _deep_access).
+        if not await _deep_access(data.user_id):
             return {"success": False, "error": "premium_required", "premium_required": True}
 
         profile_data = profile.get('profile_data', {})
@@ -4407,10 +4468,10 @@ async def get_saved_deep_analysis(request: Request, user_id: Union[int, str]):
         except (ValueError, TypeError):
             user_id_for_db = user_id
 
-        if not await _is_premium_user(user_id_for_db):
-            return {"success": False, "analysis": None, "cached": False,
-                    "error": "premium_required", "premium_required": True}
-
+        # Уже сгенерированный разбор человек читает всегда — и подписчик,
+        # и тот, кто получил его в подарок. Отбирать подаренное при
+        # отписке нечестно, а главное — незачем: текст уже в базе, и
+        # повторное чтение нам ничего не стоит.
         saved_analysis = await user_repo.get_last_deep_analysis(user_id_for_db)
 
         if saved_analysis:
@@ -4421,16 +4482,61 @@ async def get_saved_deep_analysis(request: Request, user_id: Union[int, str]):
                 "created_at": saved_analysis.get("created_at"),
                 "updated_at": saved_analysis.get("updated_at")
             }
-        else:
-            return {
-                "success": False,
-                "analysis": None,
-                "cached": False,
-                "message": "Анализ ещё не выполнен."
-            }
+
+        # Разбора нет. Подписчику его сейчас сгенерируют, тому, кому
+        # положен подарок, — тоже: клиенту важно отличить этот случай от
+        # замка, иначе он покажет модалку «с подпиской» человеку, которому
+        # мы только что пообещали подарок на стене.
+        if not await _deep_access(user_id_for_db):
+            return {"success": False, "analysis": None, "cached": False,
+                    "error": "premium_required", "premium_required": True}
+
+        return {
+            "success": False,
+            "analysis": None,
+            "cached": False,
+            "gift_available": not await _is_premium_user(user_id_for_db),
+            "message": "Анализ ещё не выполнен."
+        }
     except Exception as e:
         logger.error(f"Error getting saved deep analysis for user {user_id}: {e}")
         return {"success": False, "error": str(e)}
+
+
+# Что писать на стене оплаты: «разбор в подарок», «пройдите тест — разбор
+# в подарок» или ничего. Ручка отдельная и дешёвая, потому что стена
+# рисуется в момент блокировки, и тянуть ради одной строки ручку разбора
+# (она умеет генерировать на 6000 токенов) нельзя.
+@app.get("/api/deep-analysis/{user_id}/gift")
+@limiter.limit("30/minute")
+async def deep_analysis_gift_status(request: Request, user_id: Union[int, str]):
+    try:
+        try:
+            user_id_for_db = int(user_id)
+        except (ValueError, TypeError):
+            user_id_for_db = user_id
+
+        profile = await user_repo.get_profile(user_id_for_db) or {}
+        has_profile = bool(profile.get('profile_data')
+                           or profile.get('ai_generated_profile'))
+        is_premium = await _is_premium_user(user_id_for_db)
+        available = (not is_premium) and await _deep_gift_available(user_id_for_db)
+
+        return {
+            "success": True,
+            # Подарок положен, но пройти тест ещё надо: это две разные
+            # строки на стене, и склеивать их в одну нельзя — «разбор
+            # вашего теста» человеку без теста читается как ошибка.
+            "gift_available": available,
+            "has_profile": has_profile,
+            "is_premium": is_premium,
+        }
+    except Exception as e:
+        logger.error(f"Error getting gift status for user {user_id}: {e}")
+        # Молчим, а не обещаем: стена без подарка хуже, чем стена с
+        # подарком, который не выдаётся.
+        return {"success": False, "gift_available": False,
+                "has_profile": False, "is_premium": False}
 
 
 @app.get("/api/deep-analysis/{user_id}/history")

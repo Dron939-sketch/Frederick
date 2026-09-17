@@ -149,7 +149,25 @@ class UserRepository:
         except Exception as e:
             logger.error(f"Error getting deep analysis for user {user_id}: {e}")
             return None
-    
+
+    # Сколько разборов у человека было ВСЕГО, а не сколько активных.
+    # На этом числе держится подарок: разбор дарится тому, у кого его не
+    # было ни разу. Считать по is_active нельзя — save_deep_analysis гасит
+    # прошлые строки перед вставкой новой, и человек, уже получивший
+    # подарок и отписавшийся, получал бы его снова каждый раз.
+    async def count_deep_analyses(self, user_id: Union[int, str]) -> int:
+        try:
+            condition, value = self._get_id_condition(user_id)
+            n = await self.db.fetchval(f"""
+                SELECT COUNT(*) FROM fredi_deep_analyses WHERE {condition}
+            """, value)
+            return int(n or 0)
+        except Exception as e:
+            logger.error(f"Error counting deep analyses for user {user_id}: {e}")
+            # Ошибку считаем «разборы были»: молча подарить второй раз хуже,
+            # чем не подарить — второй подарок обесценивает платный раздел.
+            return 1
+
     async def get_deep_analyses_history(self, user_id: Union[int, str], limit: int = 10) -> List[Dict[str, Any]]:
         try:
             condition, value = self._get_id_condition(user_id)
