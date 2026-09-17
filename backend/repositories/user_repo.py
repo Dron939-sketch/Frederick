@@ -281,10 +281,27 @@ class UserRepository:
         self, user_id: Union[int, str], thought: str,
         test_result_id: int = None, thought_type: str = 'psychologist_thought'
     ) -> Optional[int]:
+        """Запасную мысль в базу не кладём.
+
+        17.09.2026: все четыре места вызова сохраняли всё, что вернул
+        генератор, — включая текст «связь с моделью подвела». Чтение
+        устроено «есть запись — значит готово», поэтому один сетевой сбой
+        закреплялся за человеком навсегда: заглушка уходила ему на экран,
+        в письмо и в PDF под заголовком «Взгляд психолога». Запрет стоит
+        здесь, а не в вызывающем коде, чтобы пятое место вызова не
+        завело эту же ошибку заново.
+        """
         try:
+            from services.ai_service import is_thought_fallback
+            if is_thought_fallback(thought):
+                logger.warning(
+                    f"Psychologist thought for user {user_id} is a fallback "
+                    f"— not saved, will be regenerated on next open")
+                return None
+
             condition, value = self._get_id_condition(user_id)
             await self.create_user_if_not_exists(user_id)
-            
+
             thought_id = await self.db.fetchval("""
                 INSERT INTO fredi_psychologist_thoughts (
                     user_id, test_result_id, thought_type, thought_text, thought_summary
