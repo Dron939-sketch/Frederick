@@ -7493,6 +7493,123 @@ def _require_admin_token(request: Request):
         raise HTTPException(status_code=401, detail={"error": "unauthorized"})
 
 
+@app.post("/api/admin/followup/limit")
+async def followup_limit_send(request: Request):
+    """Рассылка тем, у кого закончились бесплатные минуты. ТОЛЬКО админ.
+
+    Три варианта письма (limit_reached_mail) и замер: какой из них
+    возвращает людей. Вариант закреплён за адресом хешем почты — при
+    повторном запуске человек получит то же письмо, иначе замер
+    превращается в кашу.
+
+    Параметры тела (все необязательные):
+      dry_run    — по умолчанию TRUE. Ничего не отправляет, только
+                   показывает, кому и что ушло бы. Рассылка живым людям
+                   не должна уходить с опечатки в адресной строке.
+      min_hours  — не трогать тех, кто ушёл меньше стольки часов назад
+                   (по умолчанию 20: писать в тот же час, когда человека
+                   оборвали, — навязчиво).
+      max_days   — и не трогать совсем старых (по умолчанию 14).
+      limit      — сколько адресов взять за раз (по умолчанию 50).
+    """
+    _require_admin_token(request)
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        dry_run = bool(body.get("dry_run", True))
+        min_hours = int(body.get("min_hours", 20))
+        max_days = int(body.get("max_days", 14))
+        limit = max(1, min(500, int(body.get("limit", 50))))
+
+        import limit_reached_mail as lrm
+
+        async with db.get_connection() as conn:
+            await conn.execute(lrm.ADD_VARIANT_COLUMN_SQL)
+            rows = await conn.fetch(lrm.SELECT_RECIPIENTS_SQL,
+                                    str(min_hours), str(max_days), limit)
+
+            planned, sent, failed = [], 0, 0
+            for r in rows:
+                email = (r["email"] or "").strip()
+                if not email:
+                    continue
+                token = r["opt_out_token"]
+                optout = (f"{lrm.SITE}/api/test-lead/unsubscribe?t={token}"
+                          if token else None)
+                variant, subject, text, html = lrm.build_email(
+                    email=email, test_title=r["test"], optout_link=optout)
+                planned.append({"email": email, "variant": variant,
+                                "subject": subject, "test": r["test"]})
+                if dry_run:
+                    continue
+                ok = False
+                try:
+                    ok = await email_service.send(email, subject, text, html)
+                except Exception as e:
+                    logger.warning(f"followup send failed for {email}: {e}")
+                if ok:
+                    await conn.execute(lrm.MARK_SENT_SQL, r["id"], variant)
+                    sent += 1
+                else:
+                    failed += 1
+
+        by_variant = {}
+        for p in planned:
+            by_variant[p["variant"]] = by_variant.get(p["variant"], 0) + 1
+        logger.info(f"followup/limit: dry_run={dry_run} planned={len(planned)} "
+                    f"sent={sent} failed={failed} by_variant={by_variant}")
+        return {"success": True, "dry_run": dry_run, "planned": len(planned),
+                "sent": sent, "failed": failed, "by_variant": by_variant,
+                "recipients": planned if dry_run else []}
+    except Exception as e:
+        logger.error(f"followup/limit error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/admin/followup/limit/report")
+async def followup_limit_report(request: Request):
+    """Кто вернулся после какого письма. ТОЛЬКО админ.
+
+    Возврат считаем по разговору ПОСЛЕ отправки: человек написал Фреди
+    хотя бы одно сообщение позже, чем ушло письмо. Клик по ссылке не
+    годится — его засчитывает и тот, кто открыл и сразу закрыл.
+    """
+    _require_admin_token(request)
+    try:
+        import limit_reached_mail as lrm
+        async with db.get_connection() as conn:
+            await conn.execute(lrm.ADD_VARIANT_COLUMN_SQL)
+            rows = await conn.fetch("""
+                SELECT l.followup_variant AS variant,
+                       COUNT(*) AS sent,
+                       COUNT(*) FILTER (WHERE EXISTS (
+                           SELECT 1 FROM fredi_users u
+                           JOIN fredi_messages m ON m.user_id = u.user_id
+                           WHERE lower(u.email) = lower(l.email)
+                             AND m.role = 'user'
+                             AND m.created_at > l.followed_up_at
+                       )) AS returned
+                FROM fredi_test_leads l
+                WHERE l.followed_up_at IS NOT NULL
+                GROUP BY l.followup_variant
+                ORDER BY l.followup_variant
+            """)
+        out = []
+        for r in rows:
+            sent = int(r["sent"] or 0)
+            ret = int(r["returned"] or 0)
+            out.append({"variant": r["variant"] or "?", "sent": sent,
+                        "returned": ret,
+                        "rate": round(100.0 * ret / sent, 1) if sent else 0.0})
+        return {"success": True, "by_variant": out}
+    except Exception as e:
+        logger.error(f"followup/limit/report error: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @app.post("/api/push/send")
 async def push_send(request: Request, data: PushSendRequest):
     """Отправить push конкретному пользователю. ТОЛЬКО админ (X-Admin-Token):
