@@ -82,6 +82,43 @@ def format_profile_text(text: str) -> str:
     return text
 
 
+def _is_heading_line(line: str) -> bool:
+    """Строка-заголовок: короткая и целиком заглавными.
+
+    Эмодзи и знаки не в счёт — смотрим только на буквы. «🔐 КЛЮЧЕВОЙ
+    ЭЛЕМЕНТ» заголовок, «Ты выстраиваешь себя через внешнее…» нет.
+    """
+    t = (line or "").strip()
+    letters = [c for c in t if c.isalpha()]
+    return bool(letters) and len(t) <= 42 and all(c.isupper() for c in letters)
+
+
+def _address_first_sentence(text: str, address: str) -> str:
+    """Ставит обращение перед первым ПРЕДЛОЖЕНИЕМ, а не перед заголовком.
+
+    17.09.2026, живой текст с прода: «Друг, 🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ / Ты
+    выстраиваешь себя через внешнее признание…». Обращение приписывалось
+    к самому началу текста, а начинается текст с заголовка раздела.
+
+    Раньше это не было видно: модель не отвечала, и на экран шла запасная
+    мысль — сплошная проза без заголовков, где первая строка и есть
+    первое предложение. Настоящий разбор приходит размеченным, и ошибка
+    вылезла в ту же минуту, когда генерация починилась.
+    """
+    if not text:
+        return text
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if not line.strip() or _is_heading_line(line):
+            continue
+        body = line.lstrip()
+        pad = line[:len(line) - len(body)]
+        lines[i] = f"{pad}{address}, " + body[0].lower() + body[1:]
+        return "\n".join(lines)
+    # Ни одной строки прозы — приписывать обращение не к чему.
+    return text
+
+
 def format_psychologist_text(text: str, user_name: str = "") -> str:
     """Форматирует мысли психолога с жирными заголовками и эмодзи"""
     if not text:
@@ -98,7 +135,7 @@ def format_psychologist_text(text: str, user_name: str = "") -> str:
             # со строчной, и на экране выходило «друг, ты часто ставишь…».
             # Замечание владельца 17.09.2026.
             address = user_name[0].upper() + user_name[1:]
-            text = f"{address}, " + text[0].lower() + text[1:] if text else text
+            text = _address_first_sentence(text, address)
     
     header_map = [
         (r'🔐\s*', r'КЛЮЧЕВОЙ\s*ЭЛЕМЕНТ', '🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ'),

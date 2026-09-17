@@ -133,3 +133,43 @@ def test_truncated_profile_is_not_saved():
              "\n⚠️ ЧЕМ ЭТО ОБХОДИТСЯ\n" + "текст. " * 40 +
              "\n🎯 ГЛАВНЫЙ УЗЕЛ\n" + "текст. " * 40)
     assert profile_looks_complete(whole)
+
+
+def test_address_goes_before_the_first_sentence_not_the_heading():
+    """Обращение открывает предложение, а не заголовок раздела.
+
+    17.09.2026, живой текст с прода: «Друг, 🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ». Пока
+    модель не отвечала, на экран шла запасная мысль — сплошная проза, где
+    первая строка и есть первое предложение, и ошибка не проявлялась.
+    Настоящий разбор приходит размеченным, и она вылезла в ту же минуту,
+    когда генерация починилась.
+    """
+    raw = ("🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ\n"
+           "Ты выстраиваешь себя через внешнее признание.\n\n"
+           "🔄 ПЕТЛЯ\nДальше круг замыкается.")
+    out = format_psychologist_text(raw, "друг")
+    assert "Друг, 🔐" not in out and "Друг, <b>" not in out, (
+        "обращение снова приклеено к заголовку")
+    assert "Друг, ты выстраиваешь себя" in out, out[:120]
+
+
+def test_address_still_works_on_plain_prose():
+    """Текст без заголовков — обращение по-прежнему в самом начале."""
+    out = format_psychologist_text("Ты часто ставишь интересы выше своих.", "Анна")
+    assert out.startswith("Анна, ты часто"), out[:40]
+
+
+def test_heading_only_text_gets_no_address():
+    """Если прозы нет вовсе, обращать не к чему — ничего не ломаем."""
+    out = format_psychologist_text("🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ", "друг")
+    assert "Друг," not in out
+
+
+def test_pdf_strips_html_tags():
+    """Теги не печатаются на бумаге словами."""
+    import sys, pathlib as pl
+    sys.path.insert(0, str(pl.Path(__file__).resolve().parents[1]))
+    from test_pdf import _clean_for_pdf
+    out = _clean_for_pdf("<b>🔐 КЛЮЧЕВОЙ ЭЛЕМЕНТ</b>\nТы держишь удар.")
+    assert "<b>" not in out and "</b>" not in out
+    assert out.startswith("КЛЮЧЕВОЙ ЭЛЕМЕНТ")
