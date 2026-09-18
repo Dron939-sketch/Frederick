@@ -53,6 +53,14 @@ class RegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=4, max_length=4)
+    # Возраст (18.09.2026). Выгрузка 11–17.09: из 60 человек с известным
+    # возрастом 16 младше 18, среди них 12-летняя с аккаунтом и мыслями
+    # о смерти. Ребёнку нельзя продавать подписку и нельзя давать
+    # взрослый телефон доверия. Пишется в fredi_user_contexts.age, откуда
+    # его уже читают промпт (детская линия 8-800-2000-122) и счётчик
+    # (is_minor → стены без цены). Необязателен: старые клиенты его не
+    # шлют, а ломать им регистрацию незачем.
+    age: Optional[int] = Field(default=None, ge=6, le=120)
     remember: bool = True
     # Согласие на reengagement-сообщения. Если фронт не передал —
     # считаем TRUE (мягкий дефолт, как в БД-колонке). Юзер в любой
@@ -345,15 +353,19 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                     uid = _new_user_id()
                     await _insert_new_user(conn, uid, email, password_hash)
 
-                # Имя — в fredi_user_contexts (таблица уже есть).
+                # Имя и возраст — в fredi_user_contexts (таблица уже есть).
+                # Возраст без значения не затирает уже известный: старые
+                # клиенты его не шлют.
                 await conn.execute(
                     """
-                    INSERT INTO fredi_user_contexts (user_id, name, updated_at)
-                    VALUES ($1, $2, NOW())
+                    INSERT INTO fredi_user_contexts (user_id, name, age, updated_at)
+                    VALUES ($1, $2, $3, NOW())
                     ON CONFLICT (user_id) DO UPDATE
-                        SET name = EXCLUDED.name, updated_at = NOW()
+                        SET name = EXCLUDED.name,
+                            age = COALESCE(EXCLUDED.age, fredi_user_contexts.age),
+                            updated_at = NOW()
                     """,
-                    uid, body.name.strip(),
+                    uid, body.name.strip(), body.age,
                 )
 
                 # Reengagement opt-in. Если юзер снял галочку — выставляем
