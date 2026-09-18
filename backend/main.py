@@ -155,8 +155,27 @@ async def _session_meta(user_id) -> dict:
                 "         WHERE m.user_id = u.user_id AND m.role = 'user' "
                 "           AND m.created_at > NOW() - INTERVAL '40 minutes') AS turns "
                 "FROM fredi_users u WHERE u.user_id = $1", int(user_id))
+        meta = {}
         if row:
-            return {"session_turns": int(row["turns"] or 0), "is_registered": bool(row["registered"])}
+            meta = {"session_turns": int(row["turns"] or 0), "is_registered": bool(row["registered"])}
+        # Сколько бесплатных минут осталось — чтобы Фреди сам, в самом
+        # разговоре, за пару минут до стены сказал, что будет дальше.
+        # 18.09.2026, по выгрузке 11–17.09: в 1348 ответах подписка
+        # упомянута 13 раз, и все 13 — робот-замок. Стена прерывает на
+        # полуслове (28 обрывов на 8–11 минуте, все без аккаунта), а
+        # предупреждает о ней только тост в углу. Числа берём из статуса
+        # счётчика, не вписываем руками: лимиты меняются.
+        try:
+            from meter_routes import subscription_meter as _m
+            if _m is not None:
+                st = await _m.get_user_status(int(user_id)) or {}
+                meta["is_premium"] = bool(st.get("is_premium"))
+                meta["remaining_minutes"] = st.get("remaining_today_minutes")
+                meta["limit_minutes"] = st.get("limit_minutes")
+                meta["registered_limit_minutes"] = st.get("registered_limit_minutes")
+        except Exception as e:
+            logger.debug(f"_session_meta meter skip: {e}")
+        return meta
     except Exception as e:
         logger.debug(f"_session_meta skip: {e}")
     return {}
