@@ -53,10 +53,32 @@ class RegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=4, max_length=4)
+    # Возраст (18.09.2026). Выгрузка 11–17.09: из 60 человек с известным
+    # возрастом 16 младше 18, среди них 12-летняя с аккаунтом и мыслями
+    # о смерти. Ребёнку нельзя продавать подписку и нельзя давать
+    # взрослый телефон доверия. Пишется в fredi_user_contexts.age, откуда
+    # его уже читают промпт (детская линия 8-800-2000-122) и счётчик
+    # (is_minor → стены без цены). Необязателен: старые клиенты его не
+    # шлют, а ломать им регистрацию незачем.
+    age: Optional[int] = Field(default=None, ge=6, le=120)
     remember: bool = True
     # Согласие на reengagement-сообщения. Если фронт не передал —
     # считаем TRUE (мягкий дефолт, как в БД-колонке). Юзер в любой
     # момент может отписаться через ссылку в сообщении.
+    email_opted_in: bool = True
+
+
+class RegisterEmailIn(BaseModel):
+    """Регистрация одной почтой — со стены оплаты (18.09.2026).
+
+    Ни имени, ни пин-кода: пин придумывает сервер и присылает письмом
+    вместе со ссылкой «задать свой», имя Фреди спрашивает в разговоре.
+    Выгрузка 11–17.09: все 28 обрывов на 8–11 минуте (стена по минутам)
+    — без аккаунта; из 179 увидевших стену нажали 13. Три поля плюс
+    регистрация плюс ЮKassa в один шаг стояли ровно в этом месте.
+    """
+    email: str = Field(min_length=3, max_length=254)
+    remember: bool = True
     email_opted_in: bool = True
 
 
@@ -331,15 +353,19 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
                     uid = _new_user_id()
                     await _insert_new_user(conn, uid, email, password_hash)
 
-                # Имя — в fredi_user_contexts (таблица уже есть).
+                # Имя и возраст — в fredi_user_contexts (таблица уже есть).
+                # Возраст без значения не затирает уже известный: старые
+                # клиенты его не шлют.
                 await conn.execute(
                     """
-                    INSERT INTO fredi_user_contexts (user_id, name, updated_at)
-                    VALUES ($1, $2, NOW())
+                    INSERT INTO fredi_user_contexts (user_id, name, age, updated_at)
+                    VALUES ($1, $2, $3, NOW())
                     ON CONFLICT (user_id) DO UPDATE
-                        SET name = EXCLUDED.name, updated_at = NOW()
+                        SET name = EXCLUDED.name,
+                            age = COALESCE(EXCLUDED.age, fredi_user_contexts.age),
+                            updated_at = NOW()
                     """,
-                    uid, body.name.strip(),
+                    uid, body.name.strip(), body.age,
                 )
 
                 # Reengagement opt-in. Если юзер снял галочку — выставляем
@@ -358,6 +384,128 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
         await _track(uid, "auth_register_success", {"anon_merged": bool(anon_uid)})
         logger.info(f"🔐 register: user_id={uid} email={email} anon_merged={bool(anon_uid)}")
         return {"success": True, "user_id": uid, "email": email, "name": body.name.strip()}
+
+    # -------------------- /register-email --------------------
+
+    @router.post("/register-email")
+    @limiter.limit("10/minute")
+    async def register_email(request: Request, response: Response, body: RegisterEmailIn):
+        """Аккаунт по одной почте — для стены оплаты.
+
+        Всё как в /register, кроме двух вещей: пин-код придумывает сервер
+        (четыре цифры, argon2 в базе) и уходит человеку письмом вместе со
+        ссылкой сброса «задать свой»; имени нет — Фреди спросит сам.
+        Сессия ставится сразу, как при обычной регистрации: человек
+        платит уже как владелец аккаунта, и подписка встаёт на него, а
+        не на идентификатор устройства.
+
+        Почта занята — 409 email_exists, как у /register: клиент скажет
+        «войдите с этой почтой», а платить не помешает.
+        """
+        ip = _client_ip(request)
+        ua = _user_agent(request)
+        email = _normalize_email(body.email)
+
+        pin = "".join(secrets.choice("0123456789") for _ in range(4))
+        password_hash = _hasher.hash(pin)
+        anon_uid = _parse_int(request.cookies.get(ANON_COOKIE_NAME))
+
+        async with db.get_connection() as conn:
+            async with conn.transaction():
+                existing = await conn.fetchrow(
+                    "SELECT user_id FROM fredi_users WHERE email = $1", email
+                )
+                if existing:
+                    await _log_attempt(db, email, ip, ua, False, "email_exists")
+                    raise HTTPException(status_code=409, detail={"error": "email_exists",
+                                                                  "message": "Email уже зарегистрирован."})
+                uid: int
+                if anon_uid:
+                    row = await conn.fetchrow(
+                        "SELECT email FROM fredi_users WHERE user_id = $1", anon_uid
+                    )
+                    if row and row["email"] is None:
+                        await conn.execute(
+                            """
+                            UPDATE fredi_users
+                            SET email = $1, password_hash = $2, password_updated_at = NOW(),
+                                registered_at = NOW(), updated_at = NOW()
+                            WHERE user_id = $3
+                            """,
+                            email, password_hash, anon_uid,
+                        )
+                        uid = int(anon_uid)
+                    else:
+                        uid = _new_user_id()
+                        await _insert_new_user(conn, uid, email, password_hash)
+                else:
+                    uid = _new_user_id()
+                    await _insert_new_user(conn, uid, email, password_hash)
+
+                if body.email_opted_in is False:
+                    await conn.execute(
+                        "UPDATE fredi_users SET email_opted_in = FALSE, "
+                        "email_opted_out_at = NOW() WHERE user_id = $1",
+                        uid
+                    )
+
+                # Ссылка «задать свой пин» — тот же механизм, что у
+                # /forgot-pin: одноразовый токен на час.
+                raw_reset = secrets.token_urlsafe(32)
+                await conn.execute(
+                    """
+                    INSERT INTO fredi_password_resets
+                        (token_hash, user_id, created_at, expires_at, ip_address, user_agent)
+                    VALUES ($1, $2, NOW(), $3, $4, $5)
+                    """,
+                    _hash_token(raw_reset), uid,
+                    datetime.now(timezone.utc) + timedelta(hours=24), ip, ua,
+                )
+
+                raw, _exp = await _create_session(conn, uid, body.remember, ua, ip)
+
+        _set_session_cookie(response, raw, body.remember)
+
+        app_url = (os.environ.get("APP_URL") or "https://meysternlp.ru/fredi").rstrip("/")
+        reset_link = f"{app_url}/?reset_pin={raw_reset}"
+        # Пин в лог не пишем — только факт отправки. Ссылка сброса, как и
+        # у /forgot-pin, логируется: это запасной ход админа, если письмо
+        # застряло.
+        logger.warning(
+            f"🔐 register-email: user_id={uid} email={email} anon_merged={bool(anon_uid)} "
+            f"reset-link: {reset_link} (24 часа, single-use)"
+        )
+        if email_service is not None and getattr(email_service, "enabled", False):
+            sent = await email_service.send(
+                to=email,
+                subject="Ваш пин-код для входа в Фреди",
+                body=(
+                    "Здравствуйте!\n\n"
+                    "Вы завели аккаунт в Фреди по этой почте. Чтобы войти с другого "
+                    f"устройства, нужны почта и пин-код.\n\nВаш пин-код: {pin}\n\n"
+                    f"Хотите свой — задайте по ссылке (действует 24 часа):\n{reset_link}\n\n"
+                    "Разговоры и подписка привязаны к этому аккаунту и никуда не денутся.\n\n"
+                    "— Фреди"
+                ),
+                html=(
+                    "<p>Здравствуйте!</p>"
+                    "<p>Вы завели аккаунт в Фреди по этой почте. Чтобы войти с другого "
+                    "устройства, нужны почта и пин-код.</p>"
+                    f"<p>Ваш пин-код: <b style=\"font-size:20px;letter-spacing:4px\">{pin}</b></p>"
+                    f"<p>Хотите свой — задайте по ссылке (действует 24 часа):<br>"
+                    f'<a href="{reset_link}">{reset_link}</a></p>'
+                    "<p>Разговоры и подписка привязаны к этому аккаунту и никуда не денутся.</p>"
+                    "<p>— Фреди</p>"
+                ),
+            )
+            if not sent:
+                logger.error(f"🔐 [!] register-email: письмо с пин-кодом для {email} не ушло")
+        else:
+            logger.warning(f"🔐 register-email: EmailService disabled — пин для {email} не отправлен")
+
+        await _log_attempt(db, email, ip, ua, True, "register_email")
+        await _track(uid, "auth_register_success", {"anon_merged": bool(anon_uid), "flow": "email_only"})
+        return {"success": True, "user_id": uid, "email": email, "name": "", "pin_sent": True}
 
     # -------------------- /login --------------------
 

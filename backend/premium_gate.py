@@ -30,13 +30,25 @@ LOCK_PREFIX = "Режим «"
 
 
 def lock_text(mode: str) -> str:
+    """Строка замка. Начинается с LOCK_PREFIX — по нему её узнаёт счётчик.
+
+    18.09.2026, две правки по выгрузке диалогов 11–17.09.
+
+    Цена. Здесь стояло «первая неделя 290 ₽» — тариф, которого нет с
+    15.09: проба стоит 99 ₽ за три дня (backend/payment.py). Четыре
+    человека за неделю прочитали в этом тексте цену, которой не было.
+
+    Тон. Прежний текст был единственным, что человек получал на свой
+    вопрос: «Посоветуй книгу» — замок, «разбери сон» — замок, «ничего не
+    поняла, что мне делать» — тот же замок в третий раз. Теперь замок —
+    одна строка ПЕРЕД ответом, а сам ответ даёт LockedMode через
+    fallback (обычный Фреди), см. ниже.
+    """
     title = _MODE_TITLES.get(mode, mode.capitalize())
     return (
-        f"{LOCK_PREFIX}{title}» доступен только с подпиской Premium. "
-        f"Три ответа в этом режиме вы уже получили — дальше он работает по "
-        f"подписке: первая неделя 290 ₽, потом 990 ₽ в месяц, отключается в один "
-        f"клик в разделе «Подписка». Без подписки со мной можно продолжать в "
-        f"обычном режиме — переключите роль в меню, разговор сохранится."
+        f"{LOCK_PREFIX}{title}» дальше работает по подписке — три бесплатных "
+        f"ответа в нём вы уже получили. Проба на 3 дня стоит 99 ₽, потом 990 ₽ "
+        f"в месяц, отключается в один клик. Пока отвечу как обычный Фреди."
     )
 
 
@@ -83,25 +95,52 @@ def should_lock(mode: str, is_premium: bool, used: int) -> bool:
 
 
 class LockedMode:
-    """Подмена режима: отвечает текстом замка и не зовёт модель.
+    """Подмена режима: строка замка, а дальше — ответ обычного Фреди.
 
     Повторяет интерфейс BaseMode ровно настолько, насколько его трогают
     обработчики /api/chat, /api/chat/stream и голосовые пути.
+
+    До 18.09.2026 замок был единственным содержимым ответа: модель не
+    звалась, человек получал текст про подписку — и на любой следующий
+    вопрос тот же текст снова. В выгрузке 11–17.09 это 12 ответов у
+    четырёх человек, все с аккаунтом, то есть самые готовые платить.
+    Елена, 52: «ничего не поняла... что мне делать» — и замок в третий
+    раз. Продажа, которая глотает вопрос, ничего не продаёт.
+
+    Теперь fallback — инстанс BasicMode того же человека: замок идёт
+    первой строкой, потом настоящий ответ на его вопрос. Вся реплика
+    начинается с LOCK_PREFIX, поэтому в счёт бесплатных ответов коуча
+    она по-прежнему не попадает (free_answers_used исключает её по
+    префиксу). Без fallback (голосовые пути, где инстанса под рукой
+    нет) поведение прежнее — только строка.
     """
 
-    def __init__(self, mode: str):
+    def __init__(self, mode: str, fallback=None):
         self.name = mode
         self.locked_mode = mode
         self.text = lock_text(mode)
+        self.fallback = fallback
         self.last_tools_used: List[str] = []
         self.history: List[Dict[str, Any]] = []
         self.test_offered = False
 
     async def process_question_streaming(self, question: str) -> AsyncGenerator[str, None]:
         yield self.text
+        if self.fallback is None:
+            return
+        yield "\n\n"
+        try:
+            async for chunk in self.fallback.process_question_streaming(question):
+                if chunk:
+                    yield chunk
+        except Exception as e:
+            logger.warning(f"[premium_gate] fallback stream failed: {e}")
 
     async def process_question_full(self, question: str) -> str:
-        return self.text
+        parts = []
+        async for chunk in self.process_question_streaming(question):
+            parts.append(chunk)
+        return "".join(parts)
 
     async def process_question(self, question: str) -> str:
         return self.text

@@ -31,9 +31,15 @@ def test_no_foreign_deep_analyses_table():
 
 
 def test_all_four_methods_use_own_table():
-    """INSERT, два SELECT и деактивация — все по fredi_deep_analyses."""
+    """INSERT, три SELECT и деактивация — все по fredi_deep_analyses.
+
+    Третий SELECT появился 18.09.2026 вместе с подарочным разбором:
+    count_deep_analyses считает, был ли у человека разбор хоть раз, и
+    на этом числе держится «первый разбор в подарок». Счётчик здесь
+    обновляется руками намеренно — он ловит случайно потерянный запрос.
+    """
     assert "INSERT INTO fredi_deep_analyses" in SQL_ONLY
-    assert SQL_ONLY.count("FROM fredi_deep_analyses") == 2
+    assert SQL_ONLY.count("FROM fredi_deep_analyses") == 3
     assert SQL_ONLY.count("UPDATE fredi_deep_analyses SET is_active = FALSE") == 3
 
 

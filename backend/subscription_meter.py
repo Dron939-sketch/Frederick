@@ -209,6 +209,8 @@ class SubscriptionMeter:
                 "free_days_left": None,  # без лимита
                 "trial_exhausted": False,
                 "is_registered": True,
+                "age": None,
+                "is_minor": False,
                 "registered_limit_minutes": None,
                 "anon_limit_minutes": None,
                 # Backward-compat: старые билды могут читать.
@@ -219,10 +221,15 @@ class SubscriptionMeter:
             }
 
         async with self.db.get_connection() as conn:
+            # Возраст — из контекста (fredi_user_contexts.age): его пишет
+            # регистрация и настройки. По нему стены решают, показывать
+            # ли цену: ребёнку подписку не продаём (18.09.2026).
             row = await conn.fetchrow("""
-                SELECT daily_usage_seconds, last_usage_reset, free_days_used,
-                       total_usage_seconds, email, registered_at
-                FROM fredi_users WHERE user_id = $1
+                SELECT u.daily_usage_seconds, u.last_usage_reset, u.free_days_used,
+                       u.total_usage_seconds, u.email, u.registered_at, c.age
+                FROM fredi_users u
+                LEFT JOIN fredi_user_contexts c ON c.user_id = u.user_id
+                WHERE u.user_id = $1
             """, user_id)
 
         if not row:
@@ -261,12 +268,14 @@ class SubscriptionMeter:
                                     free_days_used=free_days_used,
                                     total_seconds=total_seconds,
                                     registered=registered,
-                                    registered_today=registered_today)
+                                    registered_today=registered_today,
+                                    age=row["age"])
 
     def _compose_status(self, used_seconds: int, free_days_used: int,
                         total_seconds: int = 0,
                         registered: bool = True,
-                        registered_today: bool = False) -> Dict[str, Any]:
+                        registered_today: bool = False,
+                        age=None) -> Dict[str, Any]:
         # Первый день: всё, что человек наговорил за жизнь, наговорено
         # сегодня (общий счётчик не больше дневного, с запасом на секунды
         # округления). Такому даём дописать первый разговор целиком.
@@ -324,6 +333,11 @@ class SubscriptionMeter:
             # руками — иначе экран разъедется с настоящим лимитом в первый
             # же раз, когда лимит поменяют.
             "is_registered": registered,
+            # Ребёнку подписку не продаём: стены рисуют цену только когда
+            # is_minor ложно. Возраст неизвестен → не ребёнок: спрашивать
+            # его стали 18.09.2026, у старых аккаунтов колонка пустая.
+            "age": age,
+            "is_minor": bool(isinstance(age, int) and age < 18),
             # Для анонима: столько будет сегодня, если завести аккаунт
             # сейчас; для аккаунта — его сегодняшний лимит. Разница
             # с anon_limit_minutes — то самое «+5 минут», которое фронт

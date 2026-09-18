@@ -155,8 +155,27 @@ async def _session_meta(user_id) -> dict:
                 "         WHERE m.user_id = u.user_id AND m.role = 'user' "
                 "           AND m.created_at > NOW() - INTERVAL '40 minutes') AS turns "
                 "FROM fredi_users u WHERE u.user_id = $1", int(user_id))
+        meta = {}
         if row:
-            return {"session_turns": int(row["turns"] or 0), "is_registered": bool(row["registered"])}
+            meta = {"session_turns": int(row["turns"] or 0), "is_registered": bool(row["registered"])}
+        # Сколько бесплатных минут осталось — чтобы Фреди сам, в самом
+        # разговоре, за пару минут до стены сказал, что будет дальше.
+        # 18.09.2026, по выгрузке 11–17.09: в 1348 ответах подписка
+        # упомянута 13 раз, и все 13 — робот-замок. Стена прерывает на
+        # полуслове (28 обрывов на 8–11 минуте, все без аккаунта), а
+        # предупреждает о ней только тост в углу. Числа берём из статуса
+        # счётчика, не вписываем руками: лимиты меняются.
+        try:
+            from meter_routes import subscription_meter as _m
+            if _m is not None:
+                st = await _m.get_user_status(int(user_id)) or {}
+                meta["is_premium"] = bool(st.get("is_premium"))
+                meta["remaining_minutes"] = st.get("remaining_today_minutes")
+                meta["limit_minutes"] = st.get("limit_minutes")
+                meta["registered_limit_minutes"] = st.get("registered_limit_minutes")
+        except Exception as e:
+            logger.debug(f"_session_meta meter skip: {e}")
+        return meta
     except Exception as e:
         logger.debug(f"_session_meta skip: {e}")
     return {}
@@ -1004,6 +1023,34 @@ async def meter_guard_middleware(request: Request, call_next):
                     headers=_cors_headers_for(request),
                 )
             return await call_next(request)
+
+        # Подарочный разбор проходит сквозь стену — ровно один раз.
+        #
+        # Без этого исключения подарок невыдаваем по построению: мы
+        # обещаем его на стене оплаты, то есть человеку, у которого минуты
+        # уже кончились, — а /api/deep-analysis стоит в _METER_AI_REGEX,
+        # и тот же самый счётчик рубил бы генерацию с 402. Человек нажал
+        # бы «получить подарок» и увидел стену второй раз подряд; хуже,
+        # чем не обещать вовсе.
+        #
+        # Дыры здесь нет: _deep_gift_available смотрит, что разборов у
+        # человека не было НИ РАЗУ. После первой же генерации строка в
+        # fredi_deep_analyses появляется, и исключение закрывается
+        # навсегда — повторно пройти этим путём нельзя. Запрос к базе
+        # один и только на этом пути, только когда человек и так уже
+        # заблокирован.
+        if path.rstrip("/") == "/api/deep-analysis":
+            try:
+                if await _deep_gift_available(user_id):
+                    try:
+                        await log_server_event(user_id, "deep_gift_granted", {
+                            "block_reason": status.get("block_reason") or "daily",
+                        })
+                    except Exception:
+                        pass
+                    return await call_next(request)
+            except Exception as e:
+                logger.warning(f"meter_guard: gift check failed: {e}")
 
         # Дневной reset в 00:00 UTC — считаем сколько минут осталось.
         from datetime import datetime as _dt, timedelta as _td, timezone as _tz
@@ -3621,13 +3668,19 @@ def _chat_dedup_finish(key: tuple, fut, answer: str, mode_name: Optional[str]) -
         _chat_recent[key] = (time.time(), answer, mode_name)
 
 
-async def _premium_gate_instance(mode_name: str, mode_instance, user_id):
+async def _premium_gate_instance(mode_name: str, mode_instance, user_id,
+                                 fallback_factory=None):
     """Три бесплатных ответа коуча и тренера, дальше — замок.
 
     Решение владельца 12.09.2026, см. premium_gate.py. Замок подменяет
-    инстанс режима: модель не зовётся, человек получает текст про подписку.
-    Общая точка для текстовых и голосовых путей — иначе голосовой коуч
-    отвечал бы без счёта. Возвращает (инстанс, заперт ли)."""
+    инстанс режима. Общая точка для текстовых и голосовых путей — иначе
+    голосовой коуч отвечал бы без счёта. Возвращает (инстанс, заперт ли).
+
+    fallback_factory (18.09.2026) — функция без аргументов, отдающая
+    инстанс BasicMode того же человека. С ним замок становится строкой
+    перед настоящим ответом, а не вместо него. Фабрика, а не готовый
+    инстанс: строить BasicMode на каждый ход ради случая, который
+    наступает у одного человека из ста, незачем."""
     if mode_name not in premium_gate.LOCK_MODES:
         return mode_instance, False
     try:
@@ -3641,7 +3694,15 @@ async def _premium_gate_instance(mode_name: str, mode_instance, user_id):
     if not premium_gate.should_lock(mode_name, is_premium, used):
         return mode_instance, False
     logger.info(f"🔒 {mode_name} locked for user {user_id}: {used} free answers used")
-    return premium_gate.LockedMode(mode_name), True
+    fallback = None
+    if fallback_factory is not None:
+        try:
+            fallback = fallback_factory()
+        except Exception as e:
+            # Без фолбэка замок работает как раньше — строкой. Хуже, чем с
+            # ответом, но лучше, чем уронить весь ход из-за фабрики.
+            logger.warning(f"[premium_gate] fallback build failed for {user_id}: {e}")
+    return premium_gate.LockedMode(mode_name, fallback=fallback), True
 
 
 async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) -> Dict[str, Any]:
@@ -3734,7 +3795,16 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
     # Три бесплатных ответа коуча и тренера, дальше — замок (решение
     # владельца 12.09.2026, см. premium_gate.py). Замок подменяет режим:
     # модель не зовётся, человек получает текст про подписку.
-    mode_instance, premium_lock = await _premium_gate_instance(mode_name, mode_instance, user_id)
+    # Фолбэк для замка: обычный Фреди того же человека, с его профилем.
+    # Пресет basic подтягиваем заранее только когда замок вообще
+    # возможен — фабрика синхронная, а пресет живёт в базе.
+    _lock_factory = None
+    if mode_name in premium_gate.LOCK_MODES:
+        _preset = await get_basic_mode_preset()
+        _lock_factory = lambda: get_mode(  # noqa: E731
+            "basic", user_id, {**user_data, "basic_mode_preset": _preset}, simple_context)
+    mode_instance, premium_lock = await _premium_gate_instance(
+        mode_name, mode_instance, user_id, fallback_factory=_lock_factory)
 
     reflection = None
     if has_profile and user_data.get("confinement_model"):
@@ -4213,6 +4283,38 @@ async def _is_premium_user(user_id) -> bool:
         return False
 
 
+# Первый разбор — в подарок (владелец, 18.09.2026).
+#
+# Замер 01–17.09: стену оплаты увидел 171 человек, кликнули по подписке 13,
+# оплатили 4. Кто дошёл до кнопки — платит нормально; ломается сам экран
+# с ценой. В опросе «что остановило» из 18 ответов семь «попробую потом»
+# и семь «дорого», а «не понял, что даёт» — ноль. То есть людям понятно,
+# что мы продаём, и непонятно, зачем это им: на стене восемь строк
+# обещаний и ни одного доказательства.
+#
+# Подарок закрывает именно это. Дарим то, что действительно платное:
+# тест бесплатен и всегда был, а шесть разделов разбора закрыты с
+# 12.09.2026. Дарить бесплатное — самый быстрый способ, чтобы человек
+# перестал верить и остальным строкам; на «Весь Лекторий» мы это уже
+# проходили, он открыт всем, и его пришлось убрать из витрины.
+#
+# Условие одно и проверяемое: разбора у человека не было ни разу.
+# Подписка тут ни при чём — подписчику разбор и так доступен.
+async def _deep_gift_available(user_id) -> bool:
+    """Положен ли человеку бесплатный первый разбор."""
+    try:
+        return await user_repo.count_deep_analyses(user_id) == 0
+    except Exception:
+        return False
+
+
+async def _deep_access(user_id) -> bool:
+    """Может ли человек получить разбор: по подписке или в подарок."""
+    if await _is_premium_user(user_id):
+        return True
+    return await _deep_gift_available(user_id)
+
+
 def _vector_levels(profile: dict) -> dict:
     """Четыре вектора так, как их видит человек на экране: среднее, округлённое.
 
@@ -4310,8 +4412,9 @@ async def deep_analysis(request: Request, data: ChatRequest):
 
         # Полный разбор — часть подписки (решение владельца 12.09.2026).
         # Портрет и первый шаг бесплатны и живут на экране теста; шесть
-        # разделов разбора генерируются только подписчику.
-        if not await _is_premium_user(data.user_id):
+        # разделов разбора генерируются подписчику — или один раз в
+        # подарок тому, у кого разбора не было ни разу (см. _deep_access).
+        if not await _deep_access(data.user_id):
             return {"success": False, "error": "premium_required", "premium_required": True}
 
         profile_data = profile.get('profile_data', {})
@@ -4407,10 +4510,10 @@ async def get_saved_deep_analysis(request: Request, user_id: Union[int, str]):
         except (ValueError, TypeError):
             user_id_for_db = user_id
 
-        if not await _is_premium_user(user_id_for_db):
-            return {"success": False, "analysis": None, "cached": False,
-                    "error": "premium_required", "premium_required": True}
-
+        # Уже сгенерированный разбор человек читает всегда — и подписчик,
+        # и тот, кто получил его в подарок. Отбирать подаренное при
+        # отписке нечестно, а главное — незачем: текст уже в базе, и
+        # повторное чтение нам ничего не стоит.
         saved_analysis = await user_repo.get_last_deep_analysis(user_id_for_db)
 
         if saved_analysis:
@@ -4421,16 +4524,61 @@ async def get_saved_deep_analysis(request: Request, user_id: Union[int, str]):
                 "created_at": saved_analysis.get("created_at"),
                 "updated_at": saved_analysis.get("updated_at")
             }
-        else:
-            return {
-                "success": False,
-                "analysis": None,
-                "cached": False,
-                "message": "Анализ ещё не выполнен."
-            }
+
+        # Разбора нет. Подписчику его сейчас сгенерируют, тому, кому
+        # положен подарок, — тоже: клиенту важно отличить этот случай от
+        # замка, иначе он покажет модалку «с подпиской» человеку, которому
+        # мы только что пообещали подарок на стене.
+        if not await _deep_access(user_id_for_db):
+            return {"success": False, "analysis": None, "cached": False,
+                    "error": "premium_required", "premium_required": True}
+
+        return {
+            "success": False,
+            "analysis": None,
+            "cached": False,
+            "gift_available": not await _is_premium_user(user_id_for_db),
+            "message": "Анализ ещё не выполнен."
+        }
     except Exception as e:
         logger.error(f"Error getting saved deep analysis for user {user_id}: {e}")
         return {"success": False, "error": str(e)}
+
+
+# Что писать на стене оплаты: «разбор в подарок», «пройдите тест — разбор
+# в подарок» или ничего. Ручка отдельная и дешёвая, потому что стена
+# рисуется в момент блокировки, и тянуть ради одной строки ручку разбора
+# (она умеет генерировать на 6000 токенов) нельзя.
+@app.get("/api/deep-analysis/{user_id}/gift")
+@limiter.limit("30/minute")
+async def deep_analysis_gift_status(request: Request, user_id: Union[int, str]):
+    try:
+        try:
+            user_id_for_db = int(user_id)
+        except (ValueError, TypeError):
+            user_id_for_db = user_id
+
+        profile = await user_repo.get_profile(user_id_for_db) or {}
+        has_profile = bool(profile.get('profile_data')
+                           or profile.get('ai_generated_profile'))
+        is_premium = await _is_premium_user(user_id_for_db)
+        available = (not is_premium) and await _deep_gift_available(user_id_for_db)
+
+        return {
+            "success": True,
+            # Подарок положен, но пройти тест ещё надо: это две разные
+            # строки на стене, и склеивать их в одну нельзя — «разбор
+            # вашего теста» человеку без теста читается как ошибка.
+            "gift_available": available,
+            "has_profile": has_profile,
+            "is_premium": is_premium,
+        }
+    except Exception as e:
+        logger.error(f"Error getting gift status for user {user_id}: {e}")
+        # Молчим, а не обещаем: стена без подарка хуже, чем стена с
+        # подарком, который не выдаётся.
+        return {"success": False, "gift_available": False,
+                "has_profile": False, "is_premium": False}
 
 
 @app.get("/api/deep-analysis/{user_id}/history")

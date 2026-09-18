@@ -503,7 +503,15 @@ def normalize_tts_text(text: str) -> str:
         text += '.'
     text = re.sub(r'\s+', ' ', text).strip()
     if not text or len(text) < 2:
-        text = "Вопрос интересный. Расскажите подробнее."
+        # Пустой ответ — сбой, а не повод для дежурной фразы. «Вопрос
+        # интересный. Расскажите подробнее» звучало как ответ и не
+        # узнавалось как заглушка (см. base_mode.process_question_full,
+        # та же правка 18.09.2026).
+        try:
+            from services.ai_service import tech_fail_reply
+            text = tech_fail_reply()
+        except Exception:
+            text = "У меня технический сбой, ответить по делу сейчас не получается."
     text = text.replace('*', '')
     if text != original:
         logger.debug(f"🔄 Нормализован текст: '{original[:100]}...' → '{text[:100]}...'")
