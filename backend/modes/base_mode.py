@@ -268,11 +268,26 @@ class BaseMode(ABC):
             logger.error(f"Ошибка в process_question_streaming: {e}")
             # Fallback на синхронный метод
             result = self.process_question(question)
-            full_response = result.get("response", "Вопрос интересный. Расскажите подробнее, пожалуйста.")
-        
-        # Убеждаемся, что ответ не пустой
+            full_response = (result or {}).get("response", "")
+
+        # Пусто — это сбой, и называть его надо сбоем. Здесь стояла фраза
+        # «Вопрос интересный. Расскажите подробнее, пожалуйста.» — заглушка
+        # под видом ответа. 11.09.2026 женщина 53 лет, 43 сообщения за
+        # 219 минут, самый длинный разговор недели, написала «у меня
+        # занижена самооценка, никто меня не любил» и получила ровно это.
+        # Её следующие слова: «пустой разговор выходит, никаких идей, чтобы
+        # мне разобраться в себе, у тебя нет». main.py такую фразу не
+        # узнавал: списывал минуты, считал ответом и не извинялся потом.
+        # tech_fail_reply он узнаёт (is_tech_fail) — не списывает, ставит
+        # отметку и начинает следующий живой ответ с признания.
         if not full_response or not full_response.strip():
-            full_response = "Вопрос интересный. Расскажите подробнее, пожалуйста."
+            try:
+                from services.ai_service import tech_fail_reply
+                full_response = tech_fail_reply(getattr(self, "user_id", None))
+            except Exception:
+                full_response = ("У меня технический сбой, ответить по делу сейчас "
+                                 "не получается. Это не из-за тебя. Подожди пару "
+                                 "минут и спроси ещё раз.")
         
         # Восстанавливаем пунктуацию
         full_response = self._restore_punctuation(full_response)

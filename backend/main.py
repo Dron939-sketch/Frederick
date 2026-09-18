@@ -3649,13 +3649,19 @@ def _chat_dedup_finish(key: tuple, fut, answer: str, mode_name: Optional[str]) -
         _chat_recent[key] = (time.time(), answer, mode_name)
 
 
-async def _premium_gate_instance(mode_name: str, mode_instance, user_id):
+async def _premium_gate_instance(mode_name: str, mode_instance, user_id,
+                                 fallback_factory=None):
     """Три бесплатных ответа коуча и тренера, дальше — замок.
 
     Решение владельца 12.09.2026, см. premium_gate.py. Замок подменяет
-    инстанс режима: модель не зовётся, человек получает текст про подписку.
-    Общая точка для текстовых и голосовых путей — иначе голосовой коуч
-    отвечал бы без счёта. Возвращает (инстанс, заперт ли)."""
+    инстанс режима. Общая точка для текстовых и голосовых путей — иначе
+    голосовой коуч отвечал бы без счёта. Возвращает (инстанс, заперт ли).
+
+    fallback_factory (18.09.2026) — функция без аргументов, отдающая
+    инстанс BasicMode того же человека. С ним замок становится строкой
+    перед настоящим ответом, а не вместо него. Фабрика, а не готовый
+    инстанс: строить BasicMode на каждый ход ради случая, который
+    наступает у одного человека из ста, незачем."""
     if mode_name not in premium_gate.LOCK_MODES:
         return mode_instance, False
     try:
@@ -3669,7 +3675,15 @@ async def _premium_gate_instance(mode_name: str, mode_instance, user_id):
     if not premium_gate.should_lock(mode_name, is_premium, used):
         return mode_instance, False
     logger.info(f"🔒 {mode_name} locked for user {user_id}: {used} free answers used")
-    return premium_gate.LockedMode(mode_name), True
+    fallback = None
+    if fallback_factory is not None:
+        try:
+            fallback = fallback_factory()
+        except Exception as e:
+            # Без фолбэка замок работает как раньше — строкой. Хуже, чем с
+            # ответом, но лучше, чем уронить весь ход из-за фабрики.
+            logger.warning(f"[premium_gate] fallback build failed for {user_id}: {e}")
+    return premium_gate.LockedMode(mode_name, fallback=fallback), True
 
 
 async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) -> Dict[str, Any]:
@@ -3762,7 +3776,16 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
     # Три бесплатных ответа коуча и тренера, дальше — замок (решение
     # владельца 12.09.2026, см. premium_gate.py). Замок подменяет режим:
     # модель не зовётся, человек получает текст про подписку.
-    mode_instance, premium_lock = await _premium_gate_instance(mode_name, mode_instance, user_id)
+    # Фолбэк для замка: обычный Фреди того же человека, с его профилем.
+    # Пресет basic подтягиваем заранее только когда замок вообще
+    # возможен — фабрика синхронная, а пресет живёт в базе.
+    _lock_factory = None
+    if mode_name in premium_gate.LOCK_MODES:
+        _preset = await get_basic_mode_preset()
+        _lock_factory = lambda: get_mode(  # noqa: E731
+            "basic", user_id, {**user_data, "basic_mode_preset": _preset}, simple_context)
+    mode_instance, premium_lock = await _premium_gate_instance(
+        mode_name, mode_instance, user_id, fallback_factory=_lock_factory)
 
     reflection = None
     if has_profile and user_data.get("confinement_model"):
