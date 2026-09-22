@@ -771,11 +771,11 @@ class BasicMode(BaseMode):
         # платить, и предупреждение читалось бы как счётчик на входе.
         if int(d.get("session_turns") or 0) < 2:
             return ""
-        price = "три дня за 99 ₽"
+        price = "три дня за 69 ₽"
         try:
             from payment import PLANS, TRIAL_PLAN
             p = PLANS.get(TRIAL_PLAN) or {}
-            amt = str(p.get("amount", "99")).split(".")[0]
+            amt = str(p.get("amount", "69")).split(".")[0]
             days = int(p.get("days", 3))
             price = f"{days} дня за {amt} ₽" if days in (2, 3, 4) else f"{days} дней за {amt} ₽"
         except Exception:

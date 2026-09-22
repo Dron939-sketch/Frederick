@@ -136,7 +136,7 @@ def register_payment_routes(app, db, limiter):
             # должна допускать NULL
             await conn.execute("ALTER TABLE fredi_payment_methods ALTER COLUMN payment_method_id DROP NOT NULL")
             # Тариф платежа и подписки: 'monthly' (990 ₽ / 30 дней) или
-            # 'trial_week' (с 15.09.2026 — 99 ₽ / 3 дня, до того 290 ₽ / 7
+            # 'trial_week' (с 15.09.2026 — 69 ₽ / 3 дня, до того 290 ₽ / 7
             # дней; ключ оставлен прежним, он лежит в этих же строках).
             # До 06.09.2026 тариф был один,
             # поэтому у старых строк остаётся значение по умолчанию.

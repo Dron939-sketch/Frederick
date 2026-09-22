@@ -92,7 +92,7 @@ def test_anonymous_hears_account_and_trial():
     assert t.startswith("ЧТО БУДЕТ ДАЛЬШЕ")
     assert "через 2 мин" in t
     assert "аккаунт" in t and "четыре цифры" in t, "анониму — как сохранить разговор"
-    assert "99 ₽" in t, "цена пробы из payment.py"
+    assert "69 ₽" in t, "цена пробы из payment.py"
     assert "без давления" in t
 
 
@@ -101,7 +101,7 @@ def test_registered_hears_saved_and_trial_only():
               is_registered=True)._build_horizon_block()
     assert "сохранён" in t
     assert "четыре цифры" not in t, "у зарегистрированного аккаунт уже есть"
-    assert "99 ₽" in t
+    assert "69 ₽" in t
 
 
 def test_threshold_scales_with_small_limit():
