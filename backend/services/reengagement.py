@@ -265,6 +265,21 @@ async def _last_user_topic(db, user_id: int) -> str:
         return ''
 
 
+async def _recent_user_text(db, user_id: int, n: int = 6) -> str:
+    """Последние n реплик человека одной строкой — для подбора теста
+    к письму d1: в длинном разговоре тема названа в начале, а последняя
+    реплика может быть «да» или «спасибо»."""
+    try:
+        rows = await db.fetch(
+            """SELECT content FROM fredi_messages
+               WHERE user_id = $1 AND role = 'user'
+               ORDER BY id DESC LIMIT $2""", user_id, n)
+        return " ".join((r['content'] or '') for r in rows)[:2000]
+    except Exception as e:
+        logger.warning(f"[reeng] recent text failed: {e}")
+        return ''
+
+
 async def generate_d1_text(s: dict, topic: str) -> str:
     """Письмо на следующий день: продолжение вчерашнего разговора."""
     name = (s.get('name') or 'друг').strip() or 'друг'
@@ -407,6 +422,8 @@ def _build_html(text: str, return_link: str, optout_link: str, extra_html: str =
     # нужны только в текстовой части письма.
     if extra_html and "что остановило от подписки" in (text or ""):
         text = text.split("Один вопрос, без обязательств")[0].rstrip()
+    if extra_html and "Пройти тест:" in (text or ""):
+        text = text.split("Есть тест по твоей теме")[0].rstrip()
     safe_text = (text or "").replace("\n", "<br>")
     return f"""<!doctype html>
 <html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:24px auto;padding:0 16px;color:#1c1c1e;line-height:1.55">
@@ -465,6 +482,13 @@ async def send_reengagement(db, email_service, user_id: int,
     elif campaign == CAMPAIGN_D1:
         text = await generate_d1_text(s, await _last_user_topic(db, user_id))
         subject = D1_SUBJECT
+        # 22.09.2026: тест по теме разговора (владелец). Тема — из
+        # последних реплик, тест — с сайта, разбор — с подпиской.
+        from services.test_offer import pick_test, test_link, offer_text, offer_html
+        _t = pick_test(await _recent_user_text(db, user_id))
+        _l = test_link(_t, campaign)
+        text = f"{text}\n\n{offer_text(_t, _l)}"
+        d1_html = offer_html(_t, _l)
     else:
         text = await generate_message_text(s)
         subject = "Фреди — подумалось о тебе"
@@ -474,6 +498,8 @@ async def send_reengagement(db, email_service, user_id: int,
     # пишет событие sub_why_not.
     why_text = why_not_block(return_link) if campaign == CAMPAIGN_D3 else ""
     why_html = why_not_html(return_link) if campaign == CAMPAIGN_D3 else ""
+    if campaign == CAMPAIGN_D1:
+        why_html = d1_html
     if why_text:
         text = f"{text}\n\n{why_text}"
     delivered = False

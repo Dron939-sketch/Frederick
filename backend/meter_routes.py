@@ -137,12 +137,16 @@ def register_meter_routes(app, db, limiter):
             seconds = max(1, min(120, int(seconds)))
             status = await subscription_meter.record_usage(int(user_id), seconds)
             # Анонимные секунды дублируются в IP-ведро дня: личный счётчик
-            # обнуляется вместе с localStorage, ведро — нет.
+            # обнуляется вместе с localStorage, ведро — нет. Списываем тот
+            # же ускоренный объём, что и в личный запас (22.09.2026,
+            # USAGE_SPEED в subscription_meter): иначе потолок на IP
+            # считался бы в других единицах, чем сам запас.
             if not status.get("is_premium") and status.get("is_registered") is False:
                 iph = meter_ip_hash(request)
                 if iph:
                     try:
-                        await subscription_meter.record_anon_ip_usage(iph, int(seconds))
+                        from subscription_meter import billed_seconds
+                        await subscription_meter.record_anon_ip_usage(iph, billed_seconds(seconds))
                     except Exception as e:
                         logger.warning(f"anon ip usage record failed: {e}")
             return {"success": True, **status}
