@@ -150,6 +150,10 @@ def register_payment_routes(app, db, limiter):
             await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS renewal_attempts INTEGER NOT NULL DEFAULT 0")
             await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS renewal_last_attempt_at TIMESTAMP WITH TIME ZONE")
             await conn.execute("ALTER TABLE fredi_subscriptions ADD COLUMN IF NOT EXISTS renewal_last_error TEXT")
+            # Отметка «о застрявшем платеже владельцу уже сказали»
+            # (24.09.2026). Без неё сигнал уходил бы каждые пять минут по
+            # одному и тому же платежу, и его перестали бы читать.
+            await conn.execute("ALTER TABLE fredi_payments ADD COLUMN IF NOT EXISTS stuck_alert_sent_at TIMESTAMP WITH TIME ZONE")
         logger.info("Payment tables ready")
 
         # Стартуем фоновый поллинг pending-платежей здесь, чтобы не
