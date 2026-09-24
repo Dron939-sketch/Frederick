@@ -306,7 +306,12 @@ class PaymentService:
             "capture": True,
             "payment_method_id": payment_method_id,
             "description": description,
-            "metadata": {"user_id": str(user_id), "type": "subscription_recurring"},
+            # plan в метаданных обязателен: если платёж вернётся к нам через
+            # webhook или поллер, тариф читается именно отсюда. Без него
+            # _apply_succeeded_payment подставлял 'monthly' по умолчанию —
+            # здесь это совпадает с правдой, но совпадение не гарантия.
+            "metadata": {"user_id": str(user_id), "type": "subscription_recurring",
+                         "plan": "monthly"},
             "receipt": {
                 "customer": customer,
                 "items": [
@@ -377,10 +382,17 @@ class PaymentService:
             status = result["status"]
 
             async with self.db.get_connection() as conn:
+                # DO UPDATE, а не DO NOTHING (24.09.2026). Ключ идемпотентности
+                # стабилен на сутки, поэтому повтор в тот же день возвращает
+                # ТОТ ЖЕ платёж — уже со статусом succeeded. При DO NOTHING
+                # строка навсегда оставалась 'pending': деньги взяты, а в
+                # отчётах и в поллере оплата выглядит незавершённой.
                 await conn.execute("""
-                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description)
-                    VALUES ($1, $2, $3, $4, 'subscription_recurring', $5)
-                    ON CONFLICT (yookassa_id) DO NOTHING
+                    INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description, plan)
+                    VALUES ($1, $2, $3, $4, 'subscription_recurring', $5, 'monthly')
+                    ON CONFLICT (yookassa_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        updated_at = NOW()
                 """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT), status,
                     "Автопродление подписки Фреди")
 
@@ -440,9 +452,24 @@ class PaymentService:
             await log_server_event(user_id, "subscription_activated", {
                 "is_renewal": bool(is_renewal),
                 "expires_at": new_expires.isoformat(),
+                "source": "recurring",
             })
         except Exception as e:
             logger.debug(f"analytics track(subscription_activated) failed: {e}")
+
+        # Оповещение человека (24.09.2026). Первая оплата уходит через
+        # _apply_succeeded_payment, и там письмо есть, а автопродление
+        # молчало: деньги списывались, и единственным известием о том, что
+        # произошло, был чек из банка. Человек видел списание и не видел
+        # продления — 23.09.2026 из-за этого пришло обращение «деньги
+        # списались, на сайте ничего».
+        try:
+            from services.subscription_notify import notify_subscription_activated
+            asyncio.create_task(notify_subscription_activated(
+                self.db, user_id, new_expires, is_renewal=True, plan="monthly",
+            ))
+        except Exception as e:
+            logger.warning(f"notify dispatch failed for user {user_id}: {e}")
 
     async def _apply_succeeded_payment(self, user_id: int, payment_obj: Dict) -> Dict[str, Any]:
         """Идемпотентная активация подписки на основании оплаченного
@@ -644,6 +671,14 @@ class PaymentService:
         """Фоновый поллинг pending-платежей в БД через YooKassa API.
         Страховка на случай потерянного webhook: если YooKassa подтвердила
         оплату, но webhook не пришёл, мы всё равно активируем подписку.
+
+        24.09.2026: окно перестало быть глухой границей. Раньше строка
+        старше 48 часов не проверялась больше никогда — платёж, который
+        ЮKassa подтвердила позже или который мы пропустили из-за простоя
+        поллера, оставался 'pending' навсегда: деньги у человека списаны,
+        подписки нет, и в интерфейсе этого не видно ничем. Свежие строки
+        по-прежнему проверяются каждые пять минут, старые — хвостом по
+        двадцать штук за тик, пока не разберутся.
         """
         activated = 0
         still_pending = 0
@@ -658,6 +693,14 @@ class PaymentService:
                 ORDER BY created_at DESC
                 LIMIT 100
             """)
+            old_rows = await conn.fetch(f"""
+                SELECT yookassa_id, user_id FROM fredi_payments
+                WHERE status = 'pending'
+                  AND created_at <= NOW() - INTERVAL '{int(max_age_hours)} hours'
+                ORDER BY created_at DESC
+                LIMIT 20
+            """)
+        rows = list(rows) + list(old_rows)
 
         for r in rows:
             try:
@@ -675,7 +718,58 @@ class PaymentService:
 
         if rows:
             logger.info(f"Pending poll: total={len(rows)} activated={activated} canceled={canceled} still_pending={still_pending} errors={errors}")
-        return {"checked": len(rows), "activated": activated, "canceled": canceled, "pending": still_pending, "errors": errors}
+        stuck = await self._alert_stuck_payments()
+        return {"checked": len(rows), "activated": activated, "canceled": canceled,
+                "pending": still_pending, "errors": errors, "stuck_alerted": stuck}
+
+    async def _alert_stuck_payments(self, hours: int = 2) -> int:
+        """Сказать владельцу о платежах, застрявших в 'pending'.
+
+        Пока такого сигнала не было, единственным способом узнать о разрыве
+        «деньги списаны — подписка не включена» было письмо от клиента. Так
+        и вышло 23.09.2026. Поллер пытается починить каждый такой платёж
+        сам, и большинство чинится за минуты; сигнал уходит только по тем,
+        что провисели больше двух часов, и ровно один раз на платёж —
+        отметка в stuck_alert_sent_at.
+        """
+        try:
+            async with self.db.get_connection() as conn:
+                rows = await conn.fetch(f"""
+                    SELECT yookassa_id, user_id, amount, created_at
+                    FROM fredi_payments
+                    WHERE status = 'pending'
+                      AND created_at <= NOW() - INTERVAL '{int(hours)} hours'
+                      AND stuck_alert_sent_at IS NULL
+                    ORDER BY created_at
+                    LIMIT 20
+                """)
+                if not rows:
+                    return 0
+                await conn.execute("""
+                    UPDATE fredi_payments SET stuck_alert_sent_at = NOW()
+                    WHERE yookassa_id = ANY($1::text[])
+                """, [r["yookassa_id"] for r in rows])
+        except Exception as e:
+            # Колонки может не быть на старой базе — миграция идёт в
+            # init_payment_tables. Сигнал не обязан ронять поллер.
+            logger.warning(f"_alert_stuck_payments query failed: {e}")
+            return 0
+
+        lines = [f"Платежи, застрявшие в pending дольше {hours} ч — деньги могли быть списаны, "
+                 f"а подписка не включена:"]
+        for r in rows:
+            lines.append(f"  {r['yookassa_id']} | user {r['user_id']} | "
+                         f"{r['amount']} ₽ | создан {r['created_at']:%d.%m %H:%M}")
+        lines.append("Проверить в кассе и в fredi_subscriptions.expires_at.")
+        text = "\n".join(lines)
+        logger.error(text)
+        try:
+            from feedback_routes import _send_to_owner, _send_email_to_owner
+            await _send_to_owner(text)
+            await _send_email_to_owner("Фреди: платежи застряли в pending", text)
+        except Exception as e:
+            logger.warning(f"_alert_stuck_payments notify failed: {e}")
+        return len(rows)
 
     async def process_webhook(self, event: str, payment_obj: Dict) -> Dict[str, Any]:
         yookassa_id = payment_obj.get("id", "")
