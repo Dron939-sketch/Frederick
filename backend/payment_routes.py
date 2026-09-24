@@ -93,7 +93,7 @@ def register_payment_routes(app, db, limiter):
                     id BIGSERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     yookassa_id TEXT UNIQUE NOT NULL,
-                    amount NUMERIC(10,2) NOT NULL DEFAULT 990.00,
+                    amount NUMERIC(10,2) NOT NULL DEFAULT 690.00,
                     status TEXT NOT NULL DEFAULT 'pending',
                     payment_type TEXT NOT NULL DEFAULT 'subscription_first',
                     description TEXT,
@@ -135,7 +135,7 @@ def register_payment_routes(app, db, limiter):
             # Отвязка карты обнуляет токен (требование ЮKassa) — колонка
             # должна допускать NULL
             await conn.execute("ALTER TABLE fredi_payment_methods ALTER COLUMN payment_method_id DROP NOT NULL")
-            # Тариф платежа и подписки: 'monthly' (990 ₽ / 30 дней) или
+            # Тариф платежа и подписки: 'monthly' (месяц, цена в PLANS) или
             # 'trial_week' (с 15.09.2026 — 69 ₽ / 3 дня, до того 290 ₽ / 7
             # дней; ключ оставлен прежним, он лежит в этих же строках).
             # До 06.09.2026 тариф был один,

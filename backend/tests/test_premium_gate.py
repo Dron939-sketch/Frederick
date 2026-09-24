@@ -40,10 +40,14 @@ def test_lock_rule():
 def test_lock_text_is_recognisable_and_names_the_mode():
     t = pg.lock_text("coach")
     assert pg.is_lock_text(t)
-    # 18.09.2026: цена в замке — 69 ₽ за 3 дня и 990 ₽/мес (payment.py).
-    # «290» здесь стояло с 06.09 и пережило смену тарифа 15.09: четыре
-    # человека за неделю прочитали цену, которой не было.
-    assert "Коуч" in t and "69 ₽" in t and "990" in t and "290" not in t
+    # Цену берём из PLANS, а не вписываем: «290» здесь стояло с 06.09
+    # и пережило смену тарифа 15.09 — четыре человека за неделю прочитали
+    # цену, которой не было. Тест на конкретное число повторил бы ту же
+    # ошибку при следующей смене цены.
+    from payment import plan_price
+    assert "Коуч" in t
+    assert f"{plan_price('trial_week')} ₽" in t and f"{plan_price('monthly')} ₽" in t
+    assert "290" not in t
     assert "Тренер" in pg.lock_text("trainer")
     assert not pg.is_lock_text("Стоп. Ты гадаешь о чувствах другого человека")
     assert not pg.is_lock_text("")
