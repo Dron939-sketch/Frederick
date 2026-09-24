@@ -69,3 +69,16 @@ def test_stuck_alert_column_is_migrated():
     assert re.search(r"ADD COLUMN IF NOT EXISTS stuck_alert_sent_at", routes), (
         "без миграции запрос сигнала падал бы на каждой базе, где колонки ещё нет"
     )
+
+
+def test_status_carries_last_payment():
+    """Экран подписки должен уметь показать, что списание прошло.
+
+    До 24.09.2026 в ответе была только дата СЛЕДУЮЩЕГО списания, и
+    человек, у которого деньги уже ушли, не находил на сайте ни следа
+    этого.
+    """
+    b = _body("get_subscription_status", 3000)
+    assert "last_payment" in b
+    assert "status = 'succeeded'" in b, "показываем прошедшее списание, а не созданный платёж"
+    assert "is_renewal" in b, "автопродление и разовую оплату человек воспринимает по-разному"

@@ -842,6 +842,17 @@ class PaymentService:
                 SELECT card_last4, card_type
                 FROM fredi_payment_methods WHERE user_id = $1 AND is_active = TRUE
             """, user_id)
+            # Последнее прошедшее списание (24.09.2026). Экран подписки
+            # показывал только дату СЛЕДУЮЩЕГО списания, и человек, у
+            # которого деньги уже ушли, не видел на сайте ни следа этого:
+            # строка выглядела так же, как вчера, только с другой датой.
+            # Отсюда обращение 23.09 «чек из банка пришёл, а продления нет».
+            last_pay = await conn.fetchrow("""
+                SELECT amount, created_at, payment_type
+                FROM fredi_payments
+                WHERE user_id = $1 AND status = 'succeeded'
+                ORDER BY created_at DESC LIMIT 1
+            """, user_id)
 
         # Проба — один раз: любая прошлая подписка (в том числе
         # истёкшая) закрывает её, дальше только месяц.
@@ -870,6 +881,14 @@ class PaymentService:
             "auto_renew": sub["auto_renew"],
             "plan": sub["plan"] or "monthly",
             "card": {"last4": card["card_last4"], "type": card["card_type"]} if card else None,
+            "last_payment": {
+                "amount": float(last_pay["amount"]) if last_pay["amount"] is not None else None,
+                "at": str(last_pay["created_at"]),
+                # 'subscription_recurring' — автопродление, всё остальное
+                # человек оплачивал руками. Разница видна на экране: одно
+                # он помнит, о другом мог не знать.
+                "is_renewal": last_pay["payment_type"] == "subscription_recurring",
+            } if last_pay else None,
             "trial_available": trial_available,
             "plans": plans,
         }
