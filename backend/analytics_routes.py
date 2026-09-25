@@ -14,6 +14,8 @@ from typing import Optional, Dict, Any
 
 from fastapi import Request, HTTPException, Header, Body
 
+from latency_stats import latency_summary
+
 logger = logging.getLogger(__name__)
 
 # Глобальная ссылка на db, чтобы log_server_event работал из любых модулей
@@ -757,6 +759,34 @@ def register_analytics_routes(app, db):
         except Exception as e:
             logger.error(f"analytics recent error: {e}")
             return {"error": "internal"}
+
+    @app.get("/api/analytics/latency")
+    async def analytics_latency(request: Request, hours: int = 1, limit: int = 30,
+                                x_admin_token: Optional[str] = Header(default=None)):
+        """Задержка первого слова за последние N часов.
+
+        Тайминги хода пишутся в fredi_events событием «chat» (main.py,
+        _finish_chat_turn), но наружу до сих пор не отдавались: админ-лента
+        показывает три первых поля события, и это не они. Здесь — медианы
+        по отсечкам, разбивка по режимам и последние ходы как есть.
+        """
+        _check_admin(x_admin_token)
+        try:
+            hrs = max(1, min(int(hours), 24 * 14))
+            lim = max(0, min(int(limit), 200))
+            async with db.get_connection() as conn:
+                rows = await conn.fetch(
+                    "SELECT event_data, created_at FROM fredi_events "
+                    "WHERE event_type = 'chat' "
+                    "  AND created_at > NOW() - ($1 || ' hours')::interval "
+                    "ORDER BY created_at DESC LIMIT 5000", str(hrs)
+                )
+            out = latency_summary(rows, lim)
+            out["hours"] = hrs
+            return out
+        except Exception as e:
+            logger.error(f"analytics latency error: {type(e).__name__}: {e}")
+            return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
 
     @app.get("/api/analytics/user/{user_id}")
     async def analytics_user(request: Request, user_id: int, limit: int = 200,
