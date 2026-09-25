@@ -447,10 +447,6 @@ async def lifespan(app: FastAPI):
         try:
             from reengagement_routes import register_reengagement_routes
             register_reengagement_routes(app, db, lambda: email_service)
-            # Подарок подписчикам — сборники «Три пути» письмом; только
-            # руками из админки, под X-Admin-Token (gift_mail.py).
-            from gift_mail import register_gift_mail_routes
-            register_gift_mail_routes(app, db, lambda: email_service)
             from services.reengagement import reengagement_scheduler
             background_tasks_extra_reeng = asyncio.create_task(
                 reengagement_scheduler(db, lambda: email_service, lambda: push_service)
@@ -458,6 +454,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"reengagement init failed: {e}")
             background_tasks_extra_reeng = None
+
+        # Подарок подписчикам — сборники «Три пути» письмом; только руками
+        # из админки, под X-Admin-Token (gift_mail.py). Своим try: сбой
+        # здесь не должен ронять планировщик напоминаний выше, и наоборот.
+        # Ошибка — в лог уровнем error: warning в потоке старта не виден.
+        try:
+            from gift_mail import register_gift_mail_routes
+            register_gift_mail_routes(app, db, lambda: email_service)
+            app.state.gift_mail_ready = True
+        except Exception as e:
+            logger.error(f"gift_mail init failed: {e}", exc_info=True)
+            app.state.gift_mail_ready = False
 
         # Подключаем учёт расходов на внешние API.
         try:
@@ -3167,6 +3175,10 @@ async def health_check():
             # понять это снаружи было нельзя вовсе. Здесь только флаг: ни
             # хоста, ни логина — health открыт всем.
             "email": bool(email_service and getattr(email_service, "enabled", False)),
+            # Ручки подарка подписчикам зарегистрированы (gift_mail.py).
+            # Снаружи иначе не отличить «ещё не задеплоилось» от «упало
+            # при старте»: обе выглядят как 404.
+            "gift_mail": bool(getattr(app.state, "gift_mail_ready", False)),
         }
     }
 
