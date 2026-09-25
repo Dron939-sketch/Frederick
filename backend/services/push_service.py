@@ -140,6 +140,11 @@ class PushService:
                 url="/?action=mirrors"
             )
 
+    async def send_text_to_messenger(self, user_id: int, text: str) -> bool:
+        """Текст в привязанный Telegram/MAX — публичная дверь для кампаний
+        (return_nudge). Внутри тот же путь, что у уведомлений о зеркале."""
+        return await self._send_to_messenger(user_id, text)
+
     async def _send_to_messenger(self, user_id: int, text: str) -> bool:
         """Отправляет сообщение в привязанный мессенджер. Возвращает True если отправлено."""
         try:

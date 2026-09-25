@@ -741,7 +741,7 @@ async def _count_candidates(db) -> int:
     return int(row["n"] if row else 0)
 
 
-async def reengagement_scheduler(db, email_service_getter):
+async def reengagement_scheduler(db, email_service_getter, push_service_getter=None):
     """Бэкграунд-loop: раз в час считаем кандидатов и шлём.
 
     До 12.09.2026 по умолчанию стоял полу-автомат (REENG_AUTOSEND=0):
@@ -770,6 +770,15 @@ async def reengagement_scheduler(db, email_service_getter):
                 await _scan_and_send_d3(db, es)
                 await _scan_and_send_trial(db, es)
                 await _scan_and_send_test_leads(db, es)
+                # «Напомнить завтра» по push и в мессенджер — для тех, у
+                # кого нет почты (25.09.2026). Ошибка здесь не должна
+                # останавливать письма, поэтому отдельный try.
+                try:
+                    from services.return_nudge import scan_and_send as _nudge
+                    ps = push_service_getter() if callable(push_service_getter) else push_service_getter
+                    await _nudge(db, ps)
+                except Exception as e:
+                    logger.warning(f"[reeng] d1_push: {e}")
             else:
                 n = await _count_candidates(db)
                 nt = await _count_trial_candidates(db)

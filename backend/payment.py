@@ -60,6 +60,11 @@ PLANS = {
                 "title": f"Подписка Фреди — {SUBSCRIPTION_AMOUNT} руб/мес"},
     "trial_week": {"amount": "69.00", "days": 3,
                    "title": "Фреди Premium — проба на 3 дня, 69 руб"},
+    # Три месяца (25.09.2026): якорь рядом с месяцем. Одна цена сравнивать
+    # не с чем; 1490 за 90 дней — 497 ₽ в месяц против 690, и это честная
+    # выгода, а не зачёркнутая цена. Продлевается тремя же месяцами.
+    "quarter": {"amount": "1490.00", "days": 90,
+                "title": "Подписка Фреди — 3 месяца, 1490 руб"},
 }
 TRIAL_PLAN = "trial_week"
 
@@ -303,6 +308,14 @@ class PaymentService:
 
         description = "Автопродление подписки Фреди"
 
+        # Тариф продления — тот же, что был у подписки: три месяца
+        # продлеваются тремя месяцами; месяц и проба — месяцем.
+        async with self.db.get_connection() as conn:
+            cur_plan = await conn.fetchval(
+                "SELECT plan FROM fredi_subscriptions WHERE user_id = $1", user_id)
+        renew_plan = "quarter" if cur_plan == "quarter" else "monthly"
+        renew_amount = PLANS[renew_plan]["amount"]
+
         customer = {}
         async with self.db.get_connection() as conn:
             row = await conn.fetchrow("""
@@ -319,7 +332,7 @@ class PaymentService:
             customer = {"email": "noreply@meysternlp.ru"}
 
         payment_data = {
-            "amount": {"value": SUBSCRIPTION_AMOUNT, "currency": SUBSCRIPTION_CURRENCY},
+            "amount": {"value": renew_amount, "currency": SUBSCRIPTION_CURRENCY},
             "capture": True,
             "payment_method_id": payment_method_id,
             "description": description,
@@ -328,7 +341,7 @@ class PaymentService:
             # _apply_succeeded_payment подставлял 'monthly' по умолчанию —
             # здесь это совпадает с правдой, но совпадение не гарантия.
             "metadata": {"user_id": str(user_id), "type": "subscription_recurring",
-                         "plan": "monthly"},
+                         "plan": renew_plan},
             "receipt": {
                 "customer": customer,
                 "items": [
@@ -336,7 +349,7 @@ class PaymentService:
                         "description": description,
                         "quantity": "1.00",
                         "amount": {
-                            "value": SUBSCRIPTION_AMOUNT,
+                            "value": renew_amount,
                             "currency": SUBSCRIPTION_CURRENCY,
                         },
                         "vat_code": 1,
@@ -406,17 +419,17 @@ class PaymentService:
                 # отчётах и в поллере оплата выглядит незавершённой.
                 await conn.execute("""
                     INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description, plan)
-                    VALUES ($1, $2, $3, $4, 'subscription_recurring', $5, 'monthly')
+                    VALUES ($1, $2, $3, $4, 'subscription_recurring', $5, $6)
                     ON CONFLICT (yookassa_id) DO UPDATE SET
                         status = EXCLUDED.status,
                         updated_at = NOW()
-                """, user_id, yookassa_id, float(SUBSCRIPTION_AMOUNT), status,
-                    "Автопродление подписки Фреди")
+                """, user_id, yookassa_id, float(renew_amount), status,
+                    "Автопродление подписки Фреди", renew_plan)
 
             logger.info(f"Recurring payment {yookassa_id}: {status} for user {user_id}")
 
             if status == "succeeded":
-                await self._extend_subscription(user_id)
+                await self._extend_subscription(user_id, renew_plan)
                 return {"success": True, "payment_id": yookassa_id, "status": status}
             elif status == "pending":
                 logger.warning(f"Recurring payment {yookassa_id} is pending - may require 3DS")
@@ -431,7 +444,11 @@ class PaymentService:
             logger.error(f"Recurring payment error for user {user_id}: {e}", exc_info=True)
             return {"success": False, "error": "Ошибка автоплатежа. Попробуйте позже."}
 
-    async def _extend_subscription(self, user_id: int):
+    async def _extend_subscription(self, user_id: int, plan: str = "monthly"):
+        # Срок продления — по тарифу продления: месяц или три месяца.
+        # После пробы — месяц; квартал продлевается кварталом (25.09.2026).
+        plan = plan if plan in ("monthly", "quarter") else "monthly"
+        period_days = int(PLANS[plan]["days"])
         async with self.db.get_connection() as conn:
             now = datetime.now(timezone.utc)
             row = await conn.fetchrow("""
@@ -440,28 +457,26 @@ class PaymentService:
             """, user_id)
 
             if row and row["expires_at"] and row["expires_at"] > now:
-                new_expires = row["expires_at"] + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                new_expires = row["expires_at"] + timedelta(days=period_days)
                 is_renewal = True
                 logger.info(f"Extending subscription for user {user_id} from {row['expires_at']} to {new_expires}")
             else:
-                new_expires = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                new_expires = now + timedelta(days=period_days)
                 is_renewal = False
                 logger.info(f"Creating new subscription for user {user_id} until {new_expires}")
 
-            # Автопродление всегда идёт на месячный тариф — и после
-            # пробной недели тоже.
             await conn.execute("""
                 INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew, plan)
-                VALUES ($1, 'active', $2, $3, TRUE, 'monthly')
+                VALUES ($1, 'active', $2, $3, TRUE, $4)
                 ON CONFLICT (user_id) DO UPDATE SET
                     status = 'active',
                     expires_at = $3,
                     auto_renew = TRUE,
-                    plan = 'monthly',
+                    plan = $4,
                     renewal_attempts = 0,
                     renewal_last_error = NULL,
                     updated_at = NOW()
-            """, user_id, now, new_expires)
+            """, user_id, now, new_expires, plan)
 
         # Analytics: ключевое событие воронки.
         try:
@@ -879,6 +894,8 @@ class PaymentService:
                            "days": PLANS["trial_week"]["days"], "available": trial_available},
             "monthly": {"amount": PLANS["monthly"]["amount"],
                         "days": PLANS["monthly"]["days"], "available": True},
+            "quarter": {"amount": PLANS["quarter"]["amount"],
+                        "days": PLANS["quarter"]["days"], "available": True},
         }
         if not sub:
             return {"has_subscription": False, "status": "none", "card": None,

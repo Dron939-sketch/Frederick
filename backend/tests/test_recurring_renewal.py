@@ -22,7 +22,7 @@ def _body(name: str, size: int = 2500) -> str:
 
 
 def test_recurring_row_updates_status_instead_of_doing_nothing():
-    b = _body("charge_recurring", 6000)
+    b = _body("charge_recurring", 9000)
     i = b.index("INSERT INTO fredi_payments")
     insert = b[i:i + 500]
     assert "DO UPDATE" in insert, (
@@ -78,7 +78,7 @@ def test_status_carries_last_payment():
     человек, у которого деньги уже ушли, не находил на сайте ни следа
     этого.
     """
-    b = _body("get_subscription_status", 3000)
+    b = _body("get_subscription_status", 4000)
     assert "last_payment" in b
     assert "status = 'succeeded'" in b, "показываем прошедшее списание, а не созданный платёж"
     assert "is_renewal" in b, "автопродление и разовую оплату человек воспринимает по-разному"

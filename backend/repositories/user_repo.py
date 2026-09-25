@@ -106,7 +106,11 @@ class UserRepository:
     # а get_last_deep_analysis читал из той же чужой таблицы и всегда отдавал
     # пусто — премиум-разбор не сохранялся ни разу и генерировался заново
     # (6000 токенов DeepSeek) при каждом открытии экрана.
-    async def save_deep_analysis(self, user_id: Union[int, str], analysis_data: Dict[str, Any]) -> Optional[int]:
+    # locked — разбор сгенерирован человеку без подписки (25.09.2026):
+    # наружу уходит только превью (deep_preview.py), полный текст
+    # открывается подпиской — той же строкой, без повторной генерации.
+    async def save_deep_analysis(self, user_id: Union[int, str], analysis_data: Dict[str, Any],
+                                 locked: bool = False) -> Optional[int]:
         try:
             condition, value = self._get_id_condition(user_id)
             await self.create_user_if_not_exists(user_id)
@@ -116,32 +120,33 @@ class UserRepository:
             """, value)
 
             analysis_id = await self.db.fetchval("""
-                INSERT INTO fredi_deep_analyses (user_id, analysis_text, analysis_type, created_at, updated_at, is_active)
-                VALUES ($1, $2, $3, NOW(), NOW(), TRUE)
+                INSERT INTO fredi_deep_analyses (user_id, analysis_text, analysis_type, created_at, updated_at, is_active, locked)
+                VALUES ($1, $2, $3, NOW(), NOW(), TRUE, $4)
                 RETURNING id
-            """, value, json.dumps(analysis_data, ensure_ascii=False), 'deep_analysis')
-            
-            logger.info(f"Deep analysis saved for user {user_id}, id={analysis_id}")
+            """, value, json.dumps(analysis_data, ensure_ascii=False), 'deep_analysis', bool(locked))
+
+            logger.info(f"Deep analysis saved for user {user_id}, id={analysis_id}, locked={bool(locked)}")
             return analysis_id
         except Exception as e:
             logger.error(f"Error saving deep analysis for user {user_id}: {e}")
             return None
-    
+
     async def get_last_deep_analysis(self, user_id: Union[int, str]) -> Optional[Dict[str, Any]]:
         try:
             condition, value = self._get_id_condition(user_id)
-            
+
             row = await self.db.fetchrow(f"""
-                SELECT analysis_text, created_at, updated_at 
+                SELECT analysis_text, created_at, updated_at, locked
                 FROM fredi_deep_analyses
                 WHERE {condition} AND is_active = TRUE
                 ORDER BY created_at DESC LIMIT 1
             """, value)
-            
+
             if row and row['analysis_text']:
                 analysis_data = json.loads(row['analysis_text'])
                 return {
                     "analysis": analysis_data,
+                    "locked": bool(row['locked']),
                     "created_at": row['created_at'].isoformat() if row['created_at'] else None,
                     "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None
                 }
@@ -150,11 +155,25 @@ class UserRepository:
             logger.error(f"Error getting deep analysis for user {user_id}: {e}")
             return None
 
+    async def unlock_deep_analysis(self, user_id: Union[int, str]) -> bool:
+        """Подписка открывает тот разбор, который человек видел размытым."""
+        try:
+            condition, value = self._get_id_condition(user_id)
+            await self.db.execute(f"""
+                UPDATE fredi_deep_analyses SET locked = FALSE, updated_at = NOW()
+                WHERE {condition} AND is_active = TRUE AND locked = TRUE
+            """, value)
+            return True
+        except Exception as e:
+            logger.error(f"Error unlocking deep analysis for user {user_id}: {e}")
+            return False
+
     # Сколько разборов у человека было ВСЕГО, а не сколько активных.
-    # На этом числе держится подарок: разбор дарится тому, у кого его не
-    # было ни разу. Считать по is_active нельзя — save_deep_analysis гасит
-    # прошлые строки перед вставкой новой, и человек, уже получивший
-    # подарок и отписавшийся, получал бы его снова каждый раз.
+    # По этому числу первая генерация проходит сквозь стену минут
+    # (meter_guard_middleware): без подписки она даёт только превью, и
+    # пропускать её можно ровно один раз. Считать по is_active нельзя —
+    # save_deep_analysis гасит прошлые строки перед вставкой новой, и
+    # исключение открывалось бы заново после каждой генерации.
     async def count_deep_analyses(self, user_id: Union[int, str]) -> int:
         try:
             condition, value = self._get_id_condition(user_id)
@@ -164,15 +183,15 @@ class UserRepository:
             return int(n or 0)
         except Exception as e:
             logger.error(f"Error counting deep analyses for user {user_id}: {e}")
-            # Ошибку считаем «разборы были»: молча подарить второй раз хуже,
-            # чем не подарить — второй подарок обесценивает платный раздел.
+            # Ошибку считаем «разборы были»: лишний проход сквозь стену
+            # хуже, чем лишний отказ, — стена и так покажет человеку цену.
             return 1
 
     async def get_deep_analyses_history(self, user_id: Union[int, str], limit: int = 10) -> List[Dict[str, Any]]:
         try:
             condition, value = self._get_id_condition(user_id)
             rows = await self.db.fetch(f"""
-                SELECT id, analysis_text, analysis_type, created_at, updated_at, is_active
+                SELECT id, analysis_text, analysis_type, created_at, updated_at, is_active, locked
                 FROM fredi_deep_analyses WHERE {condition}
                 ORDER BY created_at DESC LIMIT $2
             """, value, limit)
@@ -185,7 +204,8 @@ class UserRepository:
                     "type": row['analysis_type'],
                     "created_at": row['created_at'].isoformat() if row['created_at'] else None,
                     "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None,
-                    "is_active": row['is_active']
+                    "is_active": row['is_active'],
+                    "locked": bool(row['locked'])
                 })
             return analyses
         except Exception as e:
