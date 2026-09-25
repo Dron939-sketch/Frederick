@@ -449,7 +449,7 @@ async def lifespan(app: FastAPI):
             register_reengagement_routes(app, db, lambda: email_service)
             from services.reengagement import reengagement_scheduler
             background_tasks_extra_reeng = asyncio.create_task(
-                reengagement_scheduler(db, lambda: email_service)
+                reengagement_scheduler(db, lambda: email_service, lambda: push_service)
             )
         except Exception as e:
             logger.warning(f"reengagement init failed: {e}")
