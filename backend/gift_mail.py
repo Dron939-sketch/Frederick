@@ -24,9 +24,12 @@
 
 FastAPI импортируется внутри register_*: текст письма и запрос
 получателей проверяются тестами в окружении без веб-стека.
-"""
-from __future__ import annotations
 
+Без `from __future__ import annotations` — намеренно. С ним аннотации
+маршрутов становятся строками, FastAPI разбирает их по глобалам модуля,
+а Request и Header импортированы внутри функции — и регистрация падала
+на старте (25.09.2026, флаг gift_mail в /health был false).
+"""
 import html as _html
 import logging
 import os
