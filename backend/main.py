@@ -447,6 +447,10 @@ async def lifespan(app: FastAPI):
         try:
             from reengagement_routes import register_reengagement_routes
             register_reengagement_routes(app, db, lambda: email_service)
+            # Подарок подписчикам — сборники «Три пути» письмом; только
+            # руками из админки, под X-Admin-Token (gift_mail.py).
+            from gift_mail import register_gift_mail_routes
+            register_gift_mail_routes(app, db, lambda: email_service)
             from services.reengagement import reengagement_scheduler
             background_tasks_extra_reeng = asyncio.create_task(
                 reengagement_scheduler(db, lambda: email_service, lambda: push_service)
