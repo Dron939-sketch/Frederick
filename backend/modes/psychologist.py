@@ -277,7 +277,8 @@ class PsychologistMode(BaseMode):
         if self.user_data.get("memory_allowed", True):  # без аккаунта — без памяти (free_tier.py)
             try:
                 from session_memory import load_memory_block, schedule_summarize_in_background
-                memory_block = await load_memory_block(self.user_id)
+                memory_block = await load_memory_block(
+                    self.user_id, max_age_days=self.user_data.get("memory_max_age_days"))
                 schedule_summarize_in_background(self.user_id)
             except Exception as e:
                 logger.debug(f"session_memory load failed: {e}")

@@ -204,7 +204,8 @@ class TrainerMode(BaseMode):
             return system_prompt
         try:
             from session_memory import load_memory_block, schedule_summarize_in_background
-            memory_block = await load_memory_block(self.user_id)
+            memory_block = await load_memory_block(
+                self.user_id, max_age_days=self.user_data.get("memory_max_age_days"))
             schedule_summarize_in_background(self.user_id)
             if memory_block:
                 return memory_block + system_prompt

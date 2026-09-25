@@ -375,8 +375,12 @@ def _format_memory_text(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-async def load_memory_block(user_id: int, limit: int = DEFAULT_MEMORY_LIMIT) -> str:
+async def load_memory_block(user_id: int, limit: int = DEFAULT_MEMORY_LIMIT,
+                            max_age_days: Optional[int] = None) -> str:
     """Возвращает форматированный блок памяти для подмешивания в system_prompt.
+
+    max_age_days — окно памяти: без аккаунта сводки старше семи дней не
+    подмешиваются (free_tier.ANON_MEMORY_DAYS), с аккаунтом окна нет.
 
     Тихий: при ошибках возвращает пустую строку. Не блокирует основной поток.
     """
@@ -384,13 +388,23 @@ async def load_memory_block(user_id: int, limit: int = DEFAULT_MEMORY_LIMIT) -> 
         return ""
     try:
         async with _db_ref.get_connection() as conn:
-            rows = await conn.fetch(
-                "SELECT mode, method_code, started_at, ended_at, message_count, "
-                "       summary, key_facts, continuity_hooks, client_state_at_end "
-                "FROM fredi_session_summaries "
-                "WHERE user_id = $1 ORDER BY ended_at DESC LIMIT $2",
-                int(user_id), int(limit),
-            )
+            if max_age_days:
+                rows = await conn.fetch(
+                    "SELECT mode, method_code, started_at, ended_at, message_count, "
+                    "       summary, key_facts, continuity_hooks, client_state_at_end "
+                    "FROM fredi_session_summaries "
+                    "WHERE user_id = $1 AND ended_at > NOW() - ($3 || ' days')::interval "
+                    "ORDER BY ended_at DESC LIMIT $2",
+                    int(user_id), int(limit), str(int(max_age_days)),
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT mode, method_code, started_at, ended_at, message_count, "
+                    "       summary, key_facts, continuity_hooks, client_state_at_end "
+                    "FROM fredi_session_summaries "
+                    "WHERE user_id = $1 ORDER BY ended_at DESC LIMIT $2",
+                    int(user_id), int(limit),
+                )
         return _format_memory_text([dict(r) for r in rows])
     except Exception as e:
         logger.warning(f"load_memory_block({user_id}) error: {e}")
