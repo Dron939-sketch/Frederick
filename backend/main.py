@@ -467,6 +467,17 @@ async def lifespan(app: FastAPI):
             logger.error(f"gift_mail init failed: {e}", exc_info=True)
             app.state.gift_mail_ready = False
 
+        # «Семь дней по теме» — план из лекций Лектория после разговора
+        # (week_plan_routes.py). Пишет в fredi_skill_plans и живёт на трубах
+        # плана навыка. Своим try по той же причине, что и подарок выше.
+        try:
+            from week_plan_routes import register_week_plan_routes
+            register_week_plan_routes(app, db, lambda: ai_service, limiter)
+            app.state.week_plan_ready = True
+        except Exception as e:
+            logger.error(f"week_plan init failed: {e}", exc_info=True)
+            app.state.week_plan_ready = False
+
         # Подключаем учёт расходов на внешние API.
         try:
             from services.api_usage import set_db as _set_api_usage_db
@@ -3179,6 +3190,7 @@ async def health_check():
             # Снаружи иначе не отличить «ещё не задеплоилось» от «упало
             # при старте»: обе выглядят как 404.
             "gift_mail": bool(getattr(app.state, "gift_mail_ready", False)),
+            "week_plan": bool(getattr(app.state, "week_plan_ready", False)),
         }
     }
 

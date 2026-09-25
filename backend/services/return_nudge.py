@@ -85,8 +85,15 @@ SELECT u.user_id, COALESCE(c.name, '') AS name
                     WHERE l.user_id = u.user_id AND l.campaign = $1)
    AND NOT EXISTS (SELECT 1 FROM fredi_reengagement_log l
                     WHERE l.user_id = u.user_id AND l.opted_out_at IS NOT NULL)
+   AND NOT EXISTS (SELECT 1 FROM fredi_skill_plans sp
+                    WHERE sp.user_id = u.user_id
+                      AND sp.channel IS NOT NULL AND sp.channel <> 'none'
+                      AND sp.started_at > NOW() - INTERVAL '21 days')
  LIMIT 50
 """
+# Последнее условие: у кого идёт план (навык или «семь дней по теме») с
+# каналом, тому планировщик skill_notify и так пишет каждое утро — второе
+# «как прошло?» в тот же день читается спамом.
 
 # Открыл «Мне плохо прямо сейчас» час-три назад, канал есть, догона ещё
 # не было. Почта не помеха: у писем такой кампании нет. $1 — кампания.
