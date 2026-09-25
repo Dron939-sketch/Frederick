@@ -344,7 +344,8 @@ def _user_now(plan_row) -> datetime:
 # ============================================================
 # ШАБЛОНЫ СООБЩЕНИЙ
 # ============================================================
-def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
+def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour: int,
+                      total: int = 21) -> str:
     """Утреннее сообщение — задание дня. Премиум-минимализм с умеренным
     форматированием: жирным выделены три якоря — где юзер в плане
     (День N из 21), название навыка, и сама задача. Этого достаточно,
@@ -358,7 +359,7 @@ def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour
     parts = [
         f"{_greeting(hour, name)}",
         "",
-        f"*День {day} из 21*  ·  *{skill_name}*",
+        f"*День {day} из {total}*  ·  *{skill_name}*",
         "",
         f"📌 *{task}*  ·  {dur}",
         "",
@@ -376,7 +377,8 @@ def build_day_message(skill_name: str, day: int, exercise: dict, name: str, hour
     return "\n".join(parts)
 
 
-def build_check_message(skill_name: str, day: int, exercise: dict, name: str, hour: int) -> str:
+def build_check_message(skill_name: str, day: int, exercise: dict, name: str, hour: int,
+                        total: int = 21) -> str:
     """Дневной чек-ин (active mode) — короткое подбадривание. Жирным —
     конкретная задача и якорь дня; «пяти минут» жирным как мини-CTA
     (снижает барьер начать)."""
@@ -384,7 +386,7 @@ def build_check_message(skill_name: str, day: int, exercise: dict, name: str, ho
     parts = [
         _greeting(hour, name),
         "",
-        f"Получилось начать «*{task}*»?  ·  *День {day} из 21*",
+        f"Получилось начать «*{task}*»?  ·  *День {day} из {total}*",
         "",
         "Если ещё нет — *пяти минут хватит*, чтобы сделать первый шаг.",
         "",
@@ -419,12 +421,31 @@ def _user_tz(tz_str: Optional[str]):
         return timezone.utc
 
 
-def _current_day(started_at, tz) -> int:
-    """Сколько дней прошло от старта в локальной зоне юзера. 1..21."""
+def _plan_total(plan_data) -> int:
+    """Длина плана в днях. У навыка 21; у «семи дней по теме» (week_plan.py)
+    в plan лежит days_total — те же трубы, другой срок."""
+    if isinstance(plan_data, str):
+        try:
+            plan_data = json.loads(plan_data)
+        except Exception:
+            return 21
+    try:
+        total = int((plan_data or {}).get("days_total") or 21)
+    except (TypeError, ValueError, AttributeError):
+        total = 21
+    return max(1, min(21, total))
+
+
+def _days_elapsed(started_at, tz) -> int:
+    """Календарных дней с начала в зоне юзера, считая день старта первым."""
     now_local = datetime.now(timezone.utc).astimezone(tz)
     started_local = started_at.astimezone(tz) if started_at else now_local
-    days = (now_local.date() - started_local.date()).days + 1
-    return max(1, min(21, days))
+    return (now_local.date() - started_local.date()).days + 1
+
+
+def _current_day(started_at, tz, total: int = 21) -> int:
+    """Сколько дней прошло от старта в локальной зоне юзера. 1..total."""
+    return max(1, min(total, _days_elapsed(started_at, tz)))
 
 
 def _find_exercise(plan_data, day: int):
@@ -451,11 +472,11 @@ async def send_day_message(db, user_id: int) -> dict:
 
     tz_str = plan["tz"] if "tz" in plan.keys() else "UTC"
     tz = _user_tz(tz_str)
-    day = _current_day(plan["started_at"], tz)
-
     plan_data = plan["plan"]
     if isinstance(plan_data, str):
         plan_data = json.loads(plan_data)
+    total = _plan_total(plan_data)
+    day = _current_day(plan["started_at"], tz, total)
     exercise = _find_exercise(plan_data, day)
     if not exercise:
         return {"success": False, "error": f"day {day} not found in plan"}
@@ -463,7 +484,7 @@ async def send_day_message(db, user_id: int) -> dict:
     name = await _get_user_name(db, user_id)
     user_now = datetime.now(timezone.utc).astimezone(tz)
 
-    text = build_day_message(plan["skill_name"], day, exercise, name, user_now.hour)
+    text = build_day_message(plan["skill_name"], day, exercise, name, user_now.hour, total)
     # Кнопка под сообщением → сразу на «Тренировку дня».
     return await send_to_channel(db, user_id, plan["channel"], text, screen="training")
 
@@ -489,6 +510,7 @@ async def send_welcome_message(db, user_id: int) -> dict:
     plan_data = plan["plan"]
     if isinstance(plan_data, str):
         plan_data = json.loads(plan_data)
+    total = _plan_total(plan_data)
     day1 = _find_exercise(plan_data, 1) or {}
     day1_task = day1.get("task", "первое задание")
     day1_dur = day1.get("dur", "5 мин")
@@ -498,12 +520,16 @@ async def send_welcome_message(db, user_id: int) -> dict:
     name = await _get_user_name(db, user_id)
     name_part = f", {name}" if name else ""
 
+    if total == 7:
+        head = f"*Семь дней по теме «{skill_name}».* Каждый день один шаг на три минуты."
+    else:
+        head = f"*{total} день навыка «{skill_name}».* Каждый день одно короткое задание."
     parts = [
         f"*Поехали{name_part}.*",
         "",
-        f"*21 день навыка «{skill_name}».* Каждый день одно короткое задание.",
+        head,
         "",
-        "*День 1 из 21*",
+        f"*День 1 из {total}*",
         "",
         f"📌 *{day1_task}*  ·  {day1_dur}",
         "",
@@ -626,21 +652,24 @@ async def _send_touchpoint(db, plan_row, kind: str) -> dict:
     skill_name = plan_row["skill_name"] or "навык"
     tz_str = plan_row["tz"] if "tz" in plan_row.keys() else "UTC"
     tz = _user_tz(tz_str)
-    day = _current_day(plan_row["started_at"], tz)
-
     plan_data = plan_row["plan"]
     if isinstance(plan_data, str):
         plan_data = json.loads(plan_data)
+    total = _plan_total(plan_data)
+    if _days_elapsed(plan_row["started_at"], tz) > total:
+        # План кончился: семь дней прошли, слать «день 7» восьмой раз не надо.
+        return {"success": False, "error": "plan finished"}
+    day = _current_day(plan_row["started_at"], tz, total)
     exercise = _find_exercise(plan_data, day) or {}
 
     name = await _get_user_name(db, user_id)
     user_hour = datetime.now(timezone.utc).astimezone(tz).hour
 
     if kind == "morning":
-        text = build_day_message(skill_name, day, exercise, name, user_hour)
+        text = build_day_message(skill_name, day, exercise, name, user_hour, total)
         screen = "training"  # утром удобно сразу на тренировку
     elif kind == "check":
-        text = build_check_message(skill_name, day, exercise, name, user_hour)
+        text = build_check_message(skill_name, day, exercise, name, user_hour, total)
         screen = "training"  # дневной чек — туда же, чтобы быстро отметить
     elif kind == "eve":
         text = build_evening_message(skill_name, day, name, user_hour)
