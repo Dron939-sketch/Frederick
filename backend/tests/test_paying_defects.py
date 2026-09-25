@@ -178,7 +178,8 @@ class _FakeBasic:
 
 def test_lock_price_is_the_real_one():
     t = pg.lock_text("coach")
-    assert "69 ₽" in t and "990" in t
+    from payment import plan_price
+    assert f"{plan_price('trial_week')} ₽" in t and f"{plan_price('monthly')} ₽" in t
     assert "290" not in t, "в замке снова цена, которой нет в payment.py"
     assert "Пока отвечу" in t, "замок обязан обещать ответ, а не только продавать"
 
