@@ -957,6 +957,24 @@ def create_auth_router(db, limiter, email_service=None) -> APIRouter:
             ),
         }
 
+    # Вход в один тап — Telegram, Яндекс ID, VK ID (25.09.2026). Живёт в
+    # social_auth.py, а сессии, cookie и заведение пользователя берёт те же,
+    # что у /login и /register, — чтобы это был тот же аккаунт, а не второй.
+    from social_auth import register_social_routes
+    register_social_routes(router, db, limiter, {
+        "create_session": _create_session,
+        "set_session_cookie": _set_session_cookie,
+        "track": _track,
+        "log_attempt": _log_attempt,
+        "new_user_id": _new_user_id,
+        "insert_new_user": _insert_new_user,
+        "hasher": _hasher,
+        "anon_cookie_name": ANON_COOKIE_NAME,
+        "client_ip": _client_ip,
+        "user_agent": _user_agent,
+        "parse_int": _parse_int,
+    })
+
     return router
 
 
