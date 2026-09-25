@@ -16,7 +16,7 @@ Build marker: голос — посегментный TTS-стрим (буфер
 import os
 import sys
 import asyncio
-from free_tier import session_history
+from free_tier import session_history, return_context, ANON_MEMORY_DAYS
 import logging
 import time
 import json
@@ -3757,10 +3757,28 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
     # Premium-gate: без активной подписки premium-роли понижаются до basic.
     mode_name = await _enforce_premium_mode(user_id, mode_name)
 
-    # ФИХ 3: Загружаем историю диалога из БД
+    session_meta = await _session_meta(user_id)
+    # is_registered неизвестен (сбой базы) — считаем, что аккаунт есть:
+    # лишняя память дешевле ложного «с чистого листа».
+    registered = bool(session_meta.get("is_registered", True))
+
+    # ФИХ 3: Загружаем историю диалога из БД.
+    #
+    # Окно памяти (free_tier.py): без аккаунта — семь дней, с аккаунтом —
+    # без срока. Фильтр стоит ДО того, как строки обрежутся до role и
+    # content: с 13.09 по 25.09 он стоял после и отбрасывал всё без
+    # времени — аноним получал пустую историю и Фреди не видел даже его
+    # предыдущей реплики. Строки идут от новых к старым, разворачиваем.
+    return_ctx = {}
     try:
         history_rows = await message_repo.get_history(user_id, limit=10)
-        history = [{'role': m['role'], 'content': m['content']} for m in reversed(history_rows)]
+        rows_asc = [dict(m) for m in reversed(history_rows)]
+        rows_asc = session_history(rows_asc, registered)
+        # Возвращение после паузы: когда и о чём был прошлый разговор —
+        # чтобы первая фраза Фреди была про это, а не «здравствуйте».
+        if int(session_meta.get("session_turns") or 0) == 0:
+            return_ctx = return_context(rows_asc, registered)
+        history = [{'role': m['role'], 'content': m['content']} for m in rows_asc]
     except Exception as e:
         logger.warning(f"Failed to load history: {e}")
         history = []
@@ -3773,14 +3791,6 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
     else:
         msg_count = 0
 
-    session_meta = await _session_meta(user_id)
-    # Бесплатная версия без аккаунта не помнит вчерашнего (free_tier.py):
-    # в промпт идёт только текущий разговор, сводки прошлых сессий не
-    # подмешиваются. is_registered неизвестен (сбой базы) — считаем, что
-    # аккаунт есть: лишняя память дешевле ложного «с чистого листа».
-    registered = bool(session_meta.get("is_registered", True))
-    history = session_history(history, registered)
-
     user_data = {
         "profile_data": profile.get("profile_data", {}),
         "perception_type": profile.get("perception_type", "не определен"),
@@ -3792,7 +3802,10 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         "history": history,           # ФИХ 3: реальная история
         "message_count": msg_count,   # ФИХ 4: счётчик BasicMode
         "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
-        "memory_allowed": registered,
+        # Сводки прошлых сессий — всем; анониму только за семь дней.
+        "memory_allowed": True,
+        "memory_max_age_days": None if registered else ANON_MEMORY_DAYS,
+        **return_ctx,   # return_topic / return_when — первая фраза после паузы
         **session_meta,  # session_turns, is_registered — для ритуала завершения
     }
 

@@ -357,7 +357,8 @@ class BasicMode(BaseMode):
                 load_memory_block,
                 schedule_summarize_in_background,
             )
-            self._cross_memory = await load_memory_block(self.user_id) or ""
+            self._cross_memory = await load_memory_block(
+                self.user_id, max_age_days=self.user_data.get("memory_max_age_days")) or ""
             schedule_summarize_in_background(self.user_id)
         except Exception as e:
             logger.debug(f"session_memory load failed in BasicMode: {e}")
@@ -727,10 +728,68 @@ class BasicMode(BaseMode):
         ]
         if not self.user_data.get("is_registered"):
             lines.append(
-                "- Одной фразой, без давления: чтобы завтра помнить этот разговор, "
-                "тебе нужен его аккаунт — почта и четыре цифры, кнопка вверху."
+                "- Одной фразой, без давления: этот разговор ты помнишь неделю на этом "
+                "устройстве; чтобы помнить дольше и с любого устройства — аккаунт, "
+                "почта и четыре цифры, кнопка вверху."
             )
         return "\n".join(lines)
+
+    # Каждый третий ответ — без вопроса. Замер 18–25.09 по 259 разговорам:
+    # вопрос стоит в 93% ответов, и человек отвечает на него 40–50 знаками
+    # — разговор превращается в анкету, реплики короче с каждым ходом
+    # (первая 76 знаков, восьмая 28). Отражение первой фразой при этом в
+    # 2% ответов, хотя в промпте оно стоит с 16.09: длинное правило модель
+    # не держит, короткое на каждый ход — держит.
+    NO_QUESTION_EVERY = 3
+
+    def _build_rhythm_block(self, question: str) -> str:
+        """Короткое правило на этот ход: первая фраза — его словами; каждый
+        третий ход — без вопроса, с наблюдением и одним шагом."""
+        turns = int(self.user_data.get("session_turns") or 0) + 1  # с текущей репликой
+        if turns < 2:
+            return ""
+        if (question or "").strip().startswith(self._SEARCH_STARTS):
+            return ""
+        lines = [
+            "РИТМ — только в этом ответе:",
+            "- Первое предложение — про то, что он только что написал, его словами. "
+            "Не «понимаю», не «слышу», не «спасибо, что поделился».",
+        ]
+        if turns % self.NO_QUESTION_EVERY == 0:
+            lines.append(
+                "- Этот ответ — БЕЗ вопроса. Ни в конце, ни в середине. Вместо вопроса: "
+                "одно наблюдение по его словам, одна догадка с правом поправить "
+                "(«…или я не туда?» — это не вопрос, это дверь), и одно маленькое "
+                "действие на сегодня. Закончи утверждением."
+            )
+        else:
+            lines.append("- Вопрос — не больше одного, и только про него, не про тему.")
+        return "\n".join(lines)
+
+    def _build_return_block(self, question: str) -> str:
+        """Человек вернулся после паузы — первая фраза про прошлый разговор.
+
+        25.09.2026: возвращаются 1%, и тех, кто вернулся, Фреди встречал как
+        новых. main.py кладёт в user_data return_topic / return_when, когда
+        это первая реплика нового разговора и прошлый был в окне памяти
+        (free_tier.return_context). Автовопрос из рекламы — не возвращение.
+        """
+        d = self.user_data
+        topic = (d.get("return_topic") or "").strip()
+        if not topic or int(d.get("session_turns") or 0) > 0:
+            return ""
+        if (question or "").strip().startswith(self._SEARCH_STARTS):
+            return ""
+        when = d.get("return_when") or "недавно"
+        return "\n".join([
+            "ВОЗВРАЩЕНИЕ — только в этом ответе:",
+            f"- Человек уже был здесь {when} и говорил о: «{topic}».",
+            "- Первой фразой, одним предложением, покажи, что помнишь: «В прошлый раз "
+            "вы говорили о … — как оно сейчас?» — своими словами, без кавычек и без "
+            "пересказа прошлого разговора.",
+            "- Дальше отвечай на то, что он написал сейчас. Если новая реплика о "
+            "другом — не тяни его назад: одна фраза памяти, и к его теме.",
+        ])
 
     # За сколько минут до стены Фреди говорит, что будет дальше. Тот же
     # порог, что у критического тоста на клиенте (meter.js: ≤2 мин при
@@ -793,8 +852,9 @@ class BasicMode(BaseMode):
             )
         else:
             lines.append(
-                "- Без аккаунта завтра ты этот разговор не вспомнишь. Чтобы помнил — "
-                "аккаунт: почта и четыре цифры, кнопка вверху. "
+                "- Разговор ты помнишь неделю на этом устройстве, завтра продолжишь с "
+                "этого места; аккаунт (почта и четыре цифры, кнопка вверху) — чтобы "
+                "помнить дольше и с любого устройства. "
                 f"Продолжить прямо сейчас, без паузы, можно по пробе — {price}. "
                 "Одной фразой, без давления."
             )
@@ -929,6 +989,15 @@ class BasicMode(BaseMode):
         first = self._build_first_contact_block(question)
         if first:
             parts.append(first)
+        returned = self._build_return_block(question)
+        if returned:
+            parts.append(returned)
+        # Ритуал завершения сам запрещает вопрос — второе правило о том же
+        # в одном ответе не нужно.
+        if not closing:
+            rhythm = self._build_rhythm_block(question)
+            if rhythm:
+                parts.append(rhythm)
         crisis = self._build_crisis_block()
         if crisis:
             parts.append(crisis)
