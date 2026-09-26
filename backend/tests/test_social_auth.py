@@ -136,3 +136,29 @@ def test_auth_router_wires_social_routes():
     assert "register_social_routes(router, db, limiter" in src
     for key in ("create_session", "set_session_cookie", "insert_new_user", "anon_cookie_name"):
         assert f'"{key}"' in src
+
+
+def test_env_keys_accept_common_aliases(monkeypatch):
+    """26.09.2026: ключи VK ID лежали в окружении под другим именем, и
+    /providers молчал. Каждый ключ читается по нескольким именам."""
+    for n in sa.ENV_ALIASES["VK_APP_ID"]:
+        monkeypatch.delenv(n, raising=False)
+    assert sa.env_first(*sa.ENV_ALIASES["VK_APP_ID"]) == ""
+    monkeypatch.setenv("VK_ID_CLIENT_ID", " 52011 ")
+    assert sa.env_first(*sa.ENV_ALIASES["VK_APP_ID"]) == "52011"
+    monkeypatch.setenv("VK_APP_ID", "1")
+    assert sa.env_first(*sa.ENV_ALIASES["VK_APP_ID"]) == "1", "каноническое имя побеждает"
+    assert "VK_APP_ID" == sa.ENV_ALIASES["VK_APP_ID"][0]
+    assert "YANDEX_OAUTH_CLIENT_ID" == sa.ENV_ALIASES["YANDEX_CLIENT_ID"][0]
+
+
+def test_env_diag_names_only(monkeypatch):
+    monkeypatch.setenv("VK_ID_CLIENT_ID", "secret-value-123")
+    d = sa.env_diag()
+    assert "VK_ID_CLIENT_ID" in d["env_names_present"]
+    assert "secret-value-123" not in str(d), "значения наружу не уходят"
+    assert set(d["configured"]) == {"TELEGRAM_TOKEN", "TELEGRAM_BOT_USERNAME", "YANDEX_CLIENT_ID",
+                                    "YANDEX_CLIENT_SECRET", "VK_APP_ID", "VK_APP_SECRET"}
+    src = open(os.path.join(os.path.dirname(__file__), "..", "social_auth.py"), encoding="utf-8").read()
+    i = src.index('"/providers/diag"')
+    assert "ADMIN_TOKEN" in src[i:i + 700] and "status_code=401" in src[i:i + 700]

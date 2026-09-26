@@ -53,12 +53,60 @@ APP_URL = (os.environ.get("APP_URL") or "https://meysternlp.ru/fredi").rstrip("/
 # Адрес бэкенда, на который провайдеры возвращают человека с кодом.
 API_PUBLIC_URL = (os.environ.get("API_PUBLIC_URL") or "https://ffred-ddd989.amvera.io").rstrip("/")
 
-TELEGRAM_TOKEN = (os.environ.get("TELEGRAM_TOKEN") or "").strip()
-TELEGRAM_BOT_USERNAME = (os.environ.get("TELEGRAM_BOT_USERNAME") or "").strip().lstrip("@")
-YANDEX_CLIENT_ID = (os.environ.get("YANDEX_OAUTH_CLIENT_ID") or "").strip()
-YANDEX_CLIENT_SECRET = (os.environ.get("YANDEX_OAUTH_CLIENT_SECRET") or "").strip()
-VK_APP_ID = (os.environ.get("VK_APP_ID") or "").strip()
-VK_APP_SECRET = (os.environ.get("VK_APP_SECRET") or "").strip()
+def env_first(*names: str) -> str:
+    """Первая непустая переменная из списка имён.
+
+    26.09.2026: владелец положил ключи VK ID в окружение, а /providers
+    отдавал пусто — имя переменной отличалось от ожидаемого VK_APP_ID.
+    Кабинет VK ID называет это «ID приложения», Яндекс — «ClientID»,
+    и как именно человек назовёт переменную, угадать нельзя. Поэтому
+    каждый ключ читается по нескольким привычным именам; первое
+    заданное побеждает. Список имён — в ENV_ALIASES, его же показывает
+    диагностика /providers/diag."""
+    for n in names:
+        v = (os.environ.get(n) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+ENV_ALIASES = {
+    "TELEGRAM_TOKEN": ("TELEGRAM_TOKEN", "TELEGRAM_BOT_TOKEN", "TG_BOT_TOKEN"),
+    "TELEGRAM_BOT_USERNAME": ("TELEGRAM_BOT_USERNAME", "TELEGRAM_BOT_NAME", "TG_BOT_USERNAME", "TELEGRAM_BOT"),
+    "YANDEX_CLIENT_ID": ("YANDEX_OAUTH_CLIENT_ID", "YANDEX_CLIENT_ID", "YANDEX_ID_CLIENT_ID", "YANDEX_APP_ID", "YA_CLIENT_ID"),
+    "YANDEX_CLIENT_SECRET": ("YANDEX_OAUTH_CLIENT_SECRET", "YANDEX_CLIENT_SECRET", "YANDEX_ID_CLIENT_SECRET",
+                             "YANDEX_APP_SECRET", "YA_CLIENT_SECRET"),
+    "VK_APP_ID": ("VK_APP_ID", "VK_ID_APP_ID", "VKID_APP_ID", "VK_CLIENT_ID", "VK_ID_CLIENT_ID", "VKID_CLIENT_ID",
+                  "VK_ID", "VK_OAUTH_CLIENT_ID", "VK_APPLICATION_ID"),
+    "VK_APP_SECRET": ("VK_APP_SECRET", "VK_ID_APP_SECRET", "VKID_APP_SECRET", "VK_CLIENT_SECRET", "VK_ID_CLIENT_SECRET",
+                      "VK_ID_SECRET", "VK_SECURE_KEY", "VK_PROTECTED_KEY", "VK_OAUTH_CLIENT_SECRET"),
+}
+
+TELEGRAM_TOKEN = env_first(*ENV_ALIASES["TELEGRAM_TOKEN"])
+TELEGRAM_BOT_USERNAME = env_first(*ENV_ALIASES["TELEGRAM_BOT_USERNAME"]).lstrip("@")
+YANDEX_CLIENT_ID = env_first(*ENV_ALIASES["YANDEX_CLIENT_ID"])
+YANDEX_CLIENT_SECRET = env_first(*ENV_ALIASES["YANDEX_CLIENT_SECRET"])
+VK_APP_ID = env_first(*ENV_ALIASES["VK_APP_ID"])
+VK_APP_SECRET = env_first(*ENV_ALIASES["VK_APP_SECRET"])
+
+
+def env_diag() -> Dict[str, Any]:
+    """Что видно в окружении по входу в один тап: имена, не значения.
+    Нужна, когда «ключи положил, а кнопки нет»: сразу видно, под каким
+    именем лежит ключ и какое имя ждёт код."""
+    present = sorted(n for n in os.environ
+                     if any(s in n.upper() for s in ("VK", "YANDEX", "YA_", "TELEGRAM", "TG_", "OAUTH"))
+                     and (os.environ.get(n) or "").strip())
+    return {
+        "configured": {k: bool(v) for k, v in {
+            "TELEGRAM_TOKEN": TELEGRAM_TOKEN, "TELEGRAM_BOT_USERNAME": TELEGRAM_BOT_USERNAME,
+            "YANDEX_CLIENT_ID": YANDEX_CLIENT_ID, "YANDEX_CLIENT_SECRET": YANDEX_CLIENT_SECRET,
+            "VK_APP_ID": VK_APP_ID, "VK_APP_SECRET": VK_APP_SECRET,
+        }.items()},
+        "accepted_names": {k: list(v) for k, v in ENV_ALIASES.items()},
+        "env_names_present": present,
+        "providers": providers_available(),
+    }
 
 # Подпись виджета Telegram живёт сутки: старую можно было бы переиграть.
 TELEGRAM_MAX_AGE_SEC = 24 * 3600
@@ -246,7 +294,7 @@ async def fetch_vk_identity(code: str, device_id: str, code_verifier: str, state
 def register_social_routes(router, db, limiter, deps: Dict[str, Any]):
     """Подключается изнутри create_auth_router: сессии, cookie, трекинг и
     заведение пользователя — те же функции, что у /login и /register."""
-    from fastapi import HTTPException, Request, Response
+    from fastapi import Header, HTTPException, Request, Response
     from fastapi.responses import RedirectResponse
     from pydantic import BaseModel
 
@@ -390,6 +438,15 @@ def register_social_routes(router, db, limiter, deps: Dict[str, Any]):
     @router.get("/providers")
     async def providers():
         return {"providers": providers_available()}
+
+    @router.get("/providers/diag")
+    async def providers_diag(x_admin_token: Optional[str] = Header(default=None)):
+        """Имена переменных окружения по входу в один тап (значений нет).
+        Под X-Admin-Token: список имён переменных сервера — не для всех."""
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected or not x_admin_token or x_admin_token != expected:
+            raise HTTPException(status_code=401, detail={"error": "unauthorized"})
+        return env_diag()
 
     @router.post("/telegram")
     @limiter.limit("10/minute")
