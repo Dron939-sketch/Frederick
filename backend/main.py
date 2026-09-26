@@ -295,6 +295,12 @@ class HealthResponse(BaseModel):
     status: str
     timestamp: str
     services: Dict[str, Any]
+    # Снаружи не отличить «сборка ещё идёт» от «сборка упала, прод на старой
+    # версии»: 26.09 два мержа подряд, и через час подарок всё ещё отдавал
+    # два вложения вместо трёх. build — время файлов в образе (COPY хранит
+    # mtime чекаута, то есть время сборки), started — старт процесса.
+    build: Optional[str] = None
+    started: Optional[str] = None
 
 class MorningMessageRequest(BaseModel):
     user_id: int
@@ -3168,6 +3174,19 @@ async def morning_messages_scheduler():
 # ============================================
 # HEALTH CHECK
 # ============================================
+def _build_stamp() -> Optional[str]:
+    """Время файлов образа: docker COPY сохраняет mtime из контекста сборки,
+    а Amvera делает чекаут перед сборкой, поэтому это и есть время сборки."""
+    try:
+        return datetime.utcfromtimestamp(os.path.getmtime(__file__)).isoformat(timespec="seconds")
+    except OSError:
+        return None
+
+
+_BUILD_STAMP = _build_stamp()
+_STARTED_AT = datetime.utcnow().isoformat(timespec="seconds")
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     # Render пингует /health каждые 5 сек → 17k записей/сутки, если info.
@@ -3178,6 +3197,8 @@ async def health_check():
     status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
+        "build": _BUILD_STAMP,
+        "started": _STARTED_AT,
         "services": {
             "database": False, "redis": False, "ai_service": False,
             "voice_service": False, "websocket": voice_manager is not None,
