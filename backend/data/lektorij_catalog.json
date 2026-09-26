@@ -342,6 +342,10 @@
    "kognitivistika"
   ],
   [
+   "дело жизни|delo-zhizni|призван|prizvan|предназнач|prednazna|найти себя|najti-sebya|чем (?:мне )?заняться|кем стать|kem-stat|не знаю,? чего хочу|ne-znayu-chego-hochu",
+   "delo-zhizni"
+  ],
+  [
    "копит|kopit|сбережен|sberezhen|бюджет|budzhet|\\bдолг|кредит",
    "pochemu-ne-kopitsya"
   ],
@@ -802,6 +806,63 @@
      "n": 10,
      "title": "Убавление и эффект Линди: два правила напоследок (итоги)",
      "url": "/blog/lekciya-lebed-10-via-negativa.html"
+    }
+   ]
+  },
+  "delo-zhizni": {
+   "title": "Дело жизни",
+   "url": "/blog/lektorij/delo-zhizni/",
+   "description": "Бесплатный курс «Дело жизни»: как найти линию, которая уже накопилась, проверить дело разведкой и дозой, пережить плато третьего года, совместить кормящую работу и дело, найти адресата, заключить договор на срок и мерить рост по годам.",
+   "lectures": [
+    {
+     "n": 1,
+     "title": "Что останется через десять лет",
+     "url": "/blog/lekciya-delo-zhizni-1-chto-ostanetsya-cherez-desyat-let.html"
+    },
+    {
+     "n": 2,
+     "title": "Линия, которая уже есть",
+     "url": "/blog/lekciya-delo-zhizni-2-liniya-kotoraya-uzhe-est.html"
+    },
+    {
+     "n": 3,
+     "title": "Разведка: где копать",
+     "url": "/blog/lekciya-delo-zhizni-3-razvedka-gde-kopat.html"
+    },
+    {
+     "n": 4,
+     "title": "Третий год: плато, на котором бросают",
+     "url": "/blog/lekciya-delo-zhizni-4-tretij-god-plato.html"
+    },
+    {
+     "n": 5,
+     "title": "Кормящая работа и дело в одной жизни",
+     "url": "/blog/lekciya-delo-zhizni-5-kormyashchaya-rabota-i-delo.html"
+    },
+    {
+     "n": 6,
+     "title": "Кому это нужно",
+     "url": "/blog/lekciya-delo-zhizni-6-komu-eto-nuzhno.html"
+    },
+    {
+     "n": 7,
+     "title": "Договор на срок: как перестать пробовать",
+     "url": "/blog/lekciya-delo-zhizni-7-dogovor-na-srok.html"
+    },
+    {
+     "n": 8,
+     "title": "Форма меняется, дело остаётся",
+     "url": "/blog/lekciya-delo-zhizni-8-forma-menyaetsya-delo-ostaetsya.html"
+    },
+    {
+     "n": 9,
+     "title": "Мера продвижения: как знать, что растёт",
+     "url": "/blog/lekciya-delo-zhizni-9-mera-prodvizheniya.html"
+    },
+    {
+     "n": 10,
+     "title": "Замер на выходе и экзамен",
+     "url": "/blog/lekciya-delo-zhizni-10-zamer-i-ekzamen.html"
     }
    ]
   },
