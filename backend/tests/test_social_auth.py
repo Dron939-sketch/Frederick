@@ -175,3 +175,15 @@ def test_telegram_button_waits_for_setdomain():
     i = src.index('@router.get("/providers")')
     assert "telegram_widget_ready" in src[i:i + 400], "список провайдеров фильтрует Telegram по привязке домена"
     assert sa.app_origin().startswith("https://")
+
+
+def test_telegram_check_hides_button_only_on_explicit_invalid():
+    """Сервер не дотянулся до telegram.org — кнопку не прятать: у людей
+    в браузере виджет может работать; прячем только по «Bot domain invalid»."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "social_auth.py"), encoding="utf-8").read()
+    body = src[src.index("async def telegram_widget_ready"):src.index("def providers_available")] \
+        if src.index("async def telegram_widget_ready") < src.index("def providers_available") \
+        else src[src.index("async def telegram_widget_ready"):src.index("async def telegram_widget_ready") + 1800]
+    assert "ok = True" in body and "except Exception as e:" in body
+    assert "error = f\"{type(e).__name__}" in body
+    assert "telegram_widget_error" in src and "telegram_widget_origin" in src

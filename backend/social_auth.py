@@ -95,7 +95,7 @@ TELEGRAM_BOT_USERNAME = env_first(*ENV_ALIASES["TELEGRAM_BOT_USERNAME"]).lstrip(
 # и не показываем кнопку, пока домен не привязан: кнопка появится сама,
 # как только владелец привяжет домен, без правок и деплоя.
 TG_DOMAIN_TTL_SEC = 600
-_TG_DOMAIN_CACHE: Dict[str, Any] = {"at": 0.0, "ok": None}
+_TG_DOMAIN_CACHE: Dict[str, Any] = {"at": 0.0, "ok": None, "error": "", "status": None}
 TG_DOMAIN_INVALID = "Bot domain invalid"
 
 
@@ -112,16 +112,25 @@ async def telegram_widget_ready(bot: str) -> bool:
     now = time.time()
     if _TG_DOMAIN_CACHE["ok"] is not None and now - _TG_DOMAIN_CACHE["at"] < TG_DOMAIN_TTL_SEC:
         return bool(_TG_DOMAIN_CACHE["ok"])
-    ok = bool(_TG_DOMAIN_CACHE["ok"])
+    # Сервер не дотянулся до oauth.telegram.org (сеть, блокировка) — это
+    # не «домен не привязан»: у людей в браузере виджет может работать.
+    # Прячем кнопку только по прямому ответу «Bot domain invalid»; при
+    # сетевой ошибке показываем — клиент сам уберёт пустое место, если
+    # виджет не нарисовался за шесть секунд.
+    ok = True
+    error = ""
+    status = None
     try:
         import httpx
         async with httpx.AsyncClient(timeout=6) as c:
             r = await c.get(f"https://oauth.telegram.org/embed/{bot}",
                             params={"origin": app_origin(), "size": "large"})
+            status = r.status_code
             ok = telegram_widget_verdict(r.status_code, r.text)
-    except Exception as e:  # сеть — не повод ронять список провайдеров
-        logger.warning(f"telegram widget check failed: {e}")
-    _TG_DOMAIN_CACHE.update(at=now, ok=ok)
+    except Exception as e:
+        error = f"{type(e).__name__}: {str(e)[:120]}"
+        logger.warning(f"telegram widget check failed: {error}")
+    _TG_DOMAIN_CACHE.update(at=now, ok=ok, error=error, status=status)
     return ok
 YANDEX_CLIENT_ID = env_first(*ENV_ALIASES["YANDEX_CLIENT_ID"])
 YANDEX_CLIENT_SECRET = env_first(*ENV_ALIASES["YANDEX_CLIENT_SECRET"])
@@ -148,6 +157,9 @@ def env_diag() -> Dict[str, Any]:
         "telegram_bot": TELEGRAM_BOT_USERNAME,
         "telegram_widget_ok": _TG_DOMAIN_CACHE["ok"],
         "telegram_widget_checked_ago_sec": int(time.time() - _TG_DOMAIN_CACHE["at"]) if _TG_DOMAIN_CACHE["at"] else None,
+        "telegram_widget_origin": app_origin(),
+        "telegram_widget_http_status": _TG_DOMAIN_CACHE.get("status"),
+        "telegram_widget_error": _TG_DOMAIN_CACHE.get("error") or "",
     }
 
 # Подпись виджета Telegram живёт сутки: старую можно было бы переиграть.
