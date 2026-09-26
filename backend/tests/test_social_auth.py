@@ -162,3 +162,16 @@ def test_env_diag_names_only(monkeypatch):
     src = open(os.path.join(os.path.dirname(__file__), "..", "social_auth.py"), encoding="utf-8").read()
     i = src.index('"/providers/diag"')
     assert "ADMIN_TOKEN" in src[i:i + 700] and "status_code=401" in src[i:i + 700]
+
+
+def test_telegram_button_waits_for_setdomain():
+    """Виджет Telegram без /setdomain рисует «Bot domain invalid» —
+    кнопку с таким виджетом показывать нельзя."""
+    assert sa.telegram_widget_verdict(200, "<html><script>...</script></html>") is True
+    assert sa.telegram_widget_verdict(200, "Bot domain invalid") is False
+    assert sa.telegram_widget_verdict(500, "") is False
+    assert sa.DEFAULT_TELEGRAM_BOT == "Frederick777bot"
+    src = open(os.path.join(os.path.dirname(__file__), "..", "social_auth.py"), encoding="utf-8").read()
+    i = src.index('@router.get("/providers")')
+    assert "telegram_widget_ready" in src[i:i + 400], "список провайдеров фильтрует Telegram по привязке домена"
+    assert sa.app_origin().startswith("https://")
