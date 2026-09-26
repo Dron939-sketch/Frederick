@@ -12,7 +12,7 @@ import uuid
 import base64
 import httpx
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -732,8 +732,20 @@ class PaymentService:
                 ORDER BY created_at DESC
                 LIMIT 20
             """)
+        old_ids = {r["yookassa_id"] for r in old_rows}
         rows = list(rows) + list(old_rows)
 
+        # 26.09.2026: в логе стояло «total=5 activated=0 canceled=0
+        # still_pending=0 errors=0» — пять строк, которые не попадали ни в
+        # одну корзину: ЮKassa их не находит (создавались в другом магазине
+        # или тестовом режиме) либо платёж чужого пользователя. Они
+        # крутились в хвосте каждые пять минут без конца и без следа в
+        # логе. Теперь такие считаются отдельно, причина пишется в лог, а
+        # строки старше окна получают статус 'unresolved' и из опроса
+        # уходят: денег по ним ЮKassa не подтверждала.
+        unresolved = 0
+        unresolved_reasons: Dict[str, int] = {}
+        to_close: List[str] = []
         for r in rows:
             try:
                 result = await self.verify_payment(r["yookassa_id"], expected_user_id=r["user_id"])
@@ -744,12 +756,31 @@ class PaymentService:
                     canceled += 1
                 elif st in ("pending", "waiting_for_capture"):
                     still_pending += 1
+                elif not result.get("success"):
+                    unresolved += 1
+                    reason = str(result.get("error") or "unknown")[:60]
+                    unresolved_reasons[reason] = unresolved_reasons.get(reason, 0) + 1
+                    if r["yookassa_id"] in old_ids:
+                        to_close.append(r["yookassa_id"])
             except Exception as e:
                 errors += 1
                 logger.error(f"poll_pending_payments item {r['yookassa_id']}: {e}")
 
+        if to_close:
+            try:
+                async with self.db.get_connection() as conn:
+                    await conn.execute(
+                        "UPDATE fredi_payments SET status = 'unresolved', updated_at = NOW() "
+                        "WHERE status = 'pending' AND yookassa_id = ANY($1::text[])", to_close
+                    )
+                logger.warning(f"Pending poll: {len(to_close)} старых pending помечены unresolved: {to_close}")
+            except Exception as e:
+                logger.error(f"poll_pending_payments close unresolved: {e}")
+
         if rows:
-            logger.info(f"Pending poll: total={len(rows)} activated={activated} canceled={canceled} still_pending={still_pending} errors={errors}")
+            logger.info(f"Pending poll: total={len(rows)} activated={activated} canceled={canceled} "
+                        f"still_pending={still_pending} unresolved={unresolved} errors={errors}"
+                        + (f" reasons={unresolved_reasons}" if unresolved_reasons else ""))
         stuck = await self._alert_stuck_payments()
         return {"checked": len(rows), "activated": activated, "canceled": canceled,
                 "pending": still_pending, "errors": errors, "stuck_alerted": stuck}
