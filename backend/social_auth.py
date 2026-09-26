@@ -82,8 +82,47 @@ ENV_ALIASES = {
                       "VK_ID_SECRET", "VK_SECURE_KEY", "VK_PROTECTED_KEY", "VK_OAUTH_CLIENT_SECRET"),
 }
 
+# Имя бота — не секрет, сайт и так ведёт на него ссылками «напомнить в
+# Telegram». Если переменной нет — берём его, а не молчим: 26.09 токен
+# бота на сервере был, а кнопки не было из-за одного незаданного имени.
+DEFAULT_TELEGRAM_BOT = "Frederick777bot"
+
 TELEGRAM_TOKEN = env_first(*ENV_ALIASES["TELEGRAM_TOKEN"])
-TELEGRAM_BOT_USERNAME = env_first(*ENV_ALIASES["TELEGRAM_BOT_USERNAME"]).lstrip("@")
+TELEGRAM_BOT_USERNAME = env_first(*ENV_ALIASES["TELEGRAM_BOT_USERNAME"]).lstrip("@") or DEFAULT_TELEGRAM_BOT
+
+# Виджет входа Telegram работает только после /setdomain в BotFather;
+# до этого он рисует «Bot domain invalid». Проверяем раз в десять минут
+# и не показываем кнопку, пока домен не привязан: кнопка появится сама,
+# как только владелец привяжет домен, без правок и деплоя.
+TG_DOMAIN_TTL_SEC = 600
+_TG_DOMAIN_CACHE: Dict[str, Any] = {"at": 0.0, "ok": None}
+TG_DOMAIN_INVALID = "Bot domain invalid"
+
+
+def app_origin() -> str:
+    u = urlparse(APP_URL)
+    return f"{u.scheme}://{u.netloc}"
+
+
+def telegram_widget_verdict(status: int, body: str) -> bool:
+    return status == 200 and TG_DOMAIN_INVALID not in (body or "")
+
+
+async def telegram_widget_ready(bot: str) -> bool:
+    now = time.time()
+    if _TG_DOMAIN_CACHE["ok"] is not None and now - _TG_DOMAIN_CACHE["at"] < TG_DOMAIN_TTL_SEC:
+        return bool(_TG_DOMAIN_CACHE["ok"])
+    ok = bool(_TG_DOMAIN_CACHE["ok"])
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=6) as c:
+            r = await c.get(f"https://oauth.telegram.org/embed/{bot}",
+                            params={"origin": app_origin(), "size": "large"})
+            ok = telegram_widget_verdict(r.status_code, r.text)
+    except Exception as e:  # сеть — не повод ронять список провайдеров
+        logger.warning(f"telegram widget check failed: {e}")
+    _TG_DOMAIN_CACHE.update(at=now, ok=ok)
+    return ok
 YANDEX_CLIENT_ID = env_first(*ENV_ALIASES["YANDEX_CLIENT_ID"])
 YANDEX_CLIENT_SECRET = env_first(*ENV_ALIASES["YANDEX_CLIENT_SECRET"])
 VK_APP_ID = env_first(*ENV_ALIASES["VK_APP_ID"])
@@ -106,6 +145,9 @@ def env_diag() -> Dict[str, Any]:
         "accepted_names": {k: list(v) for k, v in ENV_ALIASES.items()},
         "env_names_present": present,
         "providers": providers_available(),
+        "telegram_bot": TELEGRAM_BOT_USERNAME,
+        "telegram_widget_ok": _TG_DOMAIN_CACHE["ok"],
+        "telegram_widget_checked_ago_sec": int(time.time() - _TG_DOMAIN_CACHE["at"]) if _TG_DOMAIN_CACHE["at"] else None,
     }
 
 # Подпись виджета Telegram живёт сутки: старую можно было бы переиграть.
@@ -437,7 +479,10 @@ def register_social_routes(router, db, limiter, deps: Dict[str, Any]):
 
     @router.get("/providers")
     async def providers():
-        return {"providers": providers_available()}
+        out = providers_available()
+        if "telegram" in out and not await telegram_widget_ready(out["telegram"]["bot"]):
+            out = {k: v for k, v in out.items() if k != "telegram"}
+        return {"providers": out}
 
     @router.get("/providers/diag")
     async def providers_diag(x_admin_token: Optional[str] = Header(default=None)):
