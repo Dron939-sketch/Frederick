@@ -20,7 +20,7 @@ MAIN = (BACKEND / "main.py").read_text(encoding="utf-8")
 def test_both_booklets_exist_and_are_pdf():
     atts = gm.load_attachments()
     assert [a[0] for a in atts] == [n for n, _ in gm.ATTACHMENTS]
-    assert len(atts) == 2, "два сборника: курсант и курсантка"
+    assert len(atts) == 3, "три сборника: курсант, курсантка и курсант 30+"
     for name, payload, subtype in atts:
         assert payload[:5] == b"%PDF-", f"{name}: не PDF"
         assert subtype == "pdf"
