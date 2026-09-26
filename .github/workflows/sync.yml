@@ -19,7 +19,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Зеркало — не деплой. 26.09.2026 gitverse.ru дважды ответил 502, шаг
+      # упал, и до пуша в Amvera дело не дошло: два мержа (#693, #694) не
+      # доехали до прода, а снаружи это выглядело как «сборка идёт».
       - name: Push to GitVerse (mirror main)
+        continue-on-error: true
         env:
           GV_USER: ${{ secrets.GITVERSE_USER }}
           GV_PASS: ${{ secrets.GITVERSE_PASSWORD }}
