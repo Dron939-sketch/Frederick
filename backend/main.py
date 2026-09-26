@@ -433,6 +433,9 @@ async def lifespan(app: FastAPI):
         from waitlist_routes import register_waitlist_routes
         _init_waitlist = register_waitlist_routes(app, db, limiter)
         await _init_waitlist()
+        # Курс из «Скоро» вышел — письмо записавшимся (admin-гейт, одно на заявку).
+        from waitlist_notify import register_waitlist_notify_routes
+        register_waitlist_notify_routes(app, db, lambda: email_service)
 
         # «Связаться с разработчиком» из настроек: в базу + Telegram владельцу.
         from feedback_routes import register_feedback_routes
