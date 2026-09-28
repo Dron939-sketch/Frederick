@@ -25,7 +25,7 @@ import math
 import random
 import base64
 import re
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List, Union, Tuple
 import signal
@@ -140,6 +140,16 @@ context_repo: Optional[ContextRepository] = None
 message_repo: Optional[MessageRepository] = None
 
 
+def _days_since_msk(ts) -> int:
+    """Сколько календарных дней (по Москве) прошло с ts; None — сегодня."""
+    if ts is None:
+        return 0
+    msk = timezone(timedelta(hours=3))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return max(0, (datetime.now(msk).date() - ts.astimezone(msk).date()).days)
+
+
 async def _session_meta(user_id) -> dict:
     """Сколько реплик человек написал в текущем разговоре и есть ли у
     него аккаунт. Нужно BasicMode для ритуала завершения: после пятой
@@ -153,11 +163,18 @@ async def _session_meta(user_id) -> dict:
                 "SELECT (u.email IS NOT NULL AND u.email <> '') AS registered, "
                 "       (SELECT COUNT(*) FROM fredi_messages m "
                 "         WHERE m.user_id = u.user_id AND m.role = 'user' "
-                "           AND m.created_at > NOW() - INTERVAL '40 minutes') AS turns "
+                "           AND m.created_at > NOW() - INTERVAL '40 minutes') AS turns, "
+                "       (SELECT MIN(m.created_at) FROM fredi_messages m "
+                "         WHERE m.user_id = u.user_id AND m.role = 'user') AS first_seen "
                 "FROM fredi_users u WHERE u.user_id = $1", int(user_id))
         meta = {}
         if row:
             meta = {"session_turns": int(row["turns"] or 0), "is_registered": bool(row["registered"])}
+            # Сколько дней человек здесь — по московскому календарю. История
+            # в промпте идёт без дат, и модель досочиняла сроки: 28.09 в
+            # разговоре длиной 18 минут — «ты уже второй день», «три дня
+            # назад», «уже неделю». Нет первой реплики — значит, первая сейчас.
+            meta["first_seen_days"] = _days_since_msk(row["first_seen"])
         # Сколько бесплатных минут осталось — чтобы Фреди сам, в самом
         # разговоре, за пару минут до стены сказал, что будет дальше.
         # 18.09.2026, по выгрузке 11–17.09: в 1348 ответах подписка
