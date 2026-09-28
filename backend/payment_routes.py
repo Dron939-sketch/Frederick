@@ -446,7 +446,15 @@ def register_payment_routes(app, db, limiter):
         """Расширенный список последних пользователей с пометкой premium.
         Фронт админки (admin.js) дёргает этот endpoint, чтобы показать
         значок ⭐ PRO у тех, кто оплатил подписку. Делается через JOIN с
-        fredi_subscriptions, чтобы не править main.py."""
+        fredi_subscriptions, чтобы не править main.py.
+
+        28.09.2026: ручка отвечала без токена. Сейчас она падает на запросе
+        и отдаёт только «internal error», но после починки отдала бы любому
+        почты и статусы подписок последних 30 человек. Закрыта X-Admin-Token,
+        как остальные админ-ручки; проверка стоит до try, чтобы 401 не
+        превращался в общий ответ об ошибке."""
+        _check_admin(request.headers.get("X-Admin-Token")
+                     or request.headers.get("x-admin-token"))
         try:
             async with db.get_connection() as conn:
                 rows = await conn.fetch("""
