@@ -481,6 +481,15 @@ async def lifespan(app: FastAPI):
             logger.warning(f"reengagement init failed: {e}")
             background_tasks_extra_reeng = None
 
+        # Оплаты — владельцу в MAX (owner_notify.py): ссылка привязки и
+        # проверка — под X-Admin-Token. Своим try: сбой не трогает остальное.
+        try:
+            from owner_notify import register_owner_notify_routes
+            _init_owner = register_owner_notify_routes(app, db)
+            await _init_owner()
+        except Exception as e:
+            logger.error(f"owner_notify init failed: {e}", exc_info=True)
+
         # Подарок подписчикам — сборники «Три пути» письмом; только руками
         # из админки, под X-Admin-Token (gift_mail.py). Своим try: сбой
         # здесь не должен ронять планировщик напоминаний выше, и наоборот.

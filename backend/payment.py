@@ -502,6 +502,13 @@ class PaymentService:
             ))
         except Exception as e:
             logger.warning(f"notify dispatch failed for user {user_id}: {e}")
+        # Владельцу в MAX — автопродление тоже оплата.
+        try:
+            from owner_notify import notify_payment
+            asyncio.create_task(notify_payment(
+                self.db, user_id, plan, PLANS[plan]["amount"], True))
+        except Exception as e:
+            logger.warning(f"owner notify dispatch failed for user {user_id}: {e}")
 
     async def _apply_succeeded_payment(self, user_id: int, payment_obj: Dict) -> Dict[str, Any]:
         """Идемпотентная активация подписки на основании оплаченного
@@ -629,6 +636,13 @@ class PaymentService:
                 ))
             except Exception as e:
                 logger.warning(f"notify dispatch failed for user {user_id}: {e}")
+            # Владельцу в MAX — каждая оплата (29.09.2026, его просьба).
+            try:
+                from owner_notify import notify_payment
+                asyncio.create_task(notify_payment(
+                    self.db, user_id, plan, paid_amount, is_renewal))
+            except Exception as e:
+                logger.warning(f"owner notify dispatch failed for user {user_id}: {e}")
 
         logger.info(f"Subscription activated for user {user_id} until {new_expires} (yookassa_id={yookassa_id})")
         return {"success": True, "user_id": user_id, "expires_at": str(new_expires)}
