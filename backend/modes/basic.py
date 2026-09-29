@@ -510,8 +510,19 @@ class BasicMode(BaseMode):
             "(«сейчас Лёва / переключаюсь, это уже Андрей») — обращайся "
             "к тому, кто пишет СЕЙЧАС. Не смешивай контексты.\n"
         )
+        # Каталог своего — всем, не только после теста (решение владельца
+        # 29.09.2026): игры, книги, курсы, тренинги. Статичный текст, в
+        # системном промпте кэшируется, см. modes/prompts/products.py.
+        products = ""
+        try:
+            from .prompts.products import static_block
+            pb = static_block()
+            if pb:
+                products = "\n\n" + pb + "\n"
+        except Exception as _e:
+            logger.warning(f"products block failed: {_e}")
         # BEHAVIORAL_GUARD приоритетнее любого режима — клеим в начало.
-        return f"{_BEHAVIORAL_GUARD}{body}{memory_guard}"
+        return f"{_BEHAVIORAL_GUARD}{body}{memory_guard}{products}"
 
     def get_greeting(self) -> str:
         tg = self._get_time_greeting()
@@ -1137,6 +1148,17 @@ class BasicMode(BaseMode):
             "Без tool'а не выдумывай конкретные цифры и названия."
         )
         parts.append(self._build_facts_block())
+        # Курс Лектория по теме этого разговора (правила блога) — строкой
+        # к общему каталогу из системного промпта.
+        try:
+            from .prompts.products import topic_block
+            tb = topic_block(" ".join([question] + [
+                (m.get("content") or "") for m in (self.history or [])[-6:]
+                if m.get("role") == "user"]))
+            if tb:
+                parts.append(tb)
+        except Exception as _e:
+            logger.debug(f"topic block skip: {_e}")
         pricing = self._build_pricing_block(question)
         if pricing:
             parts.append(pricing)

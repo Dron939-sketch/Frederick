@@ -1,0 +1,121 @@
+# -*- coding: utf-8 -*-
+"""Всё наше — чтобы Фреди мог посоветовать своё в любом разговоре.
+
+Зачем. Владелец 29.09.2026: «Фреди должен знать о всех наших продуктах —
+игры-симуляторы, книги, курсы в Лектории, тренинги — чтобы, если будет
+необходимость, посоветовать». До этого каталог своего (arsenal.py) Фреди
+получал только после большого теста; большинство людей теста не проходит,
+и в их разговоре Фреди не знал ни одной нашей игры, книги или тренинга.
+
+Откуда данные — только из сгенерированных файлов, руками здесь не вписано
+ни одного названия:
+- курсы — data/lektorij_catalog.json (сайт: tools/build_lektorij_catalog.py);
+- игры, книги, тренинги — data/products_catalog.json
+  (сайт: tools/build_fredi_products.py).
+
+Два блока. Статичный (static_block) — весь каталог и правила: он кладётся
+в системный промпт и одинаков для всех, поэтому кэшируется провайдером и
+почти не удорожает ход. Тематический (topic_block) — один курс Лектория,
+подобранный правилами блога по словам этого разговора, — в пользовательский.
+"""
+import json
+import logging
+import os
+import re
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+_DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+_static: Optional[str] = None
+
+
+def _load(name: str) -> dict:
+    with open(os.path.join(_DATA, name), encoding="utf-8") as f:
+        return json.load(f)
+
+
+RULES = (
+    "КАК СОВЕТОВАТЬ НАШЕ:\n"
+    "- Только когда это правда поможет: человек спрашивает, что делать, что почитать, где научиться, "
+    "или тема разговора прямо совпадает. Сначала ответ по существу, совет — одной строкой после него.\n"
+    "- Не больше одной-двух позиций за ответ и не в каждом ответе. Названное один раз в следующих "
+    "ответах не повторяй.\n"
+    "- Порядок: сначала бесплатное — курс Лектория (бесплатно, без регистрации) или бесплатный тренажёр; "
+    "потом тренажёр по подписке; книгу или тренинг — только при прямом совпадении темы или если "
+    "человек сам спросил.\n"
+    "- Называй точно, как в списке, в кавычках: «курс „Личные границы“ в Лектории», «тренажёр „Скажи нет“ "
+    "в списке игр». Под ответом, где назван курс, приложение само покажет карточку с первой лекцией. "
+    "Книги — в разделе «Книги» на сайте, тренинги — в разделе «Тренинги».\n"
+    "- Цены не называй, если не спросили. Ничего не выдумывай: нет подходящего в списке — не советуй.\n"
+    "- Человеку в остром состоянии (мысли о смерти, насилие, паника) ничего не советуй, кроме помощи "
+    "и тренажёра «Мне плохо прямо сейчас»."
+)
+
+
+def _q(title: str) -> str:
+    """Название в «ёлочках»; кавычки внутри — „лапки“ (правило сайта)."""
+    inner = (title or "").replace("«", "„").replace("»", "“")
+    return f"«{inner}»"
+
+
+def static_block() -> str:
+    """Весь каталог и правила — для системного промпта. Пустая строка,
+    если данных нет: без каталога лучше промолчать, чем выдумывать."""
+    global _static
+    if _static is not None:
+        return _static
+    try:
+        lek = _load("lektorij_catalog.json").get("courses", {})
+        prod = _load("products_catalog.json")
+    except Exception as e:
+        logger.warning(f"products catalog unavailable: {e}")
+        _static = ""
+        return _static
+    lines = ["=== ЧТО У НАС ЕСТЬ (наши продукты, советуй из этого списка) ==="]
+    titles = [v.get("title", "") for v in lek.values() if v.get("title")]
+    lines.append(f"Лекторий — {len(titles)} бесплатных курсов лекций, без регистрации: "
+                 + ", ".join(_q(t) for t in titles) + ".")
+    games = prod.get("games") or []
+    if games:
+        lines.append("Игры-тренажёры в приложении Фреди (список игр; «по подписке» — только с Premium):")
+        for g in games:
+            mark = " — по подписке" if g.get("premium") else ""
+            lines.append(f"- {_q(g['name'])}{mark}: {g.get('about', '')}")
+    books = prod.get("books") or []
+    if books:
+        lines.append("Книги Андрея Мейстера:")
+        for b in books:
+            lines.append(f"- {_q(b['title'])}: {b.get('about', '')}")
+    trainings = prod.get("trainings") or []
+    if trainings:
+        lines.append("Тренинги Андрея Мейстера:")
+        for t in trainings:
+            lines.append(f"- {_q(t['title'])}: {t.get('about', '')}")
+    lines.append(RULES)
+    _static = "\n".join(lines)
+    return _static
+
+
+def topic_block(text: str) -> str:
+    """Курс Лектория по теме разговора — правилами блога (week_plan).
+    Пустая строка, если правило не сработало."""
+    try:
+        import week_plan
+        slug = week_plan.pick_course_by_rules(text or "")
+        if not slug:
+            return ""
+        course = week_plan.catalog()["courses"].get(slug) or {}
+        title = course.get("title")
+        if not title:
+            return ""
+        return (f"ПО ТЕМЕ ЭТОГО РАЗГОВОРА из Лектория подходит курс «{title}» — "
+                "назови его, только если совет здесь уместен (см. правила).")
+    except Exception as e:
+        logger.debug(f"topic course skip: {e}")
+        return ""
+
+
+def _reset_cache_for_tests():
+    global _static
+    _static = None
