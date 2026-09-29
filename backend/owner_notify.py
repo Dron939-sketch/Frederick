@@ -200,6 +200,48 @@ def register_owner_notify_routes(app, db):
             await conn.execute("DELETE FROM fredi_owner_chats")
         return {"ok": True}
 
+    @app.get("/api/admin/owner-notify/max")
+    async def owner_notify_max_state(request: Request):
+        """Куда MAX шлёт события бота и доходили ли они до сервера.
+        Токен бота наружу не отдаётся — только адреса подписок."""
+        _gate(request)
+        import httpx
+        from services import bot_service
+        token = (os.environ.get("MAX_TOKEN") or "").strip()
+        out = {"max_token_set": bool(token),
+               "backend_url_env": bot_service.BACKEND_URL,
+               "recent_updates": list(bot_service.RECENT_MAX_UPDATES)}
+        if token:
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    r = await client.get("https://platform-api.max.ru/subscriptions",
+                                         headers={"Authorization": token})
+                out["subscriptions_status"] = r.status_code
+                subs = (r.json() or {}).get("subscriptions", []) if r.status_code == 200 else []
+                out["subscriptions"] = [{"url": x.get("url"), "update_types": x.get("update_types"),
+                                         "time": x.get("time")} for x in subs]
+            except Exception as ex:
+                out["subscriptions_error"] = str(ex)[:200]
+        return out
+
+    @app.post("/api/admin/owner-notify/max/subscribe")
+    async def owner_notify_max_subscribe(request: Request):
+        """Направить события бота MAX на этот сервер. Тело: {"url": ...}."""
+        _gate(request)
+        import httpx
+        body = await request.json()
+        url = (body.get("url") or "").strip()
+        if not url.startswith("https://") or not url.endswith("/api/max/webhook"):
+            return {"ok": False, "error": "url должен быть https://…/api/max/webhook"}
+        token = (os.environ.get("MAX_TOKEN") or "").strip()
+        if not token:
+            return {"ok": False, "error": "MAX_TOKEN не задан"}
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post("https://platform-api.max.ru/subscriptions",
+                                  json={"url": url, "update_types": ["bot_started", "message_created"]},
+                                  headers={"Authorization": token})
+        return {"ok": r.status_code in (200, 201), "status": r.status_code, "body": r.text[:300]}
+
     async def init():
         await ensure_table(db)
 

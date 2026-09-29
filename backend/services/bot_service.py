@@ -12,6 +12,14 @@ from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
+# Последние события MAX — только тип, время и начало payload, без текста
+# сообщений. Для /api/admin/owner-notify/max: 29.09.2026 владелец открыл
+# ссылку привязки, а до сервера не дошло ничего, и снаружи не видно,
+# приходят ли события вообще.
+from collections import deque
+from datetime import datetime, timezone
+RECENT_MAX_UPDATES = deque(maxlen=20)
+
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 MAX_TOKEN = os.environ.get("MAX_TOKEN", "").strip()
 BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com").strip()
@@ -102,6 +110,14 @@ def register_bot_webhooks(app, db):
             logger.info(f"MAX webhook raw: {json.dumps(body, ensure_ascii=False)[:500]}")
 
             update_type = body.get("update_type", "")
+            try:
+                RECENT_MAX_UPDATES.append({
+                    "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "type": update_type,
+                    "payload": str(body.get("payload") or "")[:6],
+                })
+            except Exception:
+                pass
 
             if update_type == "message_created":
                 message = body.get("message", {})
