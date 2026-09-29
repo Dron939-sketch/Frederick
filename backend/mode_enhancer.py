@@ -61,6 +61,15 @@ _IDENTITY_DIRECT_RE = re.compile(
     r"клод|claude|gemini|джемини|лян\s*вэньфэн)\b",
     re.IGNORECASE,
 )
+# 29.09.2026: пятнадцатилетняя написала об одиночестве — «я общаюсь с чатом
+# gpt, я дала ему имя, он тоже мой как бы друг» — и вместо ответа получила
+# «Меня создал Андрей Мейстер». Имя чужой модели в рассказе — это рассказ.
+# Вопрос о модели — когда имя и «ты/вы» стоят в одной фразе без знака
+# препинания между ними («ты chatgpt?», «ты работаешь на deepseek?»), или
+# сообщение короткое и почти целиком из имени («это gpt?»).
+_ID_DIRECT_SHORT = 40
+_ID_YOU = r"\b(?:ты|вы|теб[яе]|вас|тобой|вами)\b"
+_ID_CLAUSE = r"[^.,!?;:\n]{0,30}"
 # 29.09.2026, решение владельца: создатель — Андрей Мейстер, Фреди — его
 # цифровая копия; второе имя в ответе не называется.
 _IDENTITY_ANSWER = "Меня создал Андрей Мейстер. Я — его цифровая копия."
@@ -70,10 +79,16 @@ def _is_identity_question(text: str) -> bool:
     if not text:
         return False
     t = text.strip()
-    # Прямое имя чужой модели перехватываем всегда и при любой длине:
-    # тут ошибиться нечем, а цена пропуска — «меня разработала DeepSeek».
-    if _IDENTITY_DIRECT_RE.search(t):
-        return True
+    # Имя чужой модели, обращённое к Фреди, перехватываем при любой длине:
+    # цена пропуска — «меня разработала DeepSeek».
+    for m in _IDENTITY_DIRECT_RE.finditer(t):
+        if len(t) <= _ID_DIRECT_SHORT:
+            return True
+        before = t[:m.start()]
+        after = t[m.end():]
+        if re.search(_ID_YOU + _ID_CLAUSE + r"$", before, re.IGNORECASE) \
+                or re.match(_ID_CLAUSE + _ID_YOU, after, re.IGNORECASE):
+            return True
     if len(t) > _ID_MAX_LEN:
         return False
     for m in _ID_KEYWORD_RE.finditer(t):
