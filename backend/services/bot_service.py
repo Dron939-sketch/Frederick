@@ -134,6 +134,13 @@ def register_bot_webhooks(app, db):
                     parts = text.split()
                     payload = parts[1] if len(parts) >= 2 else ""
 
+                    from owner_notify import is_bind_payload, bind_chat
+                    if is_bind_payload(payload):
+                        await bind_chat(db, "max", chat_id, sender_name)
+                        await _max_send(chat_id, "Готово. Сюда будут приходить оплаты Фреди: "
+                                                 "проба, месяц, три месяца и продления.")
+                        return {"ok": True}
+
                     if payload.startswith("web_"):
                         web_user_id = payload.replace("web_", "")
                         try:
@@ -173,6 +180,14 @@ def register_bot_webhooks(app, db):
                 logger.info(f"MAX bot_started: chat_id={chat_id}, user={user_name}")
 
                 payload = body.get("payload", "") or ""
+
+                # Чат владельца для сообщений об оплатах (owner_notify.py).
+                from owner_notify import is_bind_payload, bind_chat
+                if is_bind_payload(payload):
+                    await bind_chat(db, "max", chat_id, user_name)
+                    await _max_send(chat_id, "Готово. Сюда будут приходить оплаты Фреди: "
+                                             "проба, месяц, три месяца и продления.")
+                    return {"ok": True}
 
                 if payload.startswith("web_"):
                     web_user_id = payload.replace("web_", "")
@@ -290,7 +305,10 @@ def register_bot_webhooks(app, db):
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
                         "https://platform-api.max.ru/subscriptions",
-                        json={"url": url, "update_types": ["bot_started"]},
+                        # message_created — чтобы «/start owner_…», набранное в чате,
+                        # тоже привязало владельца: bot_started при повторном
+                        # открытии уже знакомого бота MAX может не прислать.
+                        json={"url": url, "update_types": ["bot_started", "message_created"]},
                         headers={"Authorization": MAX_TOKEN}
                     )
                     if resp.status_code in (200, 201):
