@@ -18,6 +18,10 @@ from payment import PaymentService, PLANS, TRIAL_PLAN
 
 logger = logging.getLogger(__name__)
 
+# Как часто проверять продления: проба продлевается сразу после конца,
+# а не через сутки (см. subscription_renewal_scheduler).
+RENEWAL_TICK_SECONDS = 900
+
 payment_service = None
 _pending_poller_task = None
 
@@ -423,7 +427,14 @@ def register_payment_routes(app, db, limiter):
                     logger.info(f"Subscription renewals: {result}")
             except Exception as e:
                 logger.error(f"subscription_renewal_scheduler error: {e}")
-            await asyncio.sleep(86400)
+            # Раньше — раз в сутки от старта сервера. Проба продлевается,
+            # только когда уже истекла, поэтому при тике в 18:42 проба,
+            # кончившаяся в 23:33, продлевалась на следующий день в 18:42:
+            # почти сутки человек без Premium, хотя карта привязана и
+            # автопродление включено (29.09.2026, четыре пробы 30.09–01.10).
+            # Каждые 15 минут: повторы неудачных списаний и так не чаще
+            # раза в RENEWAL_RETRY_HOURS, успешное сдвигает expires_at.
+            await asyncio.sleep(RENEWAL_TICK_SECONDS)
 
     async def pending_payments_poller():
         """Подбирает оплаченные платежи, для которых webhook не дошёл.
