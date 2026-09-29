@@ -22,7 +22,13 @@ RECENT_MAX_UPDATES = deque(maxlen=20)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 MAX_TOKEN = os.environ.get("MAX_TOKEN", "").strip()
-BACKEND_URL = os.environ.get("API_URL", "https://fredi-backend-flz2.onrender.com").strip()
+# Адрес, куда бот MAX шлёт события. До 29.09.2026 по умолчанию стоял
+# старый сервер на Render, и при каждом старте бот переподписывался туда:
+# /start из настроек Фреди и привязка владельца не доходили до сервера
+# вовсе. Адрес с onrender.com считаем устаревшим.
+BACKEND_URL = os.environ.get("API_URL", "").strip()
+if not BACKEND_URL or "onrender.com" in BACKEND_URL:
+    BACKEND_URL = "https://ffred-ddd989.amvera.io"
 WEB_URL = os.environ.get("WEB_URL", "https://fredi-frontend.onrender.com").strip().rstrip("/")
 
 MSG_LINK_SUCCESS = "Привет, {name}! Аккаунт успешно привязан к Фреди. Теперь утренние сообщения будут приходить сюда."
@@ -331,6 +337,17 @@ def register_bot_webhooks(app, db):
                         logger.info(f"Max webhook set OK")
                     else:
                         logger.error(f"Max webhook failed: {resp.status_code} {resp.text[:200]}")
+                    # Старые подписки на другие адреса снимаем: события
+                    # туда уходят впустую.
+                    r = await client.get("https://platform-api.max.ru/subscriptions",
+                                         headers={"Authorization": MAX_TOKEN})
+                    for sub in ((r.json() or {}).get("subscriptions", []) if r.status_code == 200 else []):
+                        old = sub.get("url") or ""
+                        if old and old != url:
+                            d = await client.delete("https://platform-api.max.ru/subscriptions",
+                                                    params={"url": old},
+                                                    headers={"Authorization": MAX_TOKEN})
+                            logger.info(f"Max webhook: снята старая подписка {old} → {d.status_code}")
             except Exception as e:
                 logger.error(
                     f"Max webhook setup error: {type(e).__name__}: {e}",

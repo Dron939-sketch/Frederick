@@ -106,3 +106,12 @@ def test_wired_into_payment_bot_and_startup():
     assert bot.count("is_bind_payload(payload)") == 2
     main = (ROOT / "main.py").read_text(encoding="utf-8")
     assert "register_owner_notify_routes(app, db)" in main
+
+
+def test_max_webhook_not_pointed_to_render():
+    """29.09.2026: бот MAX слал события на старый сервер на Render, и
+    привязка не доходила до сервера."""
+    bot = (ROOT / "services" / "bot_service.py").read_text(encoding="utf-8")
+    assert 'if not BACKEND_URL or "onrender.com" in BACKEND_URL:' in bot
+    assert 'BACKEND_URL = "https://ffred-ddd989.amvera.io"' in bot
+    assert "снята старая подписка" in bot
