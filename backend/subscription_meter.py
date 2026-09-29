@@ -117,6 +117,16 @@ FREE_DAILY_MINUTES_ANON = 0
 # бесконечная бесплатная версия.
 FIRST_CONVERSATION_MINUTES = 20
 
+# 29.09.2026: анониму с идущим планом «Семь дней по теме» — те же минуты
+# в день, что человеку с аккаунтом. План зовёт вернуться завтра и сделать
+# шаг дня вместе с Фреди, а FREE_DAILY_MINUTES_ANON = 0 встречал
+# вернувшегося стеной с порога: 29.09 человек на втором дне плана
+# (без единой потраченной минуты) четыре раза перезагрузил страницу за
+# четыре минуты и ушёл в тренажёр. Правило 12.09 для остальных анонимов
+# не тронуто: план — это обещание, которое мы сами дали.
+WEEK_PLAN_DAILY_MINUTES = FREE_DAILY_MINUTES
+WEEK_PLAN_DAYS = 7
+
 
 def daily_limit_minutes(registered: bool, first_day: bool = False,
                         registered_today: bool = False) -> int:
@@ -298,23 +308,51 @@ class SubscriptionMeter:
                     WHERE user_id = $1
                 """, user_id)
 
+        week_plan = False
+        if not registered:
+            week_plan = await self._has_active_week_plan(user_id, now)
         return self._compose_status(used_seconds=daily_seconds,
                                     free_days_used=free_days_used,
                                     total_seconds=total_seconds,
                                     registered=registered,
                                     registered_today=registered_today,
-                                    age=row["age"])
+                                    age=row["age"],
+                                    week_plan=week_plan)
+
+    async def _has_active_week_plan(self, user_id: int, now) -> bool:
+        """Идёт ли у человека «Семь дней по теме»: план этого вида, начат
+        не раньше семи суток назад и выполнен не целиком. Тихий: таблицы
+        может не быть (её заводит skill_plan_routes), тогда плана нет."""
+        try:
+            async with self.db.get_connection() as conn:
+                prow = await conn.fetchrow(
+                    "SELECT plan->>'kind' AS kind, started_at, "
+                    "       jsonb_array_length(COALESCE(days_done, '[]'::jsonb)) AS done "
+                    "FROM fredi_skill_plans WHERE user_id = $1", user_id)
+        except Exception as e:
+            logger.debug(f"week plan check skip: {e}")
+            return False
+        if not prow or prow["kind"] != "week_topic" or not prow["started_at"]:
+            return False
+        started = prow["started_at"]
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        within = (now.date() - started.date()).days < WEEK_PLAN_DAYS
+        return bool(within and (prow["done"] or 0) < WEEK_PLAN_DAYS)
 
     def _compose_status(self, used_seconds: int, free_days_used: int,
                         total_seconds: int = 0,
                         registered: bool = True,
                         registered_today: bool = False,
-                        age=None) -> Dict[str, Any]:
+                        age=None,
+                        week_plan: bool = False) -> Dict[str, Any]:
         # Первый день: всё, что человек наговорил за жизнь, наговорено
         # сегодня (общий счётчик не больше дневного, с запасом на секунды
         # округления). Такому даём дописать первый разговор целиком.
         first_day = total_seconds <= used_seconds + 30
         limit_today = daily_limit_minutes(registered, first_day, registered_today)
+        if week_plan and not registered and not first_day:
+            limit_today = max(limit_today, WEEK_PLAN_DAILY_MINUTES)
         # Сколько минут в день будет у этого же человека с аккаунтом,
         # заведённым сегодня. Фронт рисует стену анонима по разнице с
         # limit_today: раньше здесь стояла голая константа 5, и на второй
