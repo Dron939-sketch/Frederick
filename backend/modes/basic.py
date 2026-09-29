@@ -61,6 +61,64 @@ ANSWER_MAX_TOKENS = 1500
 ANSWER_MODEL = os.environ.get("BASIC_CHAT_MODEL", DEEPSEEK_FAST_MODEL)
 
 
+# Выдуманные сроки — вырезаются из готового предложения.
+#
+# Выгрузка 22–29.09.2026: блок «ФАКТЫ» (#699) запрещает называть сроки,
+# которых человек не называл, а модель всё равно писала «Две недели назад
+# ты бы сказала „муж меня любит“» и «Ты уже месяц живёшь…» в разговоре,
+# который шёл десять минут, и «ты годами делал его работу» — человеку,
+# который про годы не говорил. Инструкции мало, поэтому режем механически,
+# как и запрещённые зачины. Фраза остаётся, уходит только срок:
+# «Ты уже месяц живёшь с двумя вещами» → «Ты живёшь с двумя вещами».
+_TIME_NUM = (r"(?:\d+|одн[уа]|один|две|два|три|четыре|пять|шесть|семь|восемь|"
+             r"девять|десять|пару|несколько|полтора)")
+_TIME_UNIT = r"(?:дн(?:я|ей)|день|недел[юиь]|месяц(?:а|ев)?|год(?:а)?|лет)"
+_INVENTED_TIME_RE = re.compile(
+    rf"(?:\b(?:уже|вот уже|целых|целый|целую)\s+(?:{_TIME_NUM}\s+)?(?:{_TIME_UNIT}|полгода)\b"
+    rf"|\b{_TIME_NUM}\s+{_TIME_UNIT}\s+назад\b"
+    # «Неделю назад» без числа — только если перед ним не стоит другое
+    # число словом («двадцать лет назад» не трогаем целиком).
+    r"|(?<!\w\s)\b(?:неделю|месяц|год)\s+назад\b"
+    r"|\b(?:годами|месяцами|неделями)\b)",
+    re.IGNORECASE,
+)
+# Человек сам назвал время — значит, сроки в ответе могут быть его, не трогаем.
+_USER_TIME_RE = re.compile(
+    r"\d|\b(?:дн[яеий]|день|сутк|недел|месяц|полгода|год|лет|давно|долго|"
+    r"вчера|позавчера|всегда|всю жизнь|с детства|с тех пор)\w*",
+    re.IGNORECASE,
+)
+
+
+# «Это не про X, это про Y» — в выгрузке 22–29.09.2026 стоял в 21%
+# ответов, а в каждом десятом длинном разговоре — через ответ.
+_NOT_ABOUT_RE = re.compile(
+    r"\bне (?:про|о)\b[^.!?]{0,80}\bэто (?:про|о)\b|\bэто не (?:про|о)\b",
+    re.IGNORECASE,
+)
+
+
+def strip_invented_time(sentence: str) -> str:
+    """Убирает из предложения срок, которого человек не называл.
+    Пустая строка — если от предложения ничего осмысленного не осталось."""
+    m = _INVENTED_TIME_RE.search(sentence or "")
+    if not m:
+        return sentence
+    # Вопрос о сроке — это не утверждение, а ровно то, что нужно:
+    # «дни или уже недели?». Условие «если это тянется годами» — тоже.
+    if sentence.rstrip().endswith("?") or re.search(r"\bесли\b", sentence[:m.start()], re.I):
+        return sentence
+    out = _INVENTED_TIME_RE.sub("", sentence)
+    out = re.sub(r",\s*([—–])", r" \1", out)
+    out = re.sub(r"\s+([,.!?;:])", r"\1", out)
+    out = re.sub(r",\s*,", ",", out)
+    out = re.sub(r"^[\s,;:—–-]+", "", out)
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    if len(re.findall(r"\w+", out)) < 3:
+        return ""
+    return out[0].upper() + out[1:]
+
+
 
 # Разбивка готового ответа на предложения для per-sentence TTS в голосовом
 # стриме (/api/voice/process_stream). Раньше BasicMode отдавал весь ответ
@@ -820,6 +878,50 @@ class BasicMode(BaseMode):
             "страницу, друзей, телефон. Это кормит тревогу, а не снимает её.",
         ])
 
+    def _build_repeat_block(self) -> str:
+        """Свои прошлые ответы — чтобы не повторяться.
+
+        Выгрузка 22–29.09.2026, разговор оплатившего пробу на 71 реплику
+        за утро: «пять лет» и «мозг достраивает пустоту» почти в каждом
+        ответе, упражнение «две колонки» предложено четыре раза, а после
+        его признания — «если этого не было». Человеку в панике три ответа
+        подряд начинались одной фразой. Модель видит свои прошлые ответы
+        обрезанными, и повтора в них не замечает — называем его прямо."""
+        mine = [(m.get("content") or "").strip() for m in (self.history or [])
+                if m.get("role") != "user" and (m.get("content") or "").strip()]
+        if not mine:
+            return ""
+        lines = ["ПОВТОРЫ — сверься со своими ответами в истории:"]
+        n = sum(1 for t in mine if _NOT_ABOUT_RE.search(t))
+        if n:
+            lines.append("- Оборот «это не про X, это про Y» в этом разговоре уже был — "
+                         "в этом ответе его нет, мысль говори прямо.")
+        heads = []
+        for t in mine[-3:]:
+            w = t.split()[:4]
+            if w:
+                heads.append("«" + " ".join(w).rstrip(",.—:;") + "…»")
+        if heads:
+            lines.append("- Не начинай ответ так же, как прошлые: " + ", ".join(heads) + ".")
+        lines.append("- Совет или упражнение, которое уже есть в истории, не предлагай "
+                     "заново — спроси, получилось ли. Одну деталь из рассказа (число лет, "
+                     "одно его слово) не вставляй в каждый ответ.")
+        lines.append("- Не противоречь тому, что человек сказал о себе: если он в чём-то "
+                     "признался, не пиши «если этого не было».")
+        return "\n".join(lines)
+
+    def _build_voice_block(self) -> str:
+        """Сообщение надиктовано — распознавание иногда меняет слово.
+
+        29.09.2026: «Возвращаемся в мэрии через неделю» — посреди рассказа
+        о переезде; Фреди построил на «мэрии» целый разбор («это не только
+        про работу»), вместо того чтобы переспросить."""
+        if not self.user_data.get("via_voice"):
+            return ""
+        return ("ГОЛОС: сообщение надиктовано, распознавание иногда путает слова. "
+                "Если слово выглядит не к месту, не строй на нём толкование — "
+                "коротко переспроси, что имелось в виду.")
+
     def _build_return_block(self, question: str) -> str:
         """Человек вернулся после паузы — первая фраза про прошлый разговор.
 
@@ -1126,7 +1228,9 @@ class BasicMode(BaseMode):
         if self.history:
             for m in self.history[-10:]:
                 role = "Пользователь" if m.get("role") == "user" else "Фреди"
-                content = (m.get("content") or "")[:200]
+                # Свои ответы — длиннее: в первых 200 знаках не было ни
+                # упражнения, ни совета, и модель предлагала их заново.
+                content = (m.get("content") or "")[:200 if m.get("role") == "user" else 500]
                 if content:
                     history_lines.append(f"{role}: {content}")
         history_lines.extend(self._session_lines(question))
@@ -1148,6 +1252,9 @@ class BasicMode(BaseMode):
             "Без tool'а не выдумывай конкретные цифры и названия."
         )
         parts.append(self._build_facts_block())
+        for extra in (self._build_repeat_block(), self._build_voice_block()):
+            if extra:
+                parts.append(extra)
         # Курс Лектория по теме этого разговора (правила блога) — строкой
         # к общему каталогу из системного промпта.
         try:
@@ -1564,7 +1671,9 @@ class BasicMode(BaseMode):
             response = await self._call_llm_for_response(question, max_tokens=ANSWER_MAX_TOKENS, temperature=0.8)
             if response and response.strip():
                 cleaned = self._strip_banned_opener(self._simple_clean(response))
-                sentences = _split_into_sentences(cleaned)
+                time_on = self._time_filter_on(question)
+                sentences = [s for s in (self._filter_time(x, time_on)
+                                         for x in _split_into_sentences(cleaned)) if s]
                 if sentences:
                     for _s in sentences:
                         yield _s
@@ -1610,6 +1719,7 @@ class BasicMode(BaseMode):
 
         buffer = ""
         first_out = True  # первое выданное предложение — с него режем зачин
+        time_on = self._time_filter_on(question)
         try:
             async for delta in self.ai_service._call_deepseek_streaming(
                 system_text, user_text, max_tokens=max_tokens,
@@ -1620,7 +1730,9 @@ class BasicMode(BaseMode):
                 buffer += delta
                 ready, buffer = _split_stream_buffer(buffer)
                 for sent in ready:
-                    cleaned = self._simple_clean(sent)
+                    cleaned = self._filter_time(self._simple_clean(sent), time_on)
+                    if not cleaned:
+                        continue
                     if first_out:
                         cleaned = self._strip_banned_opener(cleaned)
                         # Предложение состояло из одного зачина — пропускаем
@@ -1637,6 +1749,7 @@ class BasicMode(BaseMode):
         tail = self._simple_clean(buffer)
         if tail:
             for sent in _split_into_sentences(tail):
+                sent = self._filter_time(sent, time_on)
                 if not sent:
                     continue
                 if first_out:
@@ -1743,6 +1856,31 @@ class BasicMode(BaseMode):
             return ""
         # После среза предложение начинается со строчной буквы.
         return out[0].upper() + out[1:]
+
+    def _time_filter_on(self, question: str) -> bool:
+        """Резать сроки — только в первый день и только если человек сам
+        время не называл. Вернувшемуся «две недели назад ты говорил» может
+        быть правдой из памяти; голосовой путь давности не знает (нет
+        first_seen_days) — там не трогаем."""
+        days = self.user_data.get("first_seen_days")
+        try:
+            if days is None or int(days) != 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+        said = [question or "", self._memory_text or ""] + [
+            (m.get("content") or "") for m in (self.history or [])
+            if m.get("role") == "user"]
+        return not _USER_TIME_RE.search(" ".join(said))
+
+    def _filter_time(self, sentence: str, on: bool) -> str:
+        if not on or not sentence:
+            return sentence
+        out = strip_invented_time(sentence)
+        if out != sentence:
+            logger.info("facts: срок вырезан user=%s: %r → %r",
+                        self.user_id, sentence[:120], out[:120])
+        return out
 
     def _simple_clean(self, text: str) -> str:
         if not text:

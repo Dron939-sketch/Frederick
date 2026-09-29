@@ -1351,6 +1351,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         "message_count": context.get("basic_message_count", 0),  # счётчик для BasicMode
         "test_offered": context.get("basic_test_offered", False),  # флаг предложения теста
         **(await _session_meta(user_id_for_db)),  # session_turns, is_registered — для ритуала завершения
+        "via_voice": True,  # сокет принимает только речь
     }
 
     class SimpleContext:
@@ -4756,6 +4757,7 @@ async def process_voice(
             "history": history,
             "message_count": msg_count,
             "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
+            "via_voice": True,  # распознанная речь — BasicMode переспросит странное слово
         }
 
         class SimpleContext:
@@ -4942,6 +4944,7 @@ async def process_voice_stream(
                     "history": history,
                     "message_count": msg_count,
                     "test_offered": context_obj.get("basic_test_offered", False),
+                    "via_voice": True,
                 }
 
                 class SimpleContext:
