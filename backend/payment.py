@@ -435,7 +435,16 @@ class PaymentService:
                 logger.warning(f"Recurring payment {yookassa_id} is pending - may require 3DS")
                 return {"success": False, "error": "Платеж требует подтверждения", "status": "pending"}
             else:
-                return {"success": False, "error": f"Статус платежа: {status}"}
+                # 30.09.2026: первое продление пробы вернулось canceled, а
+                # почему — не записалось. Причину ЮKassa отдаёт в
+                # cancellation_details (insufficient_funds,
+                # permission_revoked, card_expired…), она и решает, что
+                # делать дальше: ждать повтора или писать человеку.
+                cd = result.get("cancellation_details") or {}
+                why = ", ".join(x for x in (cd.get("party"), cd.get("reason")) if x)
+                logger.warning(f"Recurring payment {yookassa_id} {status} for user {user_id}: {why or 'no details'}")
+                return {"success": False,
+                        "error": f"Статус платежа: {status}" + (f" ({why})" if why else "")}
 
         except httpx.HTTPStatusError as e:
             logger.error(f"Recurring payment HTTP error: {e.response.status_code}")

@@ -23,3 +23,14 @@ def test_admin_renewals_route_closed_by_token():
     assert body.index("_check_admin(") < body.index("db.get_connection()")
     assert "email" not in body
     assert "renewal_last_error" in body and "subscription_recurring" in body
+
+
+def test_canceled_renewal_keeps_yookassa_reason():
+    """30.09.2026: продление пробы …9178 вернулось canceled без причины.
+    Причина из cancellation_details попадает в renewal_last_error."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "payment.py").read_text(encoding="utf-8")
+    i = src.index("async def charge_recurring(")
+    body = src[i:src.index("async def _extend_subscription", i)]
+    assert 'result.get("cancellation_details")' in body
+    assert 'cd.get("reason")' in body and 'cd.get("party")' in body
