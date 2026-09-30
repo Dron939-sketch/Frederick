@@ -451,6 +451,54 @@ def register_payment_routes(app, db, limiter):
                 logger.error(f"pending_payments_poller error: {e}")
             await asyncio.sleep(300)
 
+    @app.get("/api/admin/renewals")
+    async def admin_renewals(request: Request):
+        """Состояние автопродлений: кто на подходе, чем кончилась попытка.
+
+        30.09.2026: проба кончилась в 23:33, продления не случилось, а
+        увидеть причину было негде — renewal_last_error и повторные
+        платежи жили только в базе и в логе контейнера. Без почт и
+        имён: хвост id, тариф, сроки, попытки, ошибка, статус списаний."""
+        _check_admin(request.headers.get("X-Admin-Token")
+                     or request.headers.get("x-admin-token"))
+        async with db.get_connection() as conn:
+            subs = await conn.fetch("""
+                SELECT s.user_id, s.plan, s.status, s.expires_at, s.auto_renew,
+                       COALESCE(s.renewal_attempts, 0) AS renewal_attempts,
+                       s.renewal_last_attempt_at, s.renewal_last_error,
+                       EXISTS (SELECT 1 FROM fredi_payment_methods pm
+                               WHERE pm.user_id = s.user_id AND pm.is_active = TRUE) AS has_card
+                FROM fredi_subscriptions s
+                WHERE s.auto_renew = TRUE
+                  AND s.expires_at BETWEEN NOW() - INTERVAL '5 days' AND NOW() + INTERVAL '3 days'
+                ORDER BY s.expires_at
+            """)
+            pays = await conn.fetch("""
+                SELECT user_id, yookassa_id, amount, status, created_at
+                FROM fredi_payments
+                WHERE payment_type = 'subscription_recurring'
+                  AND created_at > NOW() - INTERVAL '5 days'
+                ORDER BY created_at DESC
+            """)
+        by_user = {}
+        for p in pays:
+            by_user.setdefault(p["user_id"], []).append({
+                "payment_id": p["yookassa_id"], "amount": float(p["amount"] or 0),
+                "status": p["status"], "at": str(p["created_at"])})
+        return {
+            "now": str(datetime.now(timezone.utc)),
+            "subscriptions": [{
+                "user": "…" + str(s["user_id"])[-4:],
+                "plan": s["plan"], "db_status": s["status"],
+                "expires_at": str(s["expires_at"]), "auto_renew": s["auto_renew"],
+                "has_card": s["has_card"],
+                "attempts": s["renewal_attempts"],
+                "last_attempt_at": str(s["renewal_last_attempt_at"]) if s["renewal_last_attempt_at"] else None,
+                "last_error": s["renewal_last_error"],
+                "recurring_payments": by_user.get(s["user_id"], []),
+            } for s in subs],
+        }
+
     @app.get("/api/admin/users-premium")
     @limiter.limit("30/minute")
     async def admin_users_with_premium(request: Request):
