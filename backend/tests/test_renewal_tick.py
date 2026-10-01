@@ -34,3 +34,27 @@ def test_canceled_renewal_keeps_yookassa_reason():
     body = src[i:src.index("async def _extend_subscription", i)]
     assert 'result.get("cancellation_details")' in body
     assert 'cd.get("reason")' in body and 'cd.get("party")' in body
+
+
+def test_payment_applied_once_even_when_webhook_races_charge():
+    """01.10.2026: продление …4673 за 690 ₽ дало 60 дней. Ответ ЮKassa на
+    автосписание и её webhook пришли почти одновременно, оба прочитали
+    «ещё не оплачен» и оба продлили. Теперь платёж захватывается одним
+    INSERT ... ON CONFLICT ... WHERE status <> succeeded RETURNING, а
+    успешное автосписание идёт через тот же _apply_succeeded_payment."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "payment.py").read_text(encoding="utf-8")
+    i = src.index("async def _apply_succeeded_payment(")
+    apply_body = src[i:src.index("async def _fetch_payment", i)]
+    assert "WHERE fredi_payments.status IS DISTINCT FROM 'succeeded'" in apply_body
+    assert "RETURNING 1" in apply_body
+    assert 'already = None if claimed else "succeeded"' in apply_body
+    # раздельного «прочитать, потом вставить» больше нет
+    assert "SELECT status FROM fredi_payments WHERE yookassa_id" not in apply_body
+    # автосписание после истёкшей пробы — продление, а не новая оплата
+    assert "is_renewal = is_recurring" in apply_body
+
+    j = src.index("async def charge_recurring(")
+    charge = src[j:src.index("async def _extend_subscription", j)]
+    assert "await self._apply_succeeded_payment(user_id, result)" in charge
+    assert "self._extend_subscription(" not in charge
