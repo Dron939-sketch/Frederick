@@ -48,7 +48,7 @@ def _body(name: str, size: int = 4000) -> str:
 
 
 def test_recurring_charge_takes_plan_from_subscription():
-    b = _body("charge_recurring", 7000)
+    b = _body("charge_recurring", 9000)
     assert "SELECT plan FROM fredi_subscriptions" in b, "тариф продления читается из подписки"
     assert 'renew_plan = "quarter" if cur_plan == "quarter" else "monthly"' in b
     assert '"plan": renew_plan' in b, "в метаданных платежа — тариф продления, не «monthly» руками"

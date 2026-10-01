@@ -411,6 +411,18 @@ class PaymentService:
             yookassa_id = result["id"]
             status = result["status"]
 
+            if status == "succeeded":
+                # Успешное автосписание идёт тем же путём, что webhook и
+                # поллер (01.10.2026): строку платежа и продление делает
+                # _apply_succeeded_payment, а он захватывает платёж атомарно.
+                # Свой INSERT здесь и отдельный _extend_subscription давали
+                # гонку с webhook: оба продлевали, …4673 получил 60 дней.
+                result.setdefault("metadata", {}).setdefault("type", "subscription_recurring")
+                result["metadata"].setdefault("plan", renew_plan)
+                logger.info(f"Recurring payment {yookassa_id}: succeeded for user {user_id}")
+                await self._apply_succeeded_payment(user_id, result)
+                return {"success": True, "payment_id": yookassa_id, "status": status}
+
             async with self.db.get_connection() as conn:
                 # DO UPDATE, а не DO NOTHING (24.09.2026). Ключ идемпотентности
                 # стабилен на сутки, поэтому повтор в тот же день возвращает
@@ -423,15 +435,14 @@ class PaymentService:
                     ON CONFLICT (yookassa_id) DO UPDATE SET
                         status = EXCLUDED.status,
                         updated_at = NOW()
+                        -- оплаченный webhook'ом платёж не откатывается в pending
+                        WHERE fredi_payments.status IS DISTINCT FROM 'succeeded'
                 """, user_id, yookassa_id, float(renew_amount), status,
                     "Автопродление подписки Фреди", renew_plan)
 
             logger.info(f"Recurring payment {yookassa_id}: {status} for user {user_id}")
 
-            if status == "succeeded":
-                await self._extend_subscription(user_id, renew_plan)
-                return {"success": True, "payment_id": yookassa_id, "status": status}
-            elif status == "pending":
+            if status == "pending":
                 logger.warning(f"Recurring payment {yookassa_id} is pending - may require 3DS")
                 return {"success": False, "error": "Платеж требует подтверждения", "status": "pending"}
             else:
@@ -544,16 +555,22 @@ class PaymentService:
         async with self.db.get_connection() as conn:
             # 1) Идемпотентность: если этот платёж уже отработан в подписку,
             #    повторно не активируем — просто возвращаем актуальное состояние.
-            already = await conn.fetchval("""
-                SELECT status FROM fredi_payments WHERE yookassa_id = $1
-            """, yookassa_id)
-
-            await conn.execute("""
+            # Захват платежа — одним запросом (01.10.2026). Раньше было
+            # «прочитать статус → вставить»: два обработчика одного платежа
+            # (ответ ЮKassa на автосписание и её же webhook) читали «ещё не
+            # оплачен» почти одновременно, и оба продлевали подписку.
+            # Продление …4673 за 690 ₽ дало 60 дней вместо 30. Теперь строку
+            # в succeeded переводит ровно один вызов: у остальных
+            # ON CONFLICT ... WHERE не срабатывает и RETURNING пуст.
+            claimed = await conn.fetchval("""
                 INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description, plan)
                 VALUES ($1, $2, $3, 'succeeded', $4, $5, $6)
                 ON CONFLICT (yookassa_id) DO UPDATE SET
                     status = 'succeeded', updated_at = NOW()
+                    WHERE fredi_payments.status IS DISTINCT FROM 'succeeded'
+                RETURNING 1
             """, user_id, yookassa_id, paid_amount, payment_type, info["title"], plan)
+            already = None if claimed else "succeeded"
 
             # 2) Сохраняем способ оплаты, если он пришёл (нужен для автопродления).
             payment_method = payment_obj.get("payment_method", {}) or {}
@@ -596,6 +613,9 @@ class PaymentService:
                 SELECT expires_at FROM fredi_subscriptions
                 WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
             """, user_id)
+            # Автосписание — продление, даже если проба уже истекла к моменту
+            # списания: владельцу и человеку это «продление», а не новая оплата.
+            is_recurring = payment_type == "subscription_recurring"
             if row:
                 new_expires = row["expires_at"] + timedelta(days=period_days)
                 is_renewal = True
@@ -606,7 +626,7 @@ class PaymentService:
                 """, new_expires, user_id, plan)
             else:
                 new_expires = now + timedelta(days=period_days)
-                is_renewal = False
+                is_renewal = is_recurring
                 await conn.execute("""
                     INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew, plan)
                     VALUES ($1, 'active', $2, $3, TRUE, $4)
