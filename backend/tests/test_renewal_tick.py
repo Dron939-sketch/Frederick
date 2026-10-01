@@ -58,3 +58,16 @@ def test_payment_applied_once_even_when_webhook_races_charge():
     charge = src[j:src.index("async def _extend_subscription", j)]
     assert "await self._apply_succeeded_payment(user_id, result)" in charge
     assert "self._extend_subscription(" not in charge
+
+
+def test_admin_payment_details_closed_and_without_card_number():
+    """01.10.2026: три отмены пробы подряд, причина была видна только в
+    кабинете ЮKassa. Ручка закрыта токеном и не отдаёт номер карты."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "payment_routes.py").read_text(encoding="utf-8")
+    i = src.index('@app.get("/api/admin/payment/{payment_id}")')
+    body = src[i:src.index("@app.get", i + 10)]
+    assert body.index("_check_admin(") < body.index("_fetch_payment(")
+    assert "cancellation_details" in body
+    for leak in ("first6", "last4", "email", "phone"):
+        assert leak not in body, leak

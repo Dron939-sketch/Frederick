@@ -451,6 +451,43 @@ def register_payment_routes(app, db, limiter):
                 logger.error(f"pending_payments_poller error: {e}")
             await asyncio.sleep(300)
 
+    @app.get("/api/admin/payment/{payment_id}")
+    async def admin_payment_details(payment_id: str, request: Request):
+        """Почему платёж не прошёл — ответ ЮKassa без данных карты.
+
+        01.10.2026: с 30.09 три попытки купить пробу подряд — canceled,
+        до этого из семи прошли пять. Причина отмены (cancellation_details:
+        3DS не пройден, банк отклонил, человек ушёл со страницы) видна
+        только в кабинете ЮKassa. Здесь — статус, причина, тип способа
+        оплаты, банк-эмитент и страна; номера карты нет."""
+        _check_admin(request.headers.get("X-Admin-Token")
+                     or request.headers.get("x-admin-token"))
+        if not payment_service:
+            return {"ok": False, "error": "payment service off"}
+        p = await payment_service._fetch_payment(payment_id)
+        if not p:
+            return {"ok": False, "error": "not found"}
+        pm = p.get("payment_method") or {}
+        card = pm.get("card") or {}
+        return {
+            "ok": True,
+            "status": p.get("status"),
+            "paid": p.get("paid"),
+            "amount": (p.get("amount") or {}).get("value"),
+            "created_at": p.get("created_at"),
+            "expires_at": p.get("expires_at"),
+            "cancellation_details": p.get("cancellation_details"),
+            "payment_method": {"type": pm.get("type"), "saved": pm.get("saved"),
+                               "card_type": card.get("card_type"),
+                               "issuer_country": card.get("issuer_country"),
+                               "issuer_name": card.get("issuer_name")},
+            "confirmation_type": (p.get("confirmation") or {}).get("type"),
+            "authorization_details": {k: v for k, v in (p.get("authorization_details") or {}).items()
+                                      if k in ("three_d_secure",)},
+            "plan": (p.get("metadata") or {}).get("plan"),
+            "test": p.get("test"),
+        }
+
     @app.get("/api/admin/renewals")
     async def admin_renewals(request: Request):
         """Состояние автопродлений: кто на подходе, чем кончилась попытка.
