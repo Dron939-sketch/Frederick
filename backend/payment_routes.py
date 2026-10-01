@@ -470,7 +470,8 @@ def register_payment_routes(app, db, limiter):
                                WHERE pm.user_id = s.user_id AND pm.is_active = TRUE) AS has_card
                 FROM fredi_subscriptions s
                 WHERE s.auto_renew = TRUE
-                  AND s.expires_at BETWEEN NOW() - INTERVAL '5 days' AND NOW() + INTERVAL '3 days'
+                  -- повторы идут без срока (01.10.2026), поэтому окно назад длинное
+                  AND s.expires_at BETWEEN NOW() - INTERVAL '60 days' AND NOW() + INTERVAL '3 days'
                 ORDER BY s.expires_at
             """)
             pays = await conn.fetch("""

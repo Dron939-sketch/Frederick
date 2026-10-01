@@ -22,13 +22,21 @@ SUBSCRIPTION_CURRENCY = "RUB"
 SUBSCRIPTION_PERIOD_DAYS = 30
 
 # Повторы автопродления. Неудачное списание (нет денег, карта истекла,
-# 3DS, сбой ЮKassa) — не приговор: попытка повторяется раз в сутки,
-# всего MAX_RENEWAL_ATTEMPTS. Только после последней автопродление
-# выключается. Пауза между попытками чуть меньше суток, чтобы
-# планировщик, тикающий раз в 86400 с с момента старта процесса, не
-# промахивался мимо окна на несколько минут после рестарта.
-MAX_RENEWAL_ATTEMPTS = 3
-RENEWAL_RETRY_HOURS = 23
+# 3DS, сбой ЮKassa) — не приговор: попытка повторяется раз в сутки.
+#
+# 01.10.2026, решение владельца: «через сутки ещё раз пробовать и так до
+# тех пор, пока не получится списать», писем человеку не слать. Раньше
+# было три попытки, после третьей автопродление выключалось, а окно
+# кандидатов закрывалось через четыре дня после конца подписки. Теперь
+# ни счётчика-потолка, ни окна: попытки идут, пока подписка в базе
+# active, автопродление включено и карта привязана. Остановить их может
+# только человек (выключил автопродление, удалил карту) или успех.
+#
+# Пауза — ровно сутки, не меньше: ключ идемпотентности ЮКассы живёт в
+# пределах календарных суток UTC, и две попытки с разницей 23 часа могли
+# попасть в одни сутки — ЮКасса вернула бы тот же отклонённый платёж,
+# а не попробовала заново.
+RENEWAL_RETRY_HOURS = 24
 
 # Тарифы первого платежа. За пять дней рекламы (02–06.09.2026): ~170
 # первых сообщений, 3 стены оплаты, 0 подписок — между «бесплатно» и
@@ -1017,7 +1025,8 @@ class PaymentService:
         return {"success": True, "auto_renew": enabled}
 
     async def process_renewals(self) -> Dict[str, Any]:
-        """Автопродление с повторами.
+        """Автопродление с повторами раз в сутки, без потолка попыток
+        (01.10.2026, решение владельца — см. RENEWAL_RETRY_HOURS).
 
         До 12.09.2026 неудачное списание с текстом «недостаточно средств /
         истек / заблокирована» сразу выключало автопродление, а любая
@@ -1026,13 +1035,12 @@ class PaymentService:
         один пропуск — и человек выпадал навсегда, без письма и без
         второй попытки. Теперь каждая неудача записывается в подписку
         (renewal_attempts, renewal_last_attempt_at, renewal_last_error),
-        следующая попытка — не раньше чем через RENEWAL_RETRY_HOURS, всего
-        MAX_RENEWAL_ATTEMPTS. Автопродление выключается только после
-        последней. Успех обнуляет счётчик (см. _extend_subscription).
+        следующая попытка — не раньше чем через RENEWAL_RETRY_HOURS. Само
+        автопродление после неудач больше не выключается. Успех обнуляет
+        счётчик (см. _apply_succeeded_payment).
         """
         renewed = 0
         failed = 0
-        disabled = 0
 
         async with self.db.get_connection() as conn:
             rows = await conn.fetch(f"""
@@ -1042,10 +1050,8 @@ class PaymentService:
                 JOIN fredi_payment_methods pm ON pm.user_id = s.user_id AND pm.is_active = TRUE
                 WHERE s.auto_renew = TRUE
                   AND s.status = 'active'
-                  -- окно повторов: попытка в день истечения плюс по одной
-                  -- в каждый из следующих дней, с запасом на сдвиг тика
-                  AND s.expires_at > NOW() - INTERVAL '{MAX_RENEWAL_ATTEMPTS + 1} days'
-                  AND COALESCE(s.renewal_attempts, 0) < {MAX_RENEWAL_ATTEMPTS}
+                  -- ни окна после истечения, ни потолка попыток: повтор
+                  -- раз в сутки, пока не спишется (решение владельца)
                   AND (s.renewal_last_attempt_at IS NULL
                        OR s.renewal_last_attempt_at <= NOW() - INTERVAL '{RENEWAL_RETRY_HOURS} hours')
                   AND (
@@ -1061,8 +1067,7 @@ class PaymentService:
 
         for row in rows:
             attempt = int(row["renewal_attempts"] or 0) + 1
-            logger.info(f"Processing renewal for user {row['user_id']} "
-                        f"(attempt {attempt}/{MAX_RENEWAL_ATTEMPTS})")
+            logger.info(f"Processing renewal for user {row['user_id']} (attempt {attempt})")
             result = await self.charge_recurring(row["user_id"], row["payment_method_id"])
 
             if result.get("success"):
@@ -1072,26 +1077,18 @@ class PaymentService:
 
             failed += 1
             error = str(result.get("error", "Unknown error"))[:300]
-            give_up = attempt >= MAX_RENEWAL_ATTEMPTS
             logger.error(f"Renewal failed for user {row['user_id']} "
-                         f"(attempt {attempt}/{MAX_RENEWAL_ATTEMPTS}): {error}")
+                         f"(attempt {attempt}): {error}; next try in {RENEWAL_RETRY_HOURS} hours")
             async with self.db.get_connection() as conn:
                 await conn.execute("""
                     UPDATE fredi_subscriptions
                     SET renewal_attempts = $2,
                         renewal_last_attempt_at = NOW(),
                         renewal_last_error = $3,
-                        auto_renew = CASE WHEN $4::boolean THEN FALSE ELSE auto_renew END,
                         updated_at = NOW()
                     WHERE user_id = $1
-                """, row["user_id"], attempt, error, give_up)
-            if give_up:
-                disabled += 1
-                logger.info(f"Auto-renew disabled for user {row['user_id']} "
-                            f"after {attempt} failed attempts")
-            else:
-                logger.info(f"Renewal for user {row['user_id']} will be retried "
-                            f"in {RENEWAL_RETRY_HOURS} hours")
+                """, row["user_id"], attempt, error)
 
-        logger.info(f"Renewals processed: {renewed} ok, {failed} failed, {disabled} disabled")
-        return {"renewed": renewed, "failed": failed, "disabled": disabled}
+        logger.info(f"Renewals processed: {renewed} ok, {failed} failed")
+        # disabled оставлен в ответе для совместимости: теперь всегда 0
+        return {"renewed": renewed, "failed": failed, "disabled": 0}
