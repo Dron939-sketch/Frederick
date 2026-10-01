@@ -113,6 +113,8 @@ def test_candidate_query_has_retry_window():
     sql = [e for e in db.log if e[0] == "fetch"][0][1]
     assert "renewal_attempts, 0) <" not in sql, "потолка попыток нет"
     assert "COALESCE(s.renewal_attempts, 0) > 0" in sql, "начатые повторы — без окна"
+    assert "(s.renewal_attempts - 1) * INTERVAL '25 hours'" in sql, \
+        "без срока — только если первая попытка была в окне"
     assert f"INTERVAL '{payment.FIRST_ATTEMPT_WINDOW_DAYS} days'" in sql, \
         "первая попытка — только по свежей подписке (…6240, истекла 23.08)"
     assert payment.RENEWAL_RETRY_HOURS == 24, "повтор — ровно через сутки"

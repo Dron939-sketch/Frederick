@@ -1059,8 +1059,19 @@ class PaymentService:
                   -- без этого условия в кандидаты попал человек, чья
                   -- подписка кончилась 23.08 и ни разу не продлевалась, —
                   -- ему пришло бы списание 690 ₽ через пять недель тишины.
-                  AND (COALESCE(s.renewal_attempts, 0) > 0
-                       OR s.expires_at > NOW() - INTERVAL '{FIRST_ATTEMPT_WINDOW_DAYS} days')
+                  -- Повтор без срока — только если и ПЕРВАЯ попытка была в
+                  -- окне. Время первой попытки восстанавливаем по последней и
+                  -- числу попыток (шаг ≤ 25 ч: сутки плюс сдвиг тика). Так
+                  -- …6240, которого #712 задел один раз 01.10, в вечные
+                  -- повторы не попадает, а …9178 (первая попытка через
+                  -- 8 минут после конца пробы) — попадает.
+                  AND (
+                    s.expires_at > NOW() - INTERVAL '{FIRST_ATTEMPT_WINDOW_DAYS} days'
+                    OR (COALESCE(s.renewal_attempts, 0) > 0
+                        AND s.renewal_last_attempt_at
+                            - (s.renewal_attempts - 1) * INTERVAL '25 hours'
+                            <= s.expires_at + INTERVAL '{FIRST_ATTEMPT_WINDOW_DAYS} days')
+                  )
                   AND (s.renewal_last_attempt_at IS NULL
                        OR s.renewal_last_attempt_at <= NOW() - INTERVAL '{RENEWAL_RETRY_HOURS} hours')
                   AND (
