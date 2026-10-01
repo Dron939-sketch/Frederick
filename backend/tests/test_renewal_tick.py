@@ -71,3 +71,15 @@ def test_admin_payment_details_closed_and_without_card_number():
     assert "cancellation_details" in body
     for leak in ("first6", "last4", "email", "phone"):
         assert leak not in body, leak
+
+
+def test_admin_expiry_fix_only_shortens_and_is_closed():
+    """01.10.2026, владелец про …4673 (60 дней вместо 30): «урежь». Ручка
+    закрыта токеном, срок только сокращает и не в прошлое."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "payment_routes.py").read_text(encoding="utf-8")
+    i = src.index('@app.post("/api/admin/subscription/{user_id}/expires")')
+    body = src[i:src.index("@app.get", i)]
+    assert body.index("_check_admin(") < body.index("db.get_connection()")
+    assert "if new_exp >= cur:" in body and "new_exp <= datetime.now(timezone.utc)" in body
+    assert "reason обязателен" in body

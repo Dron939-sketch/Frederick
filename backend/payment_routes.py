@@ -451,6 +451,48 @@ def register_payment_routes(app, db, limiter):
                 logger.error(f"pending_payments_poller error: {e}")
             await asyncio.sleep(300)
 
+    @app.post("/api/admin/subscription/{user_id}/expires")
+    async def admin_set_subscription_expiry(user_id: int, request: Request):
+        """Поправить срок подписки руками — только по слову владельца.
+
+        01.10.2026: продление …4673 за 690 ₽ из-за гонки с webhook (#711)
+        легло на 60 дней, до 30.11. Владелец: «урежь» — до 31.10, ровно
+        месяц от списания. Тело: {"expires_at": ISO-время, "reason": "…"}.
+        Срок можно только сократить и не раньше текущего момента: ручка
+        не дарит доступ и не обрывает уже оплаченный."""
+        _check_admin(request.headers.get("X-Admin-Token")
+                     or request.headers.get("x-admin-token"))
+        body = await request.json()
+        reason = str(body.get("reason") or "").strip()
+        try:
+            new_exp = datetime.fromisoformat(str(body.get("expires_at")))
+            if new_exp.tzinfo is None:
+                new_exp = new_exp.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "expires_at: нужна дата ISO"}
+        if not reason:
+            return {"ok": False, "error": "reason обязателен"}
+        async with db.get_connection() as conn:
+            cur = await conn.fetchval(
+                "SELECT expires_at FROM fredi_subscriptions WHERE user_id = $1", user_id)
+            if cur is None:
+                return {"ok": False, "error": "подписки нет"}
+            if new_exp >= cur:
+                return {"ok": False, "error": "срок можно только сократить", "expires_at": str(cur)}
+            if new_exp <= datetime.now(timezone.utc):
+                return {"ok": False, "error": "новый срок уже в прошлом", "expires_at": str(cur)}
+            await conn.execute(
+                "UPDATE fredi_subscriptions SET expires_at = $2, updated_at = NOW() WHERE user_id = $1",
+                user_id, new_exp)
+        logger.warning(f"admin: срок подписки …{str(user_id)[-4:]} {cur} → {new_exp}: {reason}")
+        try:
+            from analytics_routes import log_server_event
+            await log_server_event(user_id, "subscription_expiry_fixed", {
+                "from": str(cur), "to": new_exp.isoformat(), "reason": reason[:200]})
+        except Exception:
+            pass
+        return {"ok": True, "from": str(cur), "to": str(new_exp)}
+
     @app.get("/api/admin/payment/{payment_id}")
     async def admin_payment_details(payment_id: str, request: Request):
         """Почему платёж не прошёл — ответ ЮKassa без данных карты.
