@@ -760,6 +760,36 @@ def register_analytics_routes(app, db):
             logger.error(f"analytics recent error: {e}")
             return {"error": "internal"}
 
+    @app.get("/api/analytics/daily")
+    async def analytics_daily(request: Request, events: str = "", days: int = 10,
+                              x_admin_token: Optional[str] = Header(default=None)):
+        """События по дням (МСК): сколько раз и сколько людей.
+
+        01.10.2026: клик «подписаться» на стене упал с 22% (28.09) до 7%
+        и 0, а /recent отдаёт только последние 500 событий — сравнить дни
+        было нечем. events — через запятую, до 20 имён; days — до 30."""
+        _check_admin(x_admin_token)
+        names = [e.strip() for e in (events or "").split(",") if e.strip()][:20]
+        if not names:
+            return {"error": "events пусто"}
+        d = max(1, min(int(days), 30))
+        try:
+            async with db.get_connection() as conn:
+                rows = await conn.fetch(
+                    "SELECT to_char((created_at AT TIME ZONE 'Europe/Moscow')::date, 'YYYY-MM-DD') AS day, "
+                    "event, COUNT(*) AS n, COUNT(DISTINCT user_id) AS users "
+                    "FROM fredi_analytics "
+                    "WHERE event = ANY($1::text[]) AND created_at > NOW() - make_interval(days => $2) "
+                    "AND (user_id IS NULL OR user_id <> 900000001) "
+                    "GROUP BY 1, 2 ORDER BY 1, 2", names, d)
+            out: Dict[str, Dict[str, Any]] = {}
+            for r in rows:
+                out.setdefault(r["day"], {})[r["event"]] = {"n": r["n"], "users": r["users"]}
+            return {"days": out}
+        except Exception as e:
+            logger.error(f"analytics daily error: {e}")
+            return {"error": "internal"}
+
     @app.get("/api/analytics/latency")
     async def analytics_latency(request: Request, hours: int = 1, limit: int = 30,
                                 x_admin_token: Optional[str] = Header(default=None)):

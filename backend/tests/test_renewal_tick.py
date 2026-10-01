@@ -83,3 +83,14 @@ def test_admin_expiry_fix_only_shortens_and_is_closed():
     assert body.index("_check_admin(") < body.index("db.get_connection()")
     assert "if new_exp >= cur:" in body and "new_exp <= datetime.now(timezone.utc)" in body
     assert "reason обязателен" in body
+
+
+def test_analytics_daily_closed_and_bounded():
+    """01.10.2026: события по дням для разбора стены; закрыто токеном,
+    имён до 20, дней до 30, служебный 900000001 не считается."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "analytics_routes.py").read_text(encoding="utf-8")
+    i = src.index('@app.get("/api/analytics/daily")')
+    body = src[i:src.index("@app.get", i + 10)]
+    assert body.index("_check_admin(") < body.index("db.get_connection()")
+    assert "[:20]" in body and "min(int(days), 30)" in body and "900000001" in body
