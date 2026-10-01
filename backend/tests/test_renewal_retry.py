@@ -4,9 +4,10 @@
 До 12.09.2026 неудача с текстом «недостаточно средств» выключала
 автопродление с первого раза, остальные ошибки не повторялись вовсе:
 окно кандидатов было в сутки, планировщик тикает раз в сутки. Здесь
-проверяется новая механика на подменной базе: попытка считается,
-автопродление живёт до MAX_RENEWAL_ATTEMPTS, успех обнуляет счётчик,
-ключ идемпотентности ЮKassa стабилен внутри суток.
+проверяется механика на подменной базе: попытка считается, следующая —
+через сутки, и так до успеха (01.10.2026, решение владельца: потолка
+попыток нет, автопродление само не выключается), ключ идемпотентности
+ЮKassa стабилен внутри суток.
 
 Запуск: python3 backend/tests/test_renewal_retry.py
 """
@@ -82,17 +83,19 @@ def test_first_failure_counts_and_keeps_auto_renew():
     _, sql, args = ups[0]
     assert "renewal_attempts = $2" in sql and "renewal_last_attempt_at = NOW()" in sql
     assert args[0] == 7 and args[1] == 1 and "Недостаточно" in args[2]
-    assert args[3] is False, "после первой неудачи автопродление выключать нельзя"
+    assert "auto_renew" not in sql, "неудача не трогает автопродление"
 
 
-def test_last_failure_disables_auto_renew():
-    last = payment.MAX_RENEWAL_ATTEMPTS - 1
-    db = FakeDB([{"user_id": 7, "payment_method_id": "pm", "renewal_attempts": last}])
-    svc = _service(db, {"success": False, "error": "Срок действия карты истек"})
+def test_many_failures_never_disable_auto_renew():
+    """01.10.2026: «через сутки ещё раз пробовать и так до тех пор, пока не
+    получится списать». Десятая неудача — такая же, как первая."""
+    db = FakeDB([{"user_id": 7, "payment_method_id": "pm", "renewal_attempts": 9}])
+    svc = _service(db, {"success": False, "error": "Ошибка платежа: insufficient_funds"})
     res = asyncio.run(svc.process_renewals())
-    assert res["disabled"] == 1 and res["failed"] == 1, res
+    assert res == {"renewed": 0, "failed": 1, "disabled": 0}, res
     _, sql, args = db.updates()[0]
-    assert args[1] == payment.MAX_RENEWAL_ATTEMPTS and args[3] is True
+    assert args[1] == 10 and "auto_renew" not in sql
+    assert not hasattr(payment, "MAX_RENEWAL_ATTEMPTS")
 
 
 def test_success_touches_nothing_in_process_renewals():
@@ -108,9 +111,10 @@ def test_candidate_query_has_retry_window():
     svc = _service(db, {"success": True})
     asyncio.run(svc.process_renewals())
     sql = [e for e in db.log if e[0] == "fetch"][0][1]
-    assert f"renewal_attempts, 0) < {payment.MAX_RENEWAL_ATTEMPTS}" in sql
+    assert "renewal_attempts, 0) <" not in sql, "потолка попыток нет"
+    assert "NOW() - INTERVAL" in sql and "days'" not in sql, "окна после истечения нет"
+    assert payment.RENEWAL_RETRY_HOURS == 24, "повтор — ровно через сутки"
     assert f"INTERVAL '{payment.RENEWAL_RETRY_HOURS} hours'" in sql
-    assert f"INTERVAL '{payment.MAX_RENEWAL_ATTEMPTS + 1} days'" in sql
     assert "INTERVAL '1 day'" in sql, "месяц по-прежнему продлевается за сутки до конца"
 
 
