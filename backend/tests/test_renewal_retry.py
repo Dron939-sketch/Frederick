@@ -112,7 +112,9 @@ def test_candidate_query_has_retry_window():
     asyncio.run(svc.process_renewals())
     sql = [e for e in db.log if e[0] == "fetch"][0][1]
     assert "renewal_attempts, 0) <" not in sql, "потолка попыток нет"
-    assert "NOW() - INTERVAL" in sql and "days'" not in sql, "окна после истечения нет"
+    assert "COALESCE(s.renewal_attempts, 0) > 0" in sql, "начатые повторы — без окна"
+    assert f"INTERVAL '{payment.FIRST_ATTEMPT_WINDOW_DAYS} days'" in sql, \
+        "первая попытка — только по свежей подписке (…6240, истекла 23.08)"
     assert payment.RENEWAL_RETRY_HOURS == 24, "повтор — ровно через сутки"
     assert f"INTERVAL '{payment.RENEWAL_RETRY_HOURS} hours'" in sql
     assert "INTERVAL '1 day'" in sql, "месяц по-прежнему продлевается за сутки до конца"

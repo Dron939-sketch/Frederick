@@ -37,6 +37,9 @@ SUBSCRIPTION_PERIOD_DAYS = 30
 # попасть в одни сутки — ЮКасса вернула бы тот же отклонённый платёж,
 # а не попробовала заново.
 RENEWAL_RETRY_HOURS = 24
+# Первая попытка продления — только в эти дни после конца подписки.
+# Начатые повторы окна не имеют.
+FIRST_ATTEMPT_WINDOW_DAYS = 4
 
 # Тарифы первого платежа. За пять дней рекламы (02–06.09.2026): ~170
 # первых сообщений, 3 стены оплаты, 0 подписок — между «бесплатно» и
@@ -1050,8 +1053,14 @@ class PaymentService:
                 JOIN fredi_payment_methods pm ON pm.user_id = s.user_id AND pm.is_active = TRUE
                 WHERE s.auto_renew = TRUE
                   AND s.status = 'active'
-                  -- ни окна после истечения, ни потолка попыток: повтор
-                  -- раз в сутки, пока не спишется (решение владельца)
+                  -- потолка попыток нет: начатое продление повторяется раз
+                  -- в сутки, пока не спишется (решение владельца). Но первую
+                  -- попытку делаем только по свежей подписке: 01.10.2026
+                  -- без этого условия в кандидаты попал человек, чья
+                  -- подписка кончилась 23.08 и ни разу не продлевалась, —
+                  -- ему пришло бы списание 690 ₽ через пять недель тишины.
+                  AND (COALESCE(s.renewal_attempts, 0) > 0
+                       OR s.expires_at > NOW() - INTERVAL '{FIRST_ATTEMPT_WINDOW_DAYS} days')
                   AND (s.renewal_last_attempt_at IS NULL
                        OR s.renewal_last_attempt_at <= NOW() - INTERVAL '{RENEWAL_RETRY_HOURS} hours')
                   AND (
