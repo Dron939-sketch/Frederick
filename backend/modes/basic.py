@@ -28,6 +28,10 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# Подсказка «по теме подходит курс» и совет своего — не раньше этой
+# реплики человека (02.10.2026, см. _build_user_prompt).
+PRODUCT_HINT_MIN_TURNS = 6
+
 # Бюджет токенов на ответ BasicMode.
 #
 # Стояло 400 — и это ломало ответы. Модель тратит часть бюджета на
@@ -1114,6 +1118,14 @@ class BasicMode(BaseMode):
             "(например: «это скорее про работу, дом или здоровье?»). Не проси рассказать подробно."
         )
 
+    def _human_turns(self) -> int:
+        """Сколько реплик человек уже написал, считая текущую: история из
+        базы плюс реплики этой сессии. Пересечение двух источников счёт
+        только завышает, а порог — нижний, так что это безопасно."""
+        n = sum(1 for m in (self.history or []) if m.get("role") == "user")
+        n += sum(1 for ln in self.conversation_history if str(ln).startswith("Пользователь:"))
+        return max(n, 1)
+
     def _session_lines(self, question: str) -> List[str]:
         """Реплики текущей сессии для блока «История» — без той, на которую
         отвечаем сейчас.
@@ -1257,13 +1269,20 @@ class BasicMode(BaseMode):
                 parts.append(extra)
         # Курс Лектория по теме этого разговора (правила блога) — строкой
         # к общему каталогу из системного промпта.
+        # 02.10.2026: не раньше шестой реплики человека. С 29.09 подсказка
+        # шла с первого хода, и модель читала её как указание: из 112
+        # упоминаний курсов и тренажёров за три дня 65 пришлись на первые
+        # четыре реплики, после них люди продолжали разговор в 69–74%
+        # случаев против 80–85% после обычных ответов. До стены после
+        # двадцати минут разговора доходить стало некому.
         try:
             from .prompts.products import topic_block
-            tb = topic_block(" ".join([question] + [
-                (m.get("content") or "") for m in (self.history or [])[-6:]
-                if m.get("role") == "user"]))
-            if tb:
-                parts.append(tb)
+            if self._human_turns() >= PRODUCT_HINT_MIN_TURNS:
+                tb = topic_block(" ".join([question] + [
+                    (m.get("content") or "") for m in (self.history or [])[-6:]
+                    if m.get("role") == "user"]))
+                if tb:
+                    parts.append(tb)
         except Exception as _e:
             logger.debug(f"topic block skip: {_e}")
         pricing = self._build_pricing_block(question)
