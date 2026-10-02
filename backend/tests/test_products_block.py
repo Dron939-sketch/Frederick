@@ -64,3 +64,12 @@ def test_wired_into_basic_mode():
 def test_catalog_has_no_second_creator():
     text = (BACKEND / "data" / "products_catalog.json").read_text(encoding="utf-8")
     assert "Соколов" not in text
+
+
+def test_topic_hint_not_before_sixth_reply():
+    """02.10.2026: подсказка «по теме подходит курс» шла с первого хода, и
+    65 из 112 советов за три дня пришлись на первые четыре реплики."""
+    assert "PRODUCT_HINT_MIN_TURNS = 6" in BASIC
+    i = BASIC.index("from .prompts.products import topic_block")
+    assert "self._human_turns() >= PRODUCT_HINT_MIN_TURNS" in BASIC[i:i + 400]
+    assert "не раньше шестой его реплики" in _mod().RULES
