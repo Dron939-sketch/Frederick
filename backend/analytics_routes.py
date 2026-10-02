@@ -9,6 +9,7 @@ analytics_routes.py — Lightweight analytics + admin endpoints.
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -762,26 +763,46 @@ def register_analytics_routes(app, db):
 
     @app.get("/api/analytics/daily")
     async def analytics_daily(request: Request, events: str = "", days: int = 10,
+                              by: str = "",
                               x_admin_token: Optional[str] = Header(default=None)):
         """События по дням (МСК): сколько раз и сколько людей.
 
         01.10.2026: клик «подписаться» на стене упал с 22% (28.09) до 7%
         и 0, а /recent отдаёт только последние 500 событий — сравнить дни
-        было нечем. events — через запятую, до 20 имён; days — до 30."""
+        было нечем. events — через запятую, до 20 имён; days — до 30.
+
+        02.10.2026: by — имя поля из data (block_reason, wall_v, source…):
+        тогда ключ события дробится на «событие:значение». Без этого стена
+        с порога (auth, человек ещё ничего не сказал) и стена после
+        двадцати минут разговора (daily) считались одной строкой, а ведут
+        себя они противоположно."""
         _check_admin(x_admin_token)
         names = [e.strip() for e in (events or "").split(",") if e.strip()][:20]
         if not names:
             return {"error": "events пусто"}
         d = max(1, min(int(days), 30))
+        key = (by or "").strip()
+        if key and not re.fullmatch(r"[a-z_][a-z0-9_]{0,40}", key):
+            return {"error": "by: только латиница, цифры и _"}
         try:
             async with db.get_connection() as conn:
-                rows = await conn.fetch(
-                    "SELECT to_char((created_at AT TIME ZONE 'Europe/Moscow')::date, 'YYYY-MM-DD') AS day, "
-                    "event, COUNT(*) AS n, COUNT(DISTINCT user_id) AS users "
-                    "FROM fredi_analytics "
-                    "WHERE event = ANY($1::text[]) AND created_at > NOW() - make_interval(days => $2) "
-                    "AND (user_id IS NULL OR user_id <> 900000001) "
-                    "GROUP BY 1, 2 ORDER BY 1, 2", names, d)
+                if key:
+                    rows = await conn.fetch(
+                        "SELECT to_char((created_at AT TIME ZONE 'Europe/Moscow')::date, 'YYYY-MM-DD') AS day, "
+                        "event || ':' || COALESCE(data->>$3, '') AS event, "
+                        "COUNT(*) AS n, COUNT(DISTINCT user_id) AS users "
+                        "FROM fredi_analytics "
+                        "WHERE event = ANY($1::text[]) AND created_at > NOW() - make_interval(days => $2) "
+                        "AND (user_id IS NULL OR user_id <> 900000001) "
+                        "GROUP BY 1, 2 ORDER BY 1, 2", names, d, key)
+                else:
+                    rows = await conn.fetch(
+                        "SELECT to_char((created_at AT TIME ZONE 'Europe/Moscow')::date, 'YYYY-MM-DD') AS day, "
+                        "event, COUNT(*) AS n, COUNT(DISTINCT user_id) AS users "
+                        "FROM fredi_analytics "
+                        "WHERE event = ANY($1::text[]) AND created_at > NOW() - make_interval(days => $2) "
+                        "AND (user_id IS NULL OR user_id <> 900000001) "
+                        "GROUP BY 1, 2 ORDER BY 1, 2", names, d)
             out: Dict[str, Dict[str, Any]] = {}
             for r in rows:
                 out.setdefault(r["day"], {})[r["event"]] = {"n": r["n"], "users": r["users"]}
