@@ -3894,6 +3894,7 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         "history": history,           # ФИХ 3: реальная история
         "message_count": msg_count,   # ФИХ 4: счётчик BasicMode
         "test_offered": context_obj.get("basic_test_offered", False),  # флаг предложения теста
+        "scenario_key": context_obj.get("scenario_key"),  # выбранный сценарий по проблеме (prompts/scenarios.py)
         # Сводки прошлых сессий — всем; анониму только за семь дней.
         "memory_allowed": True,
         "memory_max_age_days": None if registered else ANON_MEMORY_DAYS,
@@ -3981,6 +3982,18 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
     try:
         from modes.prompts.invite import strip_mark as _strip_invite
         response_text = _strip_invite(response_text)
+    except Exception:
+        pass
+    # Та же судьба у метки сценария [[SCN:ключ]] (prompts/scenarios.py);
+    # сам ключ остаётся в контексте — по нему следующие ходы получают
+    # карточку выбранного сценария, а не всё меню.
+    try:
+        from modes.prompts.scenarios import strip_mark as _strip_scn, find_mark as _find_scn
+        _scn = _find_scn(response_text)
+        if _scn:
+            context_obj["scenario_key"] = _scn
+            context_obj["scenario_at"] = datetime.now(timezone.utc).isoformat()
+        response_text = _strip_scn(response_text)
     except Exception:
         pass
     _mark_tech_fail(context_obj, response_text)
