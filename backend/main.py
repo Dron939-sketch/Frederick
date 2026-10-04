@@ -150,6 +150,17 @@ def _days_since_msk(ts) -> int:
     return max(0, (datetime.now(msk).date() - ts.astimezone(msk).date()).days)
 
 
+async def _invite_ctx_safe(user_id) -> dict:
+    """Флаги приглашения второго человека для промпта (invite_routes).
+    Любая ошибка — пустой словарь: разговор важнее учёта."""
+    try:
+        from invite_routes import invite_flags
+        return await invite_flags(db, user_id)
+    except Exception as _e:
+        logger.debug(f"invite flags skip: {_e}")
+        return {}
+
+
 async def _session_meta(user_id) -> dict:
     """Сколько реплик человек написал в текущем разговоре и есть ли у
     него аккаунт. Нужно BasicMode для ритуала завершения: после пятой
@@ -458,6 +469,12 @@ async def lifespan(app: FastAPI):
         from feedback_routes import register_feedback_routes
         _init_feedback = register_feedback_routes(app, db, limiter)
         await _init_feedback()
+
+        # Приглашение второго человека в разговор (04.10.2026, как в
+        # семейной терапии): ссылки, их учёт и флаги для промпта.
+        from invite_routes import register_invite_routes
+        _init_invites = register_invite_routes(app, db, limiter)
+        await _init_invites()
 
         # Продажа комплекта напрямую: форма с адресом ПВЗ СДЭК и оплата.
         # Регистрируется после feedback_routes — берёт оттуда доставку
@@ -1361,6 +1378,7 @@ async def websocket_voice_endpoint(websocket: WebSocket, user_id: str):
         "test_offered": context.get("basic_test_offered", False),  # флаг предложения теста
         **(await _session_meta(user_id_for_db)),  # session_turns, is_registered — для ритуала завершения
         "via_voice": True,  # сокет принимает только речь
+        **(await _invite_ctx_safe(user_id_for_db)),
     }
 
     class SimpleContext:
@@ -3854,7 +3872,18 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
     else:
         msg_count = 0
 
+    # Приглашение второго человека: выдавал ли ссылку (тогда не предлагать
+    # снова) и пришёл ли сам по приглашению (тогда вести разговор так,
+    # чтобы ни одно слово первого не передавалось).
+    try:
+        from invite_routes import invite_flags
+        invite_ctx = await invite_flags(db, user_id)
+    except Exception as _e:
+        logger.debug(f"invite flags skip: {_e}")
+        invite_ctx = {}
+
     user_data = {
+        **invite_ctx,
         "profile_data": profile.get("profile_data", {}),
         "perception_type": profile.get("perception_type", "не определен"),
         "thinking_level": profile.get("thinking_level", 5),
@@ -3946,6 +3975,14 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
     # случаях, иначе отметка не переживёт перезапуск, а именно ради этого
     # она и заведена.
     _fail_before = bool(context_obj.get("tech_fail_at"))
+    # Служебная метка приглашения [[INVITE:кто]] — для приложения, не для
+    # истории: в окне разговора история показывается как есть, и метка
+    # торчала бы в прошлых репликах.
+    try:
+        from modes.prompts.invite import strip_mark as _strip_invite
+        response_text = _strip_invite(response_text)
+    except Exception:
+        pass
     _mark_tech_fail(context_obj, response_text)
     _fail_after = bool(context_obj.get("tech_fail_at"))
 
