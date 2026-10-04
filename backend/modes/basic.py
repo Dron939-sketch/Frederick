@@ -318,6 +318,11 @@ class BasicMode(BaseMode):
         )
         self.message_counter = user_data.get("message_count", 0)
         self.test_offered = user_data.get("test_offered", False)
+        # Флаги приглашения второго человека (main._prepare_chat_turn).
+        self._invite_flags = {
+            "invite_sent": bool(user_data.get("invite_sent")),
+            "invited_as": user_data.get("invited_as") or "",
+        }
         # Активный пресет промпта BasicMode (current/jarvis/house).
         # Прокидывается из main.py перед созданием mode_instance.
         # При отсутствии — fallback на 'current'.
@@ -1118,6 +1123,26 @@ class BasicMode(BaseMode):
             "(например: «это скорее про работу, дом или здоровье?»). Не проси рассказать подробно."
         )
 
+    def _build_invite_block(self) -> str:
+        """Приглашение второго человека (04.10.2026, см. prompts/invite.py):
+        тому, кто пришёл по приглашению, — правила отдельного разговора;
+        остальным — не раньше шестой реплики подсказка, когда и как
+        предложить, чтобы близкий тоже поговорил с Фреди."""
+        try:
+            from .prompts.invite import offer_block, invitee_block
+            invited_as = str(self._user_data_flag("invited_as") or "")
+            if invited_as:
+                return invitee_block(invited_as)
+            return offer_block(self._human_turns(),
+                               bool(self._user_data_flag("invite_sent")),
+                               invited_as)
+        except Exception as e:
+            logger.debug(f"invite block skip: {e}")
+            return ""
+
+    def _user_data_flag(self, key: str):
+        return self._invite_flags.get(key) if hasattr(self, "_invite_flags") else None
+
     def _human_turns(self) -> int:
         """Сколько реплик человек уже написал, считая текущую: история из
         базы плюс реплики этой сессии. Пересечение двух источников счёт
@@ -1264,7 +1289,8 @@ class BasicMode(BaseMode):
             "Без tool'а не выдумывай конкретные цифры и названия."
         )
         parts.append(self._build_facts_block())
-        for extra in (self._build_repeat_block(), self._build_voice_block()):
+        for extra in (self._build_repeat_block(), self._build_voice_block(),
+                      self._build_invite_block()):
             if extra:
                 parts.append(extra)
         # Курс Лектория по теме этого разговора (правила блога) — строкой
