@@ -588,8 +588,23 @@ class BasicMode(BaseMode):
                 products = "\n\n" + pb + "\n"
         except Exception as _e:
             logger.warning(f"products block failed: {_e}")
+        # Сценарии по проблеме с первых реплик (04.10.2026) — половине
+        # людей, плечо (user_id // 2) % 2 == 0; сравнение by=scn. Статичный
+        # текст, в системном промпте кэшируется. См. prompts/scenarios.py.
+        # Блок меняется по ходу разговора (меню → карточка → ничего), поэтому
+        # стоит последним: статичный префикс промпта кэшируется как прежде.
+        scenarios = ""
+        try:
+            from .prompts.scenarios import arm_on, scenario_block
+            if arm_on(getattr(self, "user_id", 0)):
+                ud = self.user_data or {}
+                sb = scenario_block(self._human_turns(), ud.get("scenario_key"), bool(ud.get("via_voice")))
+                if sb:
+                    scenarios = "\n\n" + sb + "\n"
+        except Exception as _e:
+            logger.warning(f"scenarios block failed: {_e}")
         # BEHAVIORAL_GUARD приоритетнее любого режима — клеим в начало.
-        return f"{_BEHAVIORAL_GUARD}{body}{memory_guard}{products}"
+        return f"{_BEHAVIORAL_GUARD}{body}{memory_guard}{products}{scenarios}"
 
     def get_greeting(self) -> str:
         tg = self._get_time_greeting()
