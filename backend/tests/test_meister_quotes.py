@@ -56,6 +56,21 @@ def test_block_once_per_conversation_and_never_in_crisis_or_minor():
     assert m.meister_block("стыдно", user, [], human_turns=4, arm_on=False) == ""
 
 
+def test_trigger_beats_topic_and_names_the_moment():
+    m = _mod()
+    b = m.meister_block("я виновата, что он ушёл", ["мы ссорились"], [], human_turns=7)
+    assert "про «я виновата / из-за меня»" in b
+    assert "Стыд — единственное чувство" in b
+    assert m.match_trigger("хочу его вернуть")[0] == "хочу вернуть / помириться"
+    assert m.match_trigger("устала, ничего не хочу")[0] == "устала / ничего не хочу / нет сил"
+    assert m.match_trigger("ок") is None
+    # короткая реплика без триггера — тишина, даже если тема была
+    assert m.meister_block("не знаю", ["муж кричит каждый день"], [], human_turns=5) == ""
+    for name, rx, phrases in m.TRIGGERS:
+        for ph in phrases:
+            assert ph in {q for _, q in m.QUOTES}, f"фраза триггера «{name}» не из списка: {ph}"
+
+
 def test_rules_text_is_strict():
     b = _mod().meister_block("тревога", ["тревожусь каждый день"], [], human_turns=3)
     for must in ("ОДНОГО раза", "ДОСЛОВНО", "ПОСЛЕ ответа", "молчание лучше натяжки",
