@@ -80,6 +80,11 @@ def test_mark_strip_and_find():
     assert m.find_mark("без метки") is None
     assert m.strip_mark("") == ""
     assert m.strip_mark("середина [[ SCN : anxiety ]] конец") == "середина конец"
+    # так модель написала на проде 04.10.2026: пробелы внутри и точка после
+    prod = "Скажи, это одна ссора или так уже месяцами? [[SCN: partner. conflict]]."
+    assert m.find_mark(prod) == "partner.conflict"
+    assert m.strip_mark(prod) == "Скажи, это одна ссора или так уже месяцами?"
+    assert "слитно" in m.menu_prompt() and "ни точки" in m.menu_prompt()
     for key in m.SCENARIOS:
         assert m.find_mark(f"x [[SCN:{key}]]") == key
 
