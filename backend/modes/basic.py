@@ -1123,6 +1123,33 @@ class BasicMode(BaseMode):
             "(например: «это скорее про работу, дом или здоровье?»). Не проси рассказать подробно."
         )
 
+    def _build_meister_block(self, question: str, crisis: bool) -> str:
+        """Фразы владельца для «как говорит Андрей Мейстер» — половине
+        людей (чётный user_id), чтобы через неделю сравнить разговоры по
+        by=uidp. Имя уже звучало в этом разговоре — блока нет."""
+        try:
+            from .prompts.meister import meister_block
+            uid = int(getattr(self, "user_id", 0) or 0)
+            if uid and uid % 2 != 0:
+                return ""
+            _age = getattr(self, "age", None)
+            try:
+                minor = _age is not None and int(_age) < 18
+            except (TypeError, ValueError):
+                minor = False
+            hist = self.history or []
+            user_texts = [(m.get("content") or "") for m in hist[-6:] if m.get("role") == "user"]
+            user_texts += [ln[len("Пользователь:"):] for ln in self.conversation_history[-6:]
+                           if str(ln).startswith("Пользователь:")]
+            assistant_texts = [(m.get("content") or "") for m in hist if m.get("role") == "assistant"]
+            assistant_texts += [str(ln) for ln in self.conversation_history
+                                if not str(ln).startswith("Пользователь:")]
+            return meister_block(question, user_texts, assistant_texts,
+                                 self._human_turns(), minor=minor, crisis=crisis)
+        except Exception as e:
+            logger.debug(f"meister block skip: {e}")
+            return ""
+
     def _build_invite_block(self) -> str:
         """Приглашение второго человека (04.10.2026, см. prompts/invite.py):
         тому, кто пришёл по приглашению, — правила отдельного разговора;
@@ -1245,6 +1272,12 @@ class BasicMode(BaseMode):
             parts.append(crisis)
             # В кризисе вопрос о безопасности важнее ритма.
             rhythm = ""
+        # «Как говорит Андрей Мейстер» — голос автора в разговоре
+        # (04.10.2026, см. prompts/meister.py): один раз за разговор,
+        # дословно, после ответа, только по теме, никогда в кризисе.
+        meister = self._build_meister_block(question, bool(crisis))
+        if meister:
+            parts.append(meister)
         if self._memory_text:
             parts.append(self._memory_text.strip())
         if self.rules:
