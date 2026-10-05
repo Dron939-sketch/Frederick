@@ -214,6 +214,10 @@
    "roditelstvo"
   ],
   [
+   "^(?!.*(?:младш|mladsh)).*(?:измен(?:а|ы|у|е|ой|ах|ил|ила|ило|или|яю|яет|яла|яли|яешь|яют)\\b|izmen(?:a|y|u|e|oj|il|ila|ilo|ili|yayu|yaet|yala|yali|yayut)\\b|ревн|revn)",
+   "izmena-i-revnost"
+  ],
+  [
    "(?s)^(?!.*(?:расста|rasstat|подростк|podrostk)).*(?:обид|obid|прости|prostit|прощен|proshchen)",
    "obida"
   ],
@@ -1861,6 +1865,63 @@
      "n": 10,
      "title": "Религия в современном мире",
      "url": "/blog/lekciya-relig-10-religiya-segodnya.html"
+    }
+   ]
+  },
+  "izmena-i-revnost": {
+   "title": "Измена и ревность",
+   "url": "/blog/lektorij/izmena-i-revnost/",
+   "description": "Бесплатный курс «Измена и ревность»: что считается изменой и почему решает сокрытие, первые дни без ошибок, почему изменяют, развилка с критериями и договором на срок, доверие заново, образы, которые не уходят, ревность без доказательств, сторона того, кто совершил, и договор вслух.",
+   "lectures": [
+    {
+     "n": 1,
+     "title": "Что считается изменой: договор, которого никто не читал",
+     "url": "/blog/lekciya-izmena-1-dogovor-kotorogo-nikto-ne-chital.html"
+    },
+    {
+     "n": 2,
+     "title": "Первые дни: что делать и чего не делать",
+     "url": "/blog/lekciya-izmena-2-pervye-dni.html"
+    },
+    {
+     "n": 3,
+     "title": "Почему изменяют: восемь причин и одна, которая важна",
+     "url": "/blog/lekciya-izmena-3-pochemu-izmenyayut.html"
+    },
+    {
+     "n": 4,
+     "title": "Развилка: остаться, уйти или не решать на срок",
+     "url": "/blog/lekciya-izmena-4-razvilka.html"
+    },
+    {
+     "n": 5,
+     "title": "Доверие заново: почему проверка его не возвращает",
+     "url": "/blog/lekciya-izmena-5-doverie-zanovo.html"
+    },
+    {
+     "n": 6,
+     "title": "Образ, который не уходит: картинки, триггеры и прошлое партнёра",
+     "url": "/blog/lekciya-izmena-6-obraz-kotoryj-ne-uhodit.html"
+    },
+    {
+     "n": 7,
+     "title": "Ревность без доказательств: подозрение, проверка, контроль",
+     "url": "/blog/lekciya-izmena-7-revnost-bez-dokazatelstv.html"
+    },
+    {
+     "n": 8,
+     "title": "Если изменили вы: вина, признание, что дальше",
+     "url": "/blog/lekciya-izmena-8-esli-izmenili-vy.html"
+    },
+    {
+     "n": 9,
+     "title": "Договор вслух: что считать изменой у вас",
+     "url": "/blog/lekciya-izmena-9-dogovor-vsluh.html"
+    },
+    {
+     "n": 10,
+     "title": "Замер на выходе: три числа и чужой случай",
+     "url": "/blog/lekciya-izmena-10-zamer-i-ekzamen.html"
     }
    ]
   },
