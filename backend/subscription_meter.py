@@ -311,13 +311,31 @@ class SubscriptionMeter:
         week_plan = False
         if not registered:
             week_plan = await self._has_active_week_plan(user_id, now)
+        # Сюда попадают только без активной подписки (проверено выше), так
+        # что любая строка в fredi_subscriptions — это подписка, которая
+        # кончилась: проба или месяц без продления.
+        had_subscription = await self._had_subscription(user_id)
         return self._compose_status(used_seconds=daily_seconds,
                                     free_days_used=free_days_used,
                                     total_seconds=total_seconds,
                                     registered=registered,
                                     registered_today=registered_today,
                                     age=row["age"],
-                                    week_plan=week_plan)
+                                    week_plan=week_plan,
+                                    had_subscription=had_subscription)
+
+    async def _had_subscription(self, user_id: int) -> bool:
+        """Была ли у человека хоть одна подписка (проба или месяц). Тихий:
+        при сбое запроса считаем, что не было, — лучше лишние пять минут,
+        чем стена не тому."""
+        try:
+            async with self.db.get_connection() as conn:
+                row = await conn.fetchrow(
+                    "SELECT 1 FROM fredi_subscriptions WHERE user_id = $1 LIMIT 1", user_id)
+            return row is not None
+        except Exception as e:
+            logger.debug(f"had_subscription check skip: {e}")
+            return False
 
     async def _has_active_week_plan(self, user_id: int, now) -> bool:
         """Идёт ли у человека «Семь дней по теме»: план этого вида, начат
@@ -345,7 +363,8 @@ class SubscriptionMeter:
                         registered: bool = True,
                         registered_today: bool = False,
                         age=None,
-                        week_plan: bool = False) -> Dict[str, Any]:
+                        week_plan: bool = False,
+                        had_subscription: bool = False) -> Dict[str, Any]:
         # Первый день: всё, что человек наговорил за жизнь, наговорено
         # сегодня (общий счётчик не больше дневного, с запасом на секунды
         # округления). Такому даём дописать первый разговор целиком.
@@ -353,6 +372,15 @@ class SubscriptionMeter:
         limit_today = daily_limit_minutes(registered, first_day, registered_today)
         if week_plan and not registered and not first_day:
             limit_today = max(limit_today, WEEK_PLAN_DAILY_MINUTES)
+        # Подписка была и кончилась (05.10.2026, решение владельца): проба
+        # продаётся один раз, и после неё бесплатных минут нет — ни дневных,
+        # ни голоса. До этого человек с аккаунтом после пробы получал пять
+        # минут в день и стену «завтра снова минуты», то есть бесплатную
+        # версию вместо месяца; за выходные четверо выключили продление,
+        # зная, что завтра всё равно пустят. Теперь после конца пробы
+        # стена с одной дорогой — 690 ₽ в месяц (block_reason 'expired').
+        if had_subscription:
+            limit_today = 0
         # Сколько минут в день будет у этого же человека с аккаунтом,
         # заведённым сегодня. Фронт рисует стену анонима по разнице с
         # limit_today: раньше здесь стояла голая константа 5, и на второй
@@ -369,7 +397,7 @@ class SubscriptionMeter:
         # обещание стены «завтра снова минуты» истинно всегда: ровно та
         # ошибка двух путающихся стен из аналитики 31.08 стала невозможной
         # по построению.
-        trial_exhausted = remaining_trial <= 0
+        trial_exhausted = remaining_trial <= 0 or had_subscription
         voice_allowed = not trial_exhausted
         can_send = remaining_today > 0
 
@@ -382,6 +410,8 @@ class SubscriptionMeter:
         # а middleware на голосовых путях — это отдельная стена с отдельным
         # честным текстом, и с дневной она не смешивается.
         block_reason = "daily" if remaining_today <= 0 else None
+        if had_subscription:
+            block_reason = "expired"
 
         status = {
             "has_subscription": False,
@@ -431,7 +461,7 @@ class SubscriptionMeter:
         # В ДЕНЬ (см. daily_limit_minutes) и сохраняет разговор — честная
         # причина оставить почту, истинная теперь каждый день, а не только
         # первый. Переопределение по-прежнему в единственной точке сборки.
-        if not registered and not status["can_send"]:
+        if not registered and not status["can_send"] and not had_subscription:
             status["block_reason"] = "auth"
         return status
 
