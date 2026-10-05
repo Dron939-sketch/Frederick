@@ -214,6 +214,10 @@
    "roditelstvo"
   ],
   [
+   "(?s)^(?!.*(?:расста|rasstat|подростк|podrostk)).*(?:обид|obid|прости|prostit|прощен|proshchen)",
+   "obida"
+  ],
+  [
    "расстава|rasstava|расстать|rasstatsya|прощальн|proshchaln|развод|razvod|разрыв|razryv|бывш",
    "rasstavanie"
   ],
@@ -3161,6 +3165,63 @@
      "n": 14,
      "title": "Комбо: четыре вопроса и свобода выбирать",
      "url": "/blog/lekciya-dumat2-kombo-i-svoboda.html"
+    }
+   ]
+  },
+  "obida": {
+   "title": "Обида",
+   "url": "/blog/lektorij/obida/",
+   "description": "Бесплатный курс «Обида»: из чего собран счёт, который вы носите годами, четыре вида ожиданий, прокрутка и её цена, три дороги вместо «просто отпусти» — предъявить, списать, закрыть дверь, старые счета родителям и бывшим, обидчивость как порог.",
+   "lectures": [
+    {
+     "n": 1,
+     "title": "Счёт, который не предъявили",
+     "url": "/blog/lekciya-obida-1-schet-kotoryj-ne-predyavili.html"
+    },
+    {
+     "n": 2,
+     "title": "Чего вы ждали: ожидание, о котором не сказали",
+     "url": "/blog/lekciya-obida-2-chego-vy-zhdali.html"
+    },
+    {
+     "n": 3,
+     "title": "Прокрутка: что обида делает с телом и временем",
+     "url": "/blog/lekciya-obida-3-prokrutka.html"
+    },
+    {
+     "n": 4,
+     "title": "Кому хуже: расчёт и три дороги",
+     "url": "/blog/lekciya-obida-4-komu-huzhe-tri-dorogi.html"
+    },
+    {
+     "n": 5,
+     "title": "Предъявить счёт: разговор, после которого обида уходит",
+     "url": "/blog/lekciya-obida-5-predyavit-schet.html"
+    },
+    {
+     "n": 6,
+     "title": "Списать долг: прощение без примирения",
+     "url": "/blog/lekciya-obida-6-spisat-dolg.html"
+    },
+    {
+     "n": 7,
+     "title": "Закрыть дверь: когда не прощать",
+     "url": "/blog/lekciya-obida-7-zakryt-dver.html"
+    },
+    {
+     "n": 8,
+     "title": "Старые счета: родители, бывшие и те, кого нет",
+     "url": "/blog/lekciya-obida-8-starye-scheta-roditeli.html"
+    },
+    {
+     "n": 9,
+     "title": "Обидчивость: когда счета выписываются по мелочам",
+     "url": "/blog/lekciya-obida-9-obidchivost.html"
+    },
+    {
+     "n": 10,
+     "title": "Три числа на выходе и экзамен",
+     "url": "/blog/lekciya-obida-10-zamer-i-ekzamen.html"
     }
    ]
   },
