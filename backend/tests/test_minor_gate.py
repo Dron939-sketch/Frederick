@@ -91,8 +91,8 @@ def test_client_walls_hide_price_for_minors():
     js = js_path.read_text(encoding="utf-8")
     assert "function _minor(check)" in js
     assert "MINOR_NOTE" in js and "Подписка — для взрослых" in js
-    # три стены: дневная, общая, апселл
-    assert js.count("_minor(data) ? MINOR_NOTE") == 2, "дневная и общая стены"
+    # четыре стены: дневная, после пробы (05.10.2026), общая, апселл
+    assert js.count("_minor(data) ? MINOR_NOTE") == 3, "дневная, после пробы и общая стены"
     assert js.count("_minor(check) ? MINOR_NOTE") == 1, "апселл до блокировки"
     # кнопки могут отсутствовать — обработчики обязаны это пережить
     for var in ("_sbDaily", "_sbWall", "_sbUp"):
