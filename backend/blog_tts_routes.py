@@ -146,6 +146,14 @@ _gen_errors: dict = {}  # slug -> текст последней ошибки г�
 
 def _extract_text(page: str) -> str:
     """Достаёт из HTML статьи связный текст для озвучки."""
+    # Лекции за замком (lektorij_lock): на сайте вместо тела стоит
+    # <div id="lockGate">, само тело лежит у нас — подставляем его обратно,
+    # иначе диктор прочитает врез, план и FAQ без лекции.
+    try:
+        from lektorij_lock import inject as _lock_inject
+        page = _lock_inject(page)
+    except Exception as _e:
+        logger.debug(f"lock inject skip: {_e}")
     m = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
     title = re.sub(r"<[^>]+>", "", m.group(1)).strip() if m else ""
 
@@ -1504,7 +1512,7 @@ def register_blog_tts_routes(app, limiter):
 
     @app.get("/api/tts/blog/{slug}/status")
     @limiter.limit("60/minute")
-    async def blog_tts_status(request: Request, slug: str):
+    async def blog_tts_status(request: Request, slug: str, uid: str = ""):
         if not SLUG_RE.match(slug or ""):
             return JSONResponse({"enabled": False}, status_code=400)
         if not _tts_available():
@@ -1512,6 +1520,15 @@ def register_blog_tts_routes(app, limiter):
         # v меняется при переозвучке: фронт добавляет его к URL,
         # чтобы браузер не играл вечно закэшированный старый голос
         meta = _read_meta(slug)
+        # Лекция за замком (lektorij_lock): без подписки адрес mp3 не
+        # выдаём — он подписанный, и без /status его не собрать.
+        try:
+            from lektorij_lock import is_locked as _is_locked, is_premium as _is_premium
+            if _is_locked(slug) and not await _is_premium(uid):
+                return {"enabled": True, "ready": _cache_ok(slug), "locked": True,
+                        "v": int(meta.get("ts", 0)), "voice": meta.get("provider")}
+        except Exception as _e:
+            logger.debug(f"lock status skip: {_e}")
         try:
             from services.fish_audio_service import fish_configured
             _fish = fish_configured()
