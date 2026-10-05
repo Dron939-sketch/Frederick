@@ -78,13 +78,21 @@ def test_site_locked_lectures_have_gate_and_first_is_open():
         assert '<h2 id="s-1">' not in html, f"{slug}: тело лекции осталось в HTML"
         assert '"isAccessibleForFree": false' in html and '"cssSelector": ".lock-paid"' in html, slug
         assert "/blog/lock.js" in html, slug
-        assert "❓ Частые вопросы" in html, f"{slug}: FAQ обязан остаться видимым"
-        assert not re.search(r"lekciya-[a-z0-9-]+-1-[a-z0-9-]+", slug), f"{slug}: первая лекция не запирается"
-    # первая лекция каждого запертого курса открыта
-    for course in {re.match(r"(lekciya-[a-z]+)-\d+-", s).group(1) for s in locked}:
-        firsts = list((SITE / "blog").glob(f"{course}-1-*.html"))
-        assert firsts, course
-        assert "lockGate" not in firsts[0].read_text(encoding="utf-8")
+        if '"@type": "FAQPage"' in html:
+            assert "❓ Частые вопросы" in html, f"{slug}: FAQ обязан остаться видимым"
+        assert not re.search(r'<a href="#[^"]*"', html[html.find('<div class="article-content">'):html.find('id="lockGate"')]), \
+            f"{slug}: во врезе ссылка на раздел за замком"
+    # номер лекции — из карт Лектория; первая лекция каждого курса открыта
+    import json
+    waves = json.loads((SITE / "blog" / "lektorij" / "waves.json").read_text(encoding="utf-8"))
+    courses = json.loads((SITE / "blog" / "lektorij" / "courses.json").read_text(encoding="utf-8"))
+    cards = {c["name"]: c for c in json.loads((SITE / "blog" / "lektorij" / "cards.json").read_text(encoding="utf-8"))}
+    for slug in locked:
+        assert waves.get(slug, 0) >= 2, f"{slug}: первая лекция не запирается"
+        first = cards[courses[slug]]["first"]  # «/blog/<slug>.html»
+        assert "lockGate" not in (SITE / first.lstrip("/")).read_text(encoding="utf-8"), f"{first}: первая лекция заперта"
+        html = (SITE / "blog" / f"{slug}.html").read_text(encoding="utf-8")
+        assert f'data-first="{first}"' in html, f"{slug}: ссылка на первую лекцию в замке неверна"
     js = (SITE / "blog" / "lock.js").read_text(encoding="utf-8")
     assert "/api/lektorij/lecture/" in js and "lock-paid" in js and "fredi_user_id" in js
     listen = (SITE / "blog" / "listen.js").read_text(encoding="utf-8")
