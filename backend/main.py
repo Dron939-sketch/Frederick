@@ -446,6 +446,9 @@ async def lifespan(app: FastAPI):
         await _init_test()
         from blog_tts_routes import register_blog_tts_routes
         register_blog_tts_routes(app, limiter)
+        # Замок Лектория: лекции 2–10 новых курсов — по подписке.
+        from lektorij_lock import register_lektorij_lock_routes
+        register_lektorij_lock_routes(app, limiter)
 
         # Живой счётчик Лектория: токен Метрики даёт доступ ко всей
         # статистике сайта, поэтому в браузер он не попадает — наружу
