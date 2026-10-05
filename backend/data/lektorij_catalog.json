@@ -218,6 +218,10 @@
    "izmena-i-revnost"
   ],
   [
+   "(?s)^(?!.*(?:измен|izmen|ревн|revn|подростк|podrostk|развод|razvod|психолог|psiholog|деньг|dengi|живу|zhivu|не люблю|ne-lyublyu|виноватого|не виноват|возбужд|vozbuzhd|друз|druz|одинок|odinok|стесня|stesnya)).*(?:\\bвин[аыуе]\\b|\\bvin[aye]\\b|стыд|styd|позор|pozor|совест|sovest|prostit-sebya|простить себя)",
+   "vina-i-styd"
+  ],
+  [
    "(?s)^(?!.*(?:расста|rasstat|подростк|podrostk)).*(?:обид|obid|прости|prostit|прощен|proshchen)",
    "obida"
   ],
@@ -6379,6 +6383,63 @@
      "n": 10,
      "title": "Увольнение: расстаться, не сломав ни его, ни команду",
      "url": "/blog/lekciya-upr-uvolnenie.html"
+    }
+   ]
+  },
+  "vina-i-styd": {
+   "title": "Вина и стыд",
+   "url": "/blog/lektorij/vina-i-styd/",
+   "description": "Курс «Вина и стыд»: чем вина отличается от стыда и почему их путают, чей это счёт — три вопроса и четыре вида вины, почему самонаказание не оплата, как оплачивают настоящую вину и возвращают навязанную, кто зритель вашего стыда, как показать стыд за себя и списать счёт, который выписан вам вами.",
+   "lectures": [
+    {
+     "n": 1,
+     "title": "Вина и стыд: два разных сигнала",
+     "url": "/blog/lekciya-vina-1-dva-raznyh-signala.html"
+    },
+    {
+     "n": 2,
+     "title": "Чей это счёт: четыре вида вины",
+     "url": "/blog/lekciya-vina-2-chej-eto-schet.html"
+    },
+    {
+     "n": 3,
+     "title": "Самонаказание: почему казнь не оплата",
+     "url": "/blog/lekciya-vina-3-samonakazanie.html"
+    },
+    {
+     "n": 4,
+     "title": "Как оплачивают вину: признание, возмещение, изменение",
+     "url": "/blog/lekciya-vina-4-kak-oplachivayut-vinu.html"
+    },
+    {
+     "n": 5,
+     "title": "Чужой счёт: навязанная и выученная вина",
+     "url": "/blog/lekciya-vina-5-chuzhoj-schet.html"
+    },
+    {
+     "n": 6,
+     "title": "Стыд и зритель: чьими глазами вы на себя смотрите",
+     "url": "/blog/lekciya-vina-6-styd-i-zritel.html"
+    },
+    {
+     "n": 7,
+     "title": "Стыд за себя: тело, слёзы, «не справлюсь»",
+     "url": "/blog/lekciya-vina-7-styd-za-sebya.html"
+    },
+    {
+     "n": 8,
+     "title": "Стыд за своих и стыд перед людьми",
+     "url": "/blog/lekciya-vina-8-styd-za-svoih.html"
+    },
+    {
+     "n": 9,
+     "title": "Простить себя: списание счёта, который выписан вам вами",
+     "url": "/blog/lekciya-vina-9-prostit-sebya.html"
+    },
+    {
+     "n": 10,
+     "title": "Три числа на выходе и чужой счёт",
+     "url": "/blog/lekciya-vina-10-tri-chisla-i-chuzhoj-schet.html"
     }
    ]
   },
