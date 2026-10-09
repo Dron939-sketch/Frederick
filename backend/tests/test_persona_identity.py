@@ -66,3 +66,33 @@ def test_first_contact_block_silent_for_persona():
     q = BasicMode._SEARCH_STARTS[0] + " с работы"
     assert _mode(session_turns=0)._build_first_contact_block(q)
     assert _mode(session_turns=0, persona="mark")._build_first_contact_block(q) == ""
+
+
+def _prompt(pid):
+    b = _mode(persona=pid)
+    b.history = []
+    b.conversation_history = []
+    b._preset_key = "current"
+    b._cross_memory = ""
+    b.user_id = 1
+    return b._build_system_prompt_block()
+
+
+def test_persona_prompt_has_no_fredi_identity():
+    """10.10.2026: после #733 «Без соплей» всё равно отвечал «Я Фреди… его
+    цифровая копия» — гард и пресет прямо велели так отвечать."""
+    s = _prompt("mark")
+    for bad in ("Я Фреди", "Ты — Фреди", "Тебя зовут Фреди", "цифровая копия"):
+        assert bad not in s, bad
+    assert "Тебя зовут «Без соплей»" in s
+
+
+def test_female_persona_speaks_in_feminine():
+    s = _prompt("nika")
+    assert "мужского рода" not in s and "женского рода" in s
+    assert "мужского рода" in _prompt("mark")
+
+
+def test_fredi_prompt_untouched():
+    s = _prompt("fredi")
+    assert "Тебя зовут Фреди" in s and "отвечай: «Я Фреди.»" in s

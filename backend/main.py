@@ -4329,7 +4329,7 @@ async def chat_stream(request: Request, data: ChatRequest):
 # ============================================
 # Отдельный продукт на том же движке: та же подготовка хода, тот же
 # BasicMode с кризисным перехватом, но поверх — личность (personas.py), а
-# платят токенами (tokens.py): 1 сообщение — 1 токен, озвучка — ещё 1,
+# платят токенами (tokens.py): 1 сообщение — 2 токена, озвучка — ещё 1,
 # 50 бесплатно. Premium — без токенов. Адрес не /api/chat…, поэтому
 # счётчик минут (_METER_AI_REGEX) его не трогает: списание здесь своё.
 
@@ -4337,6 +4337,9 @@ class PersonaChatRequest(BaseModel):
     user_id: int
     message: str
     persona: str = "fredi"
+    # Голосовой режим: реплика сказана голосом, ответ прозвучит голосом —
+    # списывается COST_VOICE_MODE, озвучка ответа идёт по метке voice_ref.
+    voice: bool = False
 
 
 async def _persona_premium(user_id: int) -> bool:
@@ -4372,7 +4375,8 @@ async def tokens_status(request: Request, user_id: int):
     packs = [{"plan": k, "tokens": v["tokens"], "price": int(float(v["amount"]))}
              for k, v in _tok.TOKEN_PACKS.items()]
     return {"success": True, "premium": premium, "packs": packs,
-            "cost_message": _tok.COST_MESSAGE, "cost_voice": _tok.COST_VOICE, **st}
+            "cost_message": _tok.COST_MESSAGE, "cost_voice": _tok.COST_VOICE,
+            "cost_voice_mode": _tok.COST_VOICE_MODE, **st}
 
 
 @app.post("/api/persona/stream")
@@ -4386,11 +4390,14 @@ async def persona_stream(request: Request, data: PersonaChatRequest):
         return JSONResponse(status_code=400, content={"success": False, "error": "bad request"})
     pid = _persona(data.persona)["id"]
     premium = await _persona_premium(uid)
+    cost = _tok.COST_VOICE_MODE if data.voice else _tok.COST_MESSAGE
+    import uuid as _uuid
+    voice_ref = _uuid.uuid4().hex if data.voice else None
     left = None
     if not premium:
         try:
             await _tok.balance(db, uid, _real_client_ip(request))  # бесплатные при первом заходе
-            left = await _tok.spend(db, uid, _tok.COST_MESSAGE, f"msg:{pid}")
+            left = await _tok.spend(db, uid, cost, f"{'vmsg' if data.voice else 'msg'}:{pid}")
         except Exception as e:
             logger.error(f"persona spend {uid}: {e}")
             return JSONResponse(status_code=503, content={"success": False, "error": "tokens unavailable"})
@@ -4429,9 +4436,12 @@ async def persona_stream(request: Request, data: PersonaChatRequest):
             if not full_text.strip() or is_tech_fail(full_text):
                 raise RuntimeError("empty reply")
             await _finish_chat_turn(prep, uid, msg, full_text, "basic", [], streamed=True, persona=pid)
+            if voice_ref and not premium:
+                await _tok.issue_voice(db, uid, voice_ref)
             ok = True
             yield json.dumps({"type": "done", "full_text": full_text, "persona": pid,
-                              "premium": premium, "balance": left}, ensure_ascii=False) + "\n"
+                              "premium": premium, "balance": left, "voice_ref": voice_ref},
+                             ensure_ascii=False) + "\n"
         except Exception as e:
             logger.error(f"persona chat error {uid}: {e}", exc_info=True)
             yield json.dumps({"type": "error", "message": "Не получилось ответить. Токен возвращён."},
@@ -4440,7 +4450,7 @@ async def persona_stream(request: Request, data: PersonaChatRequest):
             # Ответа нет — токен назад: человек платит за ответ, а не за попытку.
             if not ok and not premium:
                 try:
-                    await _tok.credit(db, uid, _tok.COST_MESSAGE, "refund")
+                    await _tok.credit(db, uid, cost, "refund")
                 except Exception as e:
                     logger.error(f"persona refund {uid}: {e}")
 
@@ -4464,18 +4474,50 @@ async def persona_tts(request: Request):
         return JSONResponse(status_code=400, content={"success": False, "error": "bad request"})
     p = _persona(data.get("persona"))
     premium = await _persona_premium(uid)
+    # Ответ в голосовом режиме уже оплачен целиком (COST_VOICE_MODE) —
+    # по метке из done он звучит без второго списания, один раз.
+    prepaid = False
     if not premium:
-        left = await _tok.spend(db, uid, _tok.COST_VOICE, f"voice:{p['id']}")
-        if left is None:
-            return JSONResponse(status_code=402, content={"success": False, "error": "NO_TOKENS", "balance": 0})
+        prepaid = await _tok.claim_voice(db, uid, str(data.get("voice_ref") or ""))
+        if not prepaid:
+            left = await _tok.spend(db, uid, _tok.COST_VOICE, f"voice:{p['id']}")
+            if left is None:
+                return JSONResponse(status_code=402, content={"success": False, "error": "NO_TOKENS", "balance": 0})
     v = p.get("voice") or {}
     audio = await synthesize_persona_voice(text, v.get("provider", "fish"),
                                            v.get("voice", "filipp"), float(v.get("speed", 1.0)))
     if not audio:
         if not premium:
-            await _tok.credit(db, uid, _tok.COST_VOICE, "refund")
+            # Голос не прозвучал — возвращаем то, что за него взяли.
+            back = (_tok.COST_VOICE_MODE - _tok.COST_MESSAGE) if prepaid else _tok.COST_VOICE
+            await _tok.credit(db, uid, back, "refund")
         return JSONResponse(status_code=502, content={"success": False, "error": "TTS failed"})
     return Response(content=audio, media_type="audio/mpeg")
+
+
+@app.post("/api/persona/stt")
+@limiter.limit("20/minute")
+async def persona_stt(request: Request):
+    """Распознавание речи для голосового режима /chat/. Не под счётчиком
+    минут: /api/voice/stt под ним, и у анонима чата распознавание съедало бы
+    минуты Фреди. Токены списывает /api/persona/stream с voice=true."""
+    try:
+        form = await request.form()
+        audio_file = form.get("file")
+        if not audio_file:
+            return {"success": False, "error": "No audio file"}
+        audio_bytes = await audio_file.read()
+        if len(audio_bytes) > 3_000_000:
+            return {"success": False, "error": "too long"}
+        filename = audio_file.filename or "voice.webm"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "webm"
+        text = await voice_service.speech_to_text(audio_bytes, ext)
+        if text:
+            return {"success": True, "text": text}
+        return {"success": False, "text": "", "error": "Не удалось распознать речь"}
+    except Exception as e:
+        logger.error(f"persona stt error: {e}")
+        return {"success": False, "error": "stt failed"}
 
 
 @app.get("/api/chat/history/{user_id}")

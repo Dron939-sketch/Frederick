@@ -614,7 +614,43 @@ class BasicMode(BaseMode):
                 persona = prompt_block(pid)
         except Exception as _e:
             logger.debug(f"persona block skip: {_e}")
-        return f"{_BEHAVIORAL_GUARD}{body}{memory_guard}{products}{scenarios}{persona}"
+        return self._personify(f"{_BEHAVIORAL_GUARD}{body}{memory_guard}{products}{scenarios}") + persona
+
+    # Прямые «ты — Фреди» в гарде и пресете. 10.10.2026 после #733 личности
+    # на проде по-прежнему отвечали «Я Фреди… его цифровая копия»: две прямые
+    # команды в начале промпта («Тебя зовут Фреди», на «ты кто» — «Я Фреди.»)
+    # перевешивали блок личности в конце. В режиме личности подменяем их.
+    _PERSONA_SWAPS = (
+        ("Тебя зовут Фреди.", "Тебя зовут «{n}»."),
+        ("Ты — Фреди. ", "Ты — «{n}». "),
+        ("Ты — Фреди, ", "Ты — «{n}», "),
+        ("отвечай: «Я Фреди.»", "отвечай: «Я — «{n}», ИИ-собеседник из сервиса Фреди.»"),
+        ("Я Фреди.", "Я — «{n}»."),
+        ("Я —\n    его цифровая копия».", "А я — ИИ-собеседник, созданный по его методу»."),
+        ("ты — его цифровая копия;", "ты — ИИ-собеседник, созданный по его методу;"),
+    )
+    _FEMALE_SWAPS = (
+        ("мужского рода: «я понял», «чтобы я мог понять». Никогда\n    «я поняла», «я могла».",
+         "женского рода: «я поняла», «чтобы я могла понять». Никогда\n    «я понял», «я мог»."),
+        ("Ты — мужского рода: «я понял», «я бы сделал», «я готов». Никогда\n  «я поняла», «я могла».",
+         "Ты — женского рода: «я поняла», «я бы сделала», «я готова». Никогда\n  «я понял», «я мог»."),
+    )
+
+    def _personify(self, text: str) -> str:
+        name = self._persona_name()
+        if not name:
+            return text
+        for a, b in self._PERSONA_SWAPS:
+            text = text.replace(a, b.format(n=name))
+        try:
+            from personas import get as _persona
+            female = bool(_persona((self.user_data or {}).get("persona")).get("female"))
+        except Exception:
+            female = False
+        if female:
+            for a, b in self._FEMALE_SWAPS:
+                text = text.replace(a, b)
+        return text
 
     def get_greeting(self) -> str:
         tg = self._get_time_greeting()
@@ -1127,14 +1163,14 @@ class BasicMode(BaseMode):
         if not q or not self._PAY_QUESTION.search(q):
             return ""
         try:
-            from tokens import FREE_TOKENS, TOKEN_PACKS
+            from tokens import FREE_TOKENS, TOKEN_PACKS, COST_MESSAGE, COST_VOICE
             packs = "; ".join(f"{v['tokens']} — {str(v['amount']).split('.')[0]} ₽"
                               for v in TOKEN_PACKS.values())
         except Exception:
-            FREE_TOKENS, packs = 50, ""
+            FREE_TOKENS, packs, COST_MESSAGE, COST_VOICE = 50, "", 2, 1
         return (
             "ОПЛАТА — он спрашивает про оплату. Ответь по фактам двумя фразами и вернись к его теме.\n"
-            f"- Здесь платят токенами: 1 сообщение — 1 токен, озвучка ответа — ещё 1. "
+            f"- Здесь платят токенами: 1 сообщение — {COST_MESSAGE} токена, озвучка ответа — ещё {COST_VOICE}. "
             f"Каждому {FREE_TOKENS} токенов бесплатно. Пакеты: {packs}. Купить — кнопка с балансом вверху. "
             "С подпиской Фреди Premium токены не нужны.\n"
             "- Не называй других цен и не говори, что общение бесплатное без ограничений."

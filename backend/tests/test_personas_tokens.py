@@ -49,7 +49,7 @@ def test_voices_fish_for_fredi_yandex_for_others():
 
 
 def test_token_economy_matches_owner_decision():
-    assert T.FREE_TOKENS == 50 and T.COST_MESSAGE == 1 and T.COST_VOICE == 1
+    assert T.FREE_TOKENS == 50 and T.COST_MESSAGE == 2 and T.COST_VOICE == 1
     assert {k: (v["tokens"], v["amount"]) for k, v in T.TOKEN_PACKS.items()} == {
         "tokens_100": (100, "149.00"), "tokens_300": (300, "349.00"), "tokens_1000": (1000, "990.00")}
 
@@ -75,3 +75,17 @@ def test_basic_token_mode_has_no_minutes_talk():
     src = open(os.path.join(ROOT, "modes", "basic.py"), encoding="utf-8").read()
     assert 'closing = "" if token_mode else self._build_closing_block()' in src
     assert "if not closing and not token_mode:" in src
+
+
+def test_voice_mode_costs_four_and_is_not_metered():
+    """Голосовой режим (10.10.2026): 4 токена за реплику, ответ голосом по
+    метке без второго списания. Распознавание — свой адрес вне счётчика
+    минут: /api/voice/stt под ним и съедал бы минуты Фреди."""
+    assert T.COST_VOICE_MODE == 4
+    src = open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+    assert "cost = _tok.COST_VOICE_MODE if data.voice else _tok.COST_MESSAGE" in src
+    assert "await _tok.claim_voice(db, uid" in src
+    assert '@app.post("/api/persona/stt")' in src
+    import re
+    meter = re.search(r"_METER_AI_REGEX = _re_meter.compile\((.*?)\n\)", src, re.S).group(1)
+    assert "persona" not in meter
