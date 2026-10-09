@@ -44,8 +44,15 @@ def get_mode(
     if not is_test_completed(user_data):
         logger.info(f"User {user_id} → тест НЕ пройден → BasicMode (Бендер)")
         
-        # Облегчённые данные специально для Бендера
+        # Облегчённые данные: без теста профиля нет, и его поля обнуляются.
+        # Всё остальное, что собрал main.py, проходит как есть. До 10.10.2026
+        # здесь был белый список из семи полей, и у человека без теста (почти
+        # у всех) выпадали persona/token_mode чата /chat/ (личности отвечали
+        # «Я Фреди»), session_turns и остаток минут (ритуал завершения и
+        # предупреждение о стене), crisis_notice_shown, scenario_key,
+        # memory_allowed, basic_mode_preset, флаги приглашения.
         bender_data = {
+            **user_data,
             "profile_data": {},
             "perception_type": user_data.get("perception_type", "не определен"),
             "thinking_level": user_data.get("thinking_level", 5),
