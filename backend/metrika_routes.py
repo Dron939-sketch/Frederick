@@ -127,6 +127,9 @@ async def _cached(section: str) -> dict:
 # для поиска — /virtual-psychologist/.
 FREDI_FILTER = "ym:s:URL=@'/fredi/' OR ym:s:URL=@'/virtual-psychologist/'"
 SECTIONS["fredi"] = FREDI_FILTER
+# Чат с личностями /chat/ (10.10.2026): разговаривают там же, на том же
+# движке, поэтому «сейчас здесь» на чате — все, кто с Фреди и его командой.
+SECTIONS["chat"] = "ym:s:URL=@'/chat/' OR " + FREDI_FILTER
 TRAFFIC_API = "https://api-metrika.yandex.net/stat/v1/data"
 
 
@@ -218,7 +221,8 @@ def register_metrika_routes(app, limiter):
         """Сколько человек в разделе прямо сейчас.
 
         section=lektorij — страницы курсов и лекции (как было),
-        section=fredi — приложение и посадочная виртуального психолога.
+        section=fredi — приложение и посадочная виртуального психолога,
+        section=chat — чат /chat/ вместе с приложением Фреди.
         Неизвестный раздел не ошибка: отдаём enabled:false, и на странице
         остаётся оценочная кривая, а не сломанный счётчик.
         """
