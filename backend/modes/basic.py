@@ -804,7 +804,32 @@ class BasicMode(BaseMode):
             "Фреди: Тогда побудем здесь. Если есть что-то небольшое, что хочется обсудить — "
             "расскажи, а если нет — просто присутствие тоже работа.\n"
         )
-        return self.get_system_prompt() + "\n\n" + few_shot
+        name = self._persona_name()
+        if not name:
+            return self.get_system_prompt() + "\n\n" + few_shot
+        # Личность: примеры подписаны «Фреди», и после блока личности они
+        # перевешивали его — 09.10.2026 «Без соплей» на «Кто ты?» ответил
+        # «Я Фреди… С чем пришёл?». Подпись меняем, напоминание — последним.
+        return (self.get_system_prompt() + "\n\n" + few_shot.replace("Фреди:", "Собеседник:")
+                + "\n" + self._persona_reminder(name))
+
+    def _persona_name(self) -> str:
+        """Имя личности чата /chat/ или пусто, если это сам Фреди."""
+        pid = (self.user_data or {}).get("persona")
+        if not pid or pid == "fredi":
+            return ""
+        try:
+            from personas import get as _persona
+            p = _persona(pid)
+            return "" if p["id"] == "fredi" else p["name"]
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _persona_reminder(name: str) -> str:
+        return (f"ТЫ СЕЙЧАС — «{name}», а не Фреди. Говори голосом и манерой этого собеседника. "
+                f"На «кто ты» — «я «{name}», ИИ-собеседник из сервиса Фреди»; не говори «я Фреди» "
+                "и не называй себя цифровой копией.")
 
     def _build_closing_block(self) -> str:
         """Ритуал завершения разговора.
@@ -1187,7 +1212,7 @@ class BasicMode(BaseMode):
     def _build_first_contact_block(self, question: str) -> str:
         q = (question or "").strip()
         turns = int(self.user_data.get("session_turns") or 0)
-        if turns > 0 or not q.startswith(self._SEARCH_STARTS):
+        if turns > 0 or not q.startswith(self._SEARCH_STARTS) or self._persona_name():
             return ""
         # Представление берёт на себя приложение: через секунду после
         # автовопроса оно показывает и озвучивает одну фразу на всех
@@ -1390,9 +1415,10 @@ class BasicMode(BaseMode):
             parts.append(f"Город собеседника: {self.user_city}")
 
         history_lines: List[str] = []
+        me = self._persona_name() or "Фреди"
         if self.history:
             for m in self.history[-10:]:
-                role = "Пользователь" if m.get("role") == "user" else "Фреди"
+                role = "Пользователь" if m.get("role") == "user" else me
                 # Свои ответы — длиннее: в первых 200 знаках не было ни
                 # упражнения, ни совета, и модель предлагала их заново.
                 content = (m.get("content") or "")[:200 if m.get("role") == "user" else 500]
@@ -1421,6 +1447,8 @@ class BasicMode(BaseMode):
                       self._build_invite_block()):
             if extra:
                 parts.append(extra)
+        if self._persona_name():
+            parts.append(self._persona_reminder(self._persona_name()))
         # Курс Лектория по теме этого разговора (правила блога) — строкой
         # к общему каталогу из системного промпта.
         # 02.10.2026: не раньше шестой реплики человека. С 29.09 подсказка
