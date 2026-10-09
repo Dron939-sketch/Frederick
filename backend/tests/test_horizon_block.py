@@ -53,6 +53,8 @@ MAIN = (pathlib.Path(BACKEND) / "main.py").read_text(encoding="utf-8")
 def _mode(**user_data):
     b = BasicMode.__new__(BasicMode)
     b.user_data = user_data
+    b.history = []
+    b.conversation_history = []
     return b
 
 
@@ -137,9 +139,9 @@ def test_session_meta_carries_meter_status():
 def test_horizon_wired_after_closing_and_not_together():
     """Блок стоит в сборке промпта и не дублирует ритуал завершения."""
     src = (pathlib.Path(BACKEND) / "modes" / "basic.py").read_text(encoding="utf-8")
-    i = src.index("closing = self._build_closing_block()")
+    i = src.index("self._build_closing_block()\n")
     j = src.index("horizon = self._build_horizon_block()")
     assert i < j
-    assert "if not closing:" in src[i:j + 200], (
+    assert "if not closing" in src[i:j + 200], (
         "ритуал завершения и «что будет дальше» в одном ответе — два раза про завтра"
     )
