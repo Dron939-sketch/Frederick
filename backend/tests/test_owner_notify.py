@@ -101,7 +101,8 @@ def test_bound_chat_gets_payment(monkeypatch):
 
 def test_wired_into_payment_bot_and_startup():
     pay = (ROOT / "payment.py").read_text(encoding="utf-8")
-    assert pay.count("from owner_notify import notify_payment") == 2
+    # подписка, автопродление и (с 09.10.2026) пакеты токенов чата /chat/
+    assert pay.count("from owner_notify import notify_payment") == 3
     bot = (ROOT / "services" / "bot_service.py").read_text(encoding="utf-8")
     assert bot.count("is_bind_payload(payload)") == 2
     main = (ROOT / "main.py").read_text(encoding="utf-8")

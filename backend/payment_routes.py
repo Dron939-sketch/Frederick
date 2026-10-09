@@ -187,7 +187,8 @@ def register_payment_routes(app, db, limiter):
                 return {"success": False, "error": "Необходимо указать email или телефон для чека"}
 
             plan = str(data.get("plan") or "monthly")
-            if plan not in PLANS:
+            from tokens import TOKEN_PACKS
+            if plan not in PLANS and plan not in TOKEN_PACKS:
                 return {"success": False, "error": "unknown plan"}
             if plan == TRIAL_PLAN and not await payment_service.trial_available(user_id):
                 # Проба — один раз на аккаунт. Фронт по статусу её и не

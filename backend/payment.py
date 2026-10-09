@@ -147,13 +147,25 @@ class PaymentService:
             logger.error(f"No customer email or phone for user {user_id}")
             return {"success": False, "error": "Для оплаты необходимо указать email или телефон"}
 
-        plan = plan if plan in PLANS else "monthly"
-        info = PLANS[plan]
+        # Пакет токенов чата /chat/ (tokens.py) — разовая покупка, не
+        # подписка: карту не сохраняем, тип в metadata — tokens, и ключ
+        # идемпотентности поминутный, чтобы второй такой же пакет через
+        # пять минут не вернул уже оплаченный первый.
+        from tokens import TOKEN_PACKS
+        is_tokens = plan in TOKEN_PACKS
+        if is_tokens:
+            info = TOKEN_PACKS[plan]
+        else:
+            plan = plan if plan in PLANS else "monthly"
+            info = PLANS[plan]
         amount = info["amount"]
         description = info["title"]
         # Ключ идемпотентности у каждого тарифа свой: иначе «неделя за 290»
         # сразу после клика по «сразу месяц» вернула бы платёж на месяц.
-        op = "subscription_first" if plan == "monthly" else f"subscription_first_{plan}"
+        if is_tokens:
+            op = f"tokens_{plan}_{int(time.time() // 60)}"
+        else:
+            op = "subscription_first" if plan == "monthly" else f"subscription_first_{plan}"
 
         payment_data = {
             "amount": {"value": amount, "currency": SUBSCRIPTION_CURRENCY},
@@ -161,7 +173,8 @@ class PaymentService:
             "confirmation": {"type": "redirect", "return_url": return_url},
             "save_payment_method": True,
             "description": description,
-            "metadata": {"user_id": str(user_id), "type": "subscription_first", "plan": plan},
+            "metadata": {"user_id": str(user_id), "type": "tokens" if is_tokens else "subscription_first",
+                         "plan": plan},
             "receipt": {
                 "customer": customer,
                 "items": [
@@ -179,6 +192,9 @@ class PaymentService:
                 ],
             },
         }
+
+        if is_tokens:
+            payment_data.pop("save_payment_method", None)
 
         # Какое тело ушло в кассу: при выключенных автоплатежах ниже
         # повторяем без save_payment_method, и повтор на мёртвый платёж
@@ -283,9 +299,10 @@ class PaymentService:
             async with self.db.get_connection() as conn:
                 await conn.execute("""
                     INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description, plan)
-                    VALUES ($1, $2, $3, 'pending', 'subscription_first', $4, $5)
+                    VALUES ($1, $2, $3, 'pending', $6, $4, $5)
                     ON CONFLICT (yookassa_id) DO NOTHING
-                """, user_id, yookassa_id, float(amount), description, plan)
+                """, user_id, yookassa_id, float(amount), description, plan,
+                    "tokens" if is_tokens else "subscription_first")
 
             logger.info(f"Payment created: {yookassa_id} for user {user_id} plan={plan}")
             return {
@@ -541,6 +558,45 @@ class PaymentService:
         except Exception as e:
             logger.warning(f"owner notify dispatch failed for user {user_id}: {e}")
 
+    async def _apply_token_payment(self, user_id: int, payment_obj: Dict) -> Dict[str, Any]:
+        """Пакет токенов: зачислить ровно один раз на платёж. Подписку не
+        трогает. Зачисление идемпотентно по id платежа (журнал tokens.py):
+        webhook, verify и поллер могут прийти за одним платежом трижды."""
+        import tokens as _tok
+        yookassa_id = payment_obj.get("id", "")
+        plan = (payment_obj.get("metadata") or {}).get("plan") or ""
+        pack = _tok.TOKEN_PACKS.get(plan)
+        if not pack:
+            logger.error(f"token payment {yookassa_id}: unknown pack {plan!r}")
+            return {"success": False, "error": "unknown pack"}
+        try:
+            paid_amount = float((payment_obj.get("amount") or {}).get("value") or pack["amount"])
+        except (TypeError, ValueError):
+            paid_amount = float(pack["amount"])
+        async with self.db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO fredi_payments (user_id, yookassa_id, amount, status, payment_type, description, plan)
+                VALUES ($1, $2, $3, 'succeeded', 'tokens', $4, $5)
+                ON CONFLICT (yookassa_id) DO UPDATE SET status = 'succeeded', updated_at = NOW()
+            """, user_id, yookassa_id, paid_amount, pack["title"], plan)
+        new_balance = await _tok.credit(self.db, user_id, int(pack["tokens"]), f"pack:{plan}", ref=yookassa_id)
+        if new_balance is None:
+            logger.info(f"Token payment {yookassa_id} already applied for user {user_id}")
+            return {"success": True, "user_id": user_id, "already_applied": True, "tokens": pack["tokens"]}
+        try:
+            from analytics_routes import log_server_event
+            await log_server_event(user_id, "tokens_purchased", {
+                "plan": plan, "tokens": pack["tokens"], "amount": paid_amount, "yookassa_id": yookassa_id})
+        except Exception as e:
+            logger.debug(f"analytics tokens_purchased skip: {e}")
+        try:
+            from owner_notify import notify_payment
+            asyncio.create_task(notify_payment(self.db, user_id, plan, paid_amount, False))
+        except Exception as e:
+            logger.warning(f"owner notify (tokens) skip: {e}")
+        logger.info(f"Tokens +{pack['tokens']} for user {user_id} (yookassa_id={yookassa_id}), balance={new_balance}")
+        return {"success": True, "user_id": user_id, "tokens": pack["tokens"], "balance": new_balance}
+
     async def _apply_succeeded_payment(self, user_id: int, payment_obj: Dict) -> Dict[str, Any]:
         """Идемпотентная активация подписки на основании оплаченного
         платежа YooKassa. Используется и из webhook, и из verify_payment,
@@ -550,6 +606,8 @@ class PaymentService:
         yookassa_id = payment_obj.get("id", "")
         metadata = payment_obj.get("metadata", {}) or {}
         payment_type = metadata.get("type", "subscription_first")
+        if payment_type == "tokens":
+            return await self._apply_token_payment(user_id, payment_obj)
         # Тариф — из metadata платежа (единственное, чему можно верить после
         # повторного GET у ЮKassa); сумма — из самого платежа, а не из
         # константы, иначе проба легла бы в базу как месяц.
