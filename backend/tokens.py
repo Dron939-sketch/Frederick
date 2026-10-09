@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Токены чата /fredi/chat/ (решение владельца 09.10.2026).
 
-1 токен = 1 сообщение: ответ текстом — 1 токен, озвучка ответа — ещё 1.
-Каждому — 50 бесплатных при первом заходе, дальше — пакеты (TOKEN_PACKS),
+1 сообщение = 2 токена, озвучка ответа — ещё 1 (решение владельца 10.10.2026;
+до этого сообщение стоило 1 токен).
+Каждому — 50 бесплатных (25 сообщений) при первом заходе, дальше — пакеты (TOKEN_PACKS),
 оплата через ту же ЮKassa, что подписка. У кого активен Фреди Premium —
 говорят без токенов: подписчик не должен почувствовать, что у него
 что-то отняли.
@@ -27,14 +28,18 @@ logger = logging.getLogger(__name__)
 
 FREE_TOKENS = 50
 FREE_GRANTS_PER_IP_DAY = 2
-COST_MESSAGE = 1
+COST_MESSAGE = 2
 COST_VOICE = 1
+# Голосовой режим (решение владельца 10.10.2026): человек говорит, речь
+# распознаётся, ответ сразу звучит голосом — 4 токена за реплику целиком,
+# озвучка этого ответа отдельно не списывается.
+COST_VOICE_MODE = 4
 
 # Пакеты: ключ — тариф для /api/subscription/create-payment.
 TOKEN_PACKS: Dict[str, Dict[str, Any]] = {
-    "tokens_100": {"tokens": 100, "amount": "149.00", "title": "Фреди — 100 токенов (сообщений)"},
-    "tokens_300": {"tokens": 300, "amount": "349.00", "title": "Фреди — 300 токенов (сообщений)"},
-    "tokens_1000": {"tokens": 1000, "amount": "990.00", "title": "Фреди — 1000 токенов (сообщений)"},
+    "tokens_100": {"tokens": 100, "amount": "149.00", "title": "Фреди — 100 токенов (50 сообщений)"},
+    "tokens_300": {"tokens": 300, "amount": "349.00", "title": "Фреди — 300 токенов (150 сообщений)"},
+    "tokens_1000": {"tokens": 1000, "amount": "990.00", "title": "Фреди — 1000 токенов (500 сообщений)"},
 }
 
 _ready = False
@@ -162,3 +167,30 @@ async def credit(db, user_id: int, n: int, reason: str, ref: Optional[str] = Non
                 "UPDATE fredi_tokens SET balance = balance + $2, updated_at = NOW() "
                 "WHERE user_id = $1 RETURNING balance", user_id, n)
     return int(new or 0)
+
+
+async def issue_voice(db, user_id: int, ref: str) -> None:
+    """Пометка «озвучка этого ответа оплачена» — нулевая строка журнала."""
+    async with db.get_connection() as conn:
+        await ensure_schema(conn)
+        await conn.execute(
+            "INSERT INTO fredi_token_ledger (user_id, delta, reason, ref) VALUES ($1, 0, 'voice_paid', $2) "
+            "ON CONFLICT (ref) WHERE ref IS NOT NULL DO NOTHING", user_id, "vpaid:" + ref)
+
+
+async def claim_voice(db, user_id: int, ref: str) -> bool:
+    """Озвучка по оплаченной метке — ровно один раз и только своему id.
+    Метку не подделать: её выдаёт сервер после списания COST_VOICE_MODE."""
+    if not ref or len(ref) > 64:
+        return False
+    async with db.get_connection() as conn:
+        await ensure_schema(conn)
+        async with conn.transaction():
+            own = await conn.fetchval(
+                "SELECT 1 FROM fredi_token_ledger WHERE ref = $1 AND user_id = $2", "vpaid:" + ref, user_id)
+            if not own:
+                return False
+            ok = await conn.fetchval(
+                "INSERT INTO fredi_token_ledger (user_id, delta, reason, ref) VALUES ($1, 0, 'voice_used', $2) "
+                "ON CONFLICT (ref) WHERE ref IS NOT NULL DO NOTHING RETURNING 1", user_id, "vuse:" + ref)
+            return bool(ok)
