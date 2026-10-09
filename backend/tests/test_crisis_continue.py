@@ -93,11 +93,11 @@ def test_crisis_line_has_no_trailing_question():
 
 
 def test_numbers_are_routed_by_age():
-    """8-800-2000-122 — детская линия, взрослым она не называется."""
+    """Номер выбирает crisis_line из router: возраст из профиля, без него —
+    обе линии (детская первой при признаках школьника). До 09.10.2026 номер
+    выбирался только по возрасту, а у анонима его нет — дети не получали
+    детскую линию никогда."""
     src = _source()
-    i = src.index("_minor = _age is not None")
+    i = src.index("crisis_line(getattr(self, \"age\", None)")
     j = src.index("crisis_text = (", i)
-    block = src[i:j]
-    assert "8-800-2000-122" in block
-    assert "8-495-989-50-50" in block
-    assert "_minor else" in block, "номер обязан выбираться по возрасту"
+    assert i < j, "номер обязан выбираться через crisis_line до текста"
