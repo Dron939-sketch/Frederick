@@ -12,7 +12,14 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 os.environ.setdefault("DEEPSEEK_API_KEY", "test")
 
-from modes import get_mode  # noqa: E402
+# Другие тесты подменяют пакет modes пустым (без голосового стека). Тогда
+# доисполняем настоящий modes/__init__.py в тот же объект пакета.
+import modes  # noqa: E402
+if not hasattr(modes, "get_mode"):
+    _init = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "modes", "__init__.py")
+    modes.__package__ = "modes"
+    exec(compile(open(_init, encoding="utf-8").read(), _init, "exec"), modes.__dict__)
+get_mode = modes.get_mode
 
 TURN = {"persona": "mark", "token_mode": True, "session_turns": 3, "remaining_minutes": 2,
         "limit_minutes": 15, "crisis_notice_shown": True, "scenario_key": "x",
