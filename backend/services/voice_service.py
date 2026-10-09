@@ -1161,3 +1161,47 @@ async def save_audio_debug(audio_bytes: bytes, prefix: str = "audio") -> Optiona
     except Exception as e:
         logger.warning(f"⚠️ Не удалось сохранить аудио: {e}")
         return None
+
+
+# ============================================
+# ОЗВУЧКА ЛИЧНОСТЕЙ ЧАТА /fredi/chat/ (personas.py)
+# ============================================
+
+async def synthesize_persona_voice(text: str, provider: str = "fish",
+                                   voice: str = "filipp", speed: float = 1.0) -> Optional[bytes]:
+    """Фреди — Fish Audio (голос Джарвиса), остальные личности — Yandex
+    SpeechKit со своим голосом (решение владельца 09.10.2026). Если Fish
+    не ответил, Фреди говорит запасным голосом Яндекса: тишина хуже."""
+    text = normalize_tts_text(text or "")
+    if not text.strip():
+        return None
+    if len(text) > 4500:
+        text = text[:4500] + "..."
+    if provider == "fish":
+        try:
+            from services.fish_audio_service import synthesize_fish_audio
+            audio = await synthesize_fish_audio(text, "basic")
+            if audio:
+                return audio
+        except Exception as e:
+            logger.warning(f"persona tts: Fish Audio error {e}, fallback Yandex")
+        voice, speed = VOICES["default"], VOICE_SETTINGS["default"]["speed"]
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}",
+               "Content-Type": "application/x-www-form-urlencoded"}
+    data = {"text": text, "lang": "ru-RU", "voice": voice, "speed": speed, "format": "mp3"}
+    try:
+        client = await get_http_client()
+        r = await client.post(YANDEX_TTS_API_URL, headers=headers, data=data, timeout=30.0)
+        if r.status_code == 200:
+            try:
+                import asyncio as _aio
+                from services.api_usage import log_tts_usage
+                _aio.create_task(log_tts_usage(provider="yandex", model=voice, chars=len(text),
+                                               feature="tts.persona"))
+            except Exception:
+                pass
+            return r.content
+        logger.error(f"persona tts: Yandex {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.error(f"persona tts: Yandex error {e}")
+    return None

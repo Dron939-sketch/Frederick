@@ -24,7 +24,9 @@ def test_pricing_block_uses_plans_and_forbids_free_claim():
 
 
 def test_pricing_block_wired_into_prompt():
-    assert "pricing = self._build_pricing_block(question)" in BASIC
+    # С 09.10.2026 в чате с токенами (/chat/) вместо него — блок токенов.
+    assert "else self._build_pricing_block(question))" in BASIC
+    assert "self._build_token_pricing_block(question) if token_mode" in BASIC
 
 
 def test_pay_question_regex_catches_real_phrase():

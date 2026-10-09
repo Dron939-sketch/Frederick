@@ -604,7 +604,17 @@ class BasicMode(BaseMode):
         except Exception as _e:
             logger.warning(f"scenarios block failed: {_e}")
         # BEHAVIORAL_GUARD приоритетнее любого режима — клеим в начало.
-        return f"{_BEHAVIORAL_GUARD}{body}{memory_guard}{products}{scenarios}"
+        # Личность чата /fredi/chat/ (personas.py) — последним блоком: она
+        # меняет образ и манеру, а всё выше остаётся главнее неё.
+        persona = ""
+        try:
+            pid = (self.user_data or {}).get("persona")
+            if pid:
+                from personas import prompt_block
+                persona = prompt_block(pid)
+        except Exception as _e:
+            logger.debug(f"persona block skip: {_e}")
+        return f"{_BEHAVIORAL_GUARD}{body}{memory_guard}{products}{scenarios}{persona}"
 
     def get_greeting(self) -> str:
         tg = self._get_time_greeting()
@@ -1086,6 +1096,25 @@ class BasicMode(BaseMode):
         r"купить|премиум|premium|продолжить разговор|продлить|лимит|минут[ыа]? (кончил|закончил)|"
         r"закончил(ись|ось) (время|минут)|бесплатн)", re.I)
 
+    def _build_token_pricing_block(self, question: str) -> str:
+        """Ответ про оплату в чате с токенами: факты из tokens.py."""
+        q = (question or "").strip()
+        if not q or not self._PAY_QUESTION.search(q):
+            return ""
+        try:
+            from tokens import FREE_TOKENS, TOKEN_PACKS
+            packs = "; ".join(f"{v['tokens']} — {str(v['amount']).split('.')[0]} ₽"
+                              for v in TOKEN_PACKS.values())
+        except Exception:
+            FREE_TOKENS, packs = 50, ""
+        return (
+            "ОПЛАТА — он спрашивает про оплату. Ответь по фактам двумя фразами и вернись к его теме.\n"
+            f"- Здесь платят токенами: 1 сообщение — 1 токен, озвучка ответа — ещё 1. "
+            f"Каждому {FREE_TOKENS} токенов бесплатно. Пакеты: {packs}. Купить — кнопка с балансом вверху. "
+            "С подпиской Фреди Premium токены не нужны.\n"
+            "- Не называй других цен и не говори, что общение бесплатное без ограничений."
+        )
+
     def _build_pricing_block(self, question: str) -> str:
         q = (question or "").strip()
         if not q or not self._PAY_QUESTION.search(q):
@@ -1309,12 +1338,15 @@ class BasicMode(BaseMode):
         user_block = self._build_user_block().strip()
         if user_block:
             parts.append(user_block)
-        closing = self._build_closing_block()
+        # Чат /fredi/chat/ платится токенами, а не минутами: ритуал «до
+        # завтра», предупреждение о стене и цены подписки там — неправда.
+        token_mode = bool(self.user_data.get("token_mode"))
+        closing = "" if token_mode else self._build_closing_block()
         if closing:
             parts.append(closing)
         # Ритуал завершения уже зовёт продолжить завтра и говорит про
         # аккаунт — второй раз то же самое в том же ответе не нужно.
-        if not closing:
+        if not closing and not token_mode:
             horizon = self._build_horizon_block()
             if horizon:
                 parts.append(horizon)
@@ -1407,7 +1439,8 @@ class BasicMode(BaseMode):
                     parts.append(tb)
         except Exception as _e:
             logger.debug(f"topic block skip: {_e}")
-        pricing = self._build_pricing_block(question)
+        pricing = (self._build_token_pricing_block(question) if token_mode
+                   else self._build_pricing_block(question))
         if pricing:
             parts.append(pricing)
         if rhythm:
@@ -1646,8 +1679,14 @@ class BasicMode(BaseMode):
         try:
             from mode_enhancer import _is_identity_question, _IDENTITY_ANSWER
             if _is_identity_question(question):
-                self.conversation_history.append(f"Фреди: {_IDENTITY_ANSWER}")
-                yield _IDENTITY_ANSWER
+                _ans = _IDENTITY_ANSWER
+                _pid = (self.user_data or {}).get("persona")
+                if _pid and _pid != "fredi":
+                    from personas import get as _persona
+                    _ans = (f"Я — «{_persona(_pid)['name']}», ИИ-собеседник из сервиса Фреди. "
+                            "Меня создал психолог Андрей Мейстер, по своему методу.")
+                self.conversation_history.append(f"Фреди: {_ans}")
+                yield _ans
                 return
         except Exception as _e:
             logger.debug(f"identity intercept skip: {_e}")

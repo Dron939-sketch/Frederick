@@ -35,6 +35,9 @@ PLAN_LABEL = {
     "trial_week": "проба на 3 дня",
     "monthly": "месяц",
     "quarter": "три месяца",
+    "tokens_100": "100 токенов чата",
+    "tokens_300": "300 токенов чата",
+    "tokens_1000": "1000 токенов чата",
 }
 MAX_BOT_LINK_DEFAULT = "https://max.ru/id502238728185_1_bot"
 

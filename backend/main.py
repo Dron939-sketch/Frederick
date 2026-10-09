@@ -449,6 +449,13 @@ async def lifespan(app: FastAPI):
         # Замок Лектория: лекции 2–10 новых курсов — по подписке.
         from lektorij_lock import register_lektorij_lock_routes
         register_lektorij_lock_routes(app, limiter)
+        # Таблицы токенов чата /chat/ — при старте, а не первым запросом.
+        try:
+            import tokens as _tok
+            async with db.get_connection() as _c:
+                await _tok.ensure_schema(_c)
+        except Exception as e:
+            logger.error(f"tokens schema init failed: {e}")
 
         # Живой счётчик Лектория: токен Метрики даёт доступ ко всей
         # статистике сайта, поэтому в браузер он не попадает — наружу
@@ -3808,7 +3815,8 @@ async def _premium_gate_instance(mode_name: str, mode_instance, user_id,
     return premium_gate.LockedMode(mode_name, fallback=fallback), True
 
 
-async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) -> Dict[str, Any]:
+async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str,
+                             persona: Optional[str] = None) -> Dict[str, Any]:
     """Подготовка хода диалога: профиль, режим, история, инстанс режима.
 
     Общая для обычного /api/chat и потокового /api/chat/stream. Вынесено
@@ -3838,6 +3846,9 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         requested = (requested_mode or "").strip().lower()
         stored = (context_obj.get("communication_mode") or "").strip().lower()
         mode_name = requested or stored or "basic"
+    # Личность чата /fredi/chat/ живёт поверх базового режима.
+    if persona:
+        mode_name = "basic"
     # Premium-gate: без активной подписки premium-роли понижаются до basic.
     mode_name = await _enforce_premium_mode(user_id, mode_name)
 
@@ -3855,7 +3866,13 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
     # предыдущей реплики. Строки идут от новых к старым, разворачиваем.
     return_ctx = {}
     try:
-        history_rows = await message_repo.get_history(user_id, limit=10)
+        # С личностями (personas.py) у каждой своя история: метка лежит в
+        # metadata.persona, у Фреди её нет. Без фильтра «Без соплей» видел бы
+        # разговор с «Лучшей подругой», а Фреди в приложении — оба.
+        _pid = persona or "fredi"
+        history_rows = await message_repo.get_history(user_id, limit=40)
+        history_rows = [m for m in history_rows
+                        if ((m.get("metadata") or {}).get("persona") or "fredi") == _pid][-10:]
         rows_asc = [dict(m) for m in reversed(history_rows)]
         rows_asc = session_history(rows_asc, registered)
         # Возвращение после паузы: когда и о чём был прошлый разговор —
@@ -3904,6 +3921,9 @@ async def _prepare_chat_turn(user_id: int, message: str, requested_mode: str) ->
         **return_ctx,   # return_topic / return_when — первая фраза после паузы
         **session_meta,  # session_turns, is_registered — для ритуала завершения
     }
+    if persona:
+        user_data["persona"] = persona
+        user_data["token_mode"] = True
 
     class SimpleContext:
         def __init__(self, data):
@@ -3964,7 +3984,8 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
                             response_text: str, mode_name: str,
                             tools_used: Optional[List[str]] = None,
                             streamed: bool = False,
-                            timings: Optional[Dict[str, int]] = None) -> None:
+                            timings: Optional[Dict[str, int]] = None,
+                            persona: Optional[str] = None) -> None:
     """Сохранение хода: состояние режима, обе реплики, событие аналитики.
 
     timings попадают в fredi_events и потому видны в админке. Логи
@@ -4010,8 +4031,11 @@ async def _finish_chat_turn(prep: Dict[str, Any], user_id: int, message: str,
         await context_repo.save(user_id, context_obj)
     await _save_psychologist_state(user_id, context_obj, mode_instance, mode_name)
 
-    await message_repo.save(user_id, "user", message, {"mode": mode_name})
-    await message_repo.save(user_id, "assistant", response_text, {"mode": mode_name})
+    _meta = {"mode": mode_name}
+    if persona and persona != "fredi":
+        _meta["persona"] = persona
+    await message_repo.save(user_id, "user", message, _meta)
+    await message_repo.save(user_id, "assistant", response_text, _meta)
 
     await log_event(user_id, "chat", {
         "mode": mode_name,
@@ -4298,6 +4322,160 @@ async def chat_stream(request: Request, data: ChatRequest):
         # без этого nginx/Amvera буферизуют ответ и весь смысл стрима пропадает
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ============================================
+# ЧАТ С ЛИЧНОСТЯМИ /chat/ — токены вместо минут (09.10.2026)
+# ============================================
+# Отдельный продукт на том же движке: та же подготовка хода, тот же
+# BasicMode с кризисным перехватом, но поверх — личность (personas.py), а
+# платят токенами (tokens.py): 1 сообщение — 1 токен, озвучка — ещё 1,
+# 50 бесплатно. Premium — без токенов. Адрес не /api/chat…, поэтому
+# счётчик минут (_METER_AI_REGEX) его не трогает: списание здесь своё.
+
+class PersonaChatRequest(BaseModel):
+    user_id: int
+    message: str
+    persona: str = "fredi"
+
+
+async def _persona_premium(user_id: int) -> bool:
+    try:
+        from lektorij_lock import is_premium
+        return await is_premium(user_id)
+    except Exception:
+        return False
+
+
+@app.get("/api/personas")
+async def personas_list():
+    from personas import public_list
+    return {"success": True, "personas": public_list()}
+
+
+@app.get("/api/tokens/{user_id}")
+@limiter.limit("60/minute")
+async def tokens_status(request: Request, user_id: int):
+    import tokens as _tok
+    if user_id <= 0:
+        return {"success": False, "error": "invalid user_id"}
+    premium = await _persona_premium(user_id)
+    try:
+        async with db.get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO fredi_users (user_id, created_at, updated_at) VALUES ($1, NOW(), NOW()) "
+                "ON CONFLICT (user_id) DO NOTHING", user_id)
+        st = await _tok.balance(db, user_id, _real_client_ip(request))
+    except Exception as e:
+        logger.error(f"tokens status {user_id}: {e}")
+        return {"success": False, "error": "tokens unavailable"}
+    packs = [{"plan": k, "tokens": v["tokens"], "price": int(float(v["amount"]))}
+             for k, v in _tok.TOKEN_PACKS.items()]
+    return {"success": True, "premium": premium, "packs": packs,
+            "cost_message": _tok.COST_MESSAGE, "cost_voice": _tok.COST_VOICE, **st}
+
+
+@app.post("/api/persona/stream")
+@limiter.limit("20/minute")
+async def persona_stream(request: Request, data: PersonaChatRequest):
+    import tokens as _tok
+    from personas import get as _persona
+    uid = int(data.user_id or 0)
+    msg = (data.message or "").strip()[:4000]
+    if uid <= 0 or not msg:
+        return JSONResponse(status_code=400, content={"success": False, "error": "bad request"})
+    pid = _persona(data.persona)["id"]
+    premium = await _persona_premium(uid)
+    left = None
+    if not premium:
+        try:
+            await _tok.balance(db, uid, _real_client_ip(request))  # бесплатные при первом заходе
+            left = await _tok.spend(db, uid, _tok.COST_MESSAGE, f"msg:{pid}")
+        except Exception as e:
+            logger.error(f"persona spend {uid}: {e}")
+            return JSONResponse(status_code=503, content={"success": False, "error": "tokens unavailable"})
+        if left is None:
+            return JSONResponse(status_code=402, content={"success": False, "error": "NO_TOKENS", "balance": 0})
+
+    async def event_stream():
+        ok = False
+        full_text = ""
+        try:
+            prep = await _prepare_chat_turn(uid, msg, "basic", persona=pid)
+            mode_instance = prep["mode_instance"]
+            yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n"
+            acc, sent = "", 0
+            try:
+                async for chunk in mode_instance.process_question_streaming(msg):
+                    if not chunk:
+                        continue
+                    acc += chunk
+                    shown = _normalize_reply(acc)
+                    safe = shown[:-1]
+                    if len(safe) > sent:
+                        yield json.dumps({"type": "delta", "text": safe[sent:]}, ensure_ascii=False) + "\n"
+                        sent = len(safe)
+                full_text = _normalize_reply(acc)
+                if len(full_text) > sent:
+                    yield json.dumps({"type": "delta", "text": full_text[sent:]}, ensure_ascii=False) + "\n"
+            except Exception as e:
+                logger.warning(f"persona stream failed for {uid}: {e}")
+                full_text = ""
+            if not full_text.strip():
+                fb = await _freddy_or_mode(prep, uid, msg)
+                full_text = fb.get("response") or ""
+                if full_text:
+                    yield json.dumps({"type": "delta", "text": full_text}, ensure_ascii=False) + "\n"
+            if not full_text.strip() or is_tech_fail(full_text):
+                raise RuntimeError("empty reply")
+            await _finish_chat_turn(prep, uid, msg, full_text, "basic", [], streamed=True, persona=pid)
+            ok = True
+            yield json.dumps({"type": "done", "full_text": full_text, "persona": pid,
+                              "premium": premium, "balance": left}, ensure_ascii=False) + "\n"
+        except Exception as e:
+            logger.error(f"persona chat error {uid}: {e}", exc_info=True)
+            yield json.dumps({"type": "error", "message": "Не получилось ответить. Токен возвращён."},
+                             ensure_ascii=False) + "\n"
+        finally:
+            # Ответа нет — токен назад: человек платит за ответ, а не за попытку.
+            if not ok and not premium:
+                try:
+                    await _tok.credit(db, uid, _tok.COST_MESSAGE, "refund")
+                except Exception as e:
+                    logger.error(f"persona refund {uid}: {e}")
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/persona/tts")
+@limiter.limit("30/minute")
+async def persona_tts(request: Request):
+    import tokens as _tok
+    from personas import get as _persona
+    from services.voice_service import synthesize_persona_voice
+    try:
+        data = await request.json()
+        uid = int(data.get("user_id") or 0)
+    except Exception:
+        return JSONResponse(status_code=400, content={"success": False, "error": "bad request"})
+    text = str(data.get("text") or "").strip()[:2000]
+    if uid <= 0 or not text:
+        return JSONResponse(status_code=400, content={"success": False, "error": "bad request"})
+    p = _persona(data.get("persona"))
+    premium = await _persona_premium(uid)
+    if not premium:
+        left = await _tok.spend(db, uid, _tok.COST_VOICE, f"voice:{p['id']}")
+        if left is None:
+            return JSONResponse(status_code=402, content={"success": False, "error": "NO_TOKENS", "balance": 0})
+    v = p.get("voice") or {}
+    audio = await synthesize_persona_voice(text, v.get("provider", "fish"),
+                                           v.get("voice", "filipp"), float(v.get("speed", 1.0)))
+    if not audio:
+        if not premium:
+            await _tok.credit(db, uid, _tok.COST_VOICE, "refund")
+        return JSONResponse(status_code=502, content={"success": False, "error": "TTS failed"})
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @app.get("/api/chat/history/{user_id}")
