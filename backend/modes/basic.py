@@ -277,8 +277,13 @@ class BasicMode(BaseMode):
                 and user_data.get("behavioral_levels")
             )
         )
+        # Поверх всего, что собрал main.py (session_turns, остаток минут,
+        # persona, crisis_notice_shown, scenario_key…), — только поля
+        # профиля. До 10.10.2026 здесь собирался словарь из семи полей, и
+        # всё остальное до промпта не доходило ни у кого.
         if has_profile:
             prepared = {
+                **user_data,
                 "profile_data": (
                     user_data.get("profile_data")
                     or user_data.get("ai_generated_profile")
@@ -293,6 +298,7 @@ class BasicMode(BaseMode):
             }
         else:
             prepared = {
+                **user_data,
                 "profile_data": {},
                 "perception_type": user_data.get("perception_type", "не определён"),
                 "thinking_level": user_data.get("thinking_level", 5),
