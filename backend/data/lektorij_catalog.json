@@ -198,6 +198,10 @@
    "psihologiya-edy"
   ],
   [
+   "поколен|pokolen|миллениал|millenial|зумер|zumer|бумер|bumer|дет\\w*[- ]90|deti-90|отцы и дети|otcy-i-deti",
+   "pokoleniya"
+  ],
+  [
    "тревог|trevog|паническ|panichesk|фоби|fobi|страх|strah",
    "trevoga"
   ],
@@ -3993,6 +3997,64 @@
      "n": 10,
      "title": "План на три месяца",
      "url": "/blog/lekciya-kopit-plan-na-tri-mesyaca.html"
+    }
+   ]
+  },
+  "pokoleniya": {
+   "title": "Поколения",
+   "url": "/blog/lektorij/pokoleniya/",
+   "description": "Бесплатный курс «Поколения»: молчаливые, бумеры, поколение X, миллениалы, зумеры и Альфа — что каждое считает добром и злом и как договориться с любым.",
+   "premium": false,
+   "lectures": [
+    {
+     "n": 1,
+     "title": "Разные страны за одним столом: что такое поколение",
+     "url": "/blog/lekciya-pokol-1-raznye-strany-odin-stol.html"
+    },
+    {
+     "n": 2,
+     "title": "Возраст, эпоха или поколение: три объяснения одного спора",
+     "url": "/blog/lekciya-pokol-2-vozrast-epoha-ili-pokolenie.html"
+    },
+    {
+     "n": 3,
+     "title": "Карточка поколения: из чего складывается картина мира",
+     "url": "/blog/lekciya-pokol-3-kartochka-pokoleniya.html"
+    },
+    {
+     "n": 4,
+     "title": "Молчаливое поколение: язык выживания",
+     "url": "/blog/lekciya-pokol-4-molchalivoe-pokolenie.html"
+    },
+    {
+     "n": 5,
+     "title": "Беби-бумеры: язык долга и общего дела",
+     "url": "/blog/lekciya-pokol-5-bebi-bumery.html"
+    },
+    {
+     "n": 6,
+     "title": "Поколение X: язык самостоятельности",
+     "url": "/blog/lekciya-pokol-6-pokolenie-x.html"
+    },
+    {
+     "n": 7,
+     "title": "Миллениалы: язык смысла и выбора",
+     "url": "/blog/lekciya-pokol-7-millenialy.html"
+    },
+    {
+     "n": 8,
+     "title": "Зумеры и Альфа: язык безопасности и подлинности",
+     "url": "/blog/lekciya-pokol-8-zumery-i-alfa.html"
+    },
+    {
+     "n": 9,
+     "title": "Как поколения договариваются: перевод, фронты, обмен",
+     "url": "/blog/lekciya-pokol-9-kak-dogovoritsya-pokoleniyam.html"
+    },
+    {
+     "n": 10,
+     "title": "Экзамен, суд над теорией и три числа на выходе",
+     "url": "/blog/lekciya-pokol-10-ekzamen-i-sud-nad-teoriej.html"
     }
    ]
   },
