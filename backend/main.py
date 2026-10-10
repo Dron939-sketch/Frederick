@@ -329,6 +329,7 @@ class HealthResponse(BaseModel):
     # mtime чекаута, то есть время сборки), started — старт процесса.
     build: Optional[str] = None
     started: Optional[str] = None
+    database_error: Optional[str] = None
 
 class MorningMessageRequest(BaseModel):
     user_id: int
@@ -3281,6 +3282,7 @@ async def health_check():
         except Exception as e:
             logger.error(f"❌ Database connection failed: {e}")
             status["status"] = "degraded"
+            status["database_error"] = getattr(db, "last_error", "") or type(e).__name__
     else:
         status["status"] = "degraded"
 

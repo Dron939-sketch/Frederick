@@ -13,6 +13,13 @@ import time
 logger = logging.getLogger(__name__)
 
 
+def _error_kind(e: Exception) -> str:
+    """Короткое имя ошибки: ConnectionRefusedError, InvalidPasswordError,
+    TooManyConnectionsError (53300), DiskFullError (53100)…"""
+    code = getattr(e, "sqlstate", None)
+    return f"{type(e).__name__}{f' ({code})' if code else ''}"
+
+
 class Database:
     """Асинхронный пул соединений PostgreSQL"""
     
@@ -23,6 +30,11 @@ class Database:
         self._reconnecting = False
         self._last_health_check = 0
         self._health_check_interval = 30  # секунд
+        # Тип последней ошибки подключения — для /health. 10.10.2026 база
+        # ночью стала недоступна, а /health отвечал только database:false,
+        # и причину (отказ, пароль, лимит соединений, место) снаружи было
+        # не узнать. Только тип и код Postgres: без адресов и паролей.
+        self.last_error: str = ""
     
     async def connect(self, dsn: str = None, min_size: int = 5, max_size: int = 20):
         """
@@ -61,6 +73,7 @@ class Database:
             
         except Exception as e:
             logger.error(f"❌ Database connection failed: {e}")
+            self.last_error = _error_kind(e)
             self.pool = None
             raise
     
@@ -98,6 +111,7 @@ class Database:
             return True
         except Exception as e:
             logger.warning(f"⚠️ Health check failed: {e}")
+            self.last_error = _error_kind(e)
             return await self.reconnect()
     
     async def reconnect(self) -> bool:
