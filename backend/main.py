@@ -665,6 +665,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # чем фронт увидит status=402. Используем этот список, чтобы вручную
 # добавить CORS-заголовки на 402-ответ.
 _CORS_ALLOWED_ORIGINS = [
+    # Адреса Amvera после аварии региона Москва_0 (11.10.2026): бэкенд и
+    # служебный адрес сайта. Старые оставлены — вреда от них нет.
+    "https://fffred-ddd989.mia0.amvera.tech",
+    "https://meysternlp-ddd989.msk1.amvera.tech",
     "https://meysternlp-ddd989.amvera.io",
     "https://ffred-ddd989.amvera.io",
     "https://meysternlp.ru",
@@ -2542,7 +2546,8 @@ async def _issue_pdf_token(user_id: int, kind: str = "test_profile",
 # никто не ставил, потому что до письма ссылку видели только в MAX.
 # Значение по умолчанию обязано указывать на живой прод: окружение его
 # перекрывает, но когда его нет — ссылка должна работать, а не ломаться.
-_DEFAULT_PUBLIC_BASE = "https://ffred-ddd989.amvera.io"
+# С 14.10.2026 — новый адрес после аварии региона Москва_0 у Amvera.
+_DEFAULT_PUBLIC_BASE = "https://fffred-ddd989.mia0.amvera.tech"
 
 
 def _public_base_url() -> str:

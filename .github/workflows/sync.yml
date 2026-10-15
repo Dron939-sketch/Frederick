@@ -36,15 +36,8 @@ jobs:
           git push "https://${GV_USER}:${GV_PASS}@gitverse.ru/${GV_PATH}.git" \
             "refs/heads/main:refs/heads/main" --force
 
-      - name: Deploy to Amvera (push main to master)
-        env:
-          AM_USER: ${{ secrets.AMVERA_USER }}
-          AM_PASS: ${{ secrets.AMVERA_PASSWORD }}
-          AM_PATH: ${{ secrets.AMVERA_PATH }}
-        run: |
-          if [ -z "$AM_PATH" ]; then
-            echo "AMVERA_PATH not set — skipping Amvera deploy"
-            exit 0
-          fi
-          git push "https://${AM_USER}:${AM_PASS}@git.msk0.amvera.ru/${AM_PATH}" \
-            "refs/heads/main:refs/heads/master" --force
+      # Пуш в git.msk0.amvera.ru убран 15.10.2026: регион Москва_0 у Amvera
+      # лёг 11.10, проект бэкенда пересоздан как fffred
+      # (fffred-ddd989.mia0.amvera.tech) с подключённым GitHub — Amvera сама
+      # забирает main из этого репозитория. Старый шаг падал бы на каждом
+      # мерже, пытаясь достучаться до мёртвого региона.
