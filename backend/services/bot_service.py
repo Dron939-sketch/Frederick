@@ -28,7 +28,10 @@ MAX_TOKEN = os.environ.get("MAX_TOKEN", "").strip()
 # вовсе. Адрес с onrender.com считаем устаревшим.
 BACKEND_URL = os.environ.get("API_URL", "").strip()
 if not BACKEND_URL or "onrender.com" in BACKEND_URL:
-    BACKEND_URL = "https://ffred-ddd989.amvera.io"
+    # 11.10.2026 регион Москва_0 у Amvera лёг вместе с ffred-ddd989.amvera.io,
+    # бэкенд пересоздан под новым адресом — без этой правки бот MAX при
+    # старте подписывался бы на мёртвый адрес.
+    BACKEND_URL = "https://fffred-ddd989.mia0.amvera.tech"
 WEB_URL = os.environ.get("WEB_URL", "https://fredi-frontend.onrender.com").strip().rstrip("/")
 
 MSG_LINK_SUCCESS = "Привет, {name}! Аккаунт успешно привязан к Фреди. Теперь утренние сообщения будут приходить сюда."

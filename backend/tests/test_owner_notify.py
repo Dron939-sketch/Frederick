@@ -114,5 +114,5 @@ def test_max_webhook_not_pointed_to_render():
     привязка не доходила до сервера."""
     bot = (ROOT / "services" / "bot_service.py").read_text(encoding="utf-8")
     assert 'if not BACKEND_URL or "onrender.com" in BACKEND_URL:' in bot
-    assert 'BACKEND_URL = "https://ffred-ddd989.amvera.io"' in bot
+    assert 'BACKEND_URL = "https://fffred-ddd989.mia0.amvera.tech"' in bot
     assert "снята старая подписка" in bot

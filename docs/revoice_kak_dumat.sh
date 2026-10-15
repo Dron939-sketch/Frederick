@@ -7,7 +7,7 @@
 # Прогресс: тот же скрипт с аргументом status.
 
 set -euo pipefail
-BASE="https://ffred-ddd989.amvera.io"
+BASE="https://fffred-ddd989.mia0.amvera.tech"
 : "${ADMIN_TOKEN:?Задайте ADMIN_TOKEN: ADMIN_TOKEN=... bash $0}"
 
 if [ "${1:-}" = "status" ]; then

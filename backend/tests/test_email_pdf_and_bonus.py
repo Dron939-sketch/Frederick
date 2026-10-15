@@ -122,7 +122,7 @@ def test_download_link_points_at_the_live_backend():
     живым адресом, а не историческим.
     """
     src = _src(_MAIN)
-    assert '_DEFAULT_PUBLIC_BASE = "https://ffred-ddd989.amvera.io"' in src
+    assert '_DEFAULT_PUBLIC_BASE = "https://fffred-ddd989.mia0.amvera.tech"' in src
     i = src.index("def _public_base_url()")
     block = src[i:i + 400]
     assert "onrender.com" not in block, "умолчание снова указывает на мёртвый хостинг"

@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 APP_URL = (os.environ.get("APP_URL") or "https://meysternlp.ru/fredi").rstrip("/")
 # Адрес бэкенда, на который провайдеры возвращают человека с кодом.
-API_PUBLIC_URL = (os.environ.get("API_PUBLIC_URL") or "https://ffred-ddd989.amvera.io").rstrip("/")
+API_PUBLIC_URL = (os.environ.get("API_PUBLIC_URL") or "https://fffred-ddd989.mia0.amvera.tech").rstrip("/")
 
 def env_first(*names: str) -> str:
     """Первая непустая переменная из списка имён.
