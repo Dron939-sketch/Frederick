@@ -378,6 +378,34 @@ def register_payment_routes(app, db, limiter):
             logger.error(f"verify_subscription_payment error: {e}")
             return {"success": False, "error": "internal error"}
 
+    @app.get("/api/payment/diag")
+    @limiter.limit("6/minute")
+    async def payment_diag(request: Request):
+        """Достаёт ли бэкенд до ЮKassa (15.10.2026).
+
+        После аварии Amvera бэкенд пересоздан в другом регионе, и платёж
+        упал с пустым «Payment creation error:». Этот адрес делает один
+        GET /v3/me от имени магазина и отвечает, дошёл ли запрос, за
+        сколько и с каким кодом. Ключи и ответ ЮKassa наружу не отдаются.
+        """
+        import time as _t
+        import httpx
+        from payment import YOOKASSA_API_URL
+        ps = payment_service
+        out = {"shop_id_set": bool(ps and ps.shop_id), "secret_key_set": bool(ps and ps.secret_key)}
+        if not (out["shop_id_set"] and out["secret_key_set"]):
+            return out
+        t0 = _t.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.get(f"{YOOKASSA_API_URL}/me",
+                                     headers={"Authorization": ps._get_auth_header()})
+            out.update(reachable=True, status=r.status_code, credentials_ok=r.status_code == 200)
+        except Exception as e:  # noqa: BLE001
+            out.update(reachable=False, error=type(e).__name__)
+        out["ms"] = int((_t.monotonic() - t0) * 1000)
+        return out
+
     @app.post("/api/yookassa-webhook")
     async def yookassa_webhook(request: Request):
         try:

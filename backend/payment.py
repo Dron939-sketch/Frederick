@@ -315,8 +315,14 @@ class PaymentService:
         except httpx.HTTPStatusError as e:
             logger.error(f"YooKassa API error: {e.response.status_code} {e.response.text}")
             return {"success": False, "error": f"Ошибка платежной системы: {e.response.status_code}"}
+        except httpx.TransportError as e:
+            # Таймаут или обрыв соединения с ЮKassa. У таймаутов httpx текст
+            # исключения пустой — 15.10.2026 в логе стояло голое
+            # «Payment creation error:», и причину было не понять. Тип есть всегда.
+            logger.error(f"Payment creation error: нет связи с ЮKassa ({type(e).__name__}: {e!r})")
+            return {"success": False, "error": "Платёжная система не ответила. Попробуйте ещё раз через минуту."}
         except Exception as e:
-            logger.error(f"Payment creation error: {e}")
+            logger.exception(f"Payment creation error: {type(e).__name__}: {e!r}")
             return {"success": False, "error": "Внутренняя ошибка платежной системы. Попробуйте позже."}
 
     async def charge_recurring(
