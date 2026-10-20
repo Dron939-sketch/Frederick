@@ -36,8 +36,30 @@ jobs:
           git push "https://${GV_USER}:${GV_PASS}@gitverse.ru/${GV_PATH}.git" \
             "refs/heads/main:refs/heads/main" --force
 
-      # Пуш в git.msk0.amvera.ru убран 15.10.2026: регион Москва_0 у Amvera
-      # лёг 11.10, проект бэкенда пересоздан как fffred
-      # (fffred-ddd989.mia0.amvera.tech) с подключённым GitHub — Amvera сама
-      # забирает main из этого репозитория. Старый шаг падал бы на каждом
-      # мерже, пытаясь достучаться до мёртвого региона.
+      # Деплой бэкенда. 15.10.2026 пуш в git.msk0.amvera.ru убрали, решив, что
+      # пересозданный проект fffred «сам забирает main с GitHub». Не забирал:
+      # после переноса из Москва_0 вебхуки GitHub у Amvera отвалились («подключить
+      # заново в разделе Репозиторий»), и каждая пересборка 15–20.10 поднимала
+      # снимок кода примерно на 10–14.10 — /api/payment/diag (#739) и
+      # /api/shop/checkout (#740) отвечали 404. Теперь код везём сами, как сайт:
+      # main → master выделенного репозитория Amvera, этот пуш и запускает сборку.
+      # amvera.yaml в репозитории совпадает с «Конфигурацией» в кабинете
+      # (docker, Dockerfile, /data, 10000) — --force её не ломает.
+      - name: Deploy to Amvera (fffred, mia0)
+        env:
+          AM_USER: ${{ secrets.AMVERA_USER }}
+          AM_PASS: ${{ secrets.AMVERA_PASSWORD }}
+        run: |
+          if [ -z "$AM_USER" ] || [ -z "$AM_PASS" ]; then
+            echo "::error::AMVERA_USER / AMVERA_PASSWORD не заданы — бэкенд не задеплоится"
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            if git push "https://${AM_USER}:${AM_PASS}@git.mia0.amvera.ru/ddd989/fffred" \
+                 "refs/heads/main:refs/heads/master" --force; then
+              exit 0
+            fi
+            echo "push attempt $attempt failed, retry in $((attempt*10))s"
+            sleep $((attempt*10))
+          done
+          exit 1
