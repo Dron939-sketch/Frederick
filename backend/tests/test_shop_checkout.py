@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Свой заказ товара мимо Ozon: каталог и сумма в ЮKassa.
 
-20.10.2026 к комплекту добавился пакет «Стандартный» за 4 900 ₽. Главное, что
+20.10.2026 к комплекту добавился пакет «Стандартный» за 5 900 ₽. Главное, что
 здесь проверяется, — сумма: старый адрес /api/shop/order всегда берёт 19 999 ₽,
 поэтому новый товар ходит через /api/shop/checkout, и сумма в платеже и в чеке
 должна быть ценой именно этого товара.
@@ -128,15 +128,16 @@ FORM = {"fio": "Иванов Иван Иванович", "phone": "8 900 123-45-
         "city": "Ростов-на-Дону", "pvz": "ул. Большая Садовая, 15, ПВЗ СДЭК"}
 
 
-def test_standart_goes_for_4900(monkeypatch):
+def test_standart_goes_for_5900_with_vat_22(monkeypatch):
     res, pay, rows = _run(monkeypatch, "/api/shop/checkout", dict(FORM, product="standart"))
     assert res["success"] and res["confirmation_url"]
-    assert pay["amount"]["value"] == "4900.00"
-    assert pay["receipt"]["items"][0]["amount"]["value"] == "4900.00"
+    assert pay["amount"]["value"] == "5900.00"
+    assert pay["receipt"]["items"][0]["amount"]["value"] == "5900.00"
     assert "Стандартный" in pay["receipt"]["items"][0]["description"]
+    assert pay["receipt"]["items"][0]["vat_code"] == 11  # НДС 22 %
     assert pay["metadata"]["product"] == "standart"
     assert pay["confirmation"]["return_url"].startswith("https://meysternlp.ru/razgovornyj-gipnoz/standart/spasibo/")
-    assert rows and rows[0]["product"] == "standart" and rows[0]["amount"] == 4900.0
+    assert rows and rows[0]["product"] == "standart" and rows[0]["amount"] == 5900.0
 
 
 def test_old_address_still_sells_bundle_only(monkeypatch):
@@ -144,6 +145,7 @@ def test_old_address_still_sells_bundle_only(monkeypatch):
     res, pay, rows = _run(monkeypatch, "/api/shop/order", dict(FORM, product="standart"))
     assert res["success"]
     assert pay["amount"]["value"] == "19999.00"
+    assert pay["receipt"]["items"][0]["vat_code"] == 1  # комплект — как был
     assert rows[0]["product"] == "gipnoz-komplekt"
 
 
@@ -158,7 +160,7 @@ def test_failed_payment_keeps_order_and_tells_owner_contacts(monkeypatch):
     res, alerts, rows = _run(monkeypatch, "/api/shop/checkout", dict(FORM, product="standart"), fail=True)
     assert res["success"] and res.get("manual") and res["order_no"].startswith("M-")
     assert "confirmation_url" not in res
-    assert rows and rows[0]["status"] == "payment_failed" and rows[0]["amount"] == 4900.0
+    assert rows and rows[0]["status"] == "payment_failed" and rows[0]["amount"] == 5900.0
     assert alerts, "владельцу ничего не пришло"
     text = alerts[-1]
     assert "+79001234567" in text and "a@b.ru" in text and "Иванов Иван Иванович" in text
