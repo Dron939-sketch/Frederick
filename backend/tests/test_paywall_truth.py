@@ -51,4 +51,12 @@ def test_lektorij_not_called_free_entirely():
 def test_catalog_marks_premium_courses():
     c = json.load(open(CATALOG, encoding="utf-8"))["courses"]
     assert all("premium" in v for v in c.values())
-    assert any(v["premium"] for v in c.values()) and not all(v["premium"] for v in c.values())
+    # С 20.10.2026 Лекторий открыт целиком (решение владельца), и пометка
+    # обязана совпадать с blog/lektorij/premium.json сайта: иначе Фреди
+    # называет платными открытые лекции — или наоборот.
+    site = os.path.abspath(os.path.join(HERE, "..", "..", "..", "dron939-sketch.github.io",
+                                        "blog", "lektorij", "premium.json"))
+    if os.path.exists(site):
+        locked = set(json.load(open(site, encoding="utf-8")).get("premium", []))
+        wrong = [k for k, v in c.items() if bool(v["premium"]) != (k in locked)]
+        assert not wrong, wrong[:5]
