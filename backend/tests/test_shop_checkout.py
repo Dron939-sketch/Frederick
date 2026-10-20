@@ -145,7 +145,7 @@ def test_old_address_still_sells_bundle_only(monkeypatch):
     res, pay, rows = _run(monkeypatch, "/api/shop/order", dict(FORM, product="standart"))
     assert res["success"]
     assert pay["amount"]["value"] == "19999.00"
-    assert pay["receipt"]["items"][0]["vat_code"] == 1  # комплект — как был
+    assert pay["receipt"]["items"][0]["vat_code"] == 11  # НДС 22 % и у комплекта
     assert rows[0]["product"] == "gipnoz-komplekt"
 
 
