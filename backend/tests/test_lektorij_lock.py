@@ -71,7 +71,14 @@ def test_site_locked_lectures_have_gate_and_first_is_open():
     if not SITE.exists():
         return
     locked = {p.stem for p in (BACKEND / "data" / "lektorij_locked").glob("*.html")}
-    assert locked, "нет фрагментов за замком"
+    if not locked:
+        # 20.10.2026 владелец снял замки: Лекторий открыт целиком. Без
+        # фрагментов на сайте не должно остаться ни одного замка — иначе
+        # лекция открывалась бы пустой.
+        stuck = [p.name for p in (SITE / "blog").glob("lekciya-*.html")
+                 if 'id="lockGate"' in p.read_text(encoding="utf-8")]
+        assert not stuck, f"замок без фрагмента: {stuck[:5]}"
+        return
     for slug in locked:
         html = (SITE / "blog" / f"{slug}.html").read_text(encoding="utf-8")
         assert f'id="lockGate" data-slug="{slug}"' in html, slug

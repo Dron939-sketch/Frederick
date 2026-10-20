@@ -1,5 +1,5 @@
 """
-order_routes.py — продажа физического комплекта напрямую, мимо Ozon.
+order_routes.py — продажа физических товаров напрямую, мимо Ozon.
 
 Один товар: комплект «Разговорный гипноз» (тренинг на QR-карточках с картой
 активации, три книги, три игры «Вариатика») за 19 999 ₽ с доставкой СДЭК.
@@ -34,6 +34,34 @@ BUNDLE_AMOUNT = "19999.00"
 BUNDLE_CURRENCY = "RUB"
 BUNDLE_TITLE = "Комплект «Разговорный гипноз»: тренинг, 3 книги, 3 игры"
 BUNDLE_SLUG = "gipnoz-komplekt"
+
+# Каталог (20.10.2026). Владелец: «по „Стандартному“ не вести на Ozon,
+# брать оплату у себя и отправлять СДЭКом до ближайшего ПВЗ — так мы узнаем
+# всё, что нам надо». Ozon не отдаёт, кто купил после перехода с сайта; свой
+# заказ показывает всю воронку и даёт почту покупателя. Цена 4 900 ₽ без
+# доставки: доставку получатель оплачивает в пункте выдачи по тарифу СДЭК
+# (решение владельца). Сумма в чеке — только товар.
+PRODUCTS = {
+    BUNDLE_SLUG: {
+        "amount": BUNDLE_AMOUNT,
+        "title": BUNDLE_TITLE,
+        "short": "комплекта",
+        "letter_name": "Комплект «Разговорный гипноз»: тренинг на QR-карточках с картой "
+                       "активации, три книги и три игры «Вариатика».",
+        "delivery": "доставка входит в цену",
+        "return_url": "https://meysternlp.ru/komplekt/spasibo/",
+    },
+    "standart": {
+        "amount": "4900.00",
+        "title": "Разговорный гипноз. Пакет «Стандартный»",
+        "short": "пакета «Стандартный»",
+        "letter_name": "Разговорный гипноз, пакет «Стандартный»: книга «Матчасть» и две схемы, "
+                       "доступ к 38 видео на 12 месяцев, блокнот с заданиями, колода игры "
+                       "«Маркетолог» и закрытый канал с разбором ваших ситуаций.",
+        "delivery": "доставку СДЭК вы оплачиваете при получении в пункте выдачи",
+        "return_url": "https://meysternlp.ru/razgovornyj-gipnoz/standart/spasibo/",
+    },
+}
 
 MAX_FIO = 200
 MAX_PHONE = 32
@@ -132,10 +160,11 @@ def register_order_routes(app, db, limiter):
 
     async def _notify(order: dict) -> None:
         """Владельцу — данные для отправки, покупателю — подтверждение."""
+        prod = PRODUCTS.get(order.get("product") or "", PRODUCTS[BUNDLE_SLUG])
         text = (
-            "📦 Заказ комплекта оплачен\n\n"
+            f"📦 Заказ {prod['short']} оплачен\n\n"
             f"Номер: {order['order_no']}\n"
-            f"Сумма: {order['amount']} ₽\n\n"
+            f"Сумма: {order['amount']} ₽ ({prod['delivery'].replace('вы оплачиваете', 'оплачивает получатель')})\n\n"
             f"ФИО: {order['fio']}\n"
             f"Телефон: {order['phone']}\n"
             f"Почта: {order['email']}\n"
@@ -151,16 +180,15 @@ def register_order_routes(app, db, limiter):
             body = (
                 f"{order['fio']}, спасибо за заказ.\n\n"
                 f"Номер заказа: {order['order_no']}\n"
-                f"Комплект «Разговорный гипноз»: тренинг на QR-карточках с картой "
-                f"активации, три книги и три игры «Вариатика».\n"
-                f"Оплачено: {order['amount']} ₽, доставка входит в цену.\n\n"
+                f"{prod['letter_name']}\n"
+                f"Оплачено: {order['amount']} ₽, {prod['delivery']}.\n\n"
                 f"Пункт выдачи: {order['pvz']}\n\n"
                 f"Отправлю посылку СДЭК и пришлю трек-номер этим же письмом. "
                 f"Если нужно что-то поправить в адресе — ответьте на это письмо.\n\n"
                 f"Андрей Мейстер\nmeysternlp.ru"
             )
             await service.send(order["email"],
-                               f"Заказ {order['order_no']} принят — комплект «Разговорный гипноз»",
+                               f"Заказ {order['order_no']} принят — {prod['title']}",
                                body)
 
     def _email_service():
@@ -225,14 +253,37 @@ def register_order_routes(app, db, limiter):
     @app.post("/api/shop/order")
     @limiter.limit("10/minute")
     async def create_order(request: Request):
+        """Старый адрес — только комплект, поле product не читается.
+
+        Страница комплекта ходит сюда с 2026-09; новые товары идут через
+        /api/shop/checkout. Новый адрес, а не поле в старом, нарочно: страница
+        «Стандартного» на бэкенде без каталога получит 404, а не платёж на
+        19 999 ₽ вместо 4 900."""
         try:
             data = await request.json()
         except Exception:
             return {"success": False, "error": "invalid JSON"}
+        return await _create(data, BUNDLE_SLUG)
+
+    @app.post("/api/shop/checkout")
+    @limiter.limit("10/minute")
+    async def create_checkout(request: Request):
+        try:
+            data = await request.json()
+        except Exception:
+            return {"success": False, "error": "invalid JSON"}
+        product = (data.get("product") or "").strip()
+        if product not in PRODUCTS:
+            return {"success": False, "error": "unknown product"}
+        return await _create(data, product)
+
+    async def _create(data: dict, product: str):
+        prod = PRODUCTS[product]
 
         # Honeypot — поле скрыто от людей, его заполняют только боты.
         if (data.get("website") or "").strip():
-            return {"success": True, "order_no": "M-0000", "confirmation_url": "/komplekt/"}
+            return {"success": True, "order_no": "M-0000",
+                    "confirmation_url": prod["return_url"].rsplit("spasibo/", 1)[0]}
 
         fio = (data.get("fio") or "").strip()[:MAX_FIO]
         phone = _clean_phone((data.get("phone") or "")[:MAX_PHONE])
@@ -255,25 +306,24 @@ def register_order_routes(app, db, limiter):
             return {"success": False, "error": "Оплата временно недоступна, напишите нам"}
 
         order_no = _order_no()
-        return_url = (data.get("return_url")
-                      or "https://meysternlp.ru/komplekt/spasibo/")
+        return_url = (data.get("return_url") or prod["return_url"])
         if not return_url.startswith("https://meysternlp.ru/"):
-            return_url = "https://meysternlp.ru/komplekt/spasibo/"
+            return_url = prod["return_url"]
         return_url = f"{return_url}?order={order_no}"
 
         payment_data = {
-            "amount": {"value": BUNDLE_AMOUNT, "currency": BUNDLE_CURRENCY},
+            "amount": {"value": prod["amount"], "currency": BUNDLE_CURRENCY},
             "capture": True,
             "confirmation": {"type": "redirect", "return_url": return_url},
-            "description": f"{BUNDLE_TITLE}. Заказ {order_no}",
+            "description": f"{prod['title']}. Заказ {order_no}",
             "metadata": {"type": "shop_order", "order_no": order_no,
-                         "product": BUNDLE_SLUG},
+                         "product": product},
             "receipt": {
                 "customer": {"email": email, "phone": phone},
                 "items": [{
-                    "description": BUNDLE_TITLE[:128],
+                    "description": prod["title"][:128],
                     "quantity": "1.00",
-                    "amount": {"value": BUNDLE_AMOUNT, "currency": BUNDLE_CURRENCY},
+                    "amount": {"value": prod["amount"], "currency": BUNDLE_CURRENCY},
                     "vat_code": 1,
                     "payment_mode": "full_payment",
                     "payment_subject": "commodity",
@@ -310,7 +360,7 @@ def register_order_routes(app, db, limiter):
                         (order_no, product, amount, fio, phone, email, city, pvz,
                          comment, status, yookassa_id)
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10)
-                """, order_no, BUNDLE_SLUG, float(BUNDLE_AMOUNT), fio, phone, email,
+                """, order_no, product, float(prod["amount"]), fio, phone, email,
                      city or None, pvz, comment or None, payment.get("id"))
         except Exception as e:
             # Платёж уже создан. Терять заказ нельзя — отдаём ссылку на оплату
