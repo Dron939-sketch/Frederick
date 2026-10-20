@@ -191,6 +191,41 @@ def register_order_routes(app, db, limiter):
                                f"Заказ {order['order_no']} принят — {prod['title']}",
                                body)
 
+    async def _alert_unpaid(order: dict, reason: str) -> None:
+        """Оплата не прошла — владельцу контакты, чтобы связаться самому.
+
+        Владелец 20.10.2026: «сделай так, чтобы мне приходило сообщение с
+        номером телефона и почтой: если оплата не пройдёт, я смогу связаться
+        с человеком». Причин две: платёж не создался (из Майами ЮKassa на
+        создании платежа отвечает таймаутом) или банк/человек его отменил.
+        Канал тот же, что у оплаченного заказа: Telegram, без него — почта.
+        В MAX уходит только сигнал без персональных данных (owner_notify)."""
+        prod = PRODUCTS.get(order.get("product") or "", PRODUCTS[BUNDLE_SLUG])
+        text = (
+            f"⚠️ Заказ {prod['short']}: оплата не прошла — свяжитесь с человеком\n\n"
+            f"Причина: {reason}\n"
+            f"Номер: {order['order_no']}\n"
+            f"Сумма: {order['amount']} ₽\n\n"
+            f"ФИО: {order['fio']}\n"
+            f"Телефон: {order['phone']}\n"
+            f"Почта: {order['email']}\n"
+            f"Город: {order.get('city') or '—'}\n"
+            f"ПВЗ СДЭК: {order['pvz']}\n"
+            f"Комментарий: {order.get('comment') or '—'}"
+        )
+        try:
+            if not await _send_to_owner(text):
+                await _send_email_to_owner(f"Заказ {order['order_no']}: оплата не прошла", text)
+        except Exception as e:
+            logger.error(f"shop: unpaid alert failed for {order['order_no']}: {e}")
+        try:
+            import owner_notify
+            await owner_notify.send_to_owner(
+                db, f"⚠️ Заказ {order['order_no']} ({prod['short']}): оплата не прошла. "
+                    f"Контакты покупателя — в Telegram или на почте.")
+        except Exception as e:
+            logger.debug(f"shop: MAX ping skipped: {e}")
+
     def _email_service():
         import sys
         main_mod = sys.modules.get("main") or sys.modules.get("__main__")
@@ -220,10 +255,19 @@ def register_order_routes(app, db, limiter):
                 return {"success": False, "error": "order not found"}
             order = dict(row)
             if status != "succeeded":
+                alert = False
                 if status == "canceled" and order["status"] != "paid":
-                    await conn.execute(
-                        "UPDATE shop_orders SET status = 'canceled' WHERE id = $1",
+                    # Сообщение владельцу — один раз: вебхук и опрос со
+                    # страницы «спасибо» могут прийти оба.
+                    changed = await conn.fetchrow(
+                        "UPDATE shop_orders SET status = 'canceled' "
+                        "WHERE id = $1 AND status NOT IN ('canceled', 'paid') RETURNING id",
                         order["id"])
+                    alert = bool(changed)
+                if alert:
+                    reason = ((payment.get("cancellation_details") or {}).get("reason")
+                              or "платёж отменён")
+                    await _alert_unpaid(order, f"ЮKassa отменила платёж ({reason})")
                 return {"success": True, "paid": False, "status": status,
                         "order_no": order["order_no"]}
             # succeeded. Уведомляем ровно один раз — флаг ставим тем же
@@ -332,7 +376,10 @@ def register_order_routes(app, db, limiter):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            # 20 с, а не 30: из Майами создание платежа то отвечает за секунду,
+            # то не отвечает вовсе — держать человека полминуты незачем, его
+            # заказ всё равно не потеряется (_payment_failed).
+            async with httpx.AsyncClient(timeout=20) as client:
                 r = await client.post(
                     f"{YOOKASSA_API_URL}/payments",
                     json=payment_data,
@@ -346,11 +393,14 @@ def register_order_routes(app, db, limiter):
                 )
             if r.status_code not in (200, 201):
                 logger.error(f"shop: YooKassa {r.status_code} {r.text[:300]}")
-                return {"success": False, "error": "Не удалось создать платёж, попробуйте ещё раз"}
+                return await _payment_failed(order_no, product, prod, fio, phone, email,
+                                             city, pvz, comment, f"ЮKassa ответила {r.status_code}")
             payment = r.json()
         except Exception as e:
-            logger.error(f"shop: create payment error: {e}")
-            return {"success": False, "error": "Не удалось создать платёж, попробуйте ещё раз"}
+            logger.error(f"shop: create payment error: {type(e).__name__}: {e}")
+            return await _payment_failed(order_no, product, prod, fio, phone, email,
+                                         city, pvz, comment,
+                                         f"нет ответа от ЮKassa ({type(e).__name__})")
 
         confirmation_url = (payment.get("confirmation") or {}).get("confirmation_url")
         try:
@@ -370,6 +420,29 @@ def register_order_routes(app, db, limiter):
         logger.info(f"shop: order {order_no} created, payment {payment.get('id')}")
         return {"success": True, "order_no": order_no,
                 "confirmation_url": confirmation_url}
+
+    async def _payment_failed(order_no, product, prod, fio, phone, email, city, pvz,
+                              comment, reason):
+        """Платёж не создался. Заказ не теряем: пишем в базу, владельцу —
+        контакты, странице — «заказ принят, с вами свяжутся»."""
+        order = {"order_no": order_no, "product": product, "amount": float(prod["amount"]),
+                 "fio": fio, "phone": phone, "email": email, "city": city,
+                 "pvz": pvz, "comment": comment}
+        try:
+            async with db.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO shop_orders
+                        (order_no, product, amount, fio, phone, email, city, pvz,
+                         comment, status, yookassa_id)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'payment_failed',NULL)
+                """, order_no, product, float(prod["amount"]), fio, phone, email,
+                     city or None, pvz, comment or None)
+        except Exception as e:
+            logger.error(f"shop: DB insert (payment_failed) for {order_no}: {e}")
+        await _alert_unpaid(order, reason)
+        return {"success": True, "manual": True, "order_no": order_no,
+                "message": "Заказ принят, но оплата сейчас не открылась. "
+                           "Я свяжусь с вами по телефону или почте и помогу оплатить."}
 
     @app.post("/api/shop/verify")
     @limiter.limit("30/minute")

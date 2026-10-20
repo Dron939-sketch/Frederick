@@ -46,7 +46,8 @@ class _Conn:
 
     async def execute(self, sql, *args):
         if sql.strip().startswith("INSERT"):
-            self.rows.append({"order_no": args[0], "product": args[1], "amount": args[2]})
+            self.rows.append({"order_no": args[0], "product": args[1], "amount": args[2],
+                              "status": "payment_failed" if "'payment_failed'" in sql else "pending"})
 
     async def fetchrow(self, *a):
         return None
@@ -86,8 +87,8 @@ class _Req:
         return self.body
 
 
-def _run(monkeypatch, path, body):
-    mod, _ = _load()
+def _run(monkeypatch, path, body, fail=False):
+    mod, alerts = _load()
     monkeypatch.setenv("YOOKASSA_SHOP_ID", "1")
     monkeypatch.setenv("YOOKASSA_SECRET_KEY", "k")
     sent = {}
@@ -110,12 +111,16 @@ def _run(monkeypatch, path, body):
 
         async def post(self, url, json=None, headers=None):
             sent["payment"] = json
+            if fail:
+                raise mod.httpx.ReadTimeout("timeout")
             return _Resp()
 
     monkeypatch.setattr(mod.httpx, "AsyncClient", _Client)
     app, db = _App(), _DB()
     mod.register_order_routes(app, db, _Limiter())
     res = asyncio.run(app.routes[path](_Req(body)))
+    if fail:
+        return res, alerts, db.rows
     return res, sent.get("payment"), db.rows
 
 
@@ -145,3 +150,16 @@ def test_old_address_still_sells_bundle_only(monkeypatch):
 def test_unknown_product_is_refused(monkeypatch):
     res, pay, rows = _run(monkeypatch, "/api/shop/checkout", dict(FORM, product="nichego"))
     assert not res["success"] and pay is None and not rows
+
+
+def test_failed_payment_keeps_order_and_tells_owner_contacts(monkeypatch):
+    # Из Майами создание платежа в ЮKassa обрывается таймаутом. Заказ не
+    # теряется, владельцу уходят телефон и почта, странице — «свяжусь с вами».
+    res, alerts, rows = _run(monkeypatch, "/api/shop/checkout", dict(FORM, product="standart"), fail=True)
+    assert res["success"] and res.get("manual") and res["order_no"].startswith("M-")
+    assert "confirmation_url" not in res
+    assert rows and rows[0]["status"] == "payment_failed" and rows[0]["amount"] == 4900.0
+    assert alerts, "владельцу ничего не пришло"
+    text = alerts[-1]
+    assert "+79001234567" in text and "a@b.ru" in text and "Иванов Иван Иванович" in text
+    assert "ПВЗ СДЭК: ул. Большая Садовая, 15" in text and "оплата не прошла" in text
