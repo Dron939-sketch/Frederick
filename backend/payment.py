@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 YOOKASSA_API_URL = "https://api.yookassa.ru/v3"
 SUBSCRIPTION_AMOUNT = "690.00"
 SUBSCRIPTION_CURRENCY = "RUB"
+# Ставка НДС в чеке по справочнику ЮKassa: 1 — без НДС, 11 — НДС 22 %.
+# 20.10.2026 владелец: продажи облагаются НДС 22 %, чеки подписки и токенов тоже.
+RECEIPT_VAT_CODE = 11
 SUBSCRIPTION_PERIOD_DAYS = 30
 
 # Повторы автопродления. Неудачное списание (нет денег, карта истекла,
@@ -185,7 +188,7 @@ class PaymentService:
                             "value": amount,
                             "currency": SUBSCRIPTION_CURRENCY,
                         },
-                        "vat_code": 1,
+                        "vat_code": RECEIPT_VAT_CODE,
                         "payment_mode": "full_payment",
                         "payment_subject": "service",
                     }
@@ -386,7 +389,7 @@ class PaymentService:
                             "value": renew_amount,
                             "currency": SUBSCRIPTION_CURRENCY,
                         },
-                        "vat_code": 1,
+                        "vat_code": RECEIPT_VAT_CODE,
                         "payment_mode": "full_payment",
                         "payment_subject": "service",
                     }
