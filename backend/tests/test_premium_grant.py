@@ -40,3 +40,10 @@ def test_revoke_touches_only_gifts():
 
 def test_days_are_bounded():
     assert "1 <= days <= 3650" in _body()
+
+
+def test_email_lookup_covers_social_logins():
+    # Вход через Яндекс, VK, Google: почта только в fredi_social_identities
+    b = _body()
+    assert "fredi_social_identities" in b
+    assert "User ID" in b, "ошибка должна подсказать, где взять ID"

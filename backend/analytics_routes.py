@@ -1353,10 +1353,25 @@ def register_analytics_routes(app, db):
                 row = await conn.fetchrow(
                     "SELECT user_id FROM fredi_users WHERE lower(email::text) = $1 "
                     "OR lower(contact_email) = $1 ORDER BY user_id LIMIT 1", email)
+                if not row:
+                    # Вход через Яндекс, VK или Google: почта приходит от
+                    # провайдера и лежит в fredi_social_identities, а в
+                    # fredi_users её может не быть (21.10.2026 владелец
+                    # вписал свою почту — «Фреди меня не идентифицирует»).
+                    try:
+                        row = await conn.fetchrow(
+                            "SELECT user_id FROM fredi_social_identities WHERE lower(email) = $1 "
+                            "ORDER BY last_login_at DESC NULLS LAST LIMIT 1", email)
+                    except Exception:
+                        row = None
                 user_id = int(row["user_id"]) if row else 0
             if not user_id:
-                raise HTTPException(status_code=404, detail={"error": "user_not_found",
-                                                             "message": "Нет пользователя с такой почтой или ID"})
+                raise HTTPException(status_code=404, detail={
+                    "error": "user_not_found",
+                    "message": "Нет пользователя с такой почтой. Впишите ID: во Фреди — «Настройки», внизу строка «User ID»"})
+            if not await conn.fetchval("SELECT 1 FROM fredi_users WHERE user_id = $1", user_id):
+                raise HTTPException(status_code=404, detail={
+                    "error": "user_not_found", "message": "Нет пользователя с таким ID"})
             if revoke:
                 await conn.execute(
                     "UPDATE fredi_subscriptions SET status = 'canceled', auto_renew = FALSE, "
