@@ -17,6 +17,22 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger(__name__)
 
 YOOKASSA_API_URL = "https://api.yookassa.ru/v3"
+
+
+# Связь с ЮKassa (21.10.2026). Бэкенд живёт в Майами, и примерно каждое
+# третье соединение с api.yookassa.ru обрывается по ConnectTimeout: из
+# девяти проверок /api/payment/diag 21.10 три висели 20 секунд и падали.
+# Платёж создавался одной попыткой с таймаутом 30 секунд — человек полминуты
+# смотрел на кнопку и получал ошибку («оплата не работает»).
+# retries у транспорта повторяет только неудавшееся соединение (ConnectError
+# и ConnectTimeout), то есть когда запрос до кассы точно не ушёл: двойного
+# платежа так не случится, а при обрыве после отправки повтора нет. Короткий
+# connect-таймаут не даёт одному мёртвому соединению съесть всё ожидание.
+def yookassa_client(read: float = 30.0) -> "httpx.AsyncClient":
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(read, connect=6.0),
+        transport=httpx.AsyncHTTPTransport(retries=3),
+    )
 SUBSCRIPTION_AMOUNT = "690.00"
 SUBSCRIPTION_CURRENCY = "RUB"
 # Ставка НДС в чеке по справочнику ЮKassa: 1 — без НДС, 11 — НДС 22 %.
@@ -204,7 +220,7 @@ class PaymentService:
         # обязан уйти с тем же телом, а не с исходным.
         body_used = payment_data
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with yookassa_client(30) as client:
                 resp = await client.post(
                     f"{YOOKASSA_API_URL}/payments",
                     json=payment_data,
@@ -398,7 +414,7 @@ class PaymentService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with yookassa_client(30) as client:
                 resp = await client.post(
                     f"{YOOKASSA_API_URL}/payments",
                     json=payment_data,
@@ -762,7 +778,7 @@ class PaymentService:
             logger.error("YooKassa credentials missing for _fetch_payment")
             return None
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with yookassa_client(20) as client:
                 resp = await client.get(
                     f"{YOOKASSA_API_URL}/payments/{yookassa_id}",
                     headers={"Authorization": self._get_auth_header()},
