@@ -1319,6 +1319,70 @@ def register_analytics_routes(app, db):
             })
 
     # ============================================================
+    # 💎 Премиум вручную — владелец выдаёт подписку по почте или ID
+    # ============================================================
+    # Владелец 20.10.2026: «сделай мне премиум на аккаунт», затем «сделай
+    # кнопку в админке». Подписка — строка в fredi_subscriptions, а писать
+    # в базу руками неудобно. Эндпоинт под ADMIN_TOKEN продлевает или
+    # снимает подписку без оплаты: auto_renew = FALSE, иначе ночное
+    # автопродление попыталось бы списать деньги с карты человека, который
+    # ничего не покупал; plan = 'gift', чтобы в выгрузках подарок не
+    # путался с оплатой. Снять можно только подаренную — оплаченную
+    # отключает сам человек или возврат через ЮKassa.
+    @app.post("/api/analytics/premium-grant")
+    async def premium_grant(
+        body: Dict[str, Any] = Body(...),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        _check_admin(x_admin_token)
+        body = body or {}
+        email = str(body.get("email") or "").strip().lower()
+        try:
+            user_id = int(body.get("user_id") or 0)
+        except (TypeError, ValueError):
+            user_id = 0
+        revoke = bool(body.get("revoke"))
+        try:
+            days = int(body.get("days") or 365)
+        except (TypeError, ValueError):
+            days = 0
+        if not revoke and not (1 <= days <= 3650):
+            raise HTTPException(status_code=400, detail={"error": "bad_days", "message": "Дней — от 1 до 3650"})
+        async with db.get_connection() as conn:
+            if not user_id and email:
+                row = await conn.fetchrow(
+                    "SELECT user_id FROM fredi_users WHERE lower(email::text) = $1 "
+                    "OR lower(contact_email) = $1 ORDER BY user_id LIMIT 1", email)
+                user_id = int(row["user_id"]) if row else 0
+            if not user_id:
+                raise HTTPException(status_code=404, detail={"error": "user_not_found",
+                                                             "message": "Нет пользователя с такой почтой или ID"})
+            if revoke:
+                await conn.execute(
+                    "UPDATE fredi_subscriptions SET status = 'canceled', auto_renew = FALSE, "
+                    "expires_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND plan = 'gift'", user_id)
+            else:
+                await conn.execute("""
+                    INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew, plan)
+                    VALUES ($1, 'active', NOW(), NOW() + make_interval(days => $2), FALSE, 'gift')
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        status = 'active',
+                        expires_at = GREATEST(COALESCE(fredi_subscriptions.expires_at, NOW()), NOW())
+                                     + make_interval(days => $2),
+                        updated_at = NOW()
+                """, user_id, days)
+            sub = await conn.fetchrow(
+                "SELECT status, expires_at, auto_renew, plan FROM fredi_subscriptions WHERE user_id = $1", user_id)
+        await log_server_event(user_id, "premium_grant", {"days": 0 if revoke else days, "revoke": revoke})
+        return {
+            "success": True, "user_id": user_id,
+            "status": sub["status"] if sub else None,
+            "expires_at": str(sub["expires_at"]) if sub and sub["expires_at"] else None,
+            "auto_renew": bool(sub["auto_renew"]) if sub else None,
+            "plan": sub["plan"] if sub else None,
+        }
+
+    # ============================================================
     # 📨 Messenger broadcast — массовая отправка на собранные chat_id
     # ============================================================
     @app.post("/api/analytics/messenger-broadcast")
