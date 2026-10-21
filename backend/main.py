@@ -375,7 +375,15 @@ async def lifespan(app: FastAPI):
         logger.info("📦 Подключение к PostgreSQL...")
         db = Database()
         import os
-        print(f"[DEBUG] DATABASE_URL_FROM_ENV: {os.environ.get('DATABASE_URL', 'NOT_SET')!r}", flush=True)
+        # Раньше здесь печаталась вся строка подключения — вместе с паролем
+        # базы, в каждый лог запуска (убрано 21.10.2026). Для отладки хватает
+        # хоста и имени базы: по ним видно, к какой базе подключился сервер.
+        try:
+            from urllib.parse import urlsplit as _us
+            _u = _us(os.environ.get('DATABASE_URL') or '')
+            print(f"[DEBUG] DATABASE: host={_u.hostname or 'NOT_SET'} db={(_u.path or '').lstrip('/') or '-'}", flush=True)
+        except Exception:
+            pass
         await db.connect()
         logger.info("✅ PostgreSQL подключена")
 
