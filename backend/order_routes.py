@@ -150,7 +150,8 @@ def register_order_routes(app, db, limiter):
         if not _shop_id() or not _secret_key():
             return None
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=6.0),
+                                         transport=httpx.AsyncHTTPTransport(retries=3)) as client:
                 r = await client.get(
                     f"{YOOKASSA_API_URL}/payments/{yookassa_id}",
                     headers={"Authorization": _auth_header()},
@@ -383,7 +384,8 @@ def register_order_routes(app, db, limiter):
             # 20 с, а не 30: из Майами создание платежа то отвечает за секунду,
             # то не отвечает вовсе — держать человека полминуты незачем, его
             # заказ всё равно не потеряется (_payment_failed).
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=6.0),
+                                         transport=httpx.AsyncHTTPTransport(retries=3)) as client:
                 r = await client.post(
                     f"{YOOKASSA_API_URL}/payments",
                     json=payment_data,

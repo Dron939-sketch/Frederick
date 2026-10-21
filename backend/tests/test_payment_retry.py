@@ -57,6 +57,9 @@ class _Client:
 def _service(monkeypatch, responses, seen):
     monkeypatch.setattr(pay, "httpx", types.SimpleNamespace(
         AsyncClient=lambda **kw: _Client(responses, seen),
+        # yookassa_client() собирает таймаут и транспорт с повтором соединения
+        Timeout=lambda *a, **kw: None,
+        AsyncHTTPTransport=lambda **kw: None,
         HTTPStatusError=Exception,
     ))
     svc = pay.PaymentService(db=None)

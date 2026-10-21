@@ -397,7 +397,10 @@ def register_payment_routes(app, db, limiter):
             return out
         t0 = _t.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            # тот же клиент, что у платежей: diag показывает, дойдёт ли платёж
+            # с повтором соединения, а не одна голая попытка
+            from payment import yookassa_client
+            async with yookassa_client(20) as client:
                 r = await client.get(f"{YOOKASSA_API_URL}/me",
                                      headers={"Authorization": ps._get_auth_header()})
             out.update(reachable=True, status=r.status_code, credentials_ok=r.status_code == 200)
