@@ -103,6 +103,91 @@ def plan_info(plan: Optional[str]) -> Dict[str, Any]:
     return PLANS.get(plan or "monthly", PLANS["monthly"])
 
 
+def _yk_time(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def plan_restore(payments: List[Dict[str, Any]], now: datetime,
+                 extend_days: int = 0) -> Dict[str, Any]:
+    """Какие подписки должны быть в базе — по оплаченным платежам кассы.
+
+    Зачем (24.10.2026). База Фреди слетела, а с ней все подписки: человек
+    заплатил, а Фреди считает его бесплатным. В ЮKassa же каждый платёж
+    подписки лежит с user_id, типом и тарифом в metadata — это и есть
+    журнал, по которому подписку можно собрать заново. user_id — номер,
+    который браузер создал сам и хранит в localStorage и cookie, поэтому
+    восстановленная запись возвращает доступ на то же устройство.
+
+    Срок считается от дат оплат, а не от сегодняшнего дня: каждый платёж
+    продлевает подписку с конца предыдущего периода или с момента оплаты,
+    если тот уже кончился. extend_days добавляет к итогу дни простоя —
+    иначе подписка, кончившаяся, пока базы не было, сразу ушла бы
+    в автопродление и списание.
+
+    Пакеты токенов только перечисляются: журнал расхода токенов пропал
+    вместе с базой, и зачислить пакет заново значит отдать уже
+    потраченное — это решает владелец.
+    """
+    by_user: Dict[int, List[Dict[str, Any]]] = {}
+    tokens: List[Dict[str, Any]] = []
+    skipped = 0
+    for p in payments:
+        md = p.get("metadata") or {}
+        uid = str(md.get("user_id") or "")
+        kind = md.get("type") or ""
+        if not uid.isdigit():
+            skipped += 1
+            continue
+        if kind == "tokens":
+            tokens.append({"user_id": int(uid), "yookassa_id": p.get("id"),
+                           "plan": md.get("plan"),
+                           "amount": (p.get("amount") or {}).get("value"),
+                           "paid_at": p.get("captured_at") or p.get("created_at")})
+            continue
+        if kind not in ("subscription_first", "subscription_recurring"):
+            skipped += 1        # заказы комплекта и прочее — не подписка
+            continue
+        by_user.setdefault(int(uid), []).append(p)
+
+    subs = []
+    for uid, items in by_user.items():
+        items.sort(key=lambda x: _yk_time(x.get("captured_at") or x.get("created_at")) or now)
+        expires = None
+        started = None
+        card = None
+        plan = "monthly"
+        total = 0.0
+        for p in items:
+            md = p.get("metadata") or {}
+            plan = md.get("plan") if md.get("plan") in PLANS else "monthly"
+            paid_at = _yk_time(p.get("captured_at") or p.get("created_at")) or now
+            started = started or paid_at
+            begin = expires if expires and expires > paid_at else paid_at
+            expires = begin + timedelta(days=int(PLANS[plan]["days"]))
+            try:
+                total += float((p.get("amount") or {}).get("value") or 0)
+            except (TypeError, ValueError):
+                pass
+            pm = p.get("payment_method") or {}
+            if pm.get("id") and pm.get("saved"):
+                c = pm.get("card") or {}
+                card = {"payment_method_id": pm["id"],
+                        "card_last4": c.get("last4", "****"),
+                        "card_type": c.get("card_type", "Unknown")}
+        expires = expires + timedelta(days=max(0, int(extend_days)))
+        subs.append({
+            "user_id": uid, "plan": plan, "started_at": started, "expires_at": expires,
+            "active": expires > now, "card": card, "payments": items, "total": total,
+        })
+    subs.sort(key=lambda s: s["expires_at"], reverse=True)
+    return {"subscriptions": subs, "tokens": tokens, "skipped": skipped}
+
+
 def plan_price(plan: Optional[str] = "monthly") -> int:
     """Цена тарифа целым числом рублей — для текстов, которые читает человек.
 
@@ -1030,6 +1115,81 @@ class PaymentService:
             return {"success": True, "status": "canceled"}
         
         return {"success": True, "event": event, "status": "ignored"}
+
+    async def list_succeeded_payments(self, since: datetime) -> List[Dict[str, Any]]:
+        """Все оплаченные платежи кассы начиная с since (GET /payments
+        постранично по курсору). Нужны для восстановления подписок."""
+        if not self.shop_id or not self.secret_key:
+            raise RuntimeError("YooKassa credentials missing")
+        out: List[Dict[str, Any]] = []
+        cursor = None
+        gte = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        async with yookassa_client(30) as client:
+            for _ in range(200):            # предохранитель: 20 000 платежей
+                params = {"status": "succeeded", "limit": 100, "created_at.gte": gte}
+                if cursor:
+                    params["cursor"] = cursor
+                resp = await client.get(f"{YOOKASSA_API_URL}/payments", params=params,
+                                        headers={"Authorization": self._get_auth_header()})
+                if resp.status_code != 200:
+                    raise RuntimeError(f"YooKassa GET /payments: {resp.status_code} {resp.text[:200]}")
+                data = resp.json()
+                out.extend(data.get("items") or [])
+                cursor = data.get("next_cursor")
+                if not cursor:
+                    break
+        return out
+
+    async def apply_restore(self, plan: Dict[str, Any]) -> Dict[str, int]:
+        """Записать в базу подписки, рассчитанные plan_restore.
+
+        Ничего не укорачивает: если у человека уже есть подписка дольше
+        рассчитанной (оплатил заново после сбоя), она остаётся. Писем,
+        аналитики и оповещений владельцу нет — это не новые оплаты."""
+        restored = kept = payments = cards = 0
+        async with self.db.get_connection() as conn:
+            for s in plan["subscriptions"]:
+                uid = s["user_id"]
+                async with conn.transaction():
+                    await conn.execute(
+                        "INSERT INTO fredi_users (user_id, platform) VALUES ($1, 'web') "
+                        "ON CONFLICT (user_id) DO NOTHING", uid)
+                    for p in s["payments"]:
+                        md = p.get("metadata") or {}
+                        pl = md.get("plan") if md.get("plan") in PLANS else "monthly"
+                        res = await conn.execute("""
+                            INSERT INTO fredi_payments
+                                (user_id, yookassa_id, amount, status, payment_type, description, plan, created_at)
+                            VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, COALESCE($7, NOW()))
+                            ON CONFLICT (yookassa_id) DO NOTHING
+                        """, uid, p.get("id"), float((p.get("amount") or {}).get("value") or PLANS[pl]["amount"]),
+                            md.get("type") or "subscription_first", PLANS[pl]["title"], pl,
+                            _yk_time(p.get("captured_at") or p.get("created_at")))
+                        payments += res.endswith(" 1")
+                    if s["card"]:
+                        c = s["card"]
+                        res = await conn.execute("""
+                            INSERT INTO fredi_payment_methods (user_id, payment_method_id, card_last4, card_type, is_active)
+                            VALUES ($1, $2, $3, $4, TRUE)
+                            ON CONFLICT (user_id) DO NOTHING
+                        """, uid, c["payment_method_id"], c["card_last4"], c["card_type"])
+                        cards += res.endswith(" 1")
+                    cur = await conn.fetchrow(
+                        "SELECT expires_at FROM fredi_subscriptions WHERE user_id = $1", uid)
+                    if cur and cur["expires_at"] and cur["expires_at"] >= s["expires_at"]:
+                        kept += 1
+                        continue
+                    await conn.execute("""
+                        INSERT INTO fredi_subscriptions (user_id, status, started_at, expires_at, auto_renew, plan)
+                        VALUES ($1, 'active', $2, $3, $4, $5)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            status = 'active', started_at = $2, expires_at = $3,
+                            auto_renew = $4, plan = $5,
+                            renewal_attempts = 0, renewal_last_error = NULL, updated_at = NOW()
+                    """, uid, s["started_at"], s["expires_at"], bool(s["card"]), s["plan"])
+                    restored += 1
+        logger.info(f"💳 restore: subscriptions={restored} kept={kept} payments={payments} cards={cards}")
+        return {"restored": restored, "kept": kept, "payments": payments, "cards": cards}
 
     async def get_subscription_status(self, user_id: int) -> Dict[str, Any]:
         async with self.db.get_connection() as conn:

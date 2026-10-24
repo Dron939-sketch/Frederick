@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
 
-from payment import PaymentService, PLANS, TRIAL_PLAN
+from payment import PaymentService, PLANS, TRIAL_PLAN, plan_restore
 
 logger = logging.getLogger(__name__)
 
@@ -850,5 +850,58 @@ def register_payment_routes(app, db, limiter):
         except Exception as e:
             logger.error(f"admin_transfer_subscription error: {e}")
             return {"success": False, "error": "internal error"}
+
+    @app.post("/api/admin/restore-subscriptions")
+    @limiter.limit("5/minute")
+    async def admin_restore_subscriptions(request: Request):
+        """Собирает подписки заново из оплаченных платежей ЮKassa.
+
+        24.10.2026 база слетела вместе со всеми подписками. Ручка забирает
+        из кассы платежи с даты since, считает по ним сроки (plan_restore)
+        и без apply только показывает, что будет восстановлено. С
+        "apply": true — записывает. Повторный запуск безопасен: платежи
+        вставляются по yookassa_id, более длинная подписка не укорачивается.
+
+        Тело: {"since": "2026-08-01", "extend_days": 0, "apply": false}.
+        Защита — X-Admin-Token.
+        """
+        _check_admin(request.headers.get("X-Admin-Token")
+                     or request.headers.get("x-admin-token"))
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body or {}
+        try:
+            since = datetime.fromisoformat(str(body.get("since") or "2026-08-01")).replace(tzinfo=timezone.utc)
+            extend_days = min(60, max(0, int(body.get("extend_days") or 0)))
+        except (TypeError, ValueError):
+            return {"success": False, "error": "bad since / extend_days"}
+        try:
+            payments = await payment_service.list_succeeded_payments(since)
+        except Exception as e:
+            logger.error(f"restore-subscriptions: касса не ответила: {e}")
+            return {"success": False, "error": f"yookassa: {e}"}
+        now = datetime.now(timezone.utc)
+        plan = plan_restore(payments, now, extend_days)
+        result = None
+        if body.get("apply"):
+            result = await payment_service.apply_restore(plan)
+        return {
+            "success": True,
+            "applied": bool(body.get("apply")),
+            "payments_seen": len(payments),
+            "skipped_not_subscription": plan["skipped"],
+            "subscriptions": [{
+                "user_id": s["user_id"], "plan": s["plan"],
+                "payments": len(s["payments"]), "total_rub": s["total"],
+                "started_at": s["started_at"].isoformat() if s["started_at"] else None,
+                "expires_at": s["expires_at"].isoformat(),
+                "active": s["active"], "card": bool(s["card"]),
+            } for s in plan["subscriptions"]],
+            "active_count": sum(1 for s in plan["subscriptions"] if s["active"]),
+            "token_packs": plan["tokens"],
+            "result": result,
+        }
 
     return init_payment_tables, subscription_renewal_scheduler
