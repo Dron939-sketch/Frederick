@@ -285,3 +285,20 @@ def test_paid_klyuchi_without_link_warns_owner(monkeypatch):
 def test_paid_physical_order_gets_no_link(monkeypatch):
     res, verify, mails, owner = _paid(monkeypatch, "standart", LINK)
     assert res["paid"] and "link" not in res and "link" not in verify
+
+
+def test_books_and_games_sold_here_with_owner_prices(monkeypatch):
+    # 25.10.2026: «в магазине не нужно ссылок на Ozon, теперь мы сами продаём».
+    for product, amount in (("kniga-tm", "990.00"), ("kniga-var", "990.00"), ("kniga-konc", "990.00"),
+                            ("marketolog", "1200.00"), ("var-basic", "3800.00"),
+                            ("var-progressive", "3800.00"), ("samostoyatelnyy", "3200.00")):
+        res, pay, rows = _run(monkeypatch, "/api/shop/checkout", dict(FORM, product=product))
+        assert res["success"], product
+        assert pay["amount"]["value"] == amount and pay["receipt"]["items"][0]["amount"]["value"] == amount
+        assert pay["receipt"]["items"][0]["payment_subject"] == "commodity"
+        assert pay["confirmation"]["return_url"].startswith("https://meysternlp.ru/magazin/spasibo/")
+
+
+def test_physical_goods_still_need_pickup_point(monkeypatch):
+    res, pay, rows = _run(monkeypatch, "/api/shop/checkout", dict(FORM, product="marketolog", pvz=""))
+    assert not res["success"] and pay is None
