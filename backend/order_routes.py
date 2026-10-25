@@ -167,6 +167,58 @@ PRODUCTS = {
         "vat_code": 11,
         "digital": True,
         "link_env": "KLYUCHI_LINK_01",
+        "link_label": "Слушать",
+        "care": "Слушайте в наушниках, в спокойной обстановке, не за рулём.",
+    },
+    # PDF-версии книг (25.10.2026): 690 ₽, владелец — «книги можно купить как
+    # в печатном виде, так и в PDF». Ссылки — в переменных окружения, как у «Ключей».
+    "kniga-tm-pdf": {
+        "amount": "690.00",
+        "title": "Книга «Теория манипуляции. Разговорный гипноз» — PDF",
+        "short": "PDF книги «Теория манипуляции»",
+        "letter_name": "Книга «Теория манипуляции. Разговорный гипноз» — электронная версия в PDF.",
+        "delivery": "электронная книга",
+        "return_url": "https://meysternlp.ru/magazin/spasibo/",
+        "vat_code": 11,
+        "digital": True,
+        "link_env": "KNIGA_TM_PDF_LINK",
+        "link_label": "Открыть книгу",
+    },
+    "kniga-var-pdf": {
+        "amount": "690.00",
+        "title": "Книга «Вариатика. Библиотека человеческих паттернов» — PDF",
+        "short": "PDF книги «Вариатика»",
+        "letter_name": "Книга «Вариатика. Библиотека человеческих паттернов» — электронная версия в PDF.",
+        "delivery": "электронная книга",
+        "return_url": "https://meysternlp.ru/magazin/spasibo/",
+        "vat_code": 11,
+        "digital": True,
+        "link_env": "KNIGA_VAR_PDF_LINK",
+        "link_label": "Открыть книгу",
+    },
+    "kniga-konc-pdf": {
+        "amount": "690.00",
+        "title": "Книга «Концептикон. Семь линз для ясного мышления» — PDF",
+        "short": "PDF книги «Концептикон»",
+        "letter_name": "Книга «Концептикон. Семь линз для ясного мышления» — электронная версия в PDF.",
+        "delivery": "электронная книга",
+        "return_url": "https://meysternlp.ru/magazin/spasibo/",
+        "vat_code": 11,
+        "digital": True,
+        "link_env": "KNIGA_KONC_PDF_LINK",
+        "link_label": "Открыть книгу",
+    },
+    "kniga-dep-pdf": {
+        "amount": "690.00",
+        "title": "«Настольная книга депутата» — PDF",
+        "short": "PDF «Настольной книги депутата»",
+        "letter_name": "«Настольная книга депутата» — электронная версия в PDF.",
+        "delivery": "электронная книга",
+        "return_url": "https://meysternlp.ru/magazin/spasibo/",
+        "vat_code": 11,
+        "digital": True,
+        "link_env": "KNIGA_DEP_PDF_LINK",
+        "link_label": "Открыть книгу",
     },
 }
 
@@ -293,9 +345,9 @@ def register_order_routes(app, db, limiter):
         if service is not None and getattr(service, "enabled", False):
             hello = f"{name}, спасибо за покупку." if name else "Спасибо за покупку."
             if link:
-                got = (f"Слушать: {link}\n\n"
-                       f"Ссылка личная — пожалуйста, не пересылайте её. Слушайте в наушниках, "
-                       f"в спокойной обстановке, не за рулём.")
+                got = (f"{prod.get('link_label', 'Ссылка')}: {link}\n\n"
+                       f"Ссылка личная — пожалуйста, не пересылайте её."
+                       + (f" {prod['care']}" if prod.get("care") else ""))
             else:
                 got = "Ссылку на запись пришлю отдельным письмом в течение дня."
             body = (
