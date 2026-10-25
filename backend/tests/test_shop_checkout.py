@@ -302,3 +302,18 @@ def test_books_and_games_sold_here_with_owner_prices(monkeypatch):
 def test_physical_goods_still_need_pickup_point(monkeypatch):
     res, pay, rows = _run(monkeypatch, "/api/shop/checkout", dict(FORM, product="marketolog", pvz=""))
     assert not res["success"] and pay is None
+
+
+def test_pdf_books_go_for_690_and_send_link(monkeypatch):
+    res, pay, rows = _run(monkeypatch, "/api/shop/checkout", {"product": "kniga-konc-pdf", "email": "a@b.ru"})
+    assert res["success"] and pay["amount"]["value"] == "690.00"
+    assert pay["receipt"]["items"][0]["payment_subject"] == "service"
+    mod, _ = _load()
+    for slug in ("kniga-tm-pdf", "kniga-var-pdf", "kniga-konc-pdf", "kniga-dep-pdf"):
+        assert mod.PRODUCTS[slug]["digital"] and mod.PRODUCTS[slug]["amount"] == "690.00"
+
+
+def test_pdf_mail_says_open_book_not_listen(monkeypatch):
+    monkeypatch.setenv("KNIGA_TM_PDF_LINK", LINK)
+    res, verify, mails, owner = _paid(monkeypatch, "kniga-tm-pdf", "")
+    assert "Открыть книгу: " + LINK in mails[0][2] and "наушник" not in mails[0][2]
