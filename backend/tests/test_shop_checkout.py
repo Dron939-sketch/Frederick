@@ -329,3 +329,18 @@ def test_deputy_book_is_pdf_preorder_for_1490(monkeypatch):
     assert res["paid"] and res["link"] == "" and res["preorder"] and verify["preorder"]
     assert "предзаказ" in mails[0][2] and "в течение дня" not in mails[0][2]
     assert "предзаказ" in owner[-1] and "⚠️" not in owner[-1]
+
+
+def test_all_other_keys_are_preorders_for_690(monkeypatch):
+    # 25.10.2026: остальные 46 записей «Ключей» — предзаказ.
+    mod, _ = _load()
+    keys = [k for k in mod.PRODUCTS if k.startswith("klyuchi-") and k != "klyuchi-01"]
+    assert len(keys) == 46
+    for k in keys:
+        p = mod.PRODUCTS[k]
+        assert p["amount"] == "690.00" and p["digital"] and p["preorder"]
+    assert mod.PRODUCTS["klyuchi-0-2"]["link_env"] == "KLYUCHI_LINK_0_2"
+    assert "Логика" in mod.PRODUCTS["klyuchi-0-2"]["title"]
+    monkeypatch.delenv("KLYUCHI_LINK_6_10", raising=False)
+    res, verify, mails, owner = _paid(monkeypatch, "klyuchi-6-10", "")
+    assert res["preorder"] and "запись ещё готовится" in mails[0][2]
