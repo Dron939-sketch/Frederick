@@ -309,7 +309,7 @@ def test_pdf_books_go_for_690_and_send_link(monkeypatch):
     assert res["success"] and pay["amount"]["value"] == "690.00"
     assert pay["receipt"]["items"][0]["payment_subject"] == "service"
     mod, _ = _load()
-    for slug in ("kniga-tm-pdf", "kniga-var-pdf", "kniga-konc-pdf", "kniga-dep-pdf"):
+    for slug in ("kniga-tm-pdf", "kniga-var-pdf", "kniga-konc-pdf"):
         assert mod.PRODUCTS[slug]["digital"] and mod.PRODUCTS[slug]["amount"] == "690.00"
 
 
@@ -317,3 +317,15 @@ def test_pdf_mail_says_open_book_not_listen(monkeypatch):
     monkeypatch.setenv("KNIGA_TM_PDF_LINK", LINK)
     res, verify, mails, owner = _paid(monkeypatch, "kniga-tm-pdf", "")
     assert "Открыть книгу: " + LINK in mails[0][2] and "наушник" not in mails[0][2]
+
+
+def test_deputy_book_is_pdf_preorder_for_1490(monkeypatch):
+    # 25.10.2026: «Настольная книга депутата» — только PDF, предзаказ, 1 490 ₽.
+    mod, _ = _load()
+    assert "kniga-dep" not in mod.PRODUCTS
+    assert mod.PRODUCTS["kniga-dep-pdf"]["amount"] == "1490.00"
+    monkeypatch.delenv("KNIGA_DEP_PDF_LINK", raising=False)
+    res, verify, mails, owner = _paid(monkeypatch, "kniga-dep-pdf", "")
+    assert res["paid"] and res["link"] == "" and res["preorder"] and verify["preorder"]
+    assert "предзаказ" in mails[0][2] and "в течение дня" not in mails[0][2]
+    assert "предзаказ" in owner[-1] and "⚠️" not in owner[-1]

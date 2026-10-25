@@ -97,15 +97,6 @@ PRODUCTS = {
         "return_url": "https://meysternlp.ru/magazin/spasibo/",
         "vat_code": 11,
     },
-    "kniga-dep": {
-        "amount": "990.00",
-        "title": "«Настольная книга депутата»",
-        "short": "«Настольной книги депутата»",
-        "letter_name": "«Настольная книга депутата», Андрей Мейстер.",
-        "delivery": "доставку СДЭК вы оплачиваете при получении в пункте выдачи",
-        "return_url": "https://meysternlp.ru/magazin/spasibo/",
-        "vat_code": 11,
-    },
     "marketolog": {
         "amount": "1200.00",
         "title": "Настольная игра «Маркетолог»",
@@ -208,11 +199,16 @@ PRODUCTS = {
         "link_env": "KNIGA_KONC_PDF_LINK",
         "link_label": "Открыть книгу",
     },
+    # «Настольная книга депутата» — только PDF и пока по предзаказу, 1 490 ₽
+    # (владелец 25.10.2026). Ссылки ещё нет: покупателю — «пришлём, как будет
+    # готова», владельцу — предзаказ без тревоги. Появится KNIGA_DEP_PDF_LINK —
+    # ссылка начнёт уходить сразу, как у остальных PDF.
     "kniga-dep-pdf": {
-        "amount": "690.00",
-        "title": "«Настольная книга депутата» — PDF",
-        "short": "PDF «Настольной книги депутата»",
-        "letter_name": "«Настольная книга депутата» — электронная версия в PDF.",
+        "amount": "1490.00",
+        "title": "«Настольная книга депутата» — PDF, предзаказ",
+        "short": "предзаказ PDF «Настольной книги депутата»",
+        "letter_name": "«Настольная книга депутата» — электронная версия в PDF, предзаказ.",
+        "preorder": True,
         "delivery": "электронная книга",
         "return_url": "https://meysternlp.ru/magazin/spasibo/",
         "vat_code": 11,
@@ -335,7 +331,9 @@ def register_order_routes(app, db, limiter):
             f"Имя: {name or '—'}\n"
             f"Почта: {order['email']}"
         )
-        if not link:
+        if not link and prod.get("preorder"):
+            text += "\n\n📘 Это предзаказ — отправьте PDF, когда книга будет готова."
+        elif not link:
             text += (f"\n\n⚠️ Ссылка не задана (переменная {prod.get('link_env')}) — "
                      f"покупатель её не получил, пришлите вручную.")
         if not await _send_to_owner(text):
@@ -348,8 +346,11 @@ def register_order_routes(app, db, limiter):
                 got = (f"{prod.get('link_label', 'Ссылка')}: {link}\n\n"
                        f"Ссылка личная — пожалуйста, не пересылайте её."
                        + (f" {prod['care']}" if prod.get("care") else ""))
+            elif prod.get("preorder"):
+                got = ("Это предзаказ: книга ещё готовится. PDF придёт на эту почту, как только "
+                       "она будет готова, — ничего делать не нужно.")
             else:
-                got = "Ссылку на запись пришлю отдельным письмом в течение дня."
+                got = "Ссылку пришлю отдельным письмом в течение дня."
             body = (
                 f"{hello}\n\n"
                 f"Номер заказа: {order['order_no']}\n"
@@ -507,7 +508,10 @@ def register_order_routes(app, db, limiter):
         if not prod.get("digital"):
             return {}
         link = _digital_link(prod)
-        return {"digital": True, "link": link} if link else {"digital": True, "link": ""}
+        res = {"digital": True, "link": link}
+        if prod.get("preorder") and not link:
+            res["preorder"] = True
+        return res
 
     # Вебхук ЮKassa один на весь проект и живёт в payment_routes. Чтобы он умел
     # отличать заказ от подписки, кладём обработчик в app.state.
