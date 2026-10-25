@@ -165,3 +165,123 @@ def test_failed_payment_keeps_order_and_tells_owner_contacts(monkeypatch):
     text = alerts[-1]
     assert "+79001234567" in text and "a@b.ru" in text and "Иванов Иван Иванович" in text
     assert "ПВЗ СДЭК: ул. Большая Садовая, 15" in text and "оплата не прошла" in text
+
+
+# --- Цифровой товар: запись «Ключей» (25.10.2026) ---------------------------
+
+LINK = "https://disk.yandex.ru/d/TEST-LINK"
+
+
+def test_klyuchi_needs_only_email_and_goes_for_690(monkeypatch):
+    res, pay, rows = _run(monkeypatch, "/api/shop/checkout",
+                          {"product": "klyuchi-01", "email": "a@b.ru", "fio": "Иван"})
+    assert res["success"] and res["confirmation_url"]
+    assert pay["amount"]["value"] == "690.00"
+    item = pay["receipt"]["items"][0]
+    assert item["amount"]["value"] == "690.00" and item["vat_code"] == 11
+    assert item["payment_subject"] == "service"
+    assert pay["receipt"]["customer"] == {"email": "a@b.ru"}
+    assert pay["confirmation"]["return_url"].startswith("https://meysternlp.ru/magazin/klyuchi/spasibo/")
+    assert rows and rows[0]["product"] == "klyuchi-01" and rows[0]["amount"] == 690.0
+
+
+def test_klyuchi_refuses_bad_email(monkeypatch):
+    res, pay, rows = _run(monkeypatch, "/api/shop/checkout", {"product": "klyuchi-01", "email": "нет"})
+    assert not res["success"] and pay is None and not rows
+
+
+def test_klyuchi_link_is_not_in_code():
+    # Репозиторий публичный: ссылка на Диск — только из окружения.
+    src = (BACKEND / "order_routes.py").read_text(encoding="utf-8")
+    assert "disk.yandex" not in src
+
+
+class _PaidConn:
+    def __init__(self, product, status="paid"):
+        self.product, self.status = product, status
+
+    async def fetchrow(self, sql, *args):
+        if "UPDATE" in sql:
+            return {"id": 1}
+        return {"id": 1, "order_no": "M-20261025-ABC123", "product": self.product,
+                "amount": 690.0, "fio": "Иван", "phone": "", "email": "a@b.ru",
+                "city": None, "pvz": "—", "comment": None, "status": self.status,
+                "notified": False, "yookassa_id": "pay-1"}
+
+    async def execute(self, *a):
+        pass
+
+
+def _paid(monkeypatch, product, link):
+    mod, owner = _load()
+    monkeypatch.setenv("YOOKASSA_SHOP_ID", "1")
+    monkeypatch.setenv("YOOKASSA_SECRET_KEY", "k")
+    if link:
+        monkeypatch.setenv("KLYUCHI_LINK_01", link)
+    else:
+        monkeypatch.delenv("KLYUCHI_LINK_01", raising=False)
+    mails = []
+
+    class _Mail:
+        enabled = True
+
+        async def send(self, to, subject, body):
+            mails.append((to, subject, body))
+
+    main = types.ModuleType("main")
+    main.email_service = _Mail()
+    monkeypatch.setitem(sys.modules, "main", main)
+
+    class _DBp:
+        @contextlib.asynccontextmanager
+        async def get_connection(self):
+            yield _PaidConn(product)
+
+    app = _App()
+    mod.register_order_routes(app, _DBp(), _Limiter())
+
+    async def _fetch(*a, **k):
+        return {"status": "succeeded"}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **k):
+            class R:
+                status_code = 200
+
+                def json(self):
+                    return {"status": "succeeded"}
+            return R()
+
+    monkeypatch.setattr(mod.httpx, "AsyncClient", _Client)
+    res = asyncio.run(app.state.shop_order_webhook("pay-1"))
+    verify = asyncio.run(app.routes["/api/shop/verify"](_Req({"order_no": "M-20261025-ABC123"})))
+    return res, verify, mails, owner
+
+
+def test_paid_klyuchi_gets_link_in_mail_and_on_page(monkeypatch):
+    res, verify, mails, owner = _paid(monkeypatch, "klyuchi-01", LINK)
+    assert res["paid"] and res["link"] == LINK
+    assert verify["paid"] and verify["link"] == LINK
+    assert mails and mails[0][0] == "a@b.ru" and LINK in mails[0][2]
+    assert owner and "Продана" in owner[-1] and "a@b.ru" in owner[-1]
+
+
+def test_paid_klyuchi_without_link_warns_owner(monkeypatch):
+    res, verify, mails, owner = _paid(monkeypatch, "klyuchi-01", "")
+    assert res["paid"] and res["link"] == ""
+    assert mails and "в течение дня" in mails[0][2]
+    assert "KLYUCHI_LINK_01" in owner[-1]
+
+
+def test_paid_physical_order_gets_no_link(monkeypatch):
+    res, verify, mails, owner = _paid(monkeypatch, "standart", LINK)
+    assert res["paid"] and "link" not in res and "link" not in verify

@@ -1,5 +1,6 @@
 """
-order_routes.py — продажа физических товаров напрямую, мимо Ozon.
+order_routes.py — продажа товаров напрямую, мимо Ozon: физических (СДЭК) и
+цифровых (аудиозаписи «Ключей» — ссылка после оплаты).
 
 Один товар: комплект «Разговорный гипноз» (тренинг на QR-карточках с картой
 активации, три книги, три игры «Вариатика») за 19 999 ₽ с доставкой СДЭК.
@@ -65,7 +66,30 @@ PRODUCTS = {
         "return_url": "https://meysternlp.ru/razgovornyj-gipnoz/standart/spasibo/",
         "vat_code": 11,
     },
+    # Аудиосерия «Ключи» (25.10.2026): 690 ₽ за запись, владелец. Товар
+    # цифровой — ни телефона, ни пункта выдачи не нужно, только почта для
+    # чека и ссылки. Ссылка на Яндекс Диск выдаётся только после оплаты:
+    # репозиторий публичный, поэтому в коде её нет — она в переменной
+    # окружения link_env. Нет переменной — покупателю «пришлю в течение дня»,
+    # владельцу тревога, деньги не теряются.
+    "klyuchi-01": {
+        "amount": "690.00",
+        "title": "«Ключи». Запись 0.1 «Ум-объяснитель»",
+        "short": "записи «Ум-объяснитель»",
+        "letter_name": "Аудиосерия «Ключи», запись 0.1 «Ум-объяснитель» — 21 минута.",
+        "delivery": "электронная запись",
+        "return_url": "https://meysternlp.ru/magazin/klyuchi/spasibo/",
+        "vat_code": 11,
+        "digital": True,
+        "link_env": "KLYUCHI_LINK_01",
+    },
 }
+
+
+def _digital_link(prod: dict) -> str:
+    """Ссылка на цифровой товар — только из окружения и только https."""
+    link = (os.environ.get(prod.get("link_env") or "") or "").strip()
+    return link if link.startswith("https://") else ""
 
 MAX_FIO = 200
 MAX_PHONE = 32
@@ -163,9 +187,49 @@ def register_order_routes(app, db, limiter):
             logger.error(f"shop: fetch payment error: {e}")
         return None
 
+    async def _notify_digital(order: dict, prod: dict) -> None:
+        """Цифровой товар: покупателю — ссылка, владельцу — факт продажи."""
+        link = _digital_link(prod)
+        name = (order.get("fio") or "").strip()
+        text = (
+            f"🎧 Продана {prod['short']}\n\n"
+            f"Номер: {order['order_no']}\n"
+            f"Сумма: {order['amount']} ₽\n"
+            f"Имя: {name or '—'}\n"
+            f"Почта: {order['email']}"
+        )
+        if not link:
+            text += (f"\n\n⚠️ Ссылка не задана (переменная {prod.get('link_env')}) — "
+                     f"покупатель её не получил, пришлите вручную.")
+        if not await _send_to_owner(text):
+            await _send_email_to_owner(f"Заказ {order['order_no']} оплачен", text)
+
+        service = _email_service()
+        if service is not None and getattr(service, "enabled", False):
+            hello = f"{name}, спасибо за покупку." if name else "Спасибо за покупку."
+            if link:
+                got = (f"Слушать: {link}\n\n"
+                       f"Ссылка личная — пожалуйста, не пересылайте её. Слушайте в наушниках, "
+                       f"в спокойной обстановке, не за рулём.")
+            else:
+                got = "Ссылку на запись пришлю отдельным письмом в течение дня."
+            body = (
+                f"{hello}\n\n"
+                f"Номер заказа: {order['order_no']}\n"
+                f"{prod['letter_name']}\n"
+                f"Оплачено: {order['amount']} ₽.\n\n"
+                f"{got}\n\n"
+                f"Если ссылка не открывается — ответьте на это письмо.\n\n"
+                f"Андрей Мейстер\nmeysternlp.ru"
+            )
+            await service.send(order["email"],
+                               f"Заказ {order['order_no']} — {prod['title']}", body)
+
     async def _notify(order: dict) -> None:
         """Владельцу — данные для отправки, покупателю — подтверждение."""
         prod = PRODUCTS.get(order.get("product") or "", PRODUCTS[BUNDLE_SLUG])
+        if prod.get("digital"):
+            return await _notify_digital(order, prod)
         text = (
             f"📦 Заказ {prod['short']} оплачен\n\n"
             f"Номер: {order['order_no']}\n"
@@ -292,8 +356,21 @@ def register_order_routes(app, db, limiter):
                 await _notify(order)
             except Exception as e:
                 logger.error(f"shop: notify failed for {order['order_no']}: {e}")
-        return {"success": True, "paid": True, "status": "succeeded",
-                "order_no": order["order_no"]}
+        res = {"success": True, "paid": True, "status": "succeeded",
+               "order_no": order["order_no"]}
+        res.update(_digital_payload(order.get("product")))
+        return res
+
+    def _digital_payload(product) -> dict:
+        """Странице «спасибо» — ссылка на оплаченную запись.
+
+        Отдаётся только по оплаченному заказу; номер заказа — случайный
+        хвост из шести знаков, подобрать чужой нельзя."""
+        prod = PRODUCTS.get(product or "") or {}
+        if not prod.get("digital"):
+            return {}
+        link = _digital_link(prod)
+        return {"digital": True, "link": link} if link else {"digital": True, "link": ""}
 
     # Вебхук ЮKassa один на весь проект и живёт в payment_routes. Чтобы он умел
     # отличать заказ от подписки, кладём обработчик в app.state.
@@ -341,14 +418,21 @@ def register_order_routes(app, db, limiter):
         pvz = (data.get("pvz") or "").strip()[:MAX_PVZ]
         comment = (data.get("comment") or "").strip()[:MAX_COMMENT]
 
-        if len(fio.split()) < 2 or len(fio) < 5:
-            return {"success": False, "error": "Укажите фамилию, имя и отчество"}
-        if not phone:
-            return {"success": False, "error": "Телефон должен быть российским, 11 цифр"}
-        if not _valid_email(email):
-            return {"success": False, "error": "Проверьте адрес почты — на него придёт чек"}
-        if len(pvz) < 8:
-            return {"success": False, "error": "Укажите адрес пункта выдачи СДЭК"}
+        digital = bool(prod.get("digital"))
+        if digital:
+            # Цифровой товар: нужна только почта — на неё чек и ссылка.
+            if not _valid_email(email):
+                return {"success": False, "error": "Проверьте адрес почты — на него придут чек и ссылка"}
+            city, pvz = "", "—"
+        else:
+            if len(fio.split()) < 2 or len(fio) < 5:
+                return {"success": False, "error": "Укажите фамилию, имя и отчество"}
+            if not phone:
+                return {"success": False, "error": "Телефон должен быть российским, 11 цифр"}
+            if not _valid_email(email):
+                return {"success": False, "error": "Проверьте адрес почты — на него придёт чек"}
+            if len(pvz) < 8:
+                return {"success": False, "error": "Укажите адрес пункта выдачи СДЭК"}
 
         if not _shop_id() or not _secret_key():
             logger.error("shop: YooKassa credentials not configured")
@@ -368,14 +452,14 @@ def register_order_routes(app, db, limiter):
             "metadata": {"type": "shop_order", "order_no": order_no,
                          "product": product},
             "receipt": {
-                "customer": {"email": email, "phone": phone},
+                "customer": ({"email": email, "phone": phone} if phone else {"email": email}),
                 "items": [{
                     "description": prod["title"][:128],
                     "quantity": "1.00",
                     "amount": {"value": prod["amount"], "currency": BUNDLE_CURRENCY},
                     "vat_code": prod["vat_code"],
                     "payment_mode": "full_payment",
-                    "payment_subject": "commodity",
+                    "payment_subject": "service" if digital else "commodity",
                 }],
             },
         }
@@ -463,12 +547,14 @@ def register_order_routes(app, db, limiter):
             return {"success": False, "error": "invalid order_no"}
         async with db.get_connection() as conn:
             row = await conn.fetchrow(
-                "SELECT status, yookassa_id FROM shop_orders WHERE order_no = $1",
+                "SELECT status, yookassa_id, product FROM shop_orders WHERE order_no = $1",
                 order_no)
         if not row:
             return {"success": False, "error": "order not found"}
         if row["status"] == "paid":
-            return {"success": True, "paid": True, "status": "paid"}
+            res = {"success": True, "paid": True, "status": "paid"}
+            res.update(_digital_payload(row["product"]))
+            return res
         if not row["yookassa_id"]:
             return {"success": True, "paid": False, "status": row["status"]}
         return await _mark_paid(row["yookassa_id"])
