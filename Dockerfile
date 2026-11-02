@@ -1,5 +1,8 @@
 FROM python:3.11-slim
-ENV CACHE_BUST=20260606-1608
+# Кэш слоёв не сбрасываем вручную: код инвалидируется на `COPY backend/ .`,
+# зависимости — на `COPY backend/requirements.txt .`. Строка ENV CACHE_BUST
+# пересобирала apt-get и все pip-пакеты при каждой правке, а сборка в Amvera
+# тарифицируется как отдельный контейнер.
 # Письма возврата шлются автоматически (до 50 в час), а не кнопкой из
 # админки: включено владельцем 04.09 после проверки текстов обоих писем.
 # Выключить обратно — REENG_AUTOSEND=0 здесь или в переменных Amvera.
@@ -23,4 +26,7 @@ COPY backend/ .
 
 EXPOSE 10000
 
-CMD ["uvicorn", "asgi:application", "--host", "0.0.0.0", "--port", "10000", "--timeout-keep-alive", "120"]
+# Единая точка входа с Render: run.py импортирует asgi (там security middleware)
+# и добавляет патчи роутов. Раньше здесь было asgi:application — из-за этого
+# Amvera и Render отдавали разные версии /api/psychometric/find-doubles.
+CMD ["uvicorn", "run:app", "--host", "0.0.0.0", "--port", "10000", "--timeout-keep-alive", "120"]

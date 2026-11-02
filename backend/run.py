@@ -1,11 +1,19 @@
 """
-run.py — Wrapper that patches endpoints before starting the app.
-Used instead of 'uvicorn main:app' to fix find-doubles without editing main.py.
+run.py — единая точка входа для обоих хостов (Amvera и Render).
+
+Запуск: uvicorn run:app
+
+Порядок важен: сначала asgi.py импортирует main.app и вешает security
+middleware (заголовки + лимит размера тела), потом этот файл правит роуты.
+Раньше Amvera запускала asgi:application, а Render — run:app, из-за чего
+патч find-doubles v4 доезжал до прода на Amvera не всегда: там работала
+старая версия эндпоинта. Теперь вход один.
 """
 import os
 import json
 import logging
-from main import app, db, limiter
+from asgi import application as app
+from main import db, limiter
 from fastapi import Request
 
 logger = logging.getLogger(__name__)
