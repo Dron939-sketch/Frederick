@@ -54,11 +54,16 @@ def _active(row=None, exc=None):
     return asyncio.run(_meter(row, exc)._has_active_week_plan(1, NOW))
 
 
-def test_anon_second_day_without_plan_stays_zero():
+def test_anon_second_day_gets_minutes_without_plan():
+    """02.11.2026: ноль минут на втором дне отменён.
+
+    Человек, вернувшийся без аккаунта, снова получает FREE_DAILY_MINUTES_ANON.
+    План «Семь дней по теме» по-прежнему даёт больше (WEEK_PLAN_DAILY_MINUTES).
+    """
     st = _meter()._compose_status(used_seconds=0, free_days_used=1,
                                   total_seconds=1200, registered=False)
-    assert st["limit_minutes"] == sm.FREE_DAILY_MINUTES_ANON == 0
-    assert st["can_send"] is False
+    assert st["limit_minutes"] == sm.FREE_DAILY_MINUTES_ANON > 0
+    assert st["can_send"] is True
 
 
 def test_anon_second_day_with_plan_gets_minutes():

@@ -34,7 +34,10 @@ def test_registration_day_adds_minutes_on_top():
     reg_old = sm.daily_limit_minutes(True)
     assert reg_today == anon + sm.FREE_DAILY_MINUTES, (anon, reg_today)
     assert reg_today >= reg_old, "в день регистрации минут не меньше, чем в обычный день аккаунта"
-    assert sm.daily_limit_minutes(False) == 0, "со второго дня аноним без минут (12.09.2026)"
+    assert sm.daily_limit_minutes(False) == sm.FREE_DAILY_MINUTES_ANON == 3, (
+        "02.11.2026: возвращающемуся анониму снова дают 3 минуты — "
+        "ноль на втором дне убивал D1 (1,3%) и retention (2,1%)"
+    )
 
 
 def test_first_day_is_the_same_for_everyone():
