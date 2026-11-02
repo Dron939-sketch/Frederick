@@ -25,8 +25,15 @@ from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
-METRIKA_TOKEN = (os.getenv("YANDEX_METRIKA_TOKEN") or "").strip()
-METRIKA_COUNTER = (os.getenv("YANDEX_METRIKA_COUNTER") or "108138656").strip()
+# Имена переменных в Amvera исторические: сначала старые (YANDEX_METRIKA_*),
+# затем те, что реально заведены в проде. Без второго варианта раздел
+# статистики молча отдавал enabled:false, хотя токен в переменных был.
+METRIKA_TOKEN = (os.getenv("YANDEX_METRIKA_TOKEN")
+                 or os.getenv("YANDEX_OAUTH_TOKEN")
+                 or "").strip()
+METRIKA_COUNTER = (os.getenv("YANDEX_METRIKA_COUNTER")
+                   or os.getenv("METRIKA_COUNTER_ID")
+                   or "108138656").strip()
 METRIKA_API = "https://api-metrika.yandex.net/stat/v1/data/bytime"
 # Что считаем «курсами»: страницы Лектория и сами лекции.
 LEKTORIJ_FILTER = "ym:s:URL=@'/blog/lektorij/' OR ym:s:URL=@'/blog/lekciya-'"
