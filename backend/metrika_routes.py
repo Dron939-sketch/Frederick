@@ -36,7 +36,7 @@ METRIKA_COUNTER = (os.getenv("YANDEX_METRIKA_COUNTER")
                    or "108138656").strip()
 METRIKA_API = "https://api-metrika.yandex.net/stat/v1/data/bytime"
 # Что считаем «курсами»: страницы Лектория и сами лекции.
-LEKTORIJ_FILTER = "ym:s:URL=@'/blog/lektorij/' OR ym:s:URL=@'/blog/lekciya-'"
+LEKTORIJ_FILTER = "ym:s:startURL=@'/blog/lektorij/' OR ym:s:startURL=@'/blog/lekciya-'"
 # Окно «сейчас». Визит в Метрике живёт до 30 минут бездействия, поэтому
 # 5 минут — это те, кто действительно на странице, а не «был сегодня».
 ONLINE_MINUTES = 5
@@ -132,11 +132,11 @@ async def _cached(section: str) -> dict:
 
 # Куда доходит человек с сайта. Приложение живёт на /fredi/, посадочная
 # для поиска — /virtual-psychologist/.
-FREDI_FILTER = "ym:s:URL=@'/fredi/' OR ym:s:URL=@'/virtual-psychologist/'"
+FREDI_FILTER = "ym:s:startURL=@'/fredi/' OR ym:s:startURL=@'/virtual-psychologist/'"
 SECTIONS["fredi"] = FREDI_FILTER
 # Чат с личностями /chat/ (10.10.2026): разговаривают там же, на том же
 # движке, поэтому «сейчас здесь» на чате — все, кто с Фреди и его командой.
-SECTIONS["chat"] = "ym:s:URL=@'/chat/' OR " + FREDI_FILTER
+SECTIONS["chat"] = "ym:s:startURL=@'/chat/' OR " + FREDI_FILTER
 TRAFFIC_API = "https://api-metrika.yandex.net/stat/v1/data"
 
 
