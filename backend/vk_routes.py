@@ -1223,6 +1223,7 @@ def register_vk_routes(app, db):
         _check_admin(x_admin_token)
         text = (body.get("text") or "").strip()
         mode = (body.get("mode") or "psychologist").strip()
+        voice_id = (body.get("voice_id") or "").strip() or None
         if not text:
             raise HTTPException(status_code=400, detail={
                 "error": "empty_text",
@@ -1245,7 +1246,7 @@ def register_vk_routes(app, db):
                 "message": "Fish Audio модуль недоступен",
             })
 
-        audio = await synthesize_fish_audio(text, mode=mode)
+        audio = await synthesize_fish_audio(text, mode=mode, reference_id=voice_id)
         if not audio or len(audio) < 100:
             raise HTTPException(status_code=502, detail={
                 "error": "tts_failed",

@@ -92,6 +92,7 @@ async def synthesize_fish_audio(
     mode: str = "psychologist",
     timeout: float = 30,
     model: str | None = None,
+    reference_id: str | None = None,
 ) -> bytes | None:
     """
     Synthesize speech via Fish Audio API.
@@ -119,7 +120,7 @@ async def synthesize_fish_audio(
     try:
         payload = {
             "text": text,
-            "reference_id": FISH_AUDIO_VOICE_ID,
+            "reference_id": reference_id or FISH_AUDIO_VOICE_ID,
             "format": "mp3",
             "mp3_bitrate": 128,
             "normalize": True,
