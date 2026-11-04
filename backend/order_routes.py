@@ -444,6 +444,25 @@ def register_order_routes(app, db, limiter):
                                         "parse_mode": "Markdown"})
         return {"ok": r.status_code == 200, "status": r.status_code, "body": r.text[:300]}
 
+    @app.get("/api/admin/telegram/me")
+    async def telegram_me(request: Request):
+        """Кто наш бот: username, имя, id (getMe)."""
+        _check_admin(request.headers.get("X-Admin-Token"))
+        token = _tg_token()
+        if not token:
+            return {"ok": False, "error": "TELEGRAM_TOKEN не задан"}
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get("https://api.telegram.org/bot%s/getMe" % token)
+        j = r.json()
+        res = j.get("result") or {}
+        return {
+            "ok": bool(j.get("ok")),
+            "id": res.get("id"),
+            "username": res.get("username"),
+            "first_name": res.get("first_name"),
+            "link": ("https://t.me/" + res["username"]) if res.get("username") else None,
+        }
+
     @app.get("/api/admin/telegram/voice")
     async def telegram_voice(request: Request):
         """Берёт последнее голосовое из getUpdates, скачивает и расшифровывает.
