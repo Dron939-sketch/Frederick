@@ -444,6 +444,59 @@ def register_order_routes(app, db, limiter):
                                         "parse_mode": "Markdown"})
         return {"ok": r.status_code == 200, "status": r.status_code, "body": r.text[:300]}
 
+    @app.get("/api/admin/telegram/voice")
+    async def telegram_voice(request: Request):
+        """Берёт последнее голосовое из getUpdates, скачивает и расшифровывает.
+
+        Нужно, чтобы голосовое было отправлено боту Фреди
+        (@Nanotech_varik_bot) — тогда Telegram Bot API отдаст файл.
+        """
+        _check_admin(request.headers.get("X-Admin-Token"))
+        token = _tg_token()
+        if not token:
+            return {"ok": False, "error": "TELEGRAM_TOKEN не задан"}
+        dg_key = (os.environ.get("DEEPGRAM_API_KEY") or "").strip()
+        if not dg_key:
+            return {"ok": False, "error": "DEEPGRAM_API_KEY не задан"}
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.get("https://api.telegram.org/bot%s/getUpdates" % token,
+                                 params={"limit": "30"})
+            upd = r.json()
+            file_id = None
+            for u in reversed(upd.get("result") or []):
+                msg = u.get("message") or u.get("channel_post") or {}
+                voice = msg.get("voice") or msg.get("audio") or msg.get("video_note")
+                if voice and voice.get("file_id"):
+                    file_id = voice["file_id"]
+                    break
+                doc = msg.get("document")
+                if doc and (doc.get("mime_type", "").startswith("audio")
+                            or "voice" in (doc.get("file_name", "") or "").lower()):
+                    file_id = doc["file_id"]
+                    break
+            if not file_id:
+                return {"ok": False, "error": "в getUpdates нет голосового — перешли его боту"}
+            gf = await client.get("https://api.telegram.org/bot%s/getFile" % token,
+                                  params={"file_id": file_id})
+            gj = gf.json()
+            fp = (gj.get("result") or {}).get("file_path")
+            if not fp:
+                return {"ok": False, "error": "getFile: %s" % (gf.text[:200])}
+            dl = await client.get("https://api.telegram.org/file/bot%s/%s" % (token, fp))
+            audio = dl.content
+            if not audio:
+                return {"ok": False, "error": "пустой файл"}
+            dr = await client.post("https://api.deepgram.com/v1/listen?language=ru&model=nova-2",
+                                   headers={"Authorization": "Token " + dg_key,
+                                            "Content-Type": "audio/ogg"},
+                                   content=audio)
+            dj = dr.json()
+            try:
+                text = dj["results"]["channels"][0]["alternatives"][0].get("transcript", "")
+            except Exception:
+                return {"ok": False, "error": "deepgram: %s" % (dr.text[:300])}
+            return {"ok": True, "text": text, "size": len(audio), "file_path": fp}
+
 
     async def init_orders_table():
         async with db.get_connection() as conn:
