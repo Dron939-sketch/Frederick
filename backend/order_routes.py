@@ -497,6 +497,39 @@ def register_order_routes(app, db, limiter):
                 return {"ok": False, "error": "deepgram: %s" % (dr.text[:300])}
             return {"ok": True, "text": text, "size": len(audio), "file_path": fp}
 
+    @app.post("/api/admin/email/broadcast")
+    async def email_broadcast(request: Request):
+        """Письмо всем подписчикам (email + opt-in). Анонсы, новости продукта."""
+        _check_admin(request.headers.get("X-Admin-Token"))
+        body = await request.json()
+        subject = (body.get("subject") or "").strip()
+        text = (body.get("text") or "").strip()
+        if not subject or not text:
+            return {"ok": False, "error": "subject/text обязательны"}
+        try:
+            from email_service import EmailService
+            svc = EmailService()
+        except Exception as e:
+            return {"ok": False, "error": "email_service: %s" % e}
+        if not svc.enabled:
+            return {"ok": False, "error": "SMTP не настроен"}
+        async with db.get_connection() as conn:
+            rows = await conn.fetch(
+                "SELECT email FROM fredi_users "
+                "WHERE email IS NOT NULL AND COALESCE(email_opted_in, TRUE) = TRUE"
+            )
+        sent, failed = 0, 0
+        for r in rows:
+            try:
+                ok = await svc.send(r["email"], subject, text)
+                if ok:
+                    sent += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
+        return {"ok": True, "total": len(rows), "sent": sent, "failed": failed}
+
 
     async def init_orders_table():
         async with db.get_connection() as conn:
