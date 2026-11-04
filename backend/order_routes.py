@@ -23,11 +23,27 @@ import os
 import random
 import re
 import string
+import time
 from datetime import datetime, timezone
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def _check_admin(token):
+    from fastapi import HTTPException
+    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail={"error": "admin_disabled"})
+    if not token or token != expected:
+        raise HTTPException(status_code=401, detail={"error": "unauthorized"})
+
+
+# Релей для компаньона на телефоне (phone_companion.py): в памяти держим
+# последнее местоположение/заряд и очередь команд. Компаньон шлёт report и
+# получает команды; Джарвис/агент шлёт send и читает state.
+_PHONE_STATE = {"location": None, "battery": None, "last_seen": None, "commands": []}
 
 YOOKASSA_API_URL = "https://api.yookassa.ru/v3"
 
@@ -363,6 +379,33 @@ def register_order_routes(app, db, limiter):
     # Доставка обращений уже решена в форме связи — переиспользуем оба канала,
     # чтобы заказ не потерялся, если Telegram не настроен.
     from feedback_routes import _send_email_to_owner, _send_to_owner
+
+    # ---- Релей компаньона телефона (phone_companion.py) ----
+    @app.post("/api/admin/phone/report")
+    async def phone_report(request: Request):
+        _check_admin(request.headers.get("X-Admin-Token"))
+        body = await request.json()
+        _PHONE_STATE["location"] = body.get("location")
+        _PHONE_STATE["battery"] = body.get("battery")
+        _PHONE_STATE["last_seen"] = time.time()
+        commands = _PHONE_STATE["commands"]
+        _PHONE_STATE["commands"] = []
+        return {"ok": True, "commands": commands}
+
+    @app.post("/api/admin/phone/send")
+    async def phone_send(request: Request):
+        _check_admin(request.headers.get("X-Admin-Token"))
+        body = await request.json()
+        _PHONE_STATE["commands"].append(body)
+        return {"ok": True, "queued": len(_PHONE_STATE["commands"])}
+
+    @app.get("/api/admin/phone/state")
+    async def phone_state(request: Request):
+        _check_admin(request.headers.get("X-Admin-Token"))
+        return {"location": _PHONE_STATE["location"], "battery": _PHONE_STATE["battery"],
+                "last_seen": _PHONE_STATE["last_seen"],
+                "pending": len(_PHONE_STATE["commands"])}
+
 
     async def init_orders_table():
         async with db.get_connection() as conn:
