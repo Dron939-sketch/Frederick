@@ -406,6 +406,44 @@ def register_order_routes(app, db, limiter):
                 "last_seen": _PHONE_STATE["last_seen"],
                 "pending": len(_PHONE_STATE["commands"])}
 
+    # ---- Telegram-мост (бэкенд не заблокирован, в отличие от компьютера) ----
+    def _tg_token():
+        return (os.environ.get("TELEGRAM_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+
+    @app.get("/api/admin/telegram/updates")
+    async def telegram_updates(request: Request):
+        _check_admin(request.headers.get("X-Admin-Token"))
+        token = _tg_token()
+        if not token:
+            return {"ok": False, "error": "TELEGRAM_TOKEN не задан"}
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get("https://api.telegram.org/bot%s/getUpdates" % token,
+                                 params={"limit": "20"})
+        data = r.json()
+        chats = []
+        for u in (data.get("result") or []):
+            msg = u.get("message") or u.get("channel_post") or {}
+            ch = msg.get("chat") or {}
+            cid = ch.get("id")
+            if cid and not any(c["id"] == cid for c in chats):
+                name = " ".join(x for x in (ch.get("first_name"), ch.get("last_name")) if x) or ch.get("title", "")
+                chats.append({"id": cid, "name": name, "username": ch.get("username", "")})
+        return {"ok": True, "chats": chats}
+
+    @app.post("/api/admin/telegram/send")
+    async def telegram_send(request: Request):
+        _check_admin(request.headers.get("X-Admin-Token"))
+        body = await request.json()
+        token = _tg_token()
+        if not token:
+            return {"ok": False, "error": "TELEGRAM_TOKEN не задан"}
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post("https://api.telegram.org/bot%s/sendMessage" % token,
+                                  json={"chat_id": body.get("chat_id"),
+                                        "text": (body.get("text") or "")[:4000],
+                                        "parse_mode": "Markdown"})
+        return {"ok": r.status_code == 200, "status": r.status_code, "body": r.text[:300]}
+
 
     async def init_orders_table():
         async with db.get_connection() as conn:
