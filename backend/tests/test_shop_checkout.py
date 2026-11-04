@@ -333,9 +333,10 @@ def test_deputy_book_is_pdf_preorder_for_1490(monkeypatch):
 
 def test_all_other_keys_are_preorders_for_690(monkeypatch):
     # 25.10.2026: остальные 46 записей «Ключей» — предзаказ.
+    # 04.11.2026: 0.2 «Логика» вышла — живых две (0.1, 0.2), предзаказ 45.
     mod, _ = _load()
-    keys = [k for k in mod.PRODUCTS if k.startswith("klyuchi-") and k != "klyuchi-01"]
-    assert len(keys) == 46
+    keys = [k for k in mod.PRODUCTS if k.startswith("klyuchi-") and k not in ("klyuchi-01", "klyuchi-0-2")]
+    assert len(keys) == 45
     for k in keys:
         p = mod.PRODUCTS[k]
         assert p["amount"] == "690.00" and p["digital"] and p["preorder"]
