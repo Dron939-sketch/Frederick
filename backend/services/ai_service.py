@@ -389,6 +389,12 @@ class AIService:
         except asyncio.TimeoutError:
             self.last_error = "модель не ответила за 30 секунд"
             logger.error("❌ DeepSeek timeout")
+            # Один повтор: таймаут DeepSeek чаще разовый (сеть/очередь),
+            # а пользователь в этот момент видит ошибку вместо ответа.
+            if _retry_budget:
+                logger.warning("🔁 Повтор после таймаута DeepSeek")
+                return await self._simple_call(prompt, max_tokens, temperature,
+                                               thinking=thinking, _retry_budget=False)
             return None
         except Exception as e:
             self.last_error = "сбой запроса: %s" % str(e)[:120]
