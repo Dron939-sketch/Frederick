@@ -437,11 +437,14 @@ def register_order_routes(app, db, limiter):
         token = _tg_token()
         if not token:
             return {"ok": False, "error": "TELEGRAM_TOKEN не задан"}
+        parse_mode = (body.get("parse_mode") or "Markdown").strip()
+        payload = {"chat_id": body.get("chat_id"),
+                   "text": (body.get("text") or "")[:4096]}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.post("https://api.telegram.org/bot%s/sendMessage" % token,
-                                  json={"chat_id": body.get("chat_id"),
-                                        "text": (body.get("text") or "")[:4000],
-                                        "parse_mode": "Markdown"})
+                                  json=payload)
         return {"ok": r.status_code == 200, "status": r.status_code, "body": r.text[:300]}
 
     @app.get("/api/admin/telegram/me")
