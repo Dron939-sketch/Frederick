@@ -119,11 +119,33 @@ def register_bot_webhooks(app, db):
             logger.info(f"MAX webhook raw: {json.dumps(body, ensure_ascii=False)[:500]}")
 
             update_type = body.get("update_type", "")
+            # Сохраняем chat_id, имя и текст: без них владелец не видит, кто
+            # написал боту и куда слать отчёты. Раньше писался только
+            # обрезанный payload, и chat_id терялся навсегда.
+            _chat_id, _text, _from = "", "", ""
+            try:
+                _msg = body.get("message") or {}
+                _recip = _msg.get("recipient") or {}
+                _chat_id = str(_recip.get("chat_id") or _msg.get("chat_id") or "")
+                _body = _msg.get("body") or {}
+                _text = (_body.get("text") or "").strip()[:200] if isinstance(_body, dict) else ""
+                _snd = _msg.get("sender") or {}
+                _from = _snd.get("name") or _snd.get("username") or ""
+                if not _chat_id:
+                    _user = body.get("user") or {}
+                    _chat_id = str(_user.get("user_id") or body.get("user_id") or "")
+                if not _from:
+                    _u = body.get("user") or {}
+                    _from = _u.get("name") or _u.get("username") or ""
+            except Exception:
+                pass
             try:
                 RECENT_MAX_UPDATES.append({
                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "type": update_type,
-                    "payload": str(body.get("payload") or "")[:6],
+                    "chat_id": _chat_id,
+                    "from": _from,
+                    "text": _text,
                 })
             except Exception:
                 pass
