@@ -374,7 +374,7 @@ def _valid_email(email: str) -> bool:
 
 
 def register_order_routes(app, db, limiter):
-    from fastapi import Request
+    from fastapi import Request, File, Form, UploadFile
 
     # Доставка обращений уже решена в форме связи — переиспользуем оба канала,
     # чтобы заказ не потерялся, если Telegram не настроен.
@@ -518,6 +518,38 @@ def register_order_routes(app, db, limiter):
             except Exception:
                 return {"ok": False, "error": "deepgram: %s" % (dr.text[:300])}
             return {"ok": True, "text": text, "size": len(audio), "file_path": fp}
+
+    @app.post("/api/admin/telegram/photo")
+    async def telegram_photo(
+        request: Request,
+        photo: UploadFile = File(...),
+        chat_id: str = Form("532205848"),
+        caption: str = Form(""),
+    ):
+        """Отправить картинку (график) в Telegram — sendPhoto."""
+        _check_admin(request.headers.get("X-Admin-Token"))
+        token = _tg_token()
+        if not token:
+            return {"ok": False, "error": "TELEGRAM_TOKEN не задан"}
+        data = await photo.read()
+        if not data:
+            return {"ok": False, "error": "пустой файл"}
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                r = await client.post(
+                    "https://api.telegram.org/bot%s/sendPhoto" % token,
+                    data={"chat_id": chat_id, "caption": caption[:1000],
+                          "parse_mode": "HTML"},
+                    files={"photo": (photo.filename or "chart.png", data,
+                                     photo.content_type or "image/png")},
+                )
+            try:
+                j = r.json()
+            except Exception:
+                j = {}
+            return {"ok": bool(j.get("ok")), "body": r.text[:300]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     @app.post("/api/admin/email/broadcast")
     async def email_broadcast(request: Request):
