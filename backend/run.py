@@ -12,6 +12,18 @@ middleware (заголовки + лимит размера тела), потом
 import os
 import json
 import logging
+
+# .env читается только здесь. Раньше файл был, а загрузчика не было: ключи
+# брались из окружения процесса, и локальный .env молча ничего не давал.
+# Тесты импортируют services.ai_service напрямую, мимо run.py, поэтому для них
+# ничего не меняется. В проде .env нет (он в .gitignore) — load_dotenv молчит,
+# а настоящие переменные окружения остаются главнее файла (override=False).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except Exception:
+    pass
+
 from asgi import application as app
 from main import db, limiter
 from fastapi import Request

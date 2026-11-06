@@ -15,6 +15,8 @@ import re
 import random
 from typing import Optional, Dict, Any, List, AsyncGenerator
 
+from services import kimi_service, panel_service
+
 logger = logging.getLogger(__name__)
 
 # Модель DeepSeek. API убрал алиас "deepseek-chat" (теперь только v4-*),
@@ -266,6 +268,13 @@ class AIService:
         # один None, и на фронте выглядели одинаковым «AI не вернул
         # ответ». Разобрать по такому сообщению, что случилось, нельзя.
         self.last_error = ""
+        # Кто ответил в последний раз: deepseek или kimi. Нужен статусу и
+        # логам, чтобы «ответ есть» не путали с «DeepSeek снова работает».
+        self.last_provider = "deepseek"
+        # Время последнего успешного ответа DeepSeek. Панель двух моделей
+        # включается только если он жив: иначе оба «мнения» придут от Kimi,
+        # а синтез съест третий вызов — три запроса ради одного ответа.
+        self._deepseek_ok_ts = 0.0
         self._initialized = True
 
         self.russell_quotes = [
@@ -281,6 +290,10 @@ class AIService:
             logger.info("✅ AIService инициализирован (singleton)")
         else:
             logger.warning("⚠️ DEEPSEEK_API_KEY not set")
+        if kimi_service.is_enabled():
+            logger.info("🟣 Kimi подключена как запасная модель (%s)", kimi_service.model())
+        else:
+            logger.info("🟣 Kimi выключена: нет MOONSHOT_API_KEY")
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if not self.session or self.session.closed:
@@ -292,6 +305,22 @@ class AIService:
     async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7,
                            thinking: Optional[bool] = None,
                            _retry_budget: bool = True) -> Optional[str]:
+        """Один вызов: DeepSeek, а если он не ответил — Kimi.
+
+        Точка входа для /api/ai/generate и call_deepseek(). Второй движок
+        нужен ровно затем, чтобы отказ DeepSeek не превращался сразу в
+        заглушку: чат продолжается, только отвечает другая модель.
+        """
+        out = await self._simple_call_deepseek(prompt, max_tokens, temperature,
+                                               thinking=thinking,
+                                               _retry_budget=_retry_budget)
+        if out:
+            return out
+        return await self.kimi_call("", prompt, max_tokens, temperature)
+
+    async def _simple_call_deepseek(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7,
+                                    thinking: Optional[bool] = None,
+                                    _retry_budget: bool = True) -> Optional[str]:
         self.last_error = ""
         if not self.api_key:
             self.last_error = "нет ключа DEEPSEEK_API_KEY"
@@ -359,7 +388,7 @@ class AIService:
                                 "🔁 Пустой ответ при finish_reason=length, повтор с "
                                 "thinking=off, max_tokens=%d (было %s, thinking=%s)"
                                 % (bigger, max_tokens, thinking))
-                            return await self._simple_call(prompt, bigger, temperature,
+                            return await self._simple_call_deepseek(prompt, bigger, temperature,
                                                            thinking=False,
                                                            _retry_budget=False)
                         self.last_error = ("модель вернула пустой ответ (finish_reason=%s, "
@@ -393,7 +422,7 @@ class AIService:
             # а пользователь в этот момент видит ошибку вместо ответа.
             if _retry_budget:
                 logger.warning("🔁 Повтор после таймаута DeepSeek")
-                return await self._simple_call(prompt, max_tokens, temperature,
+                return await self._simple_call_deepseek(prompt, max_tokens, temperature,
                                                thinking=thinking, _retry_budget=False)
             return None
         except Exception as e:
@@ -402,46 +431,53 @@ class AIService:
             return None
 
     async def _simple_call_streaming(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> AsyncGenerator[str, None]:
-        if not self.api_key:
-            yield ""
-            return
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        data = {
-            "model": DEEPSEEK_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": True
-        }
-        try:
-            session = await self._get_session()
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers, json=data,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status != 200:
-                    yield ""
-                    return
-                async for line in response.content:
-                    if line:
-                        line_str = line.decode('utf-8').strip()
-                        if line_str.startswith('data: '):
-                            data_str = line_str[6:]
-                            if data_str == '[DONE]':
-                                break
-                            try:
-                                chunk = json.loads(data_str)
-                                if 'choices' in chunk and chunk['choices']:
-                                    content = chunk['choices'][0].get('delta', {}).get('content', '')
-                                    if content:
-                                        yield content
-                                        await asyncio.sleep(0.005)
-                            except json.JSONDecodeError:
-                                continue
-        except Exception as e:
-            logger.error(f"Streaming error: {e}")
-            yield ""
+        """Поток DeepSeek; если не пришло ни одной дельты — ответ Kimi целиком.
+
+        Раньше при отказе генератор молча отдавал пустую строку, и вызывающий
+        код (BasicMode) шёл в блокирующий путь DeepSeek, где повтор и
+        заглушка. Теперь второй двигатель отвечает в том же месте, где
+        отказал первый: голосовой поток получает текст, пусть и не по словам.
+        """
+        _got = False
+        if self.api_key:
+            headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+            data = {
+                "model": DEEPSEEK_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True
+            }
+            try:
+                session = await self._get_session()
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers, json=data,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        async for line in response.content:
+                            if line:
+                                line_str = line.decode('utf-8').strip()
+                                if line_str.startswith('data: '):
+                                    data_str = line_str[6:]
+                                    if data_str == '[DONE]':
+                                        break
+                                    try:
+                                        chunk = json.loads(data_str)
+                                        if 'choices' in chunk and chunk['choices']:
+                                            content = chunk['choices'][0].get('delta', {}).get('content', '')
+                                            if content:
+                                                _got = True
+                                                yield content
+                                                await asyncio.sleep(0.005)
+                                    except json.JSONDecodeError:
+                                        continue
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+        if not _got:
+            _kimi = await self.kimi_call("", prompt, max_tokens, temperature)
+            yield _kimi or ""
 
     async def _call_deepseek(self, system_prompt: str, user_prompt: str,
                               max_tokens: int = 1000, temperature: float = 0.7,
@@ -463,7 +499,9 @@ class AIService:
         оно есть в описании формата.
         """
         if not self.api_key:
-            return None
+            # Ключа DeepSeek нет вовсе — отвечает второй двигатель, если он включён.
+            return await self.kimi_call(system_prompt, user_prompt, max_tokens,
+                                        temperature, json_mode)
         _model = model or DEEPSEEK_MODEL
         try:
             session = await self._get_session()
@@ -504,6 +542,7 @@ class AIService:
                     result = result.strip()
                     
                     logger.info(f"✅ DeepSeek ответ успешно получен (длина после очистки: {len(result)} символов)")
+                    self._deepseek_ok_ts = time.time()
                     return result
                     
                 elif response.status == 400:
@@ -521,18 +560,22 @@ class AIService:
                             max_tokens=max_tokens, temperature=temperature,
                             model=DEEPSEEK_MODEL, thinking=None,
                             json_mode=json_mode)
-                    return None
+                    # Повтор на обычной модели тоже не прошёл — второй двигатель.
+                    return await self.kimi_call(system_prompt, user_prompt, max_tokens,
+                                                temperature, json_mode)
                     
                 elif response.status == 401:
                     logger.error("❌ DeepSeek 401 error: Invalid API key")
                     logger.error(f"   API key (first 5 chars): {self.api_key[:5]}...")
                     _note_ai_fail("invalid_key", "DeepSeek 401: ключ не принят")
-                    return None
+                    return await self.kimi_call(system_prompt, user_prompt, max_tokens,
+                                                temperature, json_mode)
                     
                 elif response.status == 429:
                     logger.error("❌ DeepSeek 429 error: Rate limit exceeded")
                     _note_ai_fail("rate_limited", "DeepSeek 429: слишком часто")
-                    return None
+                    return await self.kimi_call(system_prompt, user_prompt, max_tokens,
+                                                temperature, json_mode)
                     
                 else:
                     logger.error(f"❌ DeepSeek error: {response.status}")
@@ -576,20 +619,33 @@ class AIService:
     async def spare_call(self, system_prompt: str, user_prompt: str,
                          max_tokens: int = 1000, temperature: float = 0.7,
                          status: Optional[int] = None) -> Optional[str]:
+        """Последний шанс: дополнительный вызов DeepSeek, затем — Kimi.
+
+        Порядок намеренный. DeepSeek дешевле и лучше держит наши промпты,
+        поэтому идёт первым; Kimi отвечает только если тот не дал ничего:
+        кончился баланс, чужой ключ, потерян маршрут, провайдер молчит.
+        Прежнее решение «запасной модели нет» (13.09.2026) отменено
+        06.11.2026 — появился ключ Moonshot.
+        """
+        text = await self._deepseek_spare(system_prompt, user_prompt,
+                                          max_tokens, temperature, status)
+        if text:
+            return text
+        return await self.kimi_call(system_prompt, user_prompt, max_tokens,
+                                    temperature)
+
+    async def _deepseek_spare(self, system_prompt: str, user_prompt: str,
+                              max_tokens: int = 1000, temperature: float = 0.7,
+                              status: Optional[int] = None) -> Optional[str]:
         """Дополнительный вызов DeepSeek, когда поток и его повтор не дали
         ни одной дельты.
-
-        Запасной модели у проекта нет (решение владельца 13.09.2026: «нет
-        API для запасной модели, поэтому не переключаем, а делаем
-        дополнительный вызов»). До этого сюда был подключён Anthropic по
-        ключу из env, ключа в env не было, и на проде фолбэк ни разу не
-        сработал: 13.09 06:06 человек получил две заглушки подряд.
 
         Отличия от основного пути, чтобы не повторить тот же отказ:
         отдельное соединение вместо общего пула (застрявший пул — одна из
         причин «молчания»), без потока, без параметра размышления, обычная
         модель, пауза 2 с перед запросом, свой таймаут. Кончившийся баланс
-        (402) и чужой ключ (401) ещё одним вызовом не лечатся — сразу None.
+        (402) и чужой ключ (401) ещё одним вызовом не лечатся — сразу None,
+        дальше слово передаёт Kimi (см. spare_call).
         """
         if not self.api_key or status in (401, 402):
             return None
@@ -629,6 +685,101 @@ class AIService:
             _note_ai_fail("spare_failed", str(e))
             return None
 
+    async def kimi_call(self, system_prompt: str, user_prompt: str,
+                        max_tokens: int = 1000, temperature: float = 0.7,
+                        json_mode: bool = False) -> Optional[str]:
+        """Ответ Kimi — второго двигателя.
+
+        Вызывается из всех тупиков DeepSeek: нет ключа, 401/402/429/5xx,
+        таймаут, пустой ответ. Если ключа Moonshot нет, возвращает None и
+        поведение остаётся прежним (заглушка): второй двигатель не может
+        ухудшить то, что и так не работало.
+        """
+        if not kimi_service.is_enabled():
+            return None
+        text = await kimi_service.ask(system_prompt, user_prompt,
+                                      max_tokens=max_tokens,
+                                      temperature=temperature,
+                                      json_mode=json_mode)
+        if text:
+            self.last_provider = "kimi"
+            LAST_AI_FAIL["last_provider"] = "kimi"
+            logger.warning("🟣 KIMI_FALLBACK: DeepSeek не ответил, ответила Kimi "
+                           "(%d знаков, model=%s)", len(text), kimi_service.model())
+            return text
+        self.last_provider = "deepseek"
+        LAST_AI_FAIL["last_provider"] = "deepseek"
+        _kimi_err = kimi_service.STATE.get("last_error")
+        if _kimi_err:
+            self.last_error = ((self.last_error + " | Kimi: " + _kimi_err)
+                               .strip(" |")[:300])
+        return None
+
+    def _deepseek_healthy(self) -> bool:
+        """DeepSeek не падал после последнего успеха.
+
+        Панель имеет смысл только когда живы оба двигателя. Если DeepSeek только
+        что отвалился, оба ответа придут от Kimi, а синтез — третий вызов Kimi:
+        три запроса и полминуты ожидания ради одного ответа, который уже есть.
+        Восстанавливается само: первый успешный ответ DeepSeek возвращает панель.
+        """
+        fail_ts = float(LAST_AI_FAIL.get("ts") or 0)
+        return fail_ts <= float(getattr(self, "_deepseek_ok_ts", 0.0) or 0.0)
+
+    def panel_applies(self, mode: str) -> bool:
+        """Идёт ли панель двух моделей в этом режиме.
+
+        Нужны оба двигателя: без ключа Kimi панель бессмысленна, без ключа
+        DeepSeek синтезировать некому. Быстрый входной чат (basic) в панель по
+        умолчанию не входит — там второй ответ не стоит добавленного ожидания.
+        """
+        return bool(self.api_key) and kimi_service.is_enabled() \
+            and self._deepseek_healthy() and panel_service.mode_applies(mode)
+
+    async def _panel_answer(self, system_prompt: str, user_prompt: str,
+                            max_tokens: int = 1000, temperature: float = 0.7,
+                            mode: str = "") -> Optional[str]:
+        """Два ответа параллельно + синтез тем же DeepSeek.
+
+        Голос Фреди остаётся у DeepSeek: второй двигатель даёт второе мнение,
+        а не второй голос. См. services/panel_service.py.
+        """
+        async def _primary():
+            return await self._call_deepseek(system_prompt, user_prompt, max_tokens,
+                                             temperature, thinking=False)
+
+        # Второе мнение получает приписку «коротко, 4-6 предложений» и урезанный
+        # бюджет: полный второй ответ дороже по времени и бесполезен для синтеза.
+        _secondary_system = (system_prompt or "") + panel_service.SECONDARY_ADDON
+        _secondary_tokens = panel_service.secondary_tokens(max_tokens)
+
+        async def _secondary():
+            return await self.kimi_call(_secondary_system, user_prompt,
+                                        _secondary_tokens, temperature)
+
+        async def _synthesize(synth_system: str, synth_user: str):
+            return await self._call_deepseek(synth_system, synth_user, max_tokens,
+                                             temperature, thinking=False)
+
+        return await panel_service.discuss(_primary, _secondary, _synthesize,
+                                           user_prompt, mode)
+
+    @staticmethod
+    def _stream_pieces(text: str, size: int = 180):
+        """Готовый текст режем на куски, чтобы UI и TTS не давились простынёй."""
+        buf = ""
+        for part in re.split(r"(?<=[.!?…])\s+", (text or "").strip()):
+            if not part:
+                continue
+            if len(buf) + len(part) <= size:
+                buf = (buf + " " + part).strip()
+            else:
+                if buf:
+                    yield buf
+                buf = part
+        if buf:
+            yield buf
+
     async def _after_fail(self, system_prompt, user_prompt, max_tokens,
                           temperature, model, thinking, attempt, json_mode=False):
         """Один повтор, потом дополнительный вызов без потока.
@@ -666,6 +817,10 @@ class AIService:
         падает, генератор просто завершится пустым, и вызывающий код
         откатится на блокирующий путь."""
         if not self.api_key:
+            _kimi = await self.kimi_call(system_prompt, user_prompt, max_tokens,
+                                         temperature)
+            if _kimi:
+                yield _kimi
             return
         _model = model or DEEPSEEK_MODEL
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
@@ -881,7 +1036,9 @@ class AIService:
                 return cached
 
         if not self.api_key:
-            return self._get_fallback_response(mode)
+            _kimi = await self.kimi_call(system_prompt or self._get_system_prompt(mode, profile or {}),
+                                         message, max_tokens, temperature)
+            return _kimi or self._get_fallback_response(mode)
 
         # Определяем системный промпт
         if system_prompt:
@@ -924,6 +1081,18 @@ class AIService:
         user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
 
+        # Панель двух моделей (DeepSeek + Kimi). Включается настройкой PANEL_MODE,
+        # по умолчанию — в psychologist/coach/trainer. Если панель не сработала
+        # (одна модель молчит), код идёт прежним одиночным путём.
+        if self.panel_applies(mode):
+            _panel = await self._panel_answer(final_system_prompt, user_prompt,
+                                              max_tokens, temperature, mode)
+            if _panel:
+                _panel = self._clean_for_voice(_panel)
+                if self.cache:
+                    await self.cache.set(cache_key, _panel, ttl=300)
+                return _panel
+
         try:
             session = await self._get_session()
             async with session.post(
@@ -951,12 +1120,24 @@ class AIService:
                     return result
                 else:
                     logger.error(f"DeepSeek API error: {response.status}")
-                    return self._get_fallback_response(mode)
+                    # Ответ Kimi в кэш не кладём: кэш — это «DeepSeek ответил
+                    # так», а запасной ответ не должен переживать основную модель.
+                    _kimi = await self.kimi_call(final_system_prompt, user_prompt,
+                                                 max_tokens, temperature)
+                    return (self._clean_for_voice(_kimi) if _kimi
+                            else self._get_fallback_response(mode))
         except asyncio.TimeoutError:
+            _kimi = await self.kimi_call(final_system_prompt, user_prompt,
+                                         max_tokens, temperature)
+            if _kimi:
+                return self._clean_for_voice(_kimi)
             return "Извините, сервер временно перегружен. Попробуйте позже."
         except Exception as e:
             logger.error(f"DeepSeek API error: {e}")
-            return self._get_fallback_response(mode)
+            _kimi = await self.kimi_call(final_system_prompt, user_prompt,
+                                         max_tokens, temperature)
+            return (self._clean_for_voice(_kimi) if _kimi
+                    else self._get_fallback_response(mode))
 
     async def generate_response_streaming(
         self,
@@ -987,6 +1168,11 @@ class AIService:
             presence_penalty: Штраф за новые темы
         """
         if not self.api_key:
+            _kimi = await self.kimi_call(system_prompt or self._get_system_prompt(mode, profile or {}),
+                                         message, max_tokens, temperature)
+            if _kimi:
+                yield self._clean_for_voice(_kimi)
+                return
             yield self._get_fallback_response(mode)
             return
 
@@ -1030,6 +1216,17 @@ class AIService:
         # Текущее сообщение
         user_prompt = self._get_user_prompt(message, context, profile, mode)
         messages.append({"role": "user", "content": user_prompt})
+
+        # Панель двух моделей: оба ответа собираются целиком (иначе их не с чем
+        # сравнивать), затем итог уходит кусками — для TTS и UI это по-прежнему
+        # поток, просто пауза перед первым куском длиннее.
+        if self.panel_applies(mode):
+            _panel = await self._panel_answer(final_system_prompt, user_prompt,
+                                              max_tokens, temperature, mode)
+            if _panel:
+                for _piece in self._stream_pieces(self._clean_for_voice(_panel)):
+                    yield _piece
+                return
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {
