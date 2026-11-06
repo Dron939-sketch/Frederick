@@ -11,6 +11,7 @@ import asyncio
 import importlib.util
 import os
 import sys
+import time
 
 os.environ.setdefault("DEEPSEEK_API_KEY", "test")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -121,6 +122,34 @@ def test_panel_mode_setting():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def test_slow_secondary_does_not_block_primary():
+    """Второе мнение не должно держать ответ: не успело — уходит основной."""
+    old = os.environ.get("PANEL_SECONDARY_TIMEOUT")
+    os.environ["PANEL_SECONDARY_TIMEOUT"] = "0.1"
+
+    async def _primary():
+        return "Ответ основной модели."
+
+    async def _secondary():
+        await asyncio.sleep(1.0)
+        return "поздно"
+
+    async def _synth(*a, **k):
+        return "НЕ ДОЛЖНО"
+
+    t0 = time.time()
+    try:
+        out = asyncio.run(panel.discuss(_primary, _secondary, _synth, "вопрос", "coach"))
+    finally:
+        if old is None:
+            os.environ.pop("PANEL_SECONDARY_TIMEOUT", None)
+        else:
+            os.environ["PANEL_SECONDARY_TIMEOUT"] = old
+
+    assert out == "Ответ основной модели.", out
+    assert time.time() - t0 < 0.9, "ждать медленное второе мнение нельзя"
 
 
 if __name__ == "__main__":

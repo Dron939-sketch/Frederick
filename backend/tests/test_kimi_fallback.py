@@ -14,6 +14,7 @@ import asyncio
 import importlib.util
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("DEEPSEEK_API_KEY", "test")
@@ -37,6 +38,7 @@ _ORIG = {
 def _enable():
     kimi.is_enabled = lambda: True
     kimi.api_key = lambda: "test-key"
+    kimi.STATE.update({"fails_in_row": 0, "cool_until": 0.0})
 
 
 def _disable():
@@ -392,6 +394,98 @@ def test_panel_off_while_deepseek_is_down():
         svc._deepseek_ok_ts = 200.0        # успешный ответ вернул панель
         assert svc.panel_applies("psychologist") is True
     finally:
+        _restore()
+
+
+def test_kimi_call_report_false_keeps_telemetry():
+    """Второе мнение в панели не должно выглядеть как «DeepSeek упал»."""
+    _enable()
+    svc = _service()
+    svc.last_provider = "deepseek"
+    ai.LAST_AI_FAIL["last_provider"] = "deepseek"
+
+    async def kimi_yes(*a, **k):
+        return "Второе мнение"
+
+    kimi.ask = kimi_yes
+    try:
+        out = asyncio.run(svc.kimi_call("s", "u", 10, 0.5, report=False))
+    finally:
+        _restore()
+
+    assert out == "Второе мнение"
+    assert svc.last_provider == "deepseek", "панель не должна помечать DeepSeek упавшим"
+    assert ai.LAST_AI_FAIL.get("last_provider") == "deepseek"
+
+
+def test_429_stops_model_chain():
+    _enable()
+    calls = []
+
+    async def fake_post(url, headers, body, timeout):
+        calls.append(body["model"])
+        return 429, "rate limit"
+
+    kimi._post = fake_post
+    try:
+        out = asyncio.run(kimi.ask("s", "u", max_tokens=100))
+    finally:
+        _restore()
+
+    assert out is None
+    assert len(calls) == 1, "при 429 перебор моделей только жжёт лимит"
+
+
+def test_truncated_answer_is_retried():
+    _enable()
+    calls = []
+
+    async def fake_post(url, headers, body, timeout):
+        calls.append(body["max_tokens"])
+        if len(calls) == 1:
+            return 200, {"choices": [{"message": {"content": "обрез"},
+                                      "finish_reason": "length"}]}
+        return 200, {"choices": [{"message": {"content": "полный ответ"},
+                                  "finish_reason": "stop"}]}
+
+    kimi._post = fake_post
+    try:
+        out = asyncio.run(kimi.ask("s", "u", max_tokens=100))
+    finally:
+        _restore()
+
+    assert out == "полный ответ"
+    assert len(calls) == 2 and calls[1] > calls[0], calls
+
+
+def test_cooldown_blocks_calls():
+    _enable()
+    kimi.STATE["cool_until"] = time.time() + 60
+    calls = []
+
+    async def fake_post(*a, **k):
+        calls.append(1)
+        return 200, {"choices": [{"message": {"content": "не должно быть"}}]}
+
+    kimi._post = fake_post
+    try:
+        out = asyncio.run(kimi.ask("s", "u"))
+    finally:
+        kimi.STATE["cool_until"] = 0.0
+        _restore()
+
+    assert out is None
+    assert calls == [], "в паузе после сбоев запросов быть не должно"
+
+
+def test_panel_off_during_kimi_cooldown():
+    _enable()
+    svc = _service()
+    kimi.STATE["cool_until"] = time.time() + 60
+    try:
+        assert svc.panel_applies("psychologist") is False
+    finally:
+        kimi.STATE["cool_until"] = 0.0
         _restore()
 
 

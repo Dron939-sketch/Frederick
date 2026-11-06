@@ -128,6 +128,18 @@ def secondary_tokens(max_tokens: int) -> int:
     return max(200, min(wanted, cap))
 
 
+def secondary_timeout() -> float:
+    """Сколько ждём второе мнение. Дольше — панель вырождается в один ответ.
+
+    Замер: короткое второе мнение Kimi шло 15 с, тяжёлое — больше. Основной
+    ответ ждать не обязан: если Kimi не успела, уходит ответ DeepSeek.
+    """
+    try:
+        return max(0.1, float(os.environ.get("PANEL_SECONDARY_TIMEOUT") or 50))
+    except (TypeError, ValueError):
+        return 50.0
+
+
 def build_synth_user(user_prompt: str, primary: str, secondary: str) -> str:
     """Склейка без .format: в тексте человека могут быть фигурные скобки."""
     return ("СООБЩЕНИЕ ЧЕЛОВЕКА:\n" + user_prompt +
@@ -149,7 +161,21 @@ async def discuss(
     synthesize(system_prompt, user_prompt) — сборка (основная модель);
     None — обе модели молчат, вызывающий код идёт прежним путём (заглушка).
     """
-    p, s = await asyncio.gather(primary(), secondary(), return_exceptions=True)
+    # Второе мнение ограничиваем по времени: без этого медленная Kimi держит
+    # основной ответ (gather ждёт обоих), и человек видит паузу вместо ответа.
+    async def _limited(coro):
+        try:
+            return await asyncio.wait_for(coro, timeout=secondary_timeout())
+        except asyncio.TimeoutError:
+            logger.warning("🟠 PANEL: второе мнение не уложилось в %s с",
+                           int(secondary_timeout()))
+            return None
+
+    try:
+        p, s = await asyncio.gather(primary(), _limited(secondary()),
+                                    return_exceptions=True)
+    except Exception:  # noqa: BLE001 — панель не должна ронять основной путь
+        p, s = None, None
     if isinstance(p, Exception):
         logger.warning("🟠 PANEL: основная модель упала: %s", p)
         p = None

@@ -48,10 +48,18 @@ MIN_OUT_TOKENS = 1500
 MAX_OUT_TOKENS = 8000
 _K3_PREFIX = "kimi-k3"
 
+# Предохранитель: после серии сбоев Kimi замолкает на паузу. Иначе каждый
+# запрос снова платит полной цепочкой таймаутов (замер 06.11.2026: разбор кода
+# с тяжёлым рассуждением шёл 233 секунды через три модели). Панель в это время
+# выключена — см. available().
+FAILS_BEFORE_COOLDOWN = 3
+COOLDOWN_SECONDS = 300
+
 # Для статуса и логов: снаружи видно, сколько раз Kimi выручила и чем
 # кончилась последняя попытка. Причина отказа DeepSeek живёт в
 # ai_service.LAST_AI_FAIL, здесь — только состояние запасного двигателя.
-STATE = {"calls": 0, "ok": 0, "fail": 0, "last_error": "", "ts": 0.0, "model": ""}
+STATE = {"calls": 0, "ok": 0, "fail": 0, "last_error": "", "ts": 0.0,
+         "model": "", "fails_in_row": 0, "cool_until": 0.0}
 
 
 def api_key() -> str:
@@ -83,6 +91,31 @@ def model_chain() -> List[str]:
 
 def is_enabled() -> bool:
     return bool(api_key())
+
+
+def _fails_before_cooldown() -> int:
+    try:
+        return max(1, int(os.environ.get("MOONSHOT_FAILS_BEFORE_COOLDOWN")
+                          or FAILS_BEFORE_COOLDOWN))
+    except (TypeError, ValueError):
+        return FAILS_BEFORE_COOLDOWN
+
+
+def _cooldown_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("MOONSHOT_COOLDOWN")
+                              or COOLDOWN_SECONDS))
+    except (TypeError, ValueError):
+        return float(COOLDOWN_SECONDS)
+
+
+def available() -> bool:
+    """Сервис включён и не в паузе после серии сбоев.
+
+    Пауза нужна, чтобы при хроническом отказе Kimi каждый ответ Фреди не
+    проходил полную цепочку таймаутов и смену моделей.
+    """
+    return is_enabled() and time.time() >= float(STATE.get("cool_until") or 0.0)
 
 
 def status() -> dict:
@@ -203,19 +236,25 @@ async def _ask_one_model(url: str, headers: dict, system_prompt: str, user_promp
         return "", "Kimi(%s) ответила %s: %s" % (model_name, status_code, _snip(data)), status_code
 
     text, finish = extract_text(data)
-    if text:
+    if text and finish != "length":
         return text, "", 200
 
-    # Пусто при 200 — рассуждение съело бюджет. Один повтор с двойным бюджетом.
+    # Пусто или обрезано по бюджету: рассуждение съело лимит. Один повтор с
+    # двойным бюджетом. Обрезанный ответ — это не успех: половина фразы в
+    # сравнении и синтезе хуже, чем второй заход.
     bigger = min(int(body.get("max_tokens") or MIN_OUT_TOKENS) * 2, MAX_OUT_TOKENS * 2)
-    logger.warning("↻ KIMI(%s): пустой ответ (finish=%s), повтор с max_tokens=%d",
-                   model_name, finish or "?", bigger)
+    logger.warning("↻ KIMI(%s): %s (finish=%s), повтор с max_tokens=%d",
+                   model_name,
+                   "пустой ответ" if not text else "ответ обрезан по бюджету",
+                   finish or "?", bigger)
     body["max_tokens"] = bigger
     status_code, data = await _post(url, headers, body, timeout)
-    if status_code == 200:
-        text, finish = extract_text(data)
-        if text:
-            return text, "", 200
+    text2, finish2 = extract_text(data) if status_code == 200 else ("", "")
+    if text2 and finish2 != "length":
+        return text2, "", 200
+    if text2:
+        logger.warning("KIMI(%s): ответ всё равно обрезан — беру как есть", model_name)
+        return text2, "", 200
     return "", "Kimi(%s) вернула пустой ответ (finish=%s)" % (model_name, finish or "?"), status_code
 
 
@@ -232,30 +271,49 @@ async def ask(system_prompt: str, user_prompt: str,
     if not is_enabled():
         STATE["last_error"] = "нет ключа MOONSHOT_API_KEY"
         return None
+    if not available():
+        STATE["last_error"] = "пауза после серии сбоев"
+        return None
 
     STATE["calls"] += 1
-    STATE["ts"] = time.time()
+    now = time.time()
+    STATE["ts"] = now
+    # Сквозной дедлайн на весь вызов: без него три модели по два запроса с
+    # полным таймаутом держат ответ дольше любого разумного ожидания.
+    deadline = now + float(timeout or DEFAULT_TIMEOUT)
     url = f"{base_url()}/chat/completions"
     headers = {"Authorization": f"Bearer {api_key()}",
                "Content-Type": "application/json"}
     errors = []
     for model_name in model_chain():
+        remaining = deadline - time.time()
+        if remaining < 5:
+            errors.append("не хватило времени на следующую модель")
+            break
         text, err, code = await _ask_one_model(
             url, headers, system_prompt, user_prompt, max_tokens, temperature,
-            json_mode, timeout or DEFAULT_TIMEOUT, model_name)
+            json_mode, remaining, model_name)
         if text:
             STATE["ok"] += 1
             STATE["last_error"] = ""
             STATE["model"] = model_name
+            STATE["fails_in_row"] = 0
+            STATE["cool_until"] = 0.0
             logger.warning("🟣 KIMI_ANSWER: %d знаков, model=%s", len(text), model_name)
             return text
         errors.append(err)
         logger.warning("↩️ KIMI: %s", err)
-        # Ключ и баланс от смены модели не лечатся — дальше пробовать незачем.
-        if code in (401, 402):
+        # Ключ, баланс и лимит частоты от смены модели не лечатся — дальше
+        # пробовать незачем, только лишние вызовы.
+        if code in (401, 402, 429):
             break
 
     STATE["fail"] += 1
+    STATE["fails_in_row"] = int(STATE.get("fails_in_row") or 0) + 1
+    if STATE["fails_in_row"] >= _fails_before_cooldown():
+        STATE["cool_until"] = time.time() + _cooldown_seconds()
+        logger.error("⛔ KIMI: %d сбоев подряд — пауза %d с", STATE["fails_in_row"],
+                     int(_cooldown_seconds()))
     STATE["last_error"] = " | ".join(errors)[:300]
     logger.error("❌ KIMI: все модели не ответили: %s", STATE["last_error"])
     return None
