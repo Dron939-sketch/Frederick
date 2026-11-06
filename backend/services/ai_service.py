@@ -687,32 +687,40 @@ class AIService:
 
     async def kimi_call(self, system_prompt: str, user_prompt: str,
                         max_tokens: int = 1000, temperature: float = 0.7,
-                        json_mode: bool = False) -> Optional[str]:
+                        json_mode: bool = False, report: bool = True,
+                        timeout: Optional[float] = None) -> Optional[str]:
         """Ответ Kimi — второго двигателя.
 
         Вызывается из всех тупиков DeepSeek: нет ключа, 401/402/429/5xx,
         таймаут, пустой ответ. Если ключа Moonshot нет, возвращает None и
         поведение остаётся прежним (заглушка): второй двигатель не может
         ухудшить то, что и так не работало.
+
+        report=False — ответ запасной модели внутри панели. Он не означает
+        «DeepSeek не ответил», поэтому телеметрия (last_provider, LAST_AI_FAIL)
+        не перезаписывается: иначе статус врал бы, что основной двигатель упал.
         """
-        if not kimi_service.is_enabled():
+        if not kimi_service.available():
             return None
         text = await kimi_service.ask(system_prompt, user_prompt,
                                       max_tokens=max_tokens,
                                       temperature=temperature,
-                                      json_mode=json_mode)
+                                      json_mode=json_mode,
+                                      timeout=timeout)
         if text:
-            self.last_provider = "kimi"
-            LAST_AI_FAIL["last_provider"] = "kimi"
-            logger.warning("🟣 KIMI_FALLBACK: DeepSeek не ответил, ответила Kimi "
-                           "(%d знаков, model=%s)", len(text), kimi_service.model())
+            if report:
+                self.last_provider = "kimi"
+                LAST_AI_FAIL["last_provider"] = "kimi"
+                logger.warning("🟣 KIMI_FALLBACK: DeepSeek не ответил, ответила Kimi "
+                               "(%d знаков, model=%s)", len(text), kimi_service.model())
             return text
-        self.last_provider = "deepseek"
-        LAST_AI_FAIL["last_provider"] = "deepseek"
-        _kimi_err = kimi_service.STATE.get("last_error")
-        if _kimi_err:
-            self.last_error = ((self.last_error + " | Kimi: " + _kimi_err)
-                               .strip(" |")[:300])
+        if report:
+            self.last_provider = "deepseek"
+            LAST_AI_FAIL["last_provider"] = "deepseek"
+            _kimi_err = kimi_service.STATE.get("last_error")
+            if _kimi_err:
+                self.last_error = ((self.last_error + " | Kimi: " + _kimi_err)
+                                   .strip(" |")[:300])
         return None
 
     def _deepseek_healthy(self) -> bool:
@@ -733,7 +741,7 @@ class AIService:
         DeepSeek синтезировать некому. Быстрый входной чат (basic) в панель по
         умолчанию не входит — там второй ответ не стоит добавленного ожидания.
         """
-        return bool(self.api_key) and kimi_service.is_enabled() \
+        return bool(self.api_key) and kimi_service.available() \
             and self._deepseek_healthy() and panel_service.mode_applies(mode)
 
     async def _panel_answer(self, system_prompt: str, user_prompt: str,
@@ -750,12 +758,15 @@ class AIService:
 
         # Второе мнение получает приписку «коротко, 4-6 предложений» и урезанный
         # бюджет: полный второй ответ дороже по времени и бесполезен для синтеза.
+        # report=False: это не отказ DeepSeek, а параллельный совет.
         _secondary_system = (system_prompt or "") + panel_service.SECONDARY_ADDON
         _secondary_tokens = panel_service.secondary_tokens(max_tokens)
 
         async def _secondary():
             return await self.kimi_call(_secondary_system, user_prompt,
-                                        _secondary_tokens, temperature)
+                                        _secondary_tokens, temperature,
+                                        report=False,
+                                        timeout=panel_service.secondary_timeout())
 
         async def _synthesize(synth_system: str, synth_user: str):
             return await self._call_deepseek(synth_system, synth_user, max_tokens,
