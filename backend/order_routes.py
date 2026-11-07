@@ -608,6 +608,11 @@ def register_order_routes(app, db, limiter):
             """)
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS shop_orders_yk_idx ON shop_orders (yookassa_id)")
+            # Возврат брошенных оплат (08.11.2026): отметка, что письмо-напоминание ушло,
+            # чтобы одному человеку не писать дважды.
+            await conn.execute(
+                "ALTER TABLE shop_orders "
+                "ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ")
         logger.info("Shop orders table ready")
 
     async def _fetch_payment(yookassa_id: str):
@@ -1007,5 +1012,87 @@ def register_order_routes(app, db, limiter):
         if not row["yookassa_id"]:
             return {"success": True, "paid": False, "status": row["status"]}
         return await _mark_paid(row["yookassa_id"])
+
+    @app.post("/api/admin/shop/remind-unpaid")
+    async def remind_unpaid(request: Request):
+        """Возврат брошенных оплат: письмо со ссылкой на завершение платежа.
+
+        Зачем: по данным ЮKassa за 90 дней 32 платежа из 96 отменены с причиной
+        `expired_on_confirmation` — человек открыл оплату и не подтвердил. Это не отказ
+        банка, а брошенная корзина; письмо возвращает часть таких людей к оплате.
+
+        По умолчанию dry-run: считает кандидатов и показывает, кому уйдёт письмо,
+        ничего не отправляя. Отправка — только с {"send": true}.
+        """
+        _check_admin(request.headers.get("X-Admin-Token"))
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        send = bool(data.get("send"))
+        try:
+            hours = max(1, min(int(data.get("hours") or 72), 24 * 14))
+        except (TypeError, ValueError):
+            hours = 72
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT order_no, product, amount, fio, email, yookassa_id, created_at
+                  FROM shop_orders
+                 WHERE status = 'pending' AND yookassa_id IS NOT NULL
+                   AND reminder_sent_at IS NULL
+                   AND created_at > NOW() - ($1::int * INTERVAL '1 hour')
+                   AND created_at < NOW() - INTERVAL '30 minutes'
+                 ORDER BY created_at DESC
+                 LIMIT 100
+            """, hours)
+        service = _email_service()
+        can_send = service is not None and getattr(service, "enabled", False)
+        candidates, sent, skipped = [], [], []
+        for r in rows:
+            pay = await _fetch_payment(r["yookassa_id"])
+            url = ((pay or {}).get("confirmation") or {}).get("confirmation_url")
+            status = (pay or {}).get("status")
+            if status != "pending" or not url:
+                skipped.append({"order_no": r["order_no"], "status": status})
+                continue
+            prod = PRODUCTS.get(r["product"] or "") or {}
+            title = prod.get("title") or "заказ"
+            amount = int(round(float(r["amount"])))
+            name = (r["fio"] or "").strip()
+            hello = f"Здравствуйте, {name}!" if name else "Здравствуйте!"
+            subject = f"Заказ {r['order_no']}: оплата не завершилась"
+            body = (
+                f"{hello}\n\n"
+                f"Вы начали оформлять {title} на meysternlp.ru, но оплата не завершилась — "
+                f"платёж остался неподтверждённым, деньги не списаны.\n\n"
+                f"Номер заказа: {r['order_no']}\n"
+                f"Сумма: {amount} ₽\n\n"
+                f"Если хотите закончить оформление — ссылка на оплату:\n{url}\n\n"
+                f"Ссылка действует, пока платёж не истечёт. Если передумали или что-то "
+                f"смутило — просто ответьте на это письмо, я отвечу и всё отменю. "
+                f"Больше напоминать не буду.\n\n"
+                f"Андрей Мейстер\nmeysternlp.ru"
+            )
+            candidates.append({"order_no": r["order_no"],
+                               "email": (r["email"] or "")[:3] + "***",
+                               "amount": amount})
+            if not send:
+                continue
+            ok = False
+            if can_send:
+                try:
+                    ok = await service.send(r["email"], subject, body)
+                except Exception as e:
+                    logger.error(f"remind-unpaid: send failed for {r['order_no']}: {e}")
+            if ok:
+                async with db.get_connection() as conn:
+                    await conn.execute(
+                        "UPDATE shop_orders SET reminder_sent_at = NOW() WHERE order_no = $1",
+                        r["order_no"])
+                sent.append(r["order_no"])
+            else:
+                skipped.append({"order_no": r["order_no"], "status": "email_failed"})
+        return {"success": True, "dry": not send, "smtp": can_send, "window_hours": hours,
+                "found": len(rows), "candidates": candidates, "sent": sent, "skipped": skipped}
 
     return init_orders_table
