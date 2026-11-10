@@ -1674,15 +1674,17 @@ def register_blog_tts_routes(app, limiter):
         return JSONResponse({"status": _start_single(slug, force=force)}, status_code=202)
 
     @app.post("/api/tts/blog/{slug}/upload")
-    @limiter.limit("240/minute")
+    @limiter.limit("600/minute")
     async def blog_tts_upload(request: Request, slug: str):
-        """Загрузить готовый mp3 в кэш озвучки (админ).
+        """Загрузить готовый mp3 в кэш озвучки (админ), кусками.
 
         Защита: заголовок X-Admin-Token = env ADMIN_TOKEN.
-        Тело — бинарный mp3. ?force=1 — перезаписать существующий.
-        Нужен, чтобы восстановить озвучку из резервной копии, не платя
-        Fish за повторный синтез: файлы уже есть, генерировать их заново
-        дорого и долго.
+        Тело — бинарный кусок mp3. Параметры:
+          ?offset=0   — смещение куска в файле (0 — начало новой загрузки);
+          ?final=1    — последний кусок, собрать и сохранить;
+          ?force=1    — перезаписать существующий.
+        Куски по 2 МБ: прокси Amvera обрывает запросы больше ~4 МБ, поэтому
+        одним куском большие лекции не залить.
         """
         expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
         if not expected:
@@ -1693,29 +1695,56 @@ def register_blog_tts_routes(app, limiter):
         if not SLUG_RE.match(slug or ""):
             return JSONResponse({"error": "bad slug"}, status_code=400)
         data = await request.body()
-        if not data or len(data) < 1000:
+        if not data:
             return JSONResponse({"error": "empty body"}, status_code=400)
-        is_mp3 = data.startswith(b"ID3") or (data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
-        if not is_mp3:
-            return JSONResponse({"error": "not an mp3"}, status_code=400)
-        force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
-        path = os.path.join(TTS_DIR, f"{slug}.mp3")
-        if _cache_ok(slug) and not force:
-            return {"status": "exists", "slug": slug, "size": os.path.getsize(path)}
-        os.makedirs(TTS_DIR, exist_ok=True)
-        tmp = path + ".up"
+        qp = request.query_params
         try:
-            with open(tmp, "wb") as f:
-                f.write(data)
+            offset = int(qp.get("offset") or 0)
+        except Exception:
+            return JSONResponse({"error": "bad offset"}, status_code=400)
+        final = (qp.get("final") or "").strip().lower() in ("1", "true", "yes")
+        force = (qp.get("force") or "").strip().lower() in ("1", "true", "yes")
+        path = os.path.join(TTS_DIR, f"{slug}.mp3")
+        tmp = path + ".part"
+        os.makedirs(TTS_DIR, exist_ok=True)
+        try:
+            if offset == 0:
+                if _cache_ok(slug) and not force:
+                    return {"status": "exists", "slug": slug,
+                            "size": os.path.getsize(path)}
+                is_mp3 = data.startswith(b"ID3") or (data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
+                if not is_mp3:
+                    return JSONResponse({"error": "not an mp3"}, status_code=400)
+                with open(tmp, "wb") as f:
+                    f.write(data)
+            else:
+                if not os.path.exists(tmp):
+                    return JSONResponse({"error": "no upload in progress"}, status_code=409)
+                cur = os.path.getsize(tmp)
+                if cur != offset:
+                    return JSONResponse({"error": "offset mismatch", "expected": cur},
+                                        status_code=409)
+                with open(tmp, "ab") as f:
+                    f.write(data)
+        except Exception as e:
+            logger.warning(f"blog-tts {slug}: кусок не записан: {e}")
+            return JSONResponse({"error": "write failed"}, status_code=500)
+        if not final:
+            return {"status": "chunk", "slug": slug,
+                    "offset": os.path.getsize(tmp), "received": len(data)}
+        size = os.path.getsize(tmp)
+        if size < 1000:
+            return JSONResponse({"error": "too small"}, status_code=400)
+        try:
             os.replace(tmp, path)
             with open(_meta_path(slug), "w", encoding="utf-8") as mf:
                 json.dump({"ts": time.time(), "provider": "upload",
-                           "voice": "fish", "size": len(data)}, mf)
+                           "voice": "fish", "size": size}, mf)
         except Exception as e:
-            logger.warning(f"blog-tts {slug}: загрузка не удалась: {e}")
-            return JSONResponse({"error": "write failed"}, status_code=500)
-        logger.info(f"blog-tts {slug}: mp3 загружен админом ({len(data)} байт)")
-        return {"status": "saved", "slug": slug, "size": len(data)}
+            logger.warning(f"blog-tts {slug}: сборка не удалась: {e}")
+            return JSONResponse({"error": "finalize failed"}, status_code=500)
+        logger.info(f"blog-tts {slug}: mp3 загружен админом ({size} байт)")
+        return {"status": "saved", "slug": slug, "size": size}
 
     @app.post("/api/tts/blog/pregenerate/stop")
     @limiter.limit("10/minute")
