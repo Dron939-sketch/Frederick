@@ -1673,6 +1673,50 @@ def register_blog_tts_routes(app, limiter):
             return {"status": "ready"}
         return JSONResponse({"status": _start_single(slug, force=force)}, status_code=202)
 
+    @app.post("/api/tts/blog/{slug}/upload")
+    @limiter.limit("240/minute")
+    async def blog_tts_upload(request: Request, slug: str):
+        """Загрузить готовый mp3 в кэш озвучки (админ).
+
+        Защита: заголовок X-Admin-Token = env ADMIN_TOKEN.
+        Тело — бинарный mp3. ?force=1 — перезаписать существующий.
+        Нужен, чтобы восстановить озвучку из резервной копии, не платя
+        Fish за повторный синтез: файлы уже есть, генерировать их заново
+        дорого и долго.
+        """
+        expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+        if not expected:
+            return JSONResponse({"error": "admin disabled",
+                                 "message": "Задайте ADMIN_TOKEN в env"}, status_code=503)
+        if (request.headers.get("X-Admin-Token") or "").strip() != expected:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        if not SLUG_RE.match(slug or ""):
+            return JSONResponse({"error": "bad slug"}, status_code=400)
+        data = await request.body()
+        if not data or len(data) < 1000:
+            return JSONResponse({"error": "empty body"}, status_code=400)
+        is_mp3 = data.startswith(b"ID3") or (data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
+        if not is_mp3:
+            return JSONResponse({"error": "not an mp3"}, status_code=400)
+        force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
+        path = os.path.join(TTS_DIR, f"{slug}.mp3")
+        if _cache_ok(slug) and not force:
+            return {"status": "exists", "slug": slug, "size": os.path.getsize(path)}
+        os.makedirs(TTS_DIR, exist_ok=True)
+        tmp = path + ".up"
+        try:
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+            with open(_meta_path(slug), "w", encoding="utf-8") as mf:
+                json.dump({"ts": time.time(), "provider": "upload",
+                           "voice": "fish", "size": len(data)}, mf)
+        except Exception as e:
+            logger.warning(f"blog-tts {slug}: загрузка не удалась: {e}")
+            return JSONResponse({"error": "write failed"}, status_code=500)
+        logger.info(f"blog-tts {slug}: mp3 загружен админом ({len(data)} байт)")
+        return {"status": "saved", "slug": slug, "size": len(data)}
+
     @app.post("/api/tts/blog/pregenerate/stop")
     @limiter.limit("10/minute")
     async def blog_tts_pregenerate_stop(request: Request):

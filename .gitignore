@@ -30,3 +30,7 @@ audio/
 # Database
 *.db
 *.sqlite
+
+# Озвучка лекций и артефакты тестов — в git не нужны (6+ ГБ)
+backend/data/tts_blog/
+backend/pytest-of-*/
