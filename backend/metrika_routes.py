@@ -34,6 +34,12 @@ METRIKA_TOKEN = (os.getenv("YANDEX_METRIKA_TOKEN")
 METRIKA_COUNTER = (os.getenv("YANDEX_METRIKA_COUNTER")
                    or os.getenv("METRIKA_COUNTER_ID")
                    or "108138656").strip()
+# У Фреди свой счётчик: приложение живёт отдельно от сайта, и счётчик сайта
+# его не видит. Поэтому раздел «Фреди» считается по своему счётчику, иначе
+# в отчёте всегда ноль, хотя люди в приложении есть.
+FREDI_COUNTER = (os.getenv("YANDEX_METRIKA_FREDI_COUNTER")
+                 or os.getenv("METRIKA_FREDI_COUNTER_ID")
+                 or "108965607").strip()
 METRIKA_API = "https://api-metrika.yandex.net/stat/v1/data/bytime"
 # Что считаем «курсами»: страницы Лектория и сами лекции.
 LEKTORIJ_FILTER = "ym:s:startURL=@'/blog/lektorij/' OR ym:s:startURL=@'/blog/lekciya-'"
@@ -140,10 +146,11 @@ SECTIONS["chat"] = "ym:s:startURL=@'/chat/' OR " + FREDI_FILTER
 TRAFFIC_API = "https://api-metrika.yandex.net/stat/v1/data"
 
 
-async def _daily(client: httpx.AsyncClient, days: int, filt: str = "") -> dict:
+async def _daily(client: httpx.AsyncClient, days: int, filt: str = "",
+                 counter: str = "") -> dict:
     """{дата: (визиты, посетители)} за последние days дней."""
     params = {
-        "ids": METRIKA_COUNTER,
+        "ids": counter or METRIKA_COUNTER,
         "metrics": "ym:s:visits,ym:s:users",
         "dimensions": "ym:s:date",
         "date1": "%ddaysAgo" % days,
@@ -191,7 +198,7 @@ def register_metrika_routes(app, limiter):
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT * 3) as client:
                 site = await _daily(client, days)
                 lektorij = await _daily(client, days, LEKTORIJ_FILTER)
-                fredi = await _daily(client, days, FREDI_FILTER)
+                fredi = await _daily(client, days, "", FREDI_COUNTER)
         except Exception as e:
             logger.warning("metrika traffic failed: %s", e)
             return {"enabled": True, "error": str(e)[:200]}
