@@ -143,12 +143,59 @@ DEFAULT_FOLLOWUP = (
 
 MESSAGE_MAX_LEN = 480
 
+# ── Fish Audio: голоса и настройки агента ────────────────────────────
+# Голоса берём из библиотеки Fish, а не из списка в коде: там же лежат
+# готовые mp3-примерцы, поэтому прослушать голос можно до заказа звонка.
+FISH_API = "https://api.fish.audio"
+VOICES_TTL_SECONDS = 600
+_voices_cache = {"key": "", "ts": 0.0, "data": None}
+
+# Что из конфига агента разрешаем менять из интерфейса. Остальное трогать
+# не даём: телефония, ASR и лимиты длительности настраиваются отдельно.
+AGENT_EDITABLE = ("first_message", "system_prompt", "voice_id",
+                  "speaking_language", "speed", "interruptible")
+
 
 def _by_id(items, item_id):
     for item in items:
         if item["id"] == item_id:
             return item
     return None
+
+
+# ── обращения к Fish Audio ──────────────────────────────────────────
+
+def _fish_key() -> str:
+    key = (os.environ.get("FISH_AUDIO_API_KEY") or "").strip()
+    if not key:
+        raise HTTPException(503, "нет FISH_AUDIO_API_KEY в настройках сервера")
+    return key
+
+
+def _fish_agent_id() -> str:
+    agent = (os.environ.get("FISH_AGENT_ID") or "").strip()
+    if not agent:
+        raise HTTPException(503, "нет FISH_AGENT_ID в настройках сервера")
+    return agent
+
+
+def _fish_json(method: str, path: str, payload=None, params=None):
+    """Запрос к Fish. Ошибки превращаем в понятные, без утечки ключа."""
+    import requests
+
+    try:
+        resp = requests.request(
+            method, FISH_API + path, json=payload, params=params, timeout=25,
+            headers={"Authorization": "Bearer " + _fish_key(),
+                     "Content-Type": "application/json"})
+    except Exception as exc:
+        raise HTTPException(502, "Fish недоступен: %s" % type(exc).__name__)
+    if resp.status_code >= 400:
+        raise HTTPException(502, "Fish ответил %s" % resp.status_code)
+    try:
+        return resp.json()
+    except ValueError:
+        raise HTTPException(502, "Fish вернул не JSON")
 
 
 # ── телефон и скрипт ────────────────────────────────────────────────
@@ -237,6 +284,16 @@ class ParseIn(BaseModel):
     city: str = ""
     topic: str = ""
     limit: int = 50
+
+
+class AgentPatchIn(BaseModel):
+    """Что интерфейсу разрешено менять в агенте Fish."""
+    first_message: str = ""
+    system_prompt: str = ""
+    voice_id: str = ""
+    speaking_language: str = ""
+    speed: float = 0
+    interruptible: Optional[bool] = None
 
 
 def register_callbot_routes(app, db, limiter=None):
@@ -487,6 +544,92 @@ def register_callbot_routes(app, db, limiter=None):
                 ORDER BY id DESC LIMIT $2
             """, campaign_id, max(1, min(limit, 500)))
         return {"messages": [dict(r) for r in rows]}
+
+    @router.get("/voices")
+    async def voices(language: str = "ru", q: str = "", limit: int = 12):
+        """Голоса из библиотеки Fish с готовыми примерами.
+
+        Ответ кэшируется на 10 минут: каталог большой, а меняется редко.
+        """
+        import time
+        size = max(1, min(limit, 40))
+        cache_key = "%s|%s|%s" % (language, q, size)
+        now = time.time()
+        if (_voices_cache["data"] and _voices_cache["key"] == cache_key
+                and now - _voices_cache["ts"] < VOICES_TTL_SECONDS):
+            return _voices_cache["data"]
+
+        params = {"page_size": size, "language": language or "ru"}
+        if q.strip():
+            params["title"] = q.strip()
+        data = _fish_json("GET", "/model", params=params)
+        items = []
+        for model in data.get("items") or []:
+            samples = model.get("samples") or []
+            items.append({
+                "id": model.get("_id", ""),
+                "title": model.get("title", ""),
+                "description": (model.get("description") or "")[:160],
+                "tags": (model.get("tags") or [])[:6],
+                "languages": model.get("languages") or [],
+                "sample": samples[0].get("audio", "") if samples else "",
+            })
+        result = {"voices": items, "total": data.get("total"), "language": language}
+        _voices_cache.update({"key": cache_key, "ts": now, "data": result})
+        return result
+
+    @router.get("/agent")
+    async def agent_config():
+        """Текущие настройки агента: то, что реально звучит в трубке."""
+        config = _fish_json("GET", "/v1/agent/agents/%s/config" % _fish_agent_id())
+        info = _fish_json("GET", "/v1/agent/agents/%s" % _fish_agent_id())
+        prompt = config.get("prompt") or {}
+        voice = config.get("voice") or {}
+        asr = config.get("asr") or {}
+        conv = config.get("conversation") or {}
+        return {
+            "agent_id": _fish_agent_id(),
+            "name": info.get("name", ""),
+            "publication_state": info.get("publication_state", ""),
+            "first_message": prompt.get("first_message", ""),
+            "system_prompt": prompt.get("system_prompt", ""),
+            "voice_id": voice.get("voice_id", ""),
+            "speaking_language": voice.get("speaking_language", ""),
+            "speed": voice.get("speed", 1.0),
+            "tts_model": voice.get("tts_model", ""),
+            "asr_model": asr.get("model", ""),
+            "interruptible": conv.get("interruptible"),
+            "max_duration_seconds": conv.get("max_duration_seconds"),
+            "hangup_after_seconds": conv.get("hangup_after_seconds"),
+            "record_audio": conv.get("record_audio"),
+        }
+
+    @router.patch("/agent")
+    async def agent_update(payload: AgentPatchIn):
+        """Меняет голос, первое сообщение и промпт; сразу публикует."""
+        prompt, voice = {}, {}
+        if payload.first_message.strip():
+            prompt["first_message"] = payload.first_message.strip()
+        if payload.system_prompt.strip():
+            prompt["system_prompt"] = payload.system_prompt.strip()
+        if payload.voice_id.strip():
+            voice["voice_id"] = payload.voice_id.strip()
+        if payload.speaking_language.strip():
+            voice["speaking_language"] = payload.speaking_language.strip()
+        if payload.speed:
+            voice["speed"] = max(0.5, min(2.0, float(payload.speed)))
+        patch = {}
+        if prompt:
+            patch["prompt"] = prompt
+        if voice:
+            patch["voice"] = voice
+        if payload.interruptible is not None:
+            patch["conversation"] = {"interruptible": payload.interruptible}
+        if not patch:
+            raise HTTPException(400, "Нечего менять")
+        _fish_json("PATCH", "/v1/agent/agents/%s/config" % _fish_agent_id(), patch)
+        published = _fish_json("POST", "/v1/agent/agents/%s/publish" % _fish_agent_id())
+        return {"ok": True, "version_number": published.get("version_number")}
 
     app.include_router(router)
     return router, init_tables
