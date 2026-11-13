@@ -455,6 +455,10 @@ async def lifespan(app: FastAPI):
         await _init_test()
         from blog_tts_routes import register_blog_tts_routes
         register_blog_tts_routes(app, limiter)
+        # Робот-обзвонщик «Перекличка»: кампании, контакты, поиск клиентов.
+        from callbot_routes import register_callbot_routes
+        _callbot_router, _init_callbot = register_callbot_routes(app, db, limiter)
+        await _init_callbot()
         # Замок Лектория: лекции 2–10 новых курсов — по подписке.
         from lektorij_lock import register_lektorij_lock_routes
         register_lektorij_lock_routes(app, limiter)
