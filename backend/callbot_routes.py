@@ -123,6 +123,30 @@ REGIONS = [
 
 MAX_CONTACTS_PER_CAMPAIGN = 5000
 
+# Куда отправить сообщение после звонка. Часть каналов требует того, чего по
+# одному номеру не хватает: Telegram и MAX пишут только по chat_id (человек
+# должен сначала сам написать боту), почта — по адресу. По номеру телефона
+# работает только SMS, а для него нужен шлюз.
+MESSAGE_CHANNELS = [
+    {"id": "sms", "title": "SMS по номеру", "needs": "SMS_GATEWAY_URL, SMS_API_KEY",
+     "note": "единственный канал, который работает по одному телефону"},
+    {"id": "telegram", "title": "Telegram", "needs": "TELEGRAM_BOT_TOKEN, chat_id",
+     "note": "только тем, кто уже писал боту"},
+    {"id": "max", "title": "MAX", "needs": "MAX_TOKEN, chat_id",
+     "note": "только тем, кто уже писал боту"},
+    {"id": "email", "title": "Почта", "needs": "SMTP_HOST, SMTP_USER, SMTP_PASSWORD",
+     "note": "по адресу, если он есть в контакте"},
+    {"id": "manual", "title": "Только сохранить текст", "needs": "",
+     "note": "текст ляжет в журнал, отправите сами"},
+]
+
+DEFAULT_FOLLOWUP = (
+    "Здравствуйте, {имя}! Спасибо за разговор. "
+    "Наш сайт: {ссылка}. Если появятся вопросы — ответьте на это сообщение."
+)
+
+MESSAGE_MAX_LEN = 480
+
 
 def _by_id(items, item_id):
     for item in items:
@@ -193,6 +217,20 @@ class CampaignIn(BaseModel):
     voice_id: str = ""
     city: str = ""
     user_id: int = 0
+    # Сообщение после звонка: канал, текст и ссылка на сайт
+    followup_channel: str = "manual"
+    followup_text: str = ""
+    site_link: str = ""
+
+
+class SendMessageIn(BaseModel):
+    phone: str
+    name: str = ""
+    campaign_id: int = 0
+    channel: str = ""
+    text: str = ""
+    chat_id: str = ""
+    email: str = ""
 
 
 class NumbersIn(BaseModel):
@@ -244,12 +282,40 @@ def register_callbot_routes(app, db, limiter=None):
                 "CREATE INDEX IF NOT EXISTS idx_callbot_contacts_campaign "
                 "ON callbot_contacts(campaign_id)"
             )
+            # Колонки сообщения после звонка — добавляем к уже созданной таблице.
+            await conn.execute(
+                "ALTER TABLE callbot_campaigns "
+                "ADD COLUMN IF NOT EXISTS followup_channel TEXT DEFAULT 'manual'")
+            await conn.execute(
+                "ALTER TABLE callbot_campaigns "
+                "ADD COLUMN IF NOT EXISTS followup_text TEXT DEFAULT ''")
+            await conn.execute(
+                "ALTER TABLE callbot_campaigns "
+                "ADD COLUMN IF NOT EXISTS site_link TEXT DEFAULT ''")
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS callbot_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    campaign_id BIGINT,
+                    phone TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    error TEXT DEFAULT '',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_callbot_messages_campaign "
+                "ON callbot_messages(campaign_id, created_at DESC)"
+            )
 
 
     @router.get("/catalog")
     async def catalog():
         return {"directions": DIRECTIONS, "target_actions": TARGET_ACTIONS,
-                "voices": VOICES, "sources": SOURCES, "regions": REGIONS}
+                "voices": VOICES, "sources": SOURCES, "regions": REGIONS,
+                "message_channels": MESSAGE_CHANNELS,
+                "default_followup": DEFAULT_FOLLOWUP}
 
     @router.get("/campaigns")
     async def list_campaigns(user_id: int = 0, limit: int = 50):
@@ -271,17 +337,26 @@ def register_callbot_routes(app, db, limiter=None):
         action = _by_id(TARGET_ACTIONS, payload.action_id)
         if not direction or not action:
             raise HTTPException(400, "Неизвестное направление или целевое действие")
+        channel = _by_id(MESSAGE_CHANNELS, payload.followup_channel or "manual")
+        if not channel:
+            raise HTTPException(400, "Неизвестный канал сообщения")
         name = (payload.name or "%s — %s" % (direction["title"], action["title"])).strip()
+        followup = (payload.followup_text or DEFAULT_FOLLOWUP).strip()
         script = build_script(direction, action, payload.city)
+        script += ("\n\nПосле разговора отправить сообщение (%s): «%s»"
+                   % (channel["title"], followup))
         async with db.get_connection() as conn:
             row = await conn.fetchrow("""
                 INSERT INTO callbot_campaigns
-                    (user_id, name, direction_id, action_id, voice_id, city, script)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    (user_id, name, direction_id, action_id, voice_id, city, script,
+                     followup_channel, followup_text, site_link)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 RETURNING id
             """, payload.user_id, name, payload.direction_id, payload.action_id,
-                payload.voice_id, payload.city, script)
-        return {"id": row["id"], "name": name, "script": script}
+                payload.voice_id, payload.city, script, channel["id"], followup,
+                payload.site_link)
+        return {"id": row["id"], "name": name, "script": script,
+                "followup_channel": channel["id"], "followup_text": followup}
 
     @router.get("/campaigns/{campaign_id}")
     async def get_campaign(campaign_id: int):
@@ -378,8 +453,157 @@ def register_callbot_routes(app, db, limiter=None):
                           "limit": payload.limit},
                 "found": len(found), "items": found}
 
+    @router.post("/send-message")
+    async def send_message(payload: SendMessageIn):
+        """Сообщение после звонка: контакт, ссылка на сайт или дата.
+
+        Канал берётся из кампании, если не указан явно. Отправка идёт тем,
+        что настроено на сервере; если канала нет — текст всё равно ложится
+        в журнал со статусом need_setup, его можно отправить вручную.
+        """
+        phone = normalize_phone(payload.phone)
+        if not phone:
+            raise HTTPException(400, "Телефон не разобрали")
+
+        channel_id, text, site_link = payload.channel, payload.text, ""
+        campaign_id = payload.campaign_id
+        if campaign_id:
+            async with db.get_connection() as conn:
+                camp = await conn.fetchrow(
+                    "SELECT followup_channel, followup_text, site_link "
+                    "FROM callbot_campaigns WHERE id = $1", campaign_id)
+            if camp:
+                channel_id = channel_id or camp["followup_channel"] or "manual"
+                text = text or camp["followup_text"] or ""
+                site_link = camp["site_link"] or ""
+
+        channel = _by_id(MESSAGE_CHANNELS, channel_id or "manual") or MESSAGE_CHANNELS[-1]
+        body = _render_message(text or DEFAULT_FOLLOWUP, payload.name, site_link)
+
+        status, error = await _deliver_message(channel["id"], body, phone,
+                                               payload.chat_id, payload.email)
+        async with db.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO callbot_messages (campaign_id, phone, channel, text, status, error)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            """, campaign_id or None, phone, channel["id"], body, status, error)
+        return {"phone": phone, "channel": channel["id"], "text": body,
+                "status": status, "error": error}
+
+    @router.get("/campaigns/{campaign_id}/messages")
+    async def campaign_messages(campaign_id: int, limit: int = 100):
+        async with db.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT phone, channel, text, status, error, created_at
+                FROM callbot_messages WHERE campaign_id = $1
+                ORDER BY id DESC LIMIT $2
+            """, campaign_id, max(1, min(limit, 500)))
+        return {"messages": [dict(r) for r in rows]}
+
     app.include_router(router)
     return router, init_tables
+
+
+def _render_message(template: str, name: str, site_link: str) -> str:
+    """Подставляет имя и ссылку, обрезает длинное — шлюзы режут сами.
+
+    Если имени нет, запятая перед ним убирается; если нет ссылки — из текста
+    уходит предложение с ней, чтобы не осталось «Наш сайт: .».
+    """
+    text = (template or DEFAULT_FOLLOWUP)
+    clean_name = (name or "").strip()
+    if clean_name:
+        text = text.replace("{имя}", clean_name)
+    else:
+        text = text.replace(", {имя}", "").replace("{имя}", "")
+
+    link = (site_link or "").strip()
+    if link:
+        text = text.replace("{ссылка}", link)
+    else:
+        text = re.sub(r"[^.!?]*\{ссылка\}[^.!?]*[.!?]?\s*", "", text)
+
+    text = re.sub(r"\s*[,:]\s*([.!?])", r"\1", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    if len(text) > MESSAGE_MAX_LEN:
+        text = text[:MESSAGE_MAX_LEN - 1].rstrip() + "…"
+    return text
+
+
+async def _deliver_message(channel_id: str, text: str, phone: str,
+                           chat_id: str, email: str):
+    """Отправка по каналу. Возврат (статус, текст ошибки).
+
+    statuses: sent — ушло, need_setup — канал не настроен (текст в журнале),
+    no_target — нет chat_id/почты, failed — шлюз отказал.
+    """
+    import requests
+
+    if channel_id == "manual":
+        return "need_setup", "канал «только сохранить» — отправьте вручную"
+
+    if channel_id == "sms":
+        url = (os.environ.get("SMS_GATEWAY_URL") or "").strip()
+        key = (os.environ.get("SMS_API_KEY") or "").strip()
+        if not url or not key:
+            return "need_setup", "нет SMS_GATEWAY_URL или SMS_API_KEY"
+        try:
+            resp = requests.post(url, json={"to": phone, "text": text},
+                                 headers={"Authorization": "Bearer " + key}, timeout=20)
+            if resp.status_code >= 400:
+                return "failed", "шлюз ответил %s" % resp.status_code
+            return "sent", ""
+        except Exception as exc:  # сеть, таймаут — сообщение остаётся в журнале
+            return "failed", type(exc).__name__
+
+    if channel_id == "telegram":
+        token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+        if not token:
+            return "need_setup", "нет TELEGRAM_BOT_TOKEN"
+        if not chat_id:
+            return "no_target", "нет chat_id: человек должен сначала написать боту"
+        resp = requests.post(
+            "https://api.telegram.org/bot%s/sendMessage" % token,
+            json={"chat_id": chat_id, "text": text}, timeout=20)
+        return ("sent", "") if resp.status_code < 400 else ("failed", resp.text[:120])
+
+    if channel_id == "max":
+        token = (os.environ.get("MAX_TOKEN") or "").strip()
+        if not token:
+            return "need_setup", "нет MAX_TOKEN"
+        if not chat_id:
+            return "no_target", "нет chat_id"
+        resp = requests.post("https://platform-api.max.ru/messages",
+                             params={"chat_id": chat_id},
+                             headers={"Authorization": token},
+                             json={"text": text}, timeout=20)
+        return ("sent", "") if resp.status_code < 400 else ("failed", resp.text[:120])
+
+    if channel_id == "email":
+        host = (os.environ.get("SMTP_HOST") or "").strip()
+        user = (os.environ.get("SMTP_USER") or "").strip()
+        password = (os.environ.get("SMTP_PASSWORD") or "").strip()
+        if not host or not user or not password:
+            return "need_setup", "нет SMTP_HOST/SMTP_USER/SMTP_PASSWORD"
+        if not email:
+            return "no_target", "нет адреса почты"
+        import smtplib
+        from email.message import EmailMessage
+        message = EmailMessage()
+        message["From"] = user
+        message["To"] = email
+        message["Subject"] = "По вашему обращению"
+        message.set_content(text)
+        try:
+            port = int(os.environ.get("SMTP_PORT") or 465)
+            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+                smtp.login(user, password)
+                smtp.send_message(message)
+            return "sent", ""
+        except Exception as exc:
+            return "failed", type(exc).__name__
+
+    return "need_setup", "неизвестный канал"
 
 
 async def _search_organizations(source_id: str, topic: str, city: str, limit: int):
