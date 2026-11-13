@@ -587,7 +587,18 @@ def register_callbot_routes(app, db, limiter=None):
         voice = config.get("voice") or {}
         asr = config.get("asr") or {}
         conv = config.get("conversation") or {}
+        numbers = []
+        try:
+            phone_data = _fish_json("GET", "/v1/agent/phone-numbers")
+            numbers = [{"phone": n.get("phone_number", ""),
+                        "status": n.get("status", ""),
+                        "label": n.get("label", "")}
+                       for n in (phone_data.get("phone_numbers") or [])]
+        except HTTPException:
+            numbers = []
         return {
+            "numbers": numbers,
+            "sms_ready": bool((os.environ.get("SMSRU_API_ID") or "").strip()),
             "agent_id": _fish_agent_id(),
             "name": info.get("name", ""),
             "publication_state": info.get("publication_state", ""),
