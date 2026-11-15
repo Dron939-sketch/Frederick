@@ -126,6 +126,7 @@ class ConfinementModel9:
         # Метаданные для построения
         self.source_scores = {}  # исходные баллы
         self.source_history = []  # исходная история
+        self.canon_validation = None  # результат проверки по канону
     
     def build_from_profile(self, scores: dict, history: list = None) -> 'ConfinementModel9':
         """
@@ -161,6 +162,7 @@ class ConfinementModel9:
             
             # Шаг 7: Проверяем и валидируем связи
             self._validate_links()
+            self._check_canon()
             
             # Шаг 8: Ищем петли
             self._find_loops()
@@ -471,80 +473,112 @@ class ConfinementModel9:
         return element
     
     def _validate_links(self):
-        """Проверяет и добавляет все необходимые связи"""
-        # Связи по Мейстеру: каждый элемент связан с другими
-        
-        # Добавляем стандартные связи, если элементы существуют
-        standard_links = [
-            (1, 2), (1, 3), (1, 4),  # результат ← причины
-            (2, 3), (3, 4),           # цепочка усиления
-            (5, 2), (5, 3), (5, 4),   # общая причина → все
-            (6, 2), (6, 5),           # 6 → 2 и 5
-            (7, 6), (7, 2),           # 7 → 6 и 2
-            (8, 7), (8, 6), (8, 5),   # 8 → 7,6,5
-            (9, 7), (9, 8),           # 9 → 7 и 8
-            (4, 9), (1, 9)            # 4 и 1 → 9 (замыкание)
-        ]
-        
-        for from_id, to_id in standard_links:
-            if self.elements.get(from_id) and self.elements.get(to_id):
-                from_elem = self.elements[from_id]
-                to_elem = self.elements[to_id]
-                
-                if to_id not in from_elem.causes:
-                    from_elem.causes.append(to_id)
-                if from_id not in to_elem.caused_by:
-                    to_elem.caused_by.append(from_id)
-                
-                # Проверяем, нет ли уже такой связи
-                link_exists = any(
-                    l['from'] == from_id and l['to'] == to_id 
-                    for l in self.links
-                )
-                if not link_exists:
-                    self.links.append({
-                        'from': from_id,
-                        'to': to_id,
-                        'type': 'causes',
-                        'strength': 0.7,
-                        'description': f"{from_elem.name} влияет на {to_elem.name}"
-                    })
+        """Добавляет канонические 27 связей: у каждого узла 3 входа и 3 выхода.
+
+        Источник — confinement/canon.py (единый канон). Раньше здесь был свой
+        список из 19 связей с перевёрнутой причинностью (1 → 2, 1 → 3): результат
+        оказывался причиной шагов, модель не замыкалась.
+        """
+        try:
+            from .canon import CANON_LINKS, CANON_VERBS
+        except ImportError:
+            try:
+                from confinement.canon import CANON_LINKS, CANON_VERBS
+            except ImportError:
+                try:
+                    from canon import CANON_LINKS, CANON_VERBS
+                except ImportError:
+                    logger.error("Канон недоступен: связи не будут добавлены")
+                    return
+
+        for from_id, to_id in sorted(CANON_LINKS):
+            if not self.elements.get(from_id) or not self.elements.get(to_id):
+                continue
+            from_elem = self.elements[from_id]
+            to_elem = self.elements[to_id]
+
+            if to_id not in from_elem.causes:
+                from_elem.causes.append(to_id)
+            if from_id not in to_elem.caused_by:
+                to_elem.caused_by.append(from_id)
+
+            link_exists = any(
+                l['from'] == from_id and l['to'] == to_id
+                for l in self.links
+            )
+            if not link_exists:
+                verb = CANON_VERBS.get((from_id, to_id), 'вызывает')
+                self.links.append({
+                    'from': from_id,
+                    'to': to_id,
+                    'type': 'causes',
+                    'strength': 0.7,
+                    'verb': verb,
+                    'description': f"{from_elem.name} {verb} {to_elem.name}"
+                })
+
+    def _check_canon(self):
+        """Проверяет готовую модель по канону: 27 связей, 3/3, ядро, треугольники."""
+        try:
+            from .canon import validate as canon_validate, check_triangles
+        except ImportError:
+            try:
+                from confinement.canon import validate as canon_validate, check_triangles
+            except ImportError:
+                try:
+                    from canon import validate as canon_validate, check_triangles
+                except ImportError:
+                    self.canon_validation = {"ok": False, "errors": ["канон недоступен"],
+                                             "warnings": []}
+                    return self.canon_validation
+
+        adjacency = {i: [] for i in range(1, 10)}
+        for link in self.links:
+            adjacency.setdefault(link['from'], [])
+            if link['to'] not in adjacency[link['from']]:
+                adjacency[link['from']].append(link['to'])
+
+        result = canon_validate(adjacency)
+        triangles = check_triangles(adjacency)
+        result["triangles"] = triangles.get("missing", [])
+        self.canon_validation = result
+        if result.get("ok") and not result["triangles"]:
+            logger.info("Канон пройден: 27 связей, оба треугольника на месте")
+        else:
+            logger.warning("Канон не пройден: %s; треугольники: %s",
+                           result.get("errors"), result["triangles"])
+        return result
     
     def _find_loops(self):
-        """Находит рекурсивные петли в модели"""
+        """Находит петли в модели по канону (все простые циклы до длины 6)."""
         self.loops = []
-        
-        # Ищем циклы длины 3+
-        # Основные возможные петли:
-        
-        # Петля 1: Симптом → Поведение → Убеждение → Симптом
-        loop1 = self._find_cycle([1, 2, 6, 9, 1])
-        if loop1:
+        try:
+            from .canon import find_cycles
+        except ImportError:
+            try:
+                from confinement.canon import find_cycles
+            except ImportError:
+                try:
+                    from canon import find_cycles
+                except ImportError:
+                    return
+
+        adjacency = {i: [] for i in range(1, 10)}
+        for link in self.links:
+            if link['to'] not in adjacency.setdefault(link['from'], []):
+                adjacency[link['from']].append(link['to'])
+
+        cycles = find_cycles(adjacency, max_len=6, limit=60)
+        for item in cycles:
+            cycle = item.get('cycle') if isinstance(item, dict) else list(item)
+            cycle = list(cycle or [])
+            if len(cycle) < 3:
+                continue
             self.loops.append({
-                'elements': loop1,
-                'type': 'symptom_behavior_belief',
-                'description': 'Симптом вызывает поведение, которое укрепляет убеждение, возвращаясь к симптому',
-                'strength': self._calculate_loop_strength(loop1)
-            })
-        
-        # Петля 2: Идентичность → Система → Среда → Идентичность
-        loop2 = self._find_cycle([5, 6, 7, 8, 5])
-        if loop2:
-            self.loops.append({
-                'elements': loop2,
-                'type': 'identity_system_environment',
-                'description': 'Идентичность определяет системы, системы создают среду, среда подтверждает идентичность',
-                'strength': self._calculate_loop_strength(loop2)
-            })
-        
-        # Петля 3: Полный цикл через замыкание
-        loop3 = self._find_cycle([1, 2, 3, 4, 9, 1])
-        if loop3:
-            self.loops.append({
-                'elements': loop3,
-                'type': 'full_cycle',
-                'description': 'Полный цикл самоподдержания системы',
-                'strength': self._calculate_loop_strength(loop3)
+                'elements': cycle,
+                'type': item.get('type', 'canon_loop') if isinstance(item, dict) else 'canon_loop',
+                'description': 'петля канона: %s' % " → ".join(str(x) for x in cycle),
+                'strength': self._calculate_loop_strength(cycle),
             })
     
     def _find_cycle(self, potential_cycle: list) -> Optional[list]:
@@ -585,7 +619,11 @@ class ConfinementModel9:
         for elem_id, element in self.elements.items():
             if not element:
                 continue
-            
+            # Результат (1) не может быть ключом: по канону ключ — источник
+            # критических связей, а на результат система и работает.
+            if elem_id == 1:
+                continue
+
             # Влияние = сколько элементов вызывает
             influence = len(element.causes)
             
@@ -603,8 +641,17 @@ class ConfinementModel9:
                 'importance': importance
             })
         
-        # Сортируем по важности
-        candidates.sort(key=lambda x: x['importance'], reverse=True)
+        # Сортируем по важности; при равенстве — по числу петель, затем по приоритету
+        # канона: 6 (центр, «часто решающий»), затем 5 и 7.
+        loop_hits = {}
+        for loop in self.loops:
+            for elem_id in set(loop.get('elements') or []):
+                loop_hits[elem_id] = loop_hits.get(elem_id, 0) + 1
+        priority = {6: 9, 5: 8, 7: 7, 2: 6, 8: 5, 4: 4, 1: 3, 3: 2, 9: 1}
+        # По канону ключ ищется по петлям, а не по «важности»: у симметричного
+        # канона силы связей равны, поэтому решают вхождения в петли и приоритет.
+        candidates.sort(key=lambda x: (loop_hits.get(x['id'], 0),
+                                       priority.get(x['id'], 0)), reverse=True)
         
         if candidates:
             top = candidates[0]
@@ -634,20 +681,26 @@ class ConfinementModel9:
         return descriptions.get(elem.id, "Ключевое ограничение требует анализа")
     
     def _calculate_closure(self):
-        """Оценивает степень замыкания системы"""
-        # Проверяем наличие петли через элемент 9
-        has_closing_loop = False
-        for loop in self.loops:
-            if 9 in loop['elements']:
-                has_closing_loop = True
-                self.closure_score = loop['strength']
-                break
-        
-        if has_closing_loop:
-            self.is_closed = self.closure_score > 0.5
-        else:
+        """Оценивает степень замыкания системы.
+
+        Система замкнута, если найден цикл, проходящий через элемент 9
+        (последствия возвращаются в контур). Произведение сил связей у длинных
+        циклов мало, поэтому сила петли берётся с поправкой на замыкание:
+        короткая петля через 9 — сильное замыкание.
+        """
+        closing_loops = [loop for loop in self.loops if 9 in loop['elements']]
+        if not closing_loops:
             self.is_closed = False
             self.closure_score = 0.0
+            return
+
+        best = max(closing_loops, key=lambda loop: loop.get('strength') or 0.0)
+        link_count = max(len(best['elements']) - 1, 1)
+        strength = float(best.get('strength') or 0.0)
+        # 3 шага до 9 — почти полное замыкание, 5 шагов — слабее
+        base = 1.0 if link_count <= 3 else (0.85 if link_count == 4 else 0.7)
+        self.is_closed = True
+        self.closure_score = round(min(1.0, base + 0.15 * strength), 3)
     
     def _extract_complaints_from_history(self) -> list:
         """Извлекает жалобы из истории диалогов"""
@@ -700,6 +753,7 @@ class ConfinementModel9:
             'key_confinement': self.key_confinement,
             'is_closed': self.is_closed,
             'closure_score': self.closure_score,
+            'canon_validation': self.canon_validation,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
