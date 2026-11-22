@@ -357,11 +357,28 @@ def register_analytics_routes(app, db):
                     "avg_sec": round(float(r["avg_sec"] or 0), 1),
                     "opens": r["opens"],
                 } for r in feat_rows]
-                # Среднее latency_ms для AI-ответов (индикатор качества UX)
+                # Медиана latency_ms для AI-ответов — устойчивый индикатор UX.
+                # Раньше здесь стоял AVG, и один-два хода с задержкой в десятки
+                # секунд (мобильный браузер, сворачивание вкладки, повтор после
+                # сна) поднимали «среднюю латентность» до 20+ секунд, хотя
+                # медиана ходов по fredi_events — около 2 секунд до первой дельты.
+                # Решение принималось по искажённому числу; теперь рядом с
+                # медианой отдаём и среднее, чтобы видеть хвост отдельно.
                 ai_lat = await conn.fetchval(
+                    "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY (data->>'latency_ms')::int) "
+                    "FROM fredi_analytics "
+                    "WHERE event = 'ai_response_received' "
+                    "AND data ? 'latency_ms' "
+                    "AND (data->>'latency_ms') ~ '^[0-9]+$' "
+                    "AND (data->>'latency_ms')::int BETWEEN 0 AND 120000 "
+                    "AND created_at > NOW() - INTERVAL '7 days'"
+                )
+                ai_lat_avg = await conn.fetchval(
                     "SELECT AVG((data->>'latency_ms')::int) FROM fredi_analytics "
                     "WHERE event = 'ai_response_received' "
                     "AND data ? 'latency_ms' "
+                    "AND (data->>'latency_ms') ~ '^[0-9]+$' "
+                    "AND (data->>'latency_ms')::int BETWEEN 0 AND 120000 "
                     "AND created_at > NOW() - INTERVAL '7 days'"
                 )
                 # Счёт клиентских ошибок за неделю — только НАШИХ.
@@ -441,6 +458,8 @@ def register_analytics_routes(app, db):
                     "unique_users": users or 0,
                     "avg_session_sec": round(avg_dur or 0),
                     "ai_avg_latency_ms": round(ai_lat or 0),
+                    "ai_latency_p50_ms": round(ai_lat or 0),
+                    "ai_latency_mean_ms": round(ai_lat_avg or 0),
                     "api_errors_7d": api_err,
                     "by_event": by_event,
                     "by_screen": by_screen,
