@@ -27,7 +27,7 @@ jobs:
           fi
           set -o pipefail
           http_code=$(curl -sS -w "\n%{http_code}" -X POST \
-            "https://fredi-backend-flz2.onrender.com/api/admin/vk/outreach-queue/process-one" \
+            "https://fffred-ddd989.mia0.amvera.tech/api/admin/vk/outreach-queue/process-one" \
             -H "X-Admin-Token: $ADMIN_TOKEN" \
             -H "Accept: application/json" \
             --max-time 120 \
