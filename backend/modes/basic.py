@@ -1590,7 +1590,8 @@ class BasicMode(BaseMode):
             return f"Поиск недоступен: {e}"
 
     async def _call_llm_for_response(
-        self, question: str, max_tokens: int = ANSWER_MAX_TOKENS, temperature: float = 0.8
+        self, question: str, max_tokens: int = ANSWER_MAX_TOKENS, temperature: float = 0.8,
+        *, try_openai: bool = True,
     ) -> Optional[str]:
         """Основной ответ BasicMode (входной чат «Фреди»).
 
@@ -1603,6 +1604,15 @@ class BasicMode(BaseMode):
         system_text = self._build_system_prompt_block()
         user_text = self._build_user_message_block(question)
 
+        openai_enabled = bool(os.getenv("OPENAI_API_KEY", "").strip())
+        if openai_enabled and try_openai:
+            chunks = [delta async for delta in self.ai_service.stream_basic_openai(
+                system_text, user_text, max_tokens
+            )]
+            text = "".join(chunks)
+            if text.strip():
+                return text
+
         # Опциональный путь Claude — включается мастер-флагом USE_ANTHROPIC
         # (см. anthropic_client.is_available). По умолчанию OFF → сразу DeepSeek.
         try:
@@ -1611,7 +1621,7 @@ class BasicMode(BaseMode):
                 is_available as _anthropic_available,
                 pick_model,
             )
-            if _anthropic_available():
+            if not openai_enabled and _anthropic_available():
                 # Hero-режим: для первых N ходов сессии можно подсунуть Opus
                 # (см. ANTHROPIC_HERO_MODEL/_TURNS env). По умолчанию всегда
                 # Sonnet. Передаём 1-based turn index = message_counter.
@@ -1942,7 +1952,9 @@ class BasicMode(BaseMode):
             # 2) Фолбэк: блокирующий вызов + пост-нарезка на предложения.
             #    Срабатывает, если стриминг ничего не отдал (нет ключа,
             #    включён Anthropic tool-use, сетевой сбой на старте).
-            response = await self._call_llm_for_response(question, max_tokens=ANSWER_MAX_TOKENS, temperature=0.8)
+            response = await self._call_llm_for_response(
+                question, max_tokens=ANSWER_MAX_TOKENS, temperature=0.8, try_openai=False
+            )
             if response and response.strip():
                 cleaned = self._strip_banned_opener(self._simple_clean(response))
                 time_on = self._time_filter_on(question)
@@ -1981,9 +1993,10 @@ class BasicMode(BaseMode):
         В этих случаях вызывающий откатывается на блокирующий путь.
         """
         # Anthropic tool-use несовместим с этим стримом — уступаем блокирующему.
+        openai_enabled = bool(os.getenv("OPENAI_API_KEY", "").strip())
         try:
             from services.anthropic_client import is_available as _anthropic_available
-            if _anthropic_available():
+            if not openai_enabled and _anthropic_available():
                 return
         except Exception:
             pass
@@ -1994,11 +2007,25 @@ class BasicMode(BaseMode):
         buffer = ""
         first_out = True  # первое выданное предложение — с него режем зачин
         time_on = self._time_filter_on(question)
-        try:
+        async def provider_deltas():
+            if openai_enabled:
+                received_text = False
+                async for delta in self.ai_service.stream_basic_openai(
+                    system_text, user_text, max_tokens
+                ):
+                    if delta.strip():
+                        received_text = True
+                    yield delta
+                if received_text:
+                    return
             async for delta in self.ai_service._call_deepseek_streaming(
                 system_text, user_text, max_tokens=max_tokens,
                 temperature=temperature, model=ANSWER_MODEL, thinking=False
             ):
+                yield delta
+
+        try:
+            async for delta in provider_deltas():
                 if not delta:
                     continue
                 buffer += delta
