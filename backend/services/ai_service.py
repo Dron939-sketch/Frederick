@@ -302,6 +302,49 @@ class AIService:
             )
         return self.session
 
+    async def stream_basic_openai(
+        self, system_prompt: str, user_prompt: str, max_tokens: int,
+    ) -> AsyncGenerator[str, None]:
+        key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not key:
+            return
+        model = os.getenv("OPENAI_BASIC_CHAT_MODEL", "gpt-5-mini")
+        session = await self._get_session()
+        try:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "max_completion_tokens": max_tokens,
+                    "reasoning_effort": "minimal",
+                    "stream": True,
+                    "store": False,
+                },
+                timeout=aiohttp.ClientTimeout(total=45, connect=5, sock_read=15),
+            ) as response:
+                if response.status != 200:
+                    logger.warning("Basic chat OpenAI HTTP %s", response.status)
+                    return
+                async for line in response.content:
+                    if not line.startswith(b"data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if payload == b"[DONE]":
+                        return
+                    choices = json.loads(payload).get("choices") or []
+                    if choices:
+                        delta = choices[0].get("delta") or {}
+                        text = delta.get("content") or delta.get("refusal")
+                        if text:
+                            yield text
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            logger.warning("Basic chat OpenAI stream failed: %s", type(exc).__name__)
+
     async def _simple_call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7,
                            thinking: Optional[bool] = None,
                            _retry_budget: bool = True) -> Optional[str]:

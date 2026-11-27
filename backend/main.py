@@ -4073,7 +4073,9 @@ async def _try_freddy(prep: Dict[str, Any], user_id: int, message: str) -> Optio
     всё заново. Человек ждал две генерации вместо одной; в замерах это
     было видно как 9 лишних секунд между подготовкой и первой дельтой.
     """
-    if prep["has_profile"]:
+    if prep["has_profile"] or (
+        prep["mode_name"] == "basic" and os.getenv("OPENAI_API_KEY", "").strip()
+    ):
         return None
     try:
         freddy = get_freddy_service()
