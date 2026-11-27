@@ -336,6 +336,38 @@ def register_analytics_routes(app, db):
                     "subscription_activated": sub_act,
                     "auto_renew_off": auto_off,
                 }
+                # Одна строка на человека. Каждый следующий шаг ищем только
+                # после предыдущего в том же семидневном окне.
+                ordered = await conn.fetchrow("""
+                    WITH events AS (
+                        SELECT user_id, event, created_at
+                        FROM fredi_analytics
+                        WHERE user_id IS NOT NULL
+                          AND created_at > NOW() - INTERVAL '7 days'
+                          AND event IN ('meter_blocked_shown', 'meter_subscribe_clicked',
+                                        'checkout_opened', 'subscription_activated')
+                    ), shown AS (
+                        SELECT user_id, MIN(created_at) AS ts FROM events
+                        WHERE event = 'meter_blocked_shown' GROUP BY user_id
+                    ), clicked AS (
+                        SELECT s.user_id, MIN(e.created_at) AS ts FROM shown s
+                        JOIN events e USING (user_id)
+                        WHERE e.event = 'meter_subscribe_clicked' AND e.created_at >= s.ts
+                        GROUP BY s.user_id
+                    ), checkout AS (
+                        SELECT c.user_id, MIN(e.created_at) AS ts FROM clicked c
+                        JOIN events e USING (user_id)
+                        WHERE e.event = 'checkout_opened' AND e.created_at >= c.ts
+                        GROUP BY c.user_id
+                    )
+                    SELECT (SELECT COUNT(*) FROM shown) AS shown,
+                           (SELECT COUNT(*) FROM clicked) AS clicked,
+                           (SELECT COUNT(*) FROM checkout) AS checkout,
+                           COUNT(DISTINCT c.user_id) AS activated
+                    FROM checkout c JOIN events e USING (user_id)
+                    WHERE e.event = 'subscription_activated' AND e.created_at >= c.ts
+                """)
+                funnel["ordered"] = dict(ordered)
                 # Средняя длительность фич (feature_closed.duration_sec).
                 # LEAST cap 7200с (2 часа): защита от старых wall-clock
                 # значений (юзер открыл вкладку и закрыл через сутки →
